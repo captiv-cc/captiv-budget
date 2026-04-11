@@ -73,6 +73,7 @@ function buildDraftFromProject(project) {
 
   return {
     title:        project.title         || '',
+    description:  project.description   || '',
     ref_projet:   project.ref_projet    || '',
     bon_commande: project.bon_commande  || '',
     date_devis:   project.date_devis    || '',
@@ -88,6 +89,7 @@ function buildPayloadFromDraft(draft) {
   const metadata = { ...draft.fields, _visible: draft.visible }
   return {
     title:          draft.title         || null,
+    description:    draft.description   || null,
     client_id:      draft.client_id     || null,
     ref_projet:     draft.ref_projet,
     bon_commande:   draft.bon_commande,
@@ -328,6 +330,11 @@ function ReadView({
               </div>
               <SubLine get={get} project={project} />
               <ClientLine project={project} />
+              {project.description && (
+                <p className="mt-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {project.description}
+                </p>
+              )}
             </div>
             {canEdit && (
               <button onClick={onEdit} className="btn-secondary btn-sm shrink-0">
@@ -454,36 +461,38 @@ function ReadView({
         )}
       </SectionCard>
 
-      {/* ── NOTE DE PROD ─────────────────────────────────────────────────── */}
-      {project.note_prod && (
+      {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
+      {canEdit && project.note_prod && (
         <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production">
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
         </SectionCard>
       )}
 
-      {/* ── DÉTAILS ADMIN (repliable) ────────────────────────────────────── */}
-      <div className="card overflow-visible">
-        <button
-          type="button"
-          onClick={() => setShowAdmin(s => !s)}
-          className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2 text-gray-700">
-            <Building2 className="w-4 h-4 text-gray-400" />
-            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
-          </div>
-          {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-        </button>
-        {showAdmin && (
-          <div className="p-5">
-            <InfoGrid items={[
-              { label: 'Référence projet',        value: project.ref_projet },
-              { label: 'Bon de commande client',  value: project.bon_commande },
-              { label: 'Date du devis',           value: project.date_devis },
-            ]} />
-          </div>
-        )}
-      </div>
+      {/* ── DÉTAILS ADMIN (admin/charge_prod uniquement, repliable) ──────── */}
+      {canEdit && (
+        <div className="card overflow-visible">
+          <button
+            type="button"
+            onClick={() => setShowAdmin(s => !s)}
+            className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-gray-700">
+              <Building2 className="w-4 h-4 text-gray-400" />
+              <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
+            </div>
+            {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+          </button>
+          {showAdmin && (
+            <div className="p-5">
+              <InfoGrid items={[
+                { label: 'Référence projet',        value: project.ref_projet },
+                { label: 'Bon de commande client',  value: project.bon_commande },
+                { label: 'Date du devis',           value: project.date_devis },
+              ]} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── GESTION DES ACCÈS (admin/charge_prod uniquement) ─────────────── */}
       {canEdit && (
@@ -649,6 +658,15 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
             onChange={v => setA('title', v)}
             big
           />
+          <div>
+            <FieldLabel>Description</FieldLabel>
+            <textarea
+              className="input text-sm w-full resize-y min-h-[80px]"
+              placeholder="Description du projet (visible par tous les utilisateurs ayant accès)…"
+              value={draft.description}
+              onChange={e => setA('description', e.target.value)}
+            />
+          </div>
           <div>
             <FieldLabel>Client</FieldLabel>
             <select
