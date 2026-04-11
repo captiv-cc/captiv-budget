@@ -281,13 +281,23 @@ function ReadView({
   project, get, canEdit, onEdit, onChangeStatus,
   persons, loadingMembres, accessCount, showAdmin, setShowAdmin,
 }) {
-  const planningChips = [
-    { label: 'Prépa',    value: get('prepa_dates')      || get('prepa_jours') },
-    { label: 'Tournage', value: get('tournage_dates')   || get('tournage_jours') },
-    { label: 'Envoi V1', value: get('envoi_v1') },
-    { label: 'Master',   value: get('livraison_master') },
-    { label: 'Deadline', value: get('deadline') },
+  const planningSpecs = [
+    { label: 'Nb livrables', value: get('nb_livrables') },
+    { label: 'Durée master', value: get('duree_master') },
+    { label: 'Format master', value: get('format_master') },
   ].filter(c => c.value)
+
+  const planningChips = [
+    { label: 'Prépa — jours',    value: get('prepa_jours') },
+    { label: 'Prépa — dates',    value: get('prepa_dates') },
+    { label: 'Tournage — jours', value: get('tournage_jours') },
+    { label: 'Tournage — dates', value: get('tournage_dates') },
+    { label: 'Envoi V1',         value: get('envoi_v1') },
+    { label: 'Livraison MASTER', value: get('livraison_master') },
+    { label: 'Deadline',         value: get('deadline') },
+  ].filter(c => c.value)
+
+  const hasPlanning = planningSpecs.length > 0 || planningChips.length > 0
 
   let livrables = []
   try {
@@ -343,17 +353,37 @@ function ReadView({
 
       {/* ── PLANNING ─────────────────────────────────────────────────────── */}
       <SectionCard icon={<Calendar className="w-4 h-4" />} title="Planning">
-        {planningChips.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {planningChips.map(c => (
-              <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
-                <p className="text-sm text-gray-800">{c.value}</p>
-              </div>
-            ))}
-          </div>
+        {!hasPlanning ? (
+          <EmptyHint>Aucune information de planning renseignée.</EmptyHint>
         ) : (
-          <EmptyHint>Aucune date renseignée pour ce projet.</EmptyHint>
+          <div className="space-y-4">
+            {planningSpecs.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spécifications</p>
+                <div className="flex flex-wrap gap-2">
+                  {planningSpecs.map(c => (
+                    <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
+                      <p className="text-sm text-gray-800">{c.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {planningChips.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Dates</p>
+                <div className="flex flex-wrap gap-2">
+                  {planningChips.map(c => (
+                    <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
+                      <p className="text-sm text-gray-800">{c.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </SectionCard>
 
