@@ -406,7 +406,7 @@ function ReadView({
       <SectionCard
         icon={<Users className="w-4 h-4" />}
         title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
-        className="lg:col-span-1"
+        className="lg:col-start-3 lg:row-start-1 lg:row-span-full lg:self-start"
         action={
           <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
             Voir →
