@@ -25,7 +25,7 @@ _(rien pour l'instant)_
 
 ## 📋 Backlog
 
-### Refonte de la page Projet (ProjetTab) — vue résumée + édition contrôlée
+### [archivé — voir ✅ Terminé] Refonte de la page Projet (ProjetTab) — vue résumée + édition contrôlée
 **Ajouté le** : 2026-04-11
 **Priorité** : haute (visible par tous les utilisateurs du projet)
 **Effort estimé** : ~1.5 jour (sans la timeline horizontale, +2-3h avec)
@@ -132,6 +132,24 @@ _(rien de listé pour l'instant)_
 ---
 
 ## ✅ Terminé
+
+### Refonte ProjetTab.jsx — vue résumée + édition contrôlée
+**Bouclé le** : 2026-04-11
+**Commits** : `bb89794` (extract STATUS_OPTIONS) → `11ebbe4` (extract StatusBadgeMenu) → `031bd81` (rewrite ProjetTab)
+
+- Mode lecture par défaut pour tous (hero, identité, planning, équipe, livrables, note, détails admin repliables, accès)
+- Bouton ✏ Modifier visible uniquement pour `admin` + `charge_prod` → bascule la page entière en formulaire
+- Save explicite (Annuler / Enregistrer) — fini l'auto-save
+- Bloc Équipe : membres groupés par personne (un seul item même avec plusieurs postes), avatars + lien vers /equipe
+- Bloc Gestion des accès : compteur + lien vers /access (admin/charge_prod uniquement)
+- StatusBadgeMenu réutilisé dans le hero (taille `md`, alignement à gauche)
+- Constantes Projet centralisées dans `src/features/projets/constants.js` (STATUS_OPTIONS + getStatusOption)
+
+### Status badge cliquable + suppression ProjetDetail.jsx mort
+**Bouclé le** : 2026-04-11
+**Commits** : `e8d2d60` (badge cliquable + delete ProjetDetail) → `bb89794` (extract constants)
+
+Quick win sur la liste `/projets` : badge de statut cliquable avec menu déroulant (optimistic UI + rollback en cas d'erreur). Suppression de `src/pages/ProjetDetail.jsx` (366 lignes de code mort jamais routées).
 
 ### Refacto BudgetReelTab.jsx (2148 → 788 lignes)
 **Bouclé le** : 2026-04-11
