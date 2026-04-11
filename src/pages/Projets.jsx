@@ -12,7 +12,7 @@ const STATUS_OPTIONS = [
 ]
 
 export default function Projets() {
-  const { org, profile, isInternal } = useAuth()
+  const { org, profile, isInternal, isAdmin } = useAuth()
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [clients, setClients]   = useState([])
@@ -47,6 +47,7 @@ export default function Projets() {
   }
 
   async function deleteProject(id) {
+    if (!isAdmin) return
     if (!confirm('Supprimer ce projet et tous ses devis ?')) return
     await supabase.from('projects').delete().eq('id', id)
     setProjects(p => p.filter(x => x.id !== id))
@@ -104,9 +105,11 @@ export default function Projets() {
               </span>
             </Link>
             <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={() => deleteProject(p.id)} className="btn-ghost btn-sm text-gray-400 hover:text-red-500">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {isAdmin && (
+                <button onClick={() => deleteProject(p.id)} className="btn-ghost btn-sm text-gray-400 hover:text-red-500">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
               <Link to={`/projets/${p.id}`} className="btn-ghost btn-sm">
                 <ArrowRight className="w-4 h-4" />
               </Link>
