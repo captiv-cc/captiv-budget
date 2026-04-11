@@ -21,7 +21,6 @@ import {
   Building2, Clapperboard, FileText, StickyNote, Users, Shield,
   ChevronDown, ChevronRight, Edit2, Calendar, Mail, Phone, MapPin,
 } from 'lucide-react'
-import StatusBadgeMenu from '../../features/projets/components/StatusBadgeMenu'
 
 // ─── Définition des champs dynamiques PROJET ─────────────────────────────────
 const PROJET_FIELDS_DEF = [
@@ -222,22 +221,6 @@ export default function ProjetTab() {
     }
   }
 
-  // Changement de statut depuis le badge du hero (mode vue, optimistic)
-  async function updateStatus(_projectId, newStatus) {
-    const previous = project
-    setProject({ ...project, status: newStatus })
-    const { error, data } = await supabase
-      .from('projects').update({ status: newStatus }).eq('id', projectId)
-      .select('*, clients(*)').single()
-    if (error) {
-      console.error('Erreur changement statut projet:', error)
-      setProject(previous)
-      alert('Impossible de mettre à jour le statut : ' + error.message)
-    } else if (data) {
-      setProject(data)
-    }
-  }
-
   if (!project) return null
 
   // ─── Rendu ────────────────────────────────────────────────────────────────
@@ -264,7 +247,6 @@ export default function ProjetTab() {
           get={get}
           canEdit={canEdit}
           onEdit={startEdit}
-          onChangeStatus={updateStatus}
           persons={persons}
           loadingMembres={loadingMembres}
           accessCount={accessCount}
@@ -280,7 +262,7 @@ export default function ProjetTab() {
 // VUE LECTURE — fiche projet visuelle
 // ══════════════════════════════════════════════════════════════════════════════
 function ReadView({
-  project, get, canEdit, onEdit, onChangeStatus,
+  project, get, canEdit, onEdit,
   persons, loadingMembres, accessCount, showAdmin, setShowAdmin,
 }) {
   const planningSpecs = [
@@ -316,24 +298,18 @@ function ReadView({
         <div className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 flex-wrap mb-2">
-                <h1 className="text-2xl font-bold text-gray-900 truncate">
-                  {project.title || 'Projet sans nom'}
-                </h1>
-                <StatusBadgeMenu
-                  project={project}
-                  onChange={onChangeStatus}
-                  canEdit={canEdit}
-                  size="md"
-                  align="left"
-                />
-              </div>
+              <h1 className="text-2xl font-bold text-gray-900 truncate mb-2">
+                {project.title || 'Projet sans nom'}
+              </h1>
               <SubLine get={get} project={project} />
               <ClientLine project={project} />
               {project.description && (
-                <p className="mt-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {project.description}
-                </p>
+                <div className="mt-4 pl-3 border-l-2 border-blue-100">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Description</p>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                    {project.description}
+                  </p>
+                </div>
               )}
             </div>
             {canEdit && (
@@ -362,7 +338,10 @@ function ReadView({
             <div className="pt-4 border-t border-gray-100 space-y-4">
               {planningSpecs.length > 0 && (
                 <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spécifications</p>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <FileText className="w-3 h-3 text-gray-500" />
+                    <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Spécifications</p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {planningSpecs.map(c => (
                       <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -375,7 +354,10 @@ function ReadView({
               )}
               {planningChips.length > 0 && (
                 <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Planning</p>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Calendar className="w-3 h-3 text-gray-500" />
+                    <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Planning</p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {planningChips.map(c => (
                       <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -427,18 +409,27 @@ function ReadView({
       </SectionCard>
 
       {/* ── LIVRABLES ────────────────────────────────────────────────────── */}
-      <SectionCard
-        icon={<FileText className="w-4 h-4" />}
-        title={`Livrables${livrables.length ? ` (${livrables.length})` : ''}`}
-        action={
-          <Link to={`/projets/${project.id}/livrables`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-            Voir tout →
-          </Link>
-        }
-      >
-        {livrables.length === 0 ? (
-          <EmptyHint>Aucun livrable défini.</EmptyHint>
-        ) : (
+      {livrables.length === 0 ? (
+        <Link
+          to={`/projets/${project.id}/livrables`}
+          className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-xs text-gray-500 hover:text-blue-700 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <FileText className="w-3.5 h-3.5 text-gray-400" />
+            Aucun livrable défini
+          </span>
+          <span className="font-medium">+ Ajouter →</span>
+        </Link>
+      ) : (
+        <SectionCard
+          icon={<FileText className="w-4 h-4" />}
+          title={`Livrables (${livrables.length})`}
+          action={
+            <Link to={`/projets/${project.id}/livrables`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+              Voir tout →
+            </Link>
+          }
+        >
           <ul className="space-y-1.5">
             {livrables.map((l, i) => (
               <li key={l.id || i} className="flex items-center gap-3 text-sm">
@@ -455,8 +446,8 @@ function ReadView({
               </li>
             ))}
           </ul>
-        )}
-      </SectionCard>
+        </SectionCard>
+      )}
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
       {canEdit && project.note_prod && (
@@ -572,9 +563,9 @@ function InfoGrid({ items }) {
   const filled = items.filter(i => i.value)
   if (!filled.length) return <EmptyHint>Aucune information renseignée.</EmptyHint>
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+    <div className="flex flex-wrap gap-x-8 gap-y-3">
       {filled.map(i => (
-        <div key={i.label}>
+        <div key={i.label} className="min-w-[160px]">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{i.label}</p>
           <p className="text-sm text-gray-800 mt-0.5">{i.value}</p>
         </div>

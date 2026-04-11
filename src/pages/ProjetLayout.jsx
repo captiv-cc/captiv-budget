@@ -13,6 +13,7 @@ import {
   LayoutDashboard, BarChart3, Receipt, Activity, Users,
   Calendar, Clapperboard, CheckSquare, Shield,
 } from 'lucide-react'
+import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 
 // ─── Contexte projet partagé entre les onglets ────────────────────────────────
 const ProjetContext = createContext(null)
@@ -116,6 +117,22 @@ export default function ProjetLayout() {
     }
   }
 
+  // Changement de statut depuis le badge du breadcrumb (optimistic)
+  async function updateStatus(_projectId, newStatus) {
+    const previous = project
+    setProject({ ...project, status: newStatus })
+    const { error, data } = await supabase
+      .from('projects').update({ status: newStatus }).eq('id', id)
+      .select('*, clients(*)').single()
+    if (error) {
+      console.error('Erreur changement statut projet:', error)
+      setProject(previous)
+      alert('Impossible de mettre à jour le statut : ' + error.message)
+    } else if (data) {
+      setProject(data)
+    }
+  }
+
   // Dévis de référence : accepté en priorité, sinon le plus récent
   const refDevis  = devisList.find(d => d.status === 'accepte') || devisList[devisList.length - 1]
   const refSynth  = refDevis ? devisStats[refDevis.id] : null
@@ -192,7 +209,14 @@ export default function ProjetLayout() {
                   {project?.ref_projet && (
                     <span className="text-xs text-slate-400 font-mono">{project.ref_projet}</span>
                   )}
-                  <ProjectStatusBadge status={project?.status} />
+                  {project && (
+                    <StatusBadgeMenu
+                      project={project}
+                      onChange={updateStatus}
+                      canEdit={isAdmin || isChargeProd}
+                      align="left"
+                    />
+                  )}
                 </div>
                 {project?.type_projet && (
                   <p className="text-xs text-slate-500 mt-0.5">{project.type_projet}</p>
@@ -291,18 +315,3 @@ function BannerKpi({ label, value, sub, icon, color }) {
   )
 }
 
-function ProjectStatusBadge({ status }) {
-  const map = {
-    prospect: 'bg-amber-500/20 text-amber-300',
-    en_cours: 'bg-blue-500/20 text-blue-300',
-    termine:  'bg-green-500/20 text-green-300',
-    annule:   'bg-gray-500/20 text-gray-400',
-  }
-  const labels = { prospect:'Prospect', en_cours:'En cours', termine:'Terminé', annule:'Annulé', archive:'Archivé' }
-  if (!status) return null
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${map[status] || 'bg-gray-500/20 text-gray-400'}`}>
-      {labels[status] || status}
-    </span>
-  )
-}
