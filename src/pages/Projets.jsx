@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Search, FolderOpen, ArrowRight, Trash2, Edit2, Check } from 'lucide-react'
+import { Plus, Search, FolderOpen, ArrowRight, Trash2, Edit2 } from 'lucide-react'
 import { STATUS_OPTIONS } from '../features/projets/constants'
+import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 
 export default function Projets() {
   const { org, profile, isInternal, isAdmin } = useAuth()
@@ -107,7 +108,9 @@ export default function Projets() {
                 <p className="text-xs text-gray-500">{p.clients?.name || '—'}</p>
               </div>
             </Link>
-            <StatusBadgeMenu project={p} onChange={updateStatus} canEdit={isInternal} />
+            <div className="ml-4 shrink-0">
+              <StatusBadgeMenu project={p} onChange={updateStatus} canEdit={isInternal} />
+            </div>
             <span className="text-xs text-gray-400 shrink-0 ml-3">
               {new Date(p.updated_at).toLocaleDateString('fr-FR')}
             </span>
@@ -169,59 +172,6 @@ export default function Projets() {
             </div>
           </form>
         </Modal>
-      )}
-    </div>
-  )
-}
-
-// ── Badge statut cliquable avec menu déroulant ────────────────────────────────
-function StatusBadgeMenu({ project, onChange, canEdit }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  const current = STATUS_OPTIONS.find(s => s.value === project.status)
-    || { label: project.status, cls: 'badge-gray' }
-
-  useEffect(() => {
-    if (!open) return
-    const onClick = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
-    const onEsc   = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onClick)
-    document.addEventListener('keydown', onEsc)
-    return () => {
-      document.removeEventListener('mousedown', onClick)
-      document.removeEventListener('keydown', onEsc)
-    }
-  }, [open])
-
-  // Lecture seule : pas de menu, juste le badge affiché
-  if (!canEdit) {
-    return <span className={`badge ml-4 shrink-0 ${current.cls}`}>{current.label}</span>
-  }
-
-  return (
-    <div className="relative ml-4 shrink-0" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className={`badge ${current.cls} cursor-pointer hover:opacity-80 transition-opacity`}
-        title="Changer le statut"
-      >
-        {current.label}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
-          {STATUS_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { onChange(project.id, opt.value); setOpen(false) }}
-              className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 text-left"
-            >
-              <span className={`badge ${opt.cls}`}>{opt.label}</span>
-              {opt.value === project.status && <Check className="w-3 h-3 text-gray-400" />}
-            </button>
-          ))}
-        </div>
       )}
     </div>
   )
