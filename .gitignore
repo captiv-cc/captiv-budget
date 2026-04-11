@@ -1,0 +1,71 @@
+# ─── Secrets (JAMAIS commiter) ────────────────────────────────────────────
+# Contient les clés Supabase et autres credentials. À garder strictement local.
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ─── Dépendances (reconstructibles via npm install) ───────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Builds et caches ─────────────────────────────────────────────────────
+dist/
+build/
+dist-ssr/
+*.local
+.vite/
+.cache/
+.parcel-cache/
+.turbo/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── Tests & coverage ─────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+*.lcov
+
+# ─── Éditeurs & IDE ───────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.fleet/
+*.swp
+*.swo
+*~
+
+# ─── macOS ────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# ─── Windows (par sécurité, si un collaborateur arrive un jour) ───────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ─── Google Drive (par sécurité, le projet vit actuellement dans Drive) ──
+.tmp.drivedownload
+.tmp.driveupload
+
+# ─── Fichiers temporaires divers ──────────────────────────────────────────
+tmp/
+temp/
+*.bak
+*.tmp
+*.orig

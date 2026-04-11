@@ -1,0 +1,364 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — Pure Dark (Monday-style, vraiment noir)
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Backgrounds — vraiment noirs ────────────────────────────────────── */
+  --bg:        #111111;   /* page background */
+  --bg-side:   #0a0a0a;   /* sidebar */
+  --bg-surf:   #1a1a1a;   /* surface : card, panel */
+  --bg-elev:   #222222;   /* élevé : modal, dropdown */
+  --bg-hov:    #2c2c2c;   /* hover */
+  --bg-row:    #161616;   /* fond ligne table */
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --brd:       #333333;
+  --brd-sub:   #1e1e1e;
+
+  /* ── Text — fort contraste ────────────────────────────────────────────── */
+  --txt:       #f0f0f0;   /* primary  — quasi blanc */
+  --txt-2:     #a8a8a8;   /* secondary — gris clair lisible */
+  --txt-3:     #5c5c5c;   /* muted */
+
+  /* ── Accent neutre (blanc pour CTA) ──────────────────────────────────── */
+  --acc:       #ffffff;
+  --acc-hov:   #e0e0e0;
+  --acc-bg:    rgba(255,255,255,.06);
+  --acc-ring:  rgba(255,255,255,.12);
+
+  /* ── Status — vibrants sur fond noir, comme Monday ───────────────────── */
+  --green:      #00c875;
+  --green-bg:   rgba(0,200,117,.14);
+  --green-brd:  rgba(0,200,117,.35);
+  --orange:     #ff9f0a;
+  --orange-bg:  rgba(255,159,10,.14);
+  --orange-brd: rgba(255,159,10,.35);
+  --red:        #ff4757;
+  --red-bg:     rgba(255,71,87,.14);
+  --red-brd:    rgba(255,71,87,.35);
+  --blue:       #4d9fff;
+  --blue-bg:    rgba(77,159,255,.14);
+  --blue-brd:   rgba(77,159,255,.35);
+  --purple:     #9c5ffd;
+  --purple-bg:  rgba(156,95,253,.14);
+  --purple-brd: rgba(156,95,253,.35);
+  --amber:      #ffce00;
+  --amber-bg:   rgba(255,206,0,.14);
+  --amber-brd:  rgba(255,206,0,.35);
+  --pink:       #ff5ac4;
+  --pink-bg:    rgba(255,90,196,.14);
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────────── */
+@layer base {
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    color: var(--txt);
+    font-family: 'Inter', system-ui, sans-serif;
+    @apply antialiased;
+  }
+  input, select, textarea { @apply outline-none; }
+  ::selection { background: rgba(255,255,255,.12); color: var(--txt); }
+
+  /* Scrollbar fine */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+  /* select option dark */
+  select option { background: var(--bg-elev); color: var(--txt); }
+}
+
+/* ─── Components ─────────────────────────────────────────────────────────── */
+@layer components {
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
+           transition-all duration-150 focus-visible:outline-none
+           disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap;
+  }
+  .btn-primary {
+    @apply btn;
+    background: var(--acc);
+    color: #111;
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background: var(--acc-hov);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255,255,255,.1);
+  }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    @apply btn;
+    background: var(--bg-elev);
+    color: var(--txt-2);
+    border: 1px solid var(--brd);
+  }
+  .btn-secondary:hover { background: var(--bg-hov); color: var(--txt); border-color: #555; }
+
+  .btn-danger { @apply btn; background: var(--red-bg); color: var(--red); border: 1px solid var(--red-brd); }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+
+  .btn-ghost { @apply btn; color: var(--txt-3); }
+  .btn-ghost:hover { background: var(--bg-hov); color: var(--txt-2); }
+
+  .btn-sm { @apply px-2 py-1 text-xs; }
+  .btn-lg { @apply px-5 py-2.5 text-base; }
+
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
+  .input {
+    @apply w-full px-3 py-2 text-sm rounded-lg transition-all duration-150;
+    background: var(--bg-elev);
+    color: var(--txt);
+    border: 1px solid var(--brd);
+  }
+  .input::placeholder { color: var(--txt-3); }
+  .input:focus { border-color: #555; box-shadow: 0 0 0 3px rgba(255,255,255,.06); }
+
+  .input-cell {
+    @apply w-full px-1.5 py-1 text-xs rounded transition-all duration-100;
+    background: transparent;
+    color: var(--txt);
+    border: 1px solid transparent;
+    display: block;
+  }
+  .input-cell:focus {
+    background: var(--bg-elev);
+    border-color: #444;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.05);
+  }
+  .input-cell::placeholder { color: var(--txt-3); font-style: italic; }
+  /* textarea hérite du même style */
+  textarea.input-cell { font-family: inherit; vertical-align: top; }
+  /* Description — contenu secondaire mais lisible, plus discret que Produit */
+  textarea.input-cell { color: var(--txt-2); font-size: 11px; }
+  textarea.input-cell::placeholder { color: var(--txt-3); font-style: italic; }
+
+  .label { @apply block text-xs font-medium mb-1; color: var(--txt-2); }
+
+  /* ── Cards ───────────────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-xl;
+    background: var(--bg-surf);
+    border: 1px solid var(--brd);
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  }
+  .card-header {
+    @apply px-5 py-4 flex items-center justify-between;
+    border-bottom: 1px solid var(--brd-sub);
+  }
+  .card-body { @apply p-5; }
+
+  /* ── Badges — vibrants sur fond noir ─────────────────────────────────── */
+  .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold; }
+  .badge-green  { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green-brd); }
+  .badge-blue   { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-brd);  }
+  .badge-amber  { background: var(--amber-bg);  color: var(--amber);  border: 1px solid var(--amber-brd); }
+  .badge-red    { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-brd);   }
+  .badge-purple { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-brd);}
+  .badge-gray   { background: var(--bg-elev);   color: var(--txt-2);  border: 1px solid var(--brd);       }
+  .badge-orange { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-brd);}
+  .badge-pink   { background: var(--pink-bg);   color: var(--pink);   }
+
+  /* ── Table devis — Monday style ──────────────────────────────────────── */
+  .devis-table { border-collapse: separate; border-spacing: 0; }
+
+  .devis-table th {
+    @apply text-[10px] font-semibold uppercase tracking-wider px-3 py-2 whitespace-nowrap sticky top-0 z-10;
+    text-align: left;
+    background: #0d0d0d;
+    color: var(--txt-3);
+    border-bottom: 1px solid var(--brd);
+    letter-spacing: 0.06em;
+  }
+  /* Colonnes clés — légèrement colorées */
+  .devis-table th.col-vente  { color: #5a9fff; }
+  /* Colonnes input secondaires */
+  .devis-table th.col-cout   { color: #8a6030; }
+  /* Colonnes calculées — encore plus atténuées */
+  .devis-table th.col-dim {
+    color: #3a3a3a !important;
+    font-size: 9px !important;
+    letter-spacing: 0.04em;
+    opacity: 1;
+  }
+
+  .devis-table td {
+    @apply px-3 py-[3px] text-xs;
+    border-bottom: 1px solid rgba(255,255,255,.035);
+    color: var(--txt);
+    background: transparent;
+  }
+  .devis-table tbody tr:hover td { background: rgba(255,255,255,.03); }
+
+  /* Ligne catégorie — card header */
+  .cat-row td {
+    background: var(--bg-surf);
+    border-top: none;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+
+  /* Footer de bloc */
+  .bloc-footer td {
+    border-bottom: none;
+    background: var(--bg-surf);
+  }
+
+  /* Colonne Produit/Poste — plus visible */
+  .devis-table .produit-cell .input-cell {
+    font-weight: 500;
+    color: var(--txt) !important;
+    font-size: 12px;
+  }
+  .devis-table .produit-cell .input-cell::placeholder {
+    font-weight: 400;
+    color: var(--txt-3) !important;
+  }
+
+  .synth-row td { background: var(--bg-elev); font-weight: 600; }
+  .total-row td { background: var(--green); color: #000; font-weight: 700; font-size: 0.875rem; }
+
+  /* ── Toggle ──────────────────────────────────────────────────────────── */
+  .toggle { @apply w-3 h-3 rounded cursor-pointer; accent-color: #555; opacity: 0.7; }
+  .toggle:checked { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OVERRIDES GLOBAUX — remapper les utilitaires Tailwind light → dark
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Backgrounds */
+.bg-white         { background-color: var(--bg-surf)  !important; }
+.bg-gray-50       { background-color: var(--bg)        !important; }
+.bg-gray-100      { background-color: var(--bg-elev)   !important; }
+.bg-gray-200      { background-color: var(--bg-hov)    !important; }
+.bg-slate-50      { background-color: var(--bg-surf)   !important; }
+.bg-slate-100     { background-color: var(--bg-elev)   !important; }
+
+/* Backgrounds colorés — versions dark vibrant */
+.bg-blue-50       { background-color: var(--blue-bg)   !important; }
+.bg-blue-100      { background-color: var(--blue-bg)   !important; }
+.bg-green-50      { background-color: var(--green-bg)  !important; }
+.bg-green-100     { background-color: var(--green-bg)  !important; }
+.bg-orange-50     { background-color: var(--orange-bg) !important; }
+.bg-red-50        { background-color: var(--red-bg)    !important; }
+.bg-red-100       { background-color: var(--red-bg)    !important; }
+.bg-amber-50      { background-color: var(--amber-bg)  !important; }
+.bg-amber-100     { background-color: var(--amber-bg)  !important; }
+.bg-purple-50     { background-color: var(--purple-bg) !important; }
+.bg-purple-100    { background-color: var(--purple-bg) !important; }
+.bg-pink-50       { background-color: var(--pink-bg)   !important; }
+.bg-pink-100      { background-color: var(--pink-bg)   !important; }
+
+/* Textes — fort contraste */
+.text-gray-900, .text-gray-800            { color: var(--txt)   !important; }
+.text-gray-700, .text-gray-600            { color: var(--txt-2) !important; }
+.text-gray-500, .text-gray-400, .text-gray-300 { color: var(--txt-3) !important; }
+
+/* Textes colorés — vibrants */
+.text-blue-600, .text-blue-700, .text-blue-500, .text-blue-800 { color: var(--blue)   !important; }
+.text-green-600, .text-green-700, .text-green-500, .text-green-800 { color: var(--green) !important; }
+.text-red-600, .text-red-500, .text-red-800 { color: var(--red) !important; }
+.text-amber-600, .text-amber-500, .text-amber-800 { color: var(--amber) !important; }
+.text-orange-400, .text-orange-500, .text-orange-600 { color: var(--orange) !important; }
+.text-purple-600, .text-purple-700, .text-purple-800 { color: var(--purple) !important; }
+.text-pink-800  { color: var(--pink)   !important; }
+.text-slate-700 { color: var(--txt-2)  !important; }
+
+/* Borders */
+.border-gray-100, .border-gray-50 { border-color: var(--brd-sub) !important; }
+.border-gray-200, .border-gray-300 { border-color: var(--brd)    !important; }
+
+/* Divide */
+.divide-gray-50  > * + * { border-color: var(--brd-sub) !important; }
+.divide-gray-100 > * + * { border-color: var(--brd-sub) !important; }
+.divide-gray-200 > * + * { border-color: var(--brd)     !important; }
+
+/* Shadows */
+.shadow-sm  { box-shadow: 0 1px 4px rgba(0,0,0,.6) !important; }
+.shadow-md  { box-shadow: 0 4px 12px rgba(0,0,0,.7) !important; }
+.shadow-lg  { box-shadow: 0 8px 24px rgba(0,0,0,.8) !important; }
+.shadow-xl  { box-shadow: 0 12px 40px rgba(0,0,0,.8) !important; }
+.shadow-2xl { box-shadow: 0 20px 60px rgba(0,0,0,.85) !important; }
+
+/* Modal overlay */
+.bg-black\/50 { background-color: rgba(0,0,0,.82) !important; }
+
+/* Blue accent buttons */
+.bg-blue-600          { background-color: var(--bg-elev) !important; color: var(--txt) !important; }
+.bg-blue-700          { background-color: var(--bg-hov)  !important; }
+.hover\:bg-blue-700:hover { background-color: var(--bg-hov) !important; }
+
+/* Hover states */
+.hover\:bg-gray-50:hover  { background-color: var(--bg-hov) !important; }
+.hover\:bg-gray-100:hover { background-color: var(--bg-hov) !important; }
+.hover\:bg-blue-50:hover  { background-color: var(--bg-hov) !important; }
+.hover\:text-gray-900:hover { color: var(--txt) !important; }
+
+/* Focus */
+.focus\:bg-white:focus        { background-color: var(--bg-elev) !important; color: var(--txt) !important; }
+.focus\:border-blue-400:focus { border-color: #555 !important; }
+.focus\:border-blue-500:focus { border-color: #555 !important; }
+
+/* Slate overrides */
+.bg-slate-800  { background-color: #0f0f0f  !important; }
+.bg-slate-700  { background-color: var(--bg-elev) !important; }
+.border-slate-700 { border-color: var(--brd)  !important; }
+
+/* bg-gray-50/50 (partial opacity) */
+.bg-gray-50\/50 { background-color: rgba(255,255,255,.015) !important; }
+
+/* Accents devis (opacity variants) */
+.bg-blue-950\/30  { background-color: rgba(77,159,255,.12) !important; }
+.bg-blue-950\/40  { background-color: rgba(77,159,255,.18) !important; }
+.bg-green-950\/20 { background-color: rgba(0,200,117,.1)   !important; }
+.bg-red-950\/20   { background-color: rgba(255,71,87,.1)   !important; }
+.bg-orange-950\/20 { background-color: rgba(255,159,10,.1) !important; }
+
+/* Opacity variants /60 et /40 (CalcCells dans DevisLine) */
+.bg-blue-50\/60   { background-color: rgba(77,159,255,.1)  !important; }
+.bg-orange-50\/60 { background-color: rgba(255,159,10,.1)  !important; }
+.bg-green-50\/60  { background-color: rgba(0,200,117,.1)   !important; }
+.bg-red-50\/60    { background-color: rgba(255,71,87,.1)   !important; }
+.bg-orange-50\/40 { background-color: rgba(255,159,10,.07) !important; }
+
+/* Text variants manquants */
+.text-blue-900, .text-blue-800   { color: var(--blue)   !important; }
+.text-orange-900, .text-orange-800 { color: var(--orange) !important; }
+.text-green-900                  { color: var(--green)  !important; }
+.text-red-700, .text-red-800     { color: var(--red)    !important; }
+.text-amber-700, .text-amber-500 { color: var(--amber)  !important; }
+.text-amber-800                  { color: var(--amber)  !important; }
+.text-purple-500, .text-purple-400 { color: var(--purple) !important; }
+.text-blue-100  { color: #c0d8ff !important; }
+
+/* Badges dark */
+.bg-slate-800\/60 { background-color: rgba(15,15,15,.9) !important; }
+
+/* Hover groups */
+.group:hover .group-hover\:opacity-100 { opacity: 1 !important; }
+
+/* Spinner */
+.border-blue-600 { border-color: var(--txt-2) !important; }
+.border-blue-500 { border-color: var(--txt-2) !important; }
+
+/* ── Tab bar ProjetLayout ────────────────────────────────────────────────── */
+.bg-gray-100.rounded-lg.p-1 { background: #0d0d0d !important; }
+
+/* ── Devis table : enlever les fonds colorés des headers ────────────────── */
+/* (gardés via les classes .col-* ci-dessus, supprimés du markup) */
+
+/* Print */
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; color: black; }
+  .card { background: white; border: 1px solid #ddd; box-shadow: none; }
+}
