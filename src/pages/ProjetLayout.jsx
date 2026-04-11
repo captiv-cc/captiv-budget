@@ -19,16 +19,17 @@ export const useProjet = () => useContext(ProjetContext)
 
 // ─── Définition des onglets ───────────────────────────────────────────────────
 // finance: true → masqué pour coordinateur et prestataire
+// outil    → clé de outils_catalogue pour filtrage par permission (prestataire)
 const ALL_TABS = [
-  { key: 'projet',      label: 'Projet',       icon: Settings,     path: 'projet',      finance: false },
-  { key: 'devis',       label: 'Devis',        icon: FileText,     path: 'devis',       finance: true  },
-  { key: 'equipe',      label: 'Équipe',       icon: Users,        path: 'equipe',      finance: false },
-  { key: 'planning',    label: 'Planning',     icon: Calendar,     path: 'planning',    finance: false },
-  { key: 'production',  label: 'Production',   icon: Clapperboard, path: 'production',  finance: false },
-  { key: 'livrables',   label: 'Livrables',    icon: CheckSquare,  path: 'livrables',   finance: false },
-  { key: 'budget',      label: 'Budget réel',  icon: Activity,     path: 'budget',      finance: true  },
-  { key: 'factures',    label: 'Factures',     icon: Receipt,      path: 'factures',    finance: true  },
-  { key: 'dashboard',   label: 'Dashboard',    icon: BarChart3,    path: 'dashboard',   finance: true  },
+  { key: 'projet',      label: 'Projet',       icon: Settings,     path: 'projet',      finance: false, outil: 'projet_info' },
+  { key: 'devis',       label: 'Devis',        icon: FileText,     path: 'devis',       finance: true,  outil: null          },
+  { key: 'equipe',      label: 'Équipe',       icon: Users,        path: 'equipe',      finance: false, outil: 'equipe'      },
+  { key: 'planning',    label: 'Planning',     icon: Calendar,     path: 'planning',    finance: false, outil: 'planning'    },
+  { key: 'production',  label: 'Production',   icon: Clapperboard, path: 'production',  finance: false, outil: 'production'  },
+  { key: 'livrables',   label: 'Livrables',    icon: CheckSquare,  path: 'livrables',   finance: false, outil: 'livrables'   },
+  { key: 'budget',      label: 'Budget réel',  icon: Activity,     path: 'budget',      finance: true,  outil: null          },
+  { key: 'factures',    label: 'Factures',     icon: Receipt,      path: 'factures',    finance: true,  outil: null          },
+  { key: 'dashboard',   label: 'Dashboard',    icon: BarChart3,    path: 'dashboard',   finance: true,  outil: null          },
 ]
 
 // ─── Composant principal ──────────────────────────────────────────────────────
@@ -36,10 +37,17 @@ export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
   const navigate  = useNavigate()
-  const { org, canSeeFinance }   = useAuth()
+  const { org, canSeeFinance, canSee, isPrestataire } = useAuth()
 
-  // Filtrer les onglets selon le rôle
-  const TABS = ALL_TABS.filter(t => !t.finance || canSeeFinance)
+  // Filtrer les onglets selon le rôle et les permissions par outil
+  //  1) Onglets finance : masqués si l'utilisateur n'a pas accès à la finance
+  //  2) Onglets "outil" : pour les prestataires, masqués si pas de droit read
+  //     (les rôles internes bypassent via can() dans AuthContext)
+  const TABS = ALL_TABS.filter(t => {
+    if (t.finance && !canSeeFinance) return false
+    if (isPrestataire && t.outil && !canSee(t.outil)) return false
+    return true
+  })
 
   const [project,    setProject]    = useState(null)
   const [devisList,  setDevisList]  = useState([])

@@ -77,8 +77,12 @@ const ROLE_LABELS = {
 
 // ─── Layout principal ─────────────────────────────────────────────────────────
 export default function Layout() {
-  const { profile, org, role, canSeeFinance, isAdmin, signOut } = useAuth()
+  const { profile, org, role, canSeeFinance, isAdmin, isInternal, signOut } = useAuth()
   const navigate = useNavigate()
+
+  // Les sections BDD et Finance sont réservées aux rôles internes.
+  // Un prestataire ne verra que la section principale (Accueil + Projets).
+  const showBddSection = isInternal
 
   async function handleSignOut() {
     await signOut()
@@ -116,11 +120,15 @@ export default function Layout() {
             {NAV_MAIN.map(item => <SidebarLink key={item.to} {...item} />)}
           </div>
 
-          {/* Base de données */}
-          <SidebarSection label="Base de données" />
-          <div className="space-y-0.5">
-            {NAV_BDD.map(item => <SidebarLink key={item.to} {...item} />)}
-          </div>
+          {/* Base de données — interne uniquement */}
+          {showBddSection && (
+            <>
+              <SidebarSection label="Base de données" />
+              <div className="space-y-0.5">
+                {NAV_BDD.map(item => <SidebarLink key={item.to} {...item} />)}
+              </div>
+            </>
+          )}
 
           {/* Finance — admin & charge_prod uniquement */}
           {canSeeFinance && (

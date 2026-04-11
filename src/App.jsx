@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
+import RequireRole from './components/guards/RequireRole'
+import RequirePermission from './components/guards/RequirePermission'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import HomePage from './pages/HomePage'
@@ -14,6 +16,10 @@ import Compta from './pages/Compta'
 import Crew  from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import Unauthorized from './pages/Unauthorized'
+
+// ─── Groupes de rôles (alias lisibles pour les gardes) ──────────────────────
+const ROLES_FINANCE = ['admin', 'charge_prod']                       // /compta, /dashboard global, /parametres admin
+const ROLES_BDD     = ['admin', 'charge_prod', 'coordinateur']       // /clients, /crew, /bdd (interne, pas prestataire)
 
 // Onglets projet
 import ProjetTab          from './pages/tabs/ProjetTab'
@@ -65,21 +71,21 @@ function AppRoutes() {
         <Route index element={<Navigate to="/accueil" replace />} />
         <Route path="accueil"    element={<HomePage />} />
 
-        {/* Projets */}
+        {/* Projets — accessible à tous (prestataire voit uniquement les siens, RLS côté ch3B) */}
         <Route path="projets"    element={<Projets />} />
 
-        {/* Base de données */}
-        <Route path="clients"    element={<Clients />} />
-        <Route path="crew"        element={<Crew />} />
-        <Route path="produits"   element={<BDD />} />
-        <Route path="bdd"        element={<BDD />} />
+        {/* Base de données — réservé interne (pas prestataire) */}
+        <Route path="clients"    element={<RequireRole roles={ROLES_BDD}><Clients /></RequireRole>} />
+        <Route path="crew"       element={<RequireRole roles={ROLES_BDD}><Crew /></RequireRole>} />
+        <Route path="produits"   element={<RequireRole roles={ROLES_BDD}><BDD /></RequireRole>} />
+        <Route path="bdd"        element={<RequireRole roles={ROLES_BDD}><BDD /></RequireRole>} />
 
-        {/* Finance */}
-        <Route path="dashboard"  element={<Dashboard />} />
-        <Route path="compta"     element={<Compta />} />
+        {/* Finance — admin et chargé de prod uniquement */}
+        <Route path="dashboard"  element={<RequireRole roles={ROLES_FINANCE}><Dashboard /></RequireRole>} />
+        <Route path="compta"     element={<RequireRole roles={ROLES_FINANCE}><Compta /></RequireRole>} />
 
-        {/* Admin */}
-        <Route path="parametres" element={<Placeholder title="Paramètres" />} />
+        {/* Admin uniquement */}
+        <Route path="parametres" element={<RequireRole roles={['admin']}><Placeholder title="Paramètres" /></RequireRole>} />
 
         {/* ── Layout projet avec onglets ─────────────────────────────────── */}
         <Route path="projets/:id" element={<ProjetLayout />}>
