@@ -361,7 +361,7 @@ function ReadView({
 
       {/* ── FOOTER ADMIN (admin/charge_prod uniquement, juste sous le hero) ─ */}
       {canEdit && (
-        <AdminFooter project={project} accessCount={accessCount} className="lg:col-span-1" />
+        <AdminFooter project={project} accessCount={accessCount} className="lg:col-span-2" />
       )}
 
       {/* ── IDENTITÉ (+ planning fusionné) ───────────────────────────────── */}
@@ -484,7 +484,7 @@ function ReadView({
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
       {canEdit && project.note_prod && (
-        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis" className="lg:col-span-1">
+        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis" className="lg:col-span-2">
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
         </SectionCard>
       )}
