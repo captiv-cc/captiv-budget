@@ -1,18 +1,29 @@
 /**
- * Onglet PROJET — fiche projet structurée en 4 blocs
- * ADMIN / PROJET (champs dynamiques) / LIVRABLES (tableau) / NOTE DE PROD
+ * Onglet PROJET — fiche projet visuelle
+ *
+ * Refonte 2026-04-12 :
+ *   - Mode VUE par défaut pour tous les utilisateurs (lecture seule visuelle)
+ *   - Mode ÉDITION sur demande pour admin + charge_prod uniquement
+ *   - Bloc Équipe groupé par personne (récap visuel des membres du projet)
+ *   - Bloc Gestion des accès (admin/charge_prod) pour déléguer vers AccessTab
+ *   - Détails admin repliables (ref projet, BC, date devis)
+ *
+ * Cette page est la première vue de TOUS les utilisateurs (admin, charge_prod,
+ * coordinateur, prestataires) → elle doit résumer le projet visuellement, et
+ * n'autoriser l'édition qu'aux rôles habilités.
  */
 import { useState, useEffect, useRef } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import {
-  Save, Eye, EyeOff, Plus, Trash2, GripVertical,
-  Check, RefreshCw, ChevronDown, ChevronRight, Building2,
-  Clapperboard, FileText, StickyNote
+  Save, Plus, Trash2, Check, X, RefreshCw,
+  Building2, Clapperboard, FileText, StickyNote, Users, Shield,
+  ChevronDown, ChevronRight, Edit2, Calendar, Mail, Phone, MapPin,
 } from 'lucide-react'
+import StatusBadgeMenu from '../../features/projets/components/StatusBadgeMenu'
 
 // ─── Définition des champs dynamiques PROJET ─────────────────────────────────
-// Chaque champ : { key, label, placeholder, group }
 const PROJET_FIELDS_DEF = [
   { key: 'type_projet',           label: 'Type',                  placeholder: 'Film institutionnel, pub…', group: 'base' },
   { key: 'titre_projet',          label: 'Titre',                 placeholder: 'Titre du film / de la prod',group: 'base' },
@@ -40,300 +51,621 @@ const EMPTY_LIVRABLE = () => ({
   nom: '', format: '', duree: '', livraison: ''
 })
 
-// ─── Composant principal ──────────────────────────────────────────────────────
+// ─── Helpers de mapping project ⇄ draft (formulaire d'édition) ───────────────
+function buildDraftFromProject(project) {
+  const meta = project.metadata || {}
+  const fields = {}
+  fields.type_projet  = meta.type_projet ?? project.type_projet  ?? ''
+  fields.agence       = meta.agence      ?? project.agence       ?? ''
+  fields.realisateur  = meta.realisateur ?? project.realisateur  ?? ''
+  ALL_KEYS.forEach(k => { if (fields[k] === undefined) fields[k] = meta[k] ?? '' })
+
+  const visible = {}
+  ALL_KEYS.forEach(k => { visible[k] = meta._visible?.[k] !== false })
+
+  let livrables = []
+  try {
+    livrables = Array.isArray(project.livrables_json)
+      ? project.livrables_json
+      : JSON.parse(project.livrables_json || '[]')
+  } catch { livrables = [] }
+  if (!livrables.length) livrables = [EMPTY_LIVRABLE()]
+
+  return {
+    title:        project.title         || '',
+    ref_projet:   project.ref_projet    || '',
+    bon_commande: project.bon_commande  || '',
+    date_devis:   project.date_devis    || '',
+    client_id:    project.client_id     || '',
+    fields,
+    visible,
+    livrables,
+    noteProd:     project.note_prod     || '',
+  }
+}
+
+function buildPayloadFromDraft(draft) {
+  const metadata = { ...draft.fields, _visible: draft.visible }
+  return {
+    title:          draft.title         || null,
+    client_id:      draft.client_id     || null,
+    ref_projet:     draft.ref_projet,
+    bon_commande:   draft.bon_commande,
+    date_devis:     draft.date_devis    || null,
+    type_projet:    draft.fields.type_projet  || null,
+    agence:         draft.fields.agence       || null,
+    realisateur:    draft.fields.realisateur  || null,
+    note_prod:      draft.noteProd,
+    metadata,
+    livrables_json: draft.livrables,
+    updated_at:     new Date().toISOString(),
+  }
+}
+
+// ─── Regroupement des membres par personne ───────────────────────────────────
+// Si Marc est cadreur ET monteur, il apparaît une seule fois avec deux postes.
+function groupMembresByPerson(membres) {
+  const map = {}
+  membres.forEach(m => {
+    const key = m.contact_id ? `c_${m.contact_id}` : `l_${m.id}`
+    if (!map[key]) {
+      map[key] = {
+        key,
+        contact_id: m.contact_id,
+        nom:    m.nom    || m.contact?.nom    || '',
+        prenom: m.prenom || m.contact?.prenom || '',
+        email:  m.email  || m.contact?.email  || '',
+        user_id: m.contact?.user_id || null,
+        postes: [],
+      }
+    }
+    const poste = (m.specialite || '').trim()
+    if (poste && !map[key].postes.includes(poste)) {
+      map[key].postes.push(poste)
+    }
+  })
+  return Object.values(map).sort((a, b) =>
+    `${a.nom}${a.prenom}`.localeCompare(`${b.nom}${b.prenom}`)
+  )
+}
+
+function initials(person) {
+  const a = (person.prenom || '').trim()[0] || ''
+  const b = (person.nom    || '').trim()[0] || ''
+  return (a + b).toUpperCase() || '?'
+}
+
+function fullName(person) {
+  return `${person.prenom || ''} ${person.nom || ''}`.trim() || 'Sans nom'
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPOSANT PRINCIPAL
+// ══════════════════════════════════════════════════════════════════════════════
 export default function ProjetTab() {
   const { project, setProject, projectId } = useOutletContext()
+  const { isAdmin, isChargeProd } = useAuth()
+  const canEdit = isAdmin || isChargeProd
 
-  // Champs ADMIN fixes
-  const [admin, setAdmin] = useState({
-    title: '', ref_projet: '', bon_commande: '', date_devis: '', client_id: ''
-  })
+  // Mode édition + draft local
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(null)
+  const [saving,  setSaving]  = useState(false)
 
-  // Liste clients pour le sélecteur
-  const [clientsList, setClientsList] = useState([])
+  // Données auxiliaires (vue)
+  const [clientsList,    setClientsList]    = useState([])
+  const [membres,        setMembres]        = useState([])
+  const [loadingMembres, setLoadingMembres] = useState(true)
+  const [accessCount,    setAccessCount]    = useState(null)
 
-  // Champs PROJET dynamiques (valeurs + visibilité)
-  const [fields, setFields]     = useState({})   // { key: value }
-  const [visible, setVisible]   = useState({})   // { key: true/false }
-  const [showHidden, setShowHidden] = useState(false)
+  // UI : section "Détails admin" repliable
+  const [showAdmin, setShowAdmin] = useState(false)
 
-  // Livrables
-  const [livrables, setLivrables] = useState([])
-
-  // Note de prod
-  const [noteProd, setNoteProd] = useState('')
-
-  // Save state
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const saveTimer = useRef(null)
-
-  // ── Ref "toujours à jour" pour éviter les stale closures dans le timer ──
-  const latestState = useRef({})
-  latestState.current = { admin, fields, visible, livrables, noteProd }
-
-  // ── Chargement liste clients ──────────────────────────────────────────────
+  // ─── Chargements ───────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.from('clients').select('id, name').order('name')
       .then(({ data }) => setClientsList(data || []))
   }, [])
 
-  // ── Init depuis project ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!project) return
+    if (!projectId) return
+    setLoadingMembres(true)
+    supabase
+      .from('projet_membres')
+      .select('*, contact:contacts(nom, prenom, email, user_id)')
+      .eq('project_id', projectId)
+      .then(({ data }) => {
+        setMembres(data || [])
+        setLoadingMembres(false)
+      })
+  }, [projectId])
 
-    setAdmin({
-      title:         project.title         || '',
-      ref_projet:    project.ref_projet    || '',
-      bon_commande:  project.bon_commande  || '',
-      date_devis:    project.date_devis    || '',
-      client_id:     project.client_id     || '',
-    })
+  useEffect(() => {
+    if (!projectId || !canEdit) return
+    supabase
+      .from('project_access')
+      .select('id', { count: 'exact', head: true })
+      .eq('project_id', projectId)
+      .then(({ count }) => setAccessCount(count ?? 0))
+  }, [projectId, canEdit])
 
-    const meta = project.metadata || {}
-
-    const fv = {}
-    fv.type_projet  = meta.type_projet ?? project.type_projet  ?? ''
-    fv.agence       = meta.agence      ?? project.agence       ?? ''
-    fv.realisateur  = meta.realisateur ?? project.realisateur  ?? ''
-    ALL_KEYS.forEach(k => { if (fv[k] === undefined) fv[k] = meta[k] ?? '' })
-    setFields(fv)
-
-    const vis = {}
-    ALL_KEYS.forEach(k => { vis[k] = meta._visible?.[k] !== false })
-    setVisible(vis)
-
-    let livr = []
-    try { livr = Array.isArray(project.livrables_json) ? project.livrables_json : JSON.parse(project.livrables_json || '[]') }
-    catch { livr = [] }
-    if (!livr.length) livr = [EMPTY_LIVRABLE()]
-    setLivrables(livr)
-
-    setNoteProd(project.note_prod || '')
-  }, [project?.id])
-
-  // ── Auto-save : toujours lire depuis latestState.current ─────────────────
-  // Évite le bug "dernière lettre perdue" (stale closure)
-  function schedulesSave() {
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(doSave, 1200)
+  // ─── Actions ───────────────────────────────────────────────────────────────
+  function startEdit() {
+    if (!canEdit) return
+    setDraft(buildDraftFromProject(project))
+    setEditing(true)
   }
 
-  async function doSave() {
-    if (!projectId) return
-    const { admin, fields, visible, livrables, noteProd } = latestState.current
+  function cancelEdit() {
+    setDraft(null)
+    setEditing(false)
+  }
+
+  async function saveEdit() {
+    if (!draft || saving) return
     setSaving(true)
-    try {
-      const metadata = { ...fields, _visible: visible }
-      const payload = {
-        title:          admin.title         || null,
-        client_id:      admin.client_id     || null,
-        ref_projet:     admin.ref_projet,
-        bon_commande:   admin.bon_commande,
-        date_devis:     admin.date_devis    || null,
-        type_projet:    fields.type_projet  || null,
-        agence:         fields.agence       || null,
-        realisateur:    fields.realisateur  || null,
-        note_prod:      noteProd,
-        metadata,
-        livrables_json: livrables,
-        updated_at:     new Date().toISOString(),
-      }
-      const { data } = await supabase
-        .from('projects').update(payload).eq('id', projectId)
-        .select('*, clients(*)').single()
-      if (data) setProject(data)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } finally {
-      setSaving(false)
+    const payload = buildPayloadFromDraft(draft)
+    const { data, error } = await supabase
+      .from('projects').update(payload).eq('id', projectId)
+      .select('*, clients(*)').single()
+    setSaving(false)
+    if (error) {
+      alert('Erreur sauvegarde : ' + error.message)
+      return
+    }
+    if (data) {
+      setProject(data)
+      setDraft(null)
+      setEditing(false)
     }
   }
 
-  // Exposer saveAll pour le bouton manuel
-  async function saveAll() { await doSave() }
-
-  const setA = (k, v) => { setAdmin(p => ({ ...p, [k]: v })); schedulesSave() }
-  const setF = (k, v) => { setFields(p => ({ ...p, [k]: v })); schedulesSave() }
-  const setV = (k)    => { setVisible(p => ({ ...p, [k]: !p[k] })); schedulesSave() }
-
-  const visibleFields  = PROJET_FIELDS_DEF.filter(f => visible[f.key])
-  const hiddenFields   = PROJET_FIELDS_DEF.filter(f => !visible[f.key])
-
-  // ── Livrables ─────────────────────────────────────────────────────────────
-  function addLivrable() {
-    const next = [...livrables, EMPTY_LIVRABLE()]
-    setLivrables(next); schedulesSave()
-  }
-  function updateLivrable(id, key, val) {
-    const next = livrables.map(l => l.id === id ? { ...l, [key]: val } : l)
-    setLivrables(next); schedulesSave()
-  }
-  function deleteLivrable(id) {
-    const next = livrables.filter(l => l.id !== id)
-    setLivrables(next.length ? next : [EMPTY_LIVRABLE()]); schedulesSave()
+  // Changement de statut depuis le badge du hero (mode vue, optimistic)
+  async function updateStatus(_projectId, newStatus) {
+    const previous = project
+    setProject({ ...project, status: newStatus })
+    const { error, data } = await supabase
+      .from('projects').update({ status: newStatus }).eq('id', projectId)
+      .select('*, clients(*)').single()
+    if (error) {
+      console.error('Erreur changement statut projet:', error)
+      setProject(previous)
+      alert('Impossible de mettre à jour le statut : ' + error.message)
+    } else if (data) {
+      setProject(data)
+    }
   }
 
   if (!project) return null
 
+  // ─── Rendu ────────────────────────────────────────────────────────────────
+  const persons = groupMembresByPerson(membres)
+  const meta = project.metadata || {}
+  const get = (k) => meta[k] ?? project[k] ?? ''
+
   return (
     <div className="p-5 max-w-4xl mx-auto space-y-4 pb-16">
+      {editing ? (
+        <EditView
+          draft={draft}
+          setDraft={setDraft}
+          clientsList={clientsList}
+          onCancel={cancelEdit}
+          onSave={saveEdit}
+          saving={saving}
+          showAdmin={showAdmin}
+          setShowAdmin={setShowAdmin}
+        />
+      ) : (
+        <ReadView
+          project={project}
+          get={get}
+          canEdit={canEdit}
+          onEdit={startEdit}
+          onChangeStatus={updateStatus}
+          persons={persons}
+          loadingMembres={loadingMembres}
+          accessCount={accessCount}
+          showAdmin={showAdmin}
+          setShowAdmin={setShowAdmin}
+        />
+      )}
+    </div>
+  )
+}
 
-      {/* ── Save indicator flottant ────────────────────────────────────── */}
-      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2">
-        {saving && (
-          <div className="flex items-center gap-2 bg-white border border-gray-200 shadow-lg rounded-lg px-3 py-2 text-xs text-gray-500">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-500" />Sauvegarde…
+// ══════════════════════════════════════════════════════════════════════════════
+// VUE LECTURE — fiche projet visuelle
+// ══════════════════════════════════════════════════════════════════════════════
+function ReadView({
+  project, get, canEdit, onEdit, onChangeStatus,
+  persons, loadingMembres, accessCount, showAdmin, setShowAdmin,
+}) {
+  const planningChips = [
+    { label: 'Prépa',    value: get('prepa_dates')      || get('prepa_jours') },
+    { label: 'Tournage', value: get('tournage_dates')   || get('tournage_jours') },
+    { label: 'Envoi V1', value: get('envoi_v1') },
+    { label: 'Master',   value: get('livraison_master') },
+    { label: 'Deadline', value: get('deadline') },
+  ].filter(c => c.value)
+
+  let livrables = []
+  try {
+    livrables = Array.isArray(project.livrables_json)
+      ? project.livrables_json
+      : JSON.parse(project.livrables_json || '[]')
+  } catch { livrables = [] }
+  livrables = livrables.filter(l => l.nom || l.format || l.duree || l.livraison)
+
+  return (
+    <>
+      {/* ── HERO ─────────────────────────────────────────────────────────── */}
+      <div className="card overflow-visible">
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap mb-2">
+                <h1 className="text-2xl font-bold text-gray-900 truncate">
+                  {project.title || 'Projet sans nom'}
+                </h1>
+                <StatusBadgeMenu
+                  project={project}
+                  onChange={onChangeStatus}
+                  canEdit={canEdit}
+                  size="md"
+                  align="left"
+                />
+              </div>
+              <SubLine get={get} project={project} />
+              <ClientLine project={project} />
+            </div>
+            {canEdit && (
+              <button onClick={onEdit} className="btn-secondary btn-sm shrink-0">
+                <Edit2 className="w-3.5 h-3.5" />Modifier
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── IDENTITÉ ─────────────────────────────────────────────────────── */}
+      <SectionCard icon={<Clapperboard className="w-4 h-4" />} title="Identité">
+        <InfoGrid items={[
+          { label: 'Type',                value: get('type_projet') },
+          { label: 'Titre',               value: get('titre_projet') },
+          { label: 'Agence',              value: get('agence') },
+          { label: 'Production',          value: get('production') },
+          { label: 'Production exéc.',    value: get('production_executive') },
+          { label: 'Réalisateur',         value: get('realisateur') },
+          { label: 'Producteur',          value: get('producteur') },
+        ]} />
+      </SectionCard>
+
+      {/* ── PLANNING ─────────────────────────────────────────────────────── */}
+      <SectionCard icon={<Calendar className="w-4 h-4" />} title="Planning">
+        {planningChips.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {planningChips.map(c => (
+              <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
+                <p className="text-sm text-gray-800">{c.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyHint>Aucune date renseignée pour ce projet.</EmptyHint>
+        )}
+      </SectionCard>
+
+      {/* ── ÉQUIPE ───────────────────────────────────────────────────────── */}
+      <SectionCard
+        icon={<Users className="w-4 h-4" />}
+        title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
+        action={
+          <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+            Voir l'équipe →
+          </Link>
+        }
+      >
+        {loadingMembres ? (
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <RefreshCw className="w-3 h-3 animate-spin" />Chargement…
+          </div>
+        ) : persons.length === 0 ? (
+          <EmptyHint>Aucun membre attribué pour le moment.</EmptyHint>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {persons.map(p => (
+              <div key={p.key} className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2">
+                <div className="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold shrink-0">
+                  {initials(p)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{fullName(p)}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {p.postes.length ? p.postes.join(' · ') : <span className="italic text-gray-400">Sans poste défini</span>}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-        {saved && !saving && (
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 shadow-lg rounded-lg px-3 py-2 text-xs text-green-700">
-            <Check className="w-3.5 h-3.5" />Enregistré
-          </div>
+      </SectionCard>
+
+      {/* ── LIVRABLES ────────────────────────────────────────────────────── */}
+      <SectionCard
+        icon={<FileText className="w-4 h-4" />}
+        title={`Livrables${livrables.length ? ` (${livrables.length})` : ''}`}
+        action={
+          <Link to={`/projets/${project.id}/livrables`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+            Voir tout →
+          </Link>
+        }
+      >
+        {livrables.length === 0 ? (
+          <EmptyHint>Aucun livrable défini.</EmptyHint>
+        ) : (
+          <ul className="space-y-1.5">
+            {livrables.map((l, i) => (
+              <li key={l.id || i} className="flex items-center gap-3 text-sm">
+                <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}.</span>
+                <span className="text-gray-800 font-medium">{l.nom || <span className="italic text-gray-400">Sans nom</span>}</span>
+                <span className="text-gray-400">·</span>
+                <span className="text-xs text-gray-500">{[l.format, l.duree].filter(Boolean).join(' — ') || '—'}</span>
+                {l.livraison && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span className="text-xs text-gray-500">Livraison {l.livraison}</span>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
-        {!saving && !saved && (
-          <button
-            onClick={saveAll}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg rounded-lg px-3 py-2 text-xs font-medium transition-colors"
-          >
-            <Save className="w-3.5 h-3.5" />Enregistrer
-          </button>
+      </SectionCard>
+
+      {/* ── NOTE DE PROD ─────────────────────────────────────────────────── */}
+      {project.note_prod && (
+        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production">
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
+        </SectionCard>
+      )}
+
+      {/* ── DÉTAILS ADMIN (repliable) ────────────────────────────────────── */}
+      <div className="card overflow-visible">
+        <button
+          type="button"
+          onClick={() => setShowAdmin(s => !s)}
+          className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2 text-gray-700">
+            <Building2 className="w-4 h-4 text-gray-400" />
+            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
+          </div>
+          {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+        </button>
+        {showAdmin && (
+          <div className="p-5">
+            <InfoGrid items={[
+              { label: 'Référence projet',        value: project.ref_projet },
+              { label: 'Bon de commande client',  value: project.bon_commande },
+              { label: 'Date du devis',           value: project.date_devis },
+            ]} />
+          </div>
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          BLOC ADMIN
-      ══════════════════════════════════════════════════════════════════ */}
-      <Block icon={<Building2 className="w-4 h-4" />} title="ADMIN">
+      {/* ── GESTION DES ACCÈS (admin/charge_prod uniquement) ─────────────── */}
+      {canEdit && (
+        <SectionCard
+          icon={<Shield className="w-4 h-4" />}
+          title="Gestion des accès"
+          action={
+            <Link to={`/projets/${project.id}/access`} className="btn-secondary btn-sm">
+              Gérer →
+            </Link>
+          }
+        >
+          <p className="text-xs text-gray-500">
+            {accessCount === null
+              ? 'Chargement…'
+              : accessCount === 0
+                ? 'Aucun utilisateur avec accès spécifique à ce projet.'
+                : `${accessCount} utilisateur${accessCount > 1 ? 's ont' : ' a'} accès à ce projet.`}
+          </p>
+        </SectionCard>
+      )}
+    </>
+  )
+}
+
+// ─── Sous-composants de la vue lecture ──────────────────────────────────────
+function SubLine({ get, project }) {
+  const parts = [
+    get('type_projet'),
+    get('realisateur') && `Réalisé par ${get('realisateur')}`,
+    get('agence') && `Agence ${get('agence')}`,
+  ].filter(Boolean)
+  if (!parts.length) return null
+  return <p className="text-sm text-gray-500">{parts.join(' · ')}</p>
+}
+
+function ClientLine({ project }) {
+  const c = project.clients
+  const ref = project.ref_projet
+  if (!c && !ref) return null
+  return (
+    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+      {c?.name && <span className="text-gray-600 font-medium">{c.name}</span>}
+      {ref && <span className="font-mono">{ref}</span>}
+      {c?.email && (
+        <span className="flex items-center gap-1">
+          <Mail className="w-3 h-3" />{c.email}
+        </span>
+      )}
+      {c?.phone && (
+        <span className="flex items-center gap-1">
+          <Phone className="w-3 h-3" />{c.phone}
+        </span>
+      )}
+      {c?.address && (
+        <span className="flex items-center gap-1">
+          <MapPin className="w-3 h-3" />{c.address}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function SectionCard({ icon, title, action, children }) {
+  return (
+    <div className="card overflow-visible">
+      <div className="card-header">
+        <div className="flex items-center gap-2 text-gray-700">
+          <span className="text-gray-400">{icon}</span>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">{title}</h2>
+        </div>
+        {action && <div>{action}</div>}
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  )
+}
+
+function InfoGrid({ items }) {
+  const filled = items.filter(i => i.value)
+  if (!filled.length) return <EmptyHint>Aucune information renseignée.</EmptyHint>
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+      {filled.map(i => (
+        <div key={i.label}>
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{i.label}</p>
+          <p className="text-sm text-gray-800 mt-0.5">{i.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyHint({ children }) {
+  return <p className="text-xs text-gray-400 italic">{children}</p>
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VUE ÉDITION — formulaire complet (admin + charge_prod uniquement)
+// ══════════════════════════════════════════════════════════════════════════════
+function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, showAdmin, setShowAdmin }) {
+  const setA = (k, v) => setDraft(p => ({ ...p, [k]: v }))
+  const setF = (k, v) => setDraft(p => ({ ...p, fields: { ...p.fields, [k]: v } }))
+
+  function addLivrable() {
+    setDraft(p => ({ ...p, livrables: [...p.livrables, EMPTY_LIVRABLE()] }))
+  }
+  function updateLivrable(id, key, val) {
+    setDraft(p => ({
+      ...p,
+      livrables: p.livrables.map(l => l.id === id ? { ...l, [key]: val } : l),
+    }))
+  }
+  function deleteLivrable(id) {
+    setDraft(p => ({
+      ...p,
+      livrables: p.livrables.filter(l => l.id !== id).length
+        ? p.livrables.filter(l => l.id !== id)
+        : [EMPTY_LIVRABLE()],
+    }))
+  }
+
+  function renderDynField(key) {
+    const def = PROJET_FIELDS_DEF.find(f => f.key === key)
+    if (!def) return null
+    return (
+      <Field
+        key={key}
+        label={def.label}
+        placeholder={def.placeholder}
+        value={draft.fields[key] || ''}
+        onChange={v => setF(key, v)}
+      />
+    )
+  }
+
+  return (
+    <>
+      {/* ── Barre d'actions sticky en haut ───────────────────────────────── */}
+      <div className="sticky top-0 z-20 -mx-5 px-5 py-3 bg-white/95 backdrop-blur border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-gray-700">
+          <Edit2 className="w-4 h-4 text-blue-500" />
+          <span className="text-sm font-semibold">Mode édition</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onCancel} disabled={saving} className="btn-secondary btn-sm">
+            <X className="w-3.5 h-3.5" />Annuler
+          </button>
+          <button onClick={onSave} disabled={saving} className="btn-primary btn-sm">
+            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── BLOC IDENTITÉ ────────────────────────────────────────────────── */}
+      <Block icon={<Clapperboard className="w-4 h-4" />} title="Identité">
         <div className="space-y-4">
-          {/* Nom du projet — pleine largeur, en haut */}
           <Field
             label="Nom du projet"
             placeholder="Titre du projet…"
-            value={admin.title}
+            value={draft.title}
             onChange={v => setA('title', v)}
             big
           />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* Sélecteur client + récap */}
-            <div className="space-y-2">
-              <div>
-                <FieldLabel>Client</FieldLabel>
-                <select
-                  className="input text-sm"
-                  value={admin.client_id || ''}
-                  onChange={e => setA('client_id', e.target.value)}
-                >
-                  <option value="">— Aucun client —</option>
-                  {clientsList.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Récap client sélectionné */}
-              {project.clients && (
-                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 space-y-0.5">
-                  {project.clients.address && <p className="text-xs text-gray-500">{project.clients.address}</p>}
-                  {project.clients.email   && <p className="text-xs text-gray-400">{project.clients.email}</p>}
-                  {project.clients.phone   && <p className="text-xs text-gray-400">{project.clients.phone}</p>}
-                  {project.clients.siret   && <p className="text-xs text-gray-400">SIRET : {project.clients.siret}</p>}
-                </div>
-              )}
-            </div>
-
-            {/* Champs admin */}
-            <div className="space-y-3">
-              <Field label="Réf. projet" placeholder="CAPTIV-2026-001"
-                value={admin.ref_projet} onChange={v => setA('ref_projet', v)} />
-              <Field label="Bon de commande client" placeholder="N° BC / PO"
-                value={admin.bon_commande} onChange={v => setA('bon_commande', v)} />
-              <Field label="Date du devis" type="date"
-                value={admin.date_devis} onChange={v => setA('date_devis', v)} />
-            </div>
+          <div>
+            <FieldLabel>Client</FieldLabel>
+            <select
+              className="input text-sm"
+              value={draft.client_id || ''}
+              onChange={e => setA('client_id', e.target.value)}
+            >
+              <option value="">— Aucun client —</option>
+              {clientsList.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
           </div>
+          <FieldSubSection label="Général">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['type_projet', 'titre_projet'].map(renderDynField)}
+            </div>
+          </FieldSubSection>
+          <FieldSubSection label="Production">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['agence', 'production', 'production_executive'].map(renderDynField)}
+            </div>
+          </FieldSubSection>
+          <FieldSubSection label="Équipe">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['realisateur', 'producteur'].map(renderDynField)}
+            </div>
+          </FieldSubSection>
         </div>
       </Block>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          BLOC PROJET
-      ══════════════════════════════════════════════════════════════════ */}
-      <Block icon={<Clapperboard className="w-4 h-4" />} title="PROJET"
-        actions={
-          <button
-            onClick={() => setShowHidden(p => !p)}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-            title="Afficher/masquer les champs désactivés"
-          >
-            {showHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            {hiddenFields.length > 0 && `${hiddenFields.length} champ${hiddenFields.length > 1 ? 's' : ''} masqué${hiddenFields.length > 1 ? 's' : ''}`}
-          </button>
-        }
-      >
-        <FieldSubSection label="Général">
+      {/* ── BLOC PLANNING ────────────────────────────────────────────────── */}
+      <Block icon={<Calendar className="w-4 h-4" />} title="Planning">
+        <FieldSubSection label="Spécifications">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['type_projet', 'titre_projet'].map(k => renderDynField(k))}
+            {['nb_livrables', 'duree_master', 'format_master'].map(renderDynField)}
           </div>
         </FieldSubSection>
-
-        <FieldSubSection label="Production">
+        <FieldSubSection label="Dates">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['agence', 'production', 'production_executive'].map(k => renderDynField(k))}
+            {['prepa_jours', 'prepa_dates', 'tournage_jours', 'tournage_dates', 'envoi_v1', 'livraison_master', 'deadline'].map(renderDynField)}
           </div>
         </FieldSubSection>
-
-        <FieldSubSection label="Équipe">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['realisateur', 'producteur'].map(k => renderDynField(k))}
-          </div>
-        </FieldSubSection>
-
-        <FieldSubSection label="Livrables">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['nb_livrables', 'duree_master', 'format_master'].map(k => renderDynField(k))}
-          </div>
-        </FieldSubSection>
-
-        <FieldSubSection label="Planning">
-          {/* Prépa : 2 champs côte à côte */}
-          <PairedRow
-            labelA="Prépa — jours" keyA="prepa_jours" placeholderA="Ex : 2j"
-            labelB="Prépa — dates" keyB="prepa_dates" placeholderB="01-02/05/2026"
-            fields={fields} visible={visible} setF={setF} setV={setV}
-          />
-          {/* Tournage : 2 champs côte à côte */}
-          <PairedRow
-            labelA="Tournage — jours" keyA="tournage_jours" placeholderA="Ex : 3j"
-            labelB="Tournage — dates" keyB="tournage_dates" placeholderB="05-07/05/2026"
-            fields={fields} visible={visible} setF={setF} setV={setV}
-          />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
-            {['envoi_v1', 'livraison_master', 'deadline'].map(k => renderDynField(k))}
-          </div>
-        </FieldSubSection>
-
-        {/* Champs masqués (affichés seulement si showHidden) */}
-        {showHidden && hiddenFields.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
-            <p className="text-xs text-gray-400 mb-3">Champs masqués — cliquer sur 👁 pour réactiver</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {hiddenFields.map(f => (
-                <div key={f.key} className="flex items-center justify-between bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
-                  <span className="text-xs text-gray-400">{f.label}</span>
-                  <button onClick={() => setV(f.key)} className="text-gray-300 hover:text-blue-500 transition-colors ml-2">
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </Block>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          BLOC LIVRABLES
-      ══════════════════════════════════════════════════════════════════ */}
-      <Block icon={<FileText className="w-4 h-4" />} title="LIVRABLES"
+      {/* ── BLOC LIVRABLES ───────────────────────────────────────────────── */}
+      <Block icon={<FileText className="w-4 h-4" />} title="Livrables"
         actions={
           <button onClick={addLivrable} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
             <Plus className="w-3.5 h-3.5" />Ajouter
@@ -353,42 +685,32 @@ export default function ProjetTab() {
               </tr>
             </thead>
             <tbody>
-              {livrables.map((l, i) => (
+              {draft.livrables.map((l, i) => (
                 <tr key={l.id} className="border-b border-gray-50 hover:bg-gray-50/50 group">
                   <td className="py-1.5 px-2 text-xs text-gray-400 font-mono">{i + 1}</td>
                   <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-sm"
-                      value={l.nom} onChange={e => updateLivrable(l.id, 'nom', e.target.value)}
-                      placeholder="Film 3 min 16/9…"
-                    />
+                    <input className="input-cell w-full text-sm" value={l.nom}
+                      onChange={e => updateLivrable(l.id, 'nom', e.target.value)}
+                      placeholder="Film 3 min 16/9…" />
                   </td>
                   <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.format} onChange={e => updateLivrable(l.id, 'format', e.target.value)}
-                      placeholder="MP4, MOV…"
-                    />
+                    <input className="input-cell w-full text-xs" value={l.format}
+                      onChange={e => updateLivrable(l.id, 'format', e.target.value)}
+                      placeholder="MP4, MOV…" />
                   </td>
                   <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.duree} onChange={e => updateLivrable(l.id, 'duree', e.target.value)}
-                      placeholder="3'00&quot;"
-                    />
+                    <input className="input-cell w-full text-xs" value={l.duree}
+                      onChange={e => updateLivrable(l.id, 'duree', e.target.value)}
+                      placeholder="3'00&quot;" />
                   </td>
                   <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.livraison} onChange={e => updateLivrable(l.id, 'livraison', e.target.value)}
-                      placeholder="01/06/2026"
-                    />
+                    <input className="input-cell w-full text-xs" value={l.livraison}
+                      onChange={e => updateLivrable(l.id, 'livraison', e.target.value)}
+                      placeholder="01/06/2026" />
                   </td>
                   <td className="py-1.5 px-1">
-                    <button
-                      onClick={() => deleteLivrable(l.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
-                    >
+                    <button onClick={() => deleteLivrable(l.id)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </td>
@@ -399,50 +721,46 @@ export default function ProjetTab() {
         </div>
       </Block>
 
-      {/* ══════════════════════════════════════════════════════════════════
-          BLOC NOTE DE PROD
-      ══════════════════════════════════════════════════════════════════ */}
-      <Block icon={<StickyNote className="w-4 h-4" />} title="NOTE DE PROD">
+      {/* ── BLOC NOTE DE PROD ────────────────────────────────────────────── */}
+      <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production">
         <textarea
           className="w-full text-sm text-gray-700 bg-amber-50/60 border border-amber-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-amber-300 focus:border-amber-300 placeholder-amber-300"
           rows={6}
           placeholder="Informations hors devis, contraintes techniques, budget hors-champ, remarques de production…"
-          value={noteProd}
-          onChange={e => { setNoteProd(e.target.value); schedulesSave() }}
+          value={draft.noteProd}
+          onChange={e => setA('noteProd', e.target.value)}
         />
       </Block>
 
-    </div>
-  )
-
-  // ── Rendu d'un champ dynamique ──────────────────────────────────────────
-  function renderDynField(key) {
-    const def = PROJET_FIELDS_DEF.find(f => f.key === key)
-    if (!def) return null
-    if (!visible[key]) return null  // masqué
-
-    return (
-      <div key={key} className="relative group/field">
-        <Field
-          label={def.label}
-          placeholder={def.placeholder}
-          value={fields[key] || ''}
-          onChange={v => setF(key, v)}
-        />
-        {/* Bouton masquer au hover */}
+      {/* ── BLOC DÉTAILS ADMIN (repliable) ───────────────────────────────── */}
+      <div className="card overflow-visible">
         <button
-          onClick={() => setV(key)}
-          className="absolute top-0 right-0 opacity-0 group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-red-400 p-0.5"
-          title="Masquer ce champ"
+          type="button"
+          onClick={() => setShowAdmin(s => !s)}
+          className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
         >
-          <EyeOff className="w-3 h-3" />
+          <div className="flex items-center gap-2 text-gray-700">
+            <Building2 className="w-4 h-4 text-gray-400" />
+            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
+          </div>
+          {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
         </button>
+        {showAdmin && (
+          <div className="p-5 space-y-3">
+            <Field label="Référence projet" placeholder="CAPTIV-2026-001"
+              value={draft.ref_projet} onChange={v => setA('ref_projet', v)} />
+            <Field label="Bon de commande client" placeholder="N° BC / PO"
+              value={draft.bon_commande} onChange={v => setA('bon_commande', v)} />
+            <Field label="Date du devis" type="date"
+              value={draft.date_devis} onChange={v => setA('date_devis', v)} />
+          </div>
+        )}
       </div>
-    )
-  }
+    </>
+  )
 }
 
-// ─── Composants utilitaires ───────────────────────────────────────────────────
+// ─── Composants utilitaires (formulaire) ──────────────────────────────────────
 function Block({ icon, title, children, actions }) {
   return (
     <div className="card overflow-visible">
@@ -458,21 +776,6 @@ function Block({ icon, title, children, actions }) {
   )
 }
 
-function FieldGroup({ label, children }) {
-  const arr = Array.isArray(children) ? children : [children]
-  const validChildren = arr.filter(Boolean)
-  if (!validChildren.length) return null
-  return (
-    <div className="mb-4 last:mb-0">
-      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2 ml-0.5">{label}</p>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {validChildren}
-      </div>
-    </div>
-  )
-}
-
-// Sous-section avec titre plus visible (pour Livrables/Planning dans le bloc PROJET)
 function FieldSubSection({ label, children }) {
   return (
     <div className="mb-5 last:mb-0">
@@ -482,49 +785,6 @@ function FieldSubSection({ label, children }) {
         <div className="h-px flex-1 bg-gray-100" />
       </div>
       {children}
-    </div>
-  )
-}
-
-// Ligne double : deux champs côte à côte avec masquage indépendant
-function PairedRow({ labelA, keyA, placeholderA, labelB, keyB, placeholderB, fields, visible, setF, setV }) {
-  const hiddenA = visible[keyA] === false
-  const hiddenB = visible[keyB] === false
-  if (hiddenA && hiddenB) return null
-  return (
-    <div className="grid grid-cols-2 gap-3 mb-3">
-      {!hiddenA ? (
-        <div className="relative group/field">
-          <label className="text-xs font-medium text-gray-500 block mb-1.5">{labelA}</label>
-          <input
-            className="input text-sm"
-            value={fields[keyA] || ''}
-            onChange={e => setF(keyA, e.target.value)}
-            placeholder={placeholderA}
-          />
-          <button onClick={() => setV(keyA)}
-            className="absolute top-0 right-0 opacity-0 group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-red-400 p-0.5"
-            title="Masquer">
-            <EyeOff className="w-3 h-3" />
-          </button>
-        </div>
-      ) : <div />}
-      {!hiddenB ? (
-        <div className="relative group/field">
-          <label className="text-xs font-medium text-gray-500 block mb-1.5">{labelB}</label>
-          <input
-            className="input text-sm"
-            value={fields[keyB] || ''}
-            onChange={e => setF(keyB, e.target.value)}
-            placeholder={placeholderB}
-          />
-          <button onClick={() => setV(keyB)}
-            className="absolute top-0 right-0 opacity-0 group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-red-400 p-0.5"
-            title="Masquer">
-            <EyeOff className="w-3 h-3" />
-          </button>
-        </div>
-      ) : <div />}
     </div>
   )
 }
