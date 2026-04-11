@@ -92,7 +92,7 @@ export default function AccessTab() {
           .order('sort_order'),
         supabase
           .from('metiers_template')
-          .select('id, key, label, color, is_system'),
+          .select('id, org_id, key, label, color, is_system'),
         supabase
           .from('metier_template_permissions')
           .select('template_id, outil_key, can_read, can_comment, can_edit'),
@@ -110,7 +110,13 @@ export default function AccessTab() {
 
       setAccessList(accRes.data || [])
       setOutils(outilsRes.data || [])
-      setTemplates(tplRes.data || [])
+
+      // ch4D : déduplication par `key` — si un override org existe, il masque
+      // le template système correspondant dans le picker.
+      const allTpls = tplRes.data || []
+      const orgKeys = new Set(allTpls.filter(t => t.org_id).map(t => t.key))
+      const dedupedTpls = allTpls.filter(t => t.org_id || !orgKeys.has(t.key))
+      setTemplates(dedupedTpls)
 
       // Index des perms de template : template_id → { outil: {read, comment, edit} }
       const tplMap = {}

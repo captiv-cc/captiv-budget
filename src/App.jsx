@@ -18,6 +18,7 @@ import Crew  from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
+import Settings from './pages/admin/Settings'
 
 // ─── Groupes de rôles (alias lisibles pour les gardes) ──────────────────────
 const ROLES_FINANCE = ['admin', 'charge_prod']                       // /compta, /dashboard global, /parametres admin
@@ -89,7 +90,7 @@ function AppRoutes() {
         <Route path="compta"     element={<RequireRole roles={ROLES_FINANCE}><Compta /></RequireRole>} />
 
         {/* Admin uniquement */}
-        <Route path="parametres" element={<RequireRole roles={['admin']}><Placeholder title="Paramètres" /></RequireRole>} />
+        <Route path="parametres" element={<RequireRole roles={['admin']}><Settings /></RequireRole>} />
 
         {/* ── Layout projet avec onglets ─────────────────────────────────── */}
         <Route path="projets/:id" element={<ProjetLayout />}>
