@@ -345,53 +345,50 @@ function ReadView({
         </div>
       </div>
 
-      {/* ── IDENTITÉ ─────────────────────────────────────────────────────── */}
+      {/* ── IDENTITÉ (+ planning fusionné) ───────────────────────────────── */}
       <SectionCard icon={<Clapperboard className="w-4 h-4" />} title="Identité">
-        <InfoGrid items={[
-          { label: 'Type',                value: get('type_projet') },
-          { label: 'Titre',               value: get('titre_projet') },
-          { label: 'Agence',              value: get('agence') },
-          { label: 'Production',          value: get('production') },
-          { label: 'Production exéc.',    value: get('production_executive') },
-          { label: 'Réalisateur',         value: get('realisateur') },
-          { label: 'Producteur',          value: get('producteur') },
-        ]} />
-      </SectionCard>
+        <div className="space-y-5">
+          <InfoGrid items={[
+            { label: 'Type',                value: get('type_projet') },
+            { label: 'Titre',               value: get('titre_projet') },
+            { label: 'Agence',              value: get('agence') },
+            { label: 'Production',          value: get('production') },
+            { label: 'Production exéc.',    value: get('production_executive') },
+            { label: 'Réalisateur',         value: get('realisateur') },
+            { label: 'Producteur',          value: get('producteur') },
+          ]} />
 
-      {/* ── PLANNING ─────────────────────────────────────────────────────── */}
-      <SectionCard icon={<Calendar className="w-4 h-4" />} title="Planning">
-        {!hasPlanning ? (
-          <EmptyHint>Aucune information de planning renseignée.</EmptyHint>
-        ) : (
-          <div className="space-y-4">
-            {planningSpecs.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spécifications</p>
-                <div className="flex flex-wrap gap-2">
-                  {planningSpecs.map(c => (
-                    <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
-                      <p className="text-sm text-gray-800">{c.value}</p>
-                    </div>
-                  ))}
+          {hasPlanning && (
+            <div className="pt-4 border-t border-gray-100 space-y-4">
+              {planningSpecs.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spécifications</p>
+                  <div className="flex flex-wrap gap-2">
+                    {planningSpecs.map(c => (
+                      <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
+                        <p className="text-sm text-gray-800">{c.value}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            {planningChips.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Dates</p>
-                <div className="flex flex-wrap gap-2">
-                  {planningChips.map(c => (
-                    <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
-                      <p className="text-sm text-gray-800">{c.value}</p>
-                    </div>
-                  ))}
+              )}
+              {planningChips.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Planning</p>
+                  <div className="flex flex-wrap gap-2">
+                    {planningChips.map(c => (
+                      <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
+                        <p className="text-sm text-gray-800">{c.value}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </SectionCard>
 
       {/* ── ÉQUIPE ───────────────────────────────────────────────────────── */}
@@ -463,7 +460,7 @@ function ReadView({
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
       {canEdit && project.note_prod && (
-        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production">
+        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
         </SectionCard>
       )}
@@ -695,21 +692,17 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
               {['realisateur', 'producteur'].map(renderDynField)}
             </div>
           </FieldSubSection>
+          <FieldSubSection label="Spécifications">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['nb_livrables', 'duree_master', 'format_master'].map(renderDynField)}
+            </div>
+          </FieldSubSection>
+          <FieldSubSection label="Planning">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {['prepa_jours', 'prepa_dates', 'tournage_jours', 'tournage_dates', 'envoi_v1', 'livraison_master', 'deadline'].map(renderDynField)}
+            </div>
+          </FieldSubSection>
         </div>
-      </Block>
-
-      {/* ── BLOC PLANNING ────────────────────────────────────────────────── */}
-      <Block icon={<Calendar className="w-4 h-4" />} title="Planning">
-        <FieldSubSection label="Spécifications">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['nb_livrables', 'duree_master', 'format_master'].map(renderDynField)}
-          </div>
-        </FieldSubSection>
-        <FieldSubSection label="Dates">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {['prepa_jours', 'prepa_dates', 'tournage_jours', 'tournage_dates', 'envoi_v1', 'livraison_master', 'deadline'].map(renderDynField)}
-          </div>
-        </FieldSubSection>
       </Block>
 
       {/* ── BLOC LIVRABLES ───────────────────────────────────────────────── */}
@@ -770,7 +763,7 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
       </Block>
 
       {/* ── BLOC NOTE DE PROD ────────────────────────────────────────────── */}
-      <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production">
+      <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
         <textarea
           className="w-full text-sm text-gray-700 bg-amber-50/60 border border-amber-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-amber-300 focus:border-amber-300 placeholder-amber-300"
           rows={6}
