@@ -8,7 +8,7 @@ import { fmtEur, fmtPct } from '../../lib/cotisations'
 import DevisEditor from '../DevisEditor'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import {
-  Plus, Eye, Trash2, FileText,
+  Plus, Copy, Trash2, FileText,
   LayoutTemplate, Sparkles, TrendingUp, Layers, Star,
 } from 'lucide-react'
 import { BLOCS_CANONIQUES } from '../DevisEditor'
@@ -129,6 +129,79 @@ export default function DevisTab() {
     setDevisList(p => p.filter(d => d.id !== dvId))
   }
 
+  // ── Duplique un devis (devis + categories + lines) ──────────────────────
+  async function duplicateDevis(srcDv, e) {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const nextVer = (devisList[devisList.length - 1]?.version_number || 0) + 1
+    const { data: newDevis, error: devisErr } = await supabase.from('devis')
+      .insert({
+        project_id:     projectId,
+        version_number: nextVer,
+        title:          srcDv.title,
+        status:         'brouillon',
+        created_by:     profile?.id,
+      })
+      .select().single()
+
+    if (devisErr) { console.error('[duplicateDevis]', devisErr); return }
+    if (!newDevis) return
+
+    // Copie des catégories
+    const { data: srcCats } = await supabase
+      .from('devis_categories')
+      .select('*')
+      .eq('devis_id', srcDv.id)
+      .order('sort_order')
+
+    for (const srcCat of (srcCats || [])) {
+      const { data: newCat } = await supabase.from('devis_categories')
+        .insert({
+          devis_id:   newDevis.id,
+          name:       srcCat.name,
+          sort_order: srcCat.sort_order,
+          dans_marge: srcCat.dans_marge,
+        })
+        .select().single()
+
+      if (!newCat) continue
+
+      // Copie des lignes de cette catégorie
+      const { data: srcLines } = await supabase
+        .from('devis_lines')
+        .select('*')
+        .eq('category_id', srcCat.id)
+        .order('sort_order')
+
+      if (srcLines?.length) {
+        await supabase.from('devis_lines').insert(
+          srcLines.map(l => ({
+            devis_id:        newDevis.id,
+            category_id:     newCat.id,
+            ref:             l.ref,
+            produit:         l.produit,
+            description:     l.description,
+            regime:          l.regime,
+            use_line:        l.use_line,
+            interne:         l.interne,
+            cout_egal_vente: l.cout_egal_vente,
+            dans_marge:      l.dans_marge,
+            quantite:        l.quantite,
+            unite:           l.unite,
+            tarif_ht:        l.tarif_ht,
+            cout_ht:         l.cout_ht,
+            remise_pct:      l.remise_pct,
+            sort_order:      l.sort_order,
+          }))
+        )
+      }
+    }
+
+    setDevisList(p => [...p, newDevis])
+    navigate(`/projets/${projectId}/devis/${newDevis.id}`)
+  }
+
   async function updateStatus(dvId, status, e) {
     e.stopPropagation()
     await supabase.from('devis').update({ status }).eq('id', dvId)
@@ -168,6 +241,10 @@ export default function DevisTab() {
             )}
           </div>
           {devisList.length > 0 && (
+            // TODO (templates) : transformer en split-button (▾) ou en menu déroulant
+            //   "Nouveau devis vierge" / "Depuis un template…" quand la feature
+            //   sera dispo. Garder le clic principal = devis vierge pour ne pas
+            //   perturber le flow actuel.
             <button onClick={() => createDevis(null)} className="btn-primary btn-sm shrink-0">
               <Plus className="w-3.5 h-3.5" />
               Nouveau devis
@@ -345,13 +422,18 @@ export default function DevisTab() {
                         ))}
                       </select>
 
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="btn-ghost btn-sm text-xs text-gray-400">
-                          <Eye className="w-3.5 h-3.5" />
-                        </span>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={e => duplicateDevis(dv, e)}
+                          title="Dupliquer ce devis"
+                          className="btn-ghost btn-sm text-gray-400 hover:text-blue-600"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={e => deleteDevis(dv.id, e)}
-                          className="btn-ghost btn-sm text-gray-300 hover:text-red-500"
+                          title="Supprimer ce devis"
+                          className="btn-ghost btn-sm text-gray-400 hover:text-red-500"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
