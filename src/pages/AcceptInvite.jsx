@@ -72,15 +72,14 @@ export default function AcceptInvite() {
       return
     }
 
-    // Marque l'invitation comme acceptée dans le log (la policy update
-    // autorise l'utilisateur dont l'email correspond à la ligne à la
-    // modifier — voir ch4c2_invitations_log.sql).
-    if (userInfo?.email) {
-      await supabase
-        .from('invitations_log')
-        .update({ accepted_at: new Date().toISOString() })
-        .ilike('email', userInfo.email)
-        .is('accepted_at', null)
+    // Marque l'invitation comme acceptée dans le log via RPC
+    // SECURITY DEFINER (voir ch4c2_mark_invitation_accepted.sql).
+    // On passe par une RPC parce que le UPDATE direct ne passe pas
+    // toujours la RLS selon le contexte JWT.
+    try {
+      await supabase.rpc('mark_invitation_accepted')
+    } catch (e) {
+      console.warn('[AcceptInvite] mark_invitation_accepted failed:', e)
     }
 
     setPhase('done')
