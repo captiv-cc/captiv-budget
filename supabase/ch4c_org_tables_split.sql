@@ -80,7 +80,10 @@ CREATE POLICY "produits_scoped_write" ON produits_bdd
   );
 
 -- === fournisseurs =========================================================
--- Note : activer RLS si pas déjà fait
+-- Note : fournisseurs est actuellement une table globale (pas d'org_id).
+-- On protège par rôle uniquement — lecture pour tout utilisateur connecté,
+-- écriture pour les rôles internes. Si tu multi-tenantes un jour la table,
+-- ajoute org_id et refais une policy scoped.
 ALTER TABLE fournisseurs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "fournisseurs_all"           ON fournisseurs;
@@ -90,15 +93,9 @@ DROP POLICY IF EXISTS "fournisseurs_scoped_write"  ON fournisseurs;
 
 CREATE POLICY "fournisseurs_scoped_read" ON fournisseurs
   FOR SELECT
-  USING (org_id = get_user_org_id());
+  USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "fournisseurs_scoped_write" ON fournisseurs
   FOR ALL
-  USING (
-    org_id = get_user_org_id()
-    AND current_user_role() IN ('admin', 'charge_prod', 'coordinateur')
-  )
-  WITH CHECK (
-    org_id = get_user_org_id()
-    AND current_user_role() IN ('admin', 'charge_prod', 'coordinateur')
-  );
+  USING (current_user_role() IN ('admin', 'charge_prod', 'coordinateur'))
+  WITH CHECK (current_user_role() IN ('admin', 'charge_prod', 'coordinateur'));
