@@ -305,7 +305,10 @@ function ReadView({
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <div className="card overflow-visible">
         <div className="p-6">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            {/* Avatar projet — image projet, sinon logo client, sinon initiales */}
+            <ProjectAvatar project={project} />
+
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-bold text-gray-900 truncate mb-2">
                 {project.title || 'Projet sans nom'}
@@ -356,14 +359,7 @@ function ReadView({
                     <FileText className="w-3 h-3 text-gray-500" />
                     <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Spécifications</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {planningSpecs.map(c => (
-                      <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
-                        <p className="text-sm text-gray-800">{c.value}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <InfoGrid items={planningSpecs} />
                 </div>
               )}
               {planningChips.length > 0 && (
@@ -372,14 +368,7 @@ function ReadView({
                     <Calendar className="w-3 h-3 text-gray-500" />
                     <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Planning</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {planningChips.map(c => (
-                      <div key={c.label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{c.label}</p>
-                        <p className="text-sm text-gray-800">{c.value}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <InfoGrid items={planningChips} />
                 </div>
               )}
             </div>
@@ -476,6 +465,51 @@ function ReadView({
 }
 
 // ─── Sous-composants de la vue lecture ──────────────────────────────────────
+
+// Avatar projet 64×64. Cascade de fallback :
+//   1) project.cover_url      (à venir, upload côté projet — colonne future)
+//   2) project.clients.logo_url (logo client déjà géré côté DB clients)
+//   3) initiales du titre projet sur fond coloré déterministe
+function ProjectAvatar({ project }) {
+  const src = project.cover_url || project.clients?.logo_url || null
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={project.title || 'Projet'}
+        className="w-16 h-16 rounded-xl object-cover shrink-0 ring-1 ring-gray-100 bg-white"
+        onError={e => { e.currentTarget.style.display = 'none' }}
+      />
+    )
+  }
+
+  // Fallback : initiales sur fond coloré (hash déterministe sur le titre)
+  const title = (project.title || '?').trim()
+  const initials = title
+    .split(/\s+/).slice(0, 2)
+    .map(w => w[0]).join('')
+    .toUpperCase() || '?'
+
+  const palette = [
+    'from-blue-500 to-indigo-600',
+    'from-purple-500 to-pink-600',
+    'from-emerald-500 to-teal-600',
+    'from-amber-500 to-orange-600',
+    'from-rose-500 to-red-600',
+    'from-cyan-500 to-blue-600',
+  ]
+  let h = 0
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) | 0
+  const grad = palette[Math.abs(h) % palette.length]
+
+  return (
+    <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-white font-bold text-lg shrink-0 ring-1 ring-black/5 shadow-sm`}>
+      {initials}
+    </div>
+  )
+}
+
 function SubLine({ get, project }) {
   const parts = [
     get('type_projet'),
