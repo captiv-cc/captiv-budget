@@ -250,8 +250,6 @@ export default function ProjetTab() {
           persons={persons}
           loadingMembres={loadingMembres}
           accessCount={accessCount}
-          showAdmin={showAdmin}
-          setShowAdmin={setShowAdmin}
         />
       )}
     </div>
@@ -263,7 +261,7 @@ export default function ProjetTab() {
 // ══════════════════════════════════════════════════════════════════════════════
 function ReadView({
   project, get, canEdit, onEdit,
-  persons, loadingMembres, accessCount, showAdmin, setShowAdmin,
+  persons, loadingMembres, accessCount,
 }) {
   const planningSpecs = [
     { label: 'Nb livrables', value: get('nb_livrables') },
@@ -456,51 +454,9 @@ function ReadView({
         </SectionCard>
       )}
 
-      {/* ── DÉTAILS ADMIN (admin/charge_prod uniquement, repliable) ──────── */}
+      {/* ── FOOTER ADMIN (admin/charge_prod uniquement) ──────────────────── */}
       {canEdit && (
-        <div className="card overflow-visible">
-          <button
-            type="button"
-            onClick={() => setShowAdmin(s => !s)}
-            className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-2 text-gray-700">
-              <Building2 className="w-4 h-4 text-gray-400" />
-              <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
-            </div>
-            {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-          </button>
-          {showAdmin && (
-            <div className="p-5">
-              <InfoGrid items={[
-                { label: 'Référence projet',        value: project.ref_projet },
-                { label: 'Bon de commande client',  value: project.bon_commande },
-                { label: 'Date du devis',           value: project.date_devis },
-              ]} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── GESTION DES ACCÈS (admin/charge_prod uniquement) ─────────────── */}
-      {canEdit && (
-        <SectionCard
-          icon={<Shield className="w-4 h-4" />}
-          title="Gestion des accès"
-          action={
-            <Link to={`/projets/${project.id}/access`} className="btn-secondary btn-sm">
-              Gérer →
-            </Link>
-          }
-        >
-          <p className="text-xs text-gray-500">
-            {accessCount === null
-              ? 'Chargement…'
-              : accessCount === 0
-                ? 'Aucun utilisateur avec accès spécifique à ce projet.'
-                : `${accessCount} utilisateur${accessCount > 1 ? 's ont' : ' a'} accès à ce projet.`}
-          </p>
-        </SectionCard>
+        <AdminFooter project={project} accessCount={accessCount} />
       )}
     </>
   )
@@ -540,6 +496,46 @@ function ClientLine({ project }) {
           <MapPin className="w-3 h-3" />{c.address}
         </span>
       )}
+    </div>
+  )
+}
+
+// Footer compact regroupant les infos admin (réf, BC, date devis)
+// et l'accès délégué vers AccessTab. Visible uniquement pour admin/charge_prod.
+function AdminFooter({ project, accessCount }) {
+  const adminBits = [
+    project.ref_projet   && { label: 'Réf', value: project.ref_projet, mono: true },
+    project.bon_commande && { label: 'BC',  value: project.bon_commande, mono: true },
+    project.date_devis   && { label: 'Devis du', value: project.date_devis },
+  ].filter(Boolean)
+
+  const accessLabel =
+    accessCount === null ? '—' :
+    accessCount === 0    ? 'Aucun accès délégué' :
+    `${accessCount} utilisateur${accessCount > 1 ? 's' : ''}`
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 rounded-xl border border-gray-100 bg-gray-50/60 text-xs">
+      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-gray-500">
+        <Building2 className="w-3.5 h-3.5 text-gray-400" />
+        {adminBits.length === 0 ? (
+          <span className="italic text-gray-400">Aucune info admin renseignée</span>
+        ) : adminBits.map((b, i) => (
+          <span key={b.label} className="flex items-center gap-1.5">
+            <span className="text-gray-400 uppercase tracking-wide text-[10px] font-semibold">{b.label}</span>
+            <span className={`text-gray-700 ${b.mono ? 'font-mono' : ''}`}>{b.value}</span>
+            {i < adminBits.length - 1 && <span className="text-gray-300 ml-3">·</span>}
+          </span>
+        ))}
+      </div>
+      <Link
+        to={`/projets/${project.id}/access`}
+        className="flex items-center gap-1.5 text-gray-500 hover:text-blue-600 transition-colors"
+      >
+        <Shield className="w-3.5 h-3.5 text-gray-400" />
+        <span>{accessLabel}</span>
+        <span className="text-blue-600 font-medium ml-1">Gérer →</span>
+      </Link>
     </div>
   )
 }
