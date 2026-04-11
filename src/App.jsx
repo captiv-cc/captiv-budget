@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import HomePage from './pages/HomePage'
@@ -11,6 +13,7 @@ import BDD from './pages/BDD'
 import Compta from './pages/Compta'
 import Crew  from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
+import Unauthorized from './pages/Unauthorized'
 
 // Onglets projet
 import ProjetTab          from './pages/tabs/ProjetTab'
@@ -54,6 +57,7 @@ function AppRoutes() {
       {/* Public */}
       <Route path="/login" element={<Login />} />
       <Route path="/devis/public/:token" element={<DevisPublic />} />
+      <Route path="/unauthorized" element={<Unauthorized />} />
 
       {/* Private */}
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
@@ -100,10 +104,35 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster
+            position="top-right"
+            gutter={8}
+            toastOptions={{
+              // Styles par défaut appliqués à tous les toasts
+              duration: 3500,
+              style: {
+                background: '#1f2937',
+                color: '#f9fafb',
+                fontSize: '14px',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                boxShadow: '0 10px 25px -5px rgba(0,0,0,0.2)',
+              },
+              success: {
+                iconTheme: { primary: '#10b981', secondary: '#ecfdf5' },
+              },
+              error: {
+                duration: 5000,
+                iconTheme: { primary: '#ef4444', secondary: '#fef2f2' },
+              },
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }

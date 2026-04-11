@@ -82,6 +82,7 @@ function SectionTitle({ children }) {
 
 // ─── Page Accueil ─────────────────────────────────────────────────────────────
 export default function HomePage() {
+    
   const { profile, org, canSeeFinance } = useAuth()
 
   const [loading,   setLoading]   = useState(true)
