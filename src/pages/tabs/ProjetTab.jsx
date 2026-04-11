@@ -326,6 +326,17 @@ function ReadView({
   } catch { livrables = [] }
   livrables = livrables.filter(l => l.nom || l.format || l.duree || l.livraison)
 
+  // Combien de blocs prennent la colonne gauche (col-span-2) ? Nécessaire
+  // pour qu'Équipe (col-span-1, latérale) span exactement le bon nombre de
+  // rows et ne crée pas de trou sous le Hero. NB : `lg:row-span-full` ne
+  // fonctionne pas ici car il ne spanne que les rows explicites.
+  // Items toujours présents : Hero + AdminFooter + Identité + (Livrables card OR empty link)
+  // Optionnel : Note de prod (canEdit && project.note_prod)
+  const leftRowCount =
+    4 + (canEdit && project.note_prod ? 1 : 0)
+  // Tailwind a besoin des classes literales pour les détecter :
+  // lg:row-span-4 lg:row-span-5
+
   return (
     <>
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
@@ -406,7 +417,7 @@ function ReadView({
       <SectionCard
         icon={<Users className="w-4 h-4" />}
         title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
-        className="lg:col-start-3 lg:row-start-1 lg:row-span-full lg:self-start"
+        className={`lg:col-start-3 lg:row-start-1 lg:self-start ${leftRowCount === 5 ? 'lg:row-span-5' : 'lg:row-span-4'}`}
         action={
           <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
             Voir →
