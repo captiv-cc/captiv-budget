@@ -24,7 +24,7 @@ export default function Login() {
       if (mode === 'login') {
         const { error } = await signIn(email, password)
         if (error) throw error
-        navigate('/dashboard')
+        navigate('/accueil')
 
       } else if (mode === 'signup') {
         const { error } = await signUp(email, password, fullName)
@@ -34,7 +34,7 @@ export default function Login() {
       } else if (mode === 'setup') {
         const { error } = await createOrg(orgName)
         if (error) throw error
-        navigate('/dashboard')
+        navigate('/accueil')
       }
     } catch (err) {
       setError(err.message || 'Une erreur est survenue')
