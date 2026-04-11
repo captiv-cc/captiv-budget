@@ -159,8 +159,9 @@ export default function ProjetTab() {
   const [loadingMembres, setLoadingMembres] = useState(true)
   const [accessCount,    setAccessCount]    = useState(null)
 
-  // UI : section "Détails admin" repliable
-  const [showAdmin, setShowAdmin] = useState(false)
+  // UI : section "Détails admin" repliable (ouverte par défaut en édition
+  // pour ne pas l'oublier)
+  const [showAdmin, setShowAdmin] = useState(true)
 
   // ─── Chargements ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -319,6 +320,11 @@ function ReadView({
         </div>
       </div>
 
+      {/* ── FOOTER ADMIN (admin/charge_prod uniquement, juste sous le hero) ─ */}
+      {canEdit && (
+        <AdminFooter project={project} accessCount={accessCount} />
+      )}
+
       {/* ── IDENTITÉ (+ planning fusionné) ───────────────────────────────── */}
       <SectionCard icon={<Clapperboard className="w-4 h-4" />} title="Identité">
         <div className="space-y-5">
@@ -452,11 +458,6 @@ function ReadView({
         <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
         </SectionCard>
-      )}
-
-      {/* ── FOOTER ADMIN (admin/charge_prod uniquement) ──────────────────── */}
-      {canEdit && (
-        <AdminFooter project={project} accessCount={accessCount} />
       )}
     </>
   )
