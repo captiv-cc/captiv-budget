@@ -16,6 +16,8 @@ import {
   EMPTY_LINE,
   EMPTY_GLOBAL,
 } from '../features/devis/constants'
+import PriceCell from '../features/devis/components/cells/PriceCell'
+import CalcCell from '../features/devis/components/cells/CalcCell'
 import {
   Plus, Trash2, Copy, Download, ChevronLeft,
   ChevronDown, ChevronUp, ChevronRight, Save, Eye, RefreshCw,
@@ -1373,64 +1375,6 @@ function DevisLine({ line, taux, bdd, accentColor, onChange, onChangeBatch, onDe
         </div>
       </td>
     </tr>
-  )
-}
-
-// Cellule saisie prix — formatée au repos, input au clic
-// nullable=true : vide → null (ex: cout_ht où null = "= vente")
-function PriceCell({ value, onChange, placeholder = '—', style = {}, nullable = false }) {
-  const [editing, setEditing] = useState(false)
-  const inputRef = useRef(null)
-
-  function commit(raw) {
-    if (nullable) {
-      onChange(raw === '' ? null : parseFloat(raw) ?? null)
-    } else {
-      onChange(parseFloat(raw) || 0)
-    }
-    setEditing(false)
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="number"
-        className="input-cell w-full text-right"
-        defaultValue={value || ''}
-        autoFocus
-        min={0} step={0.01}
-        onBlur={e => commit(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value) }
-          if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-        }}
-        style={style}
-      />
-    )
-  }
-
-  return (
-    <div
-      className="input-cell w-full text-right tabular-nums cursor-text"
-      tabIndex={0}
-      onClick={() => setEditing(true)}
-      onFocus={() => setEditing(true)}
-      style={style}
-    >
-      {value !== null && value !== undefined ? fmtEur(value) : <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>{placeholder}</span>}
-    </div>
-  )
-}
-
-function CalcCell({ val, cls = '', style = {}, dim = false }) {
-  return (
-    <td
-      className={`text-right px-2 py-[3px] tabular-nums ${dim ? 'text-[11px]' : 'text-xs'} ${cls}`}
-      style={style}
-    >
-      {val !== 0 ? fmtEur(val) : <span style={{ color: 'var(--txt-3)' }}>—</span>}
-    </td>
   )
 }
 
