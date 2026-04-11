@@ -515,7 +515,7 @@ function AdminFooter({ project, accessCount }) {
     `${accessCount} utilisateur${accessCount > 1 ? 's' : ''}`
 
   return (
-    <div className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 rounded-xl border border-gray-100 bg-gray-50/60 text-xs">
+    <div className="card mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 text-xs">
       <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-gray-500">
         <Building2 className="w-3.5 h-3.5 text-gray-400" />
         {adminBits.length === 0 ? (
