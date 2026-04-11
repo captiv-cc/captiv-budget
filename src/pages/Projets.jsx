@@ -22,7 +22,7 @@ export default function Projets() {
   async function loadAll() {
     setLoading(true)
     const [{ data: projs }, { data: cls }] = await Promise.all([
-      supabase.from('projects').select('*, clients(name, logo_url)').eq('org_id', org.id).order('updated_at', { ascending: false }),
+      supabase.from('projects').select('*, clients(name)').eq('org_id', org.id).order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
     ])
     setProjects(projs || [])

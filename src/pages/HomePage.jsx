@@ -105,7 +105,7 @@ export default function HomePage() {
       // Projets actifs (affichés à tous les rôles — sans chiffres)
       const { data: projs } = await supabase
         .from('projects')
-        .select('id, title, status, type_projet, date_fin, cover_url, clients(name, logo_url)')
+        .select('id, title, status, type_projet, date_fin, cover_url, clients(name)')
         .eq('org_id', org.id)
         .in('status', ['prospect', 'en_cours'])
         .order('updated_at', { ascending: false })
