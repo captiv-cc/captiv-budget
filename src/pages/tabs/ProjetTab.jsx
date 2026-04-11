@@ -184,9 +184,11 @@ export default function ProjetTab() {
 
   useEffect(() => {
     if (!projectId || !canEdit) return
+    // ⚠️ project_access a une PK composite (user_id, project_id) — pas de colonne `id`.
+    // On compte sur user_id pour récupérer le bon `count`.
     supabase
       .from('project_access')
-      .select('id', { count: 'exact', head: true })
+      .select('user_id', { count: 'exact', head: true })
       .eq('project_id', projectId)
       .then(({ count }) => setAccessCount(count ?? 0))
   }, [projectId, canEdit])
