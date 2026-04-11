@@ -18,7 +18,7 @@ const STATUS_OPTIONS = [
 export default function ProjetDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { org, profile } = useAuth()
+  const { org, profile, canSeeFinance } = useAuth()
 
   const [project, setProject]     = useState(null)
   const [devisList, setDevisList] = useState([])
@@ -91,6 +91,7 @@ export default function ProjetDetail() {
   }
 
   async function deleteDevis(dvId) {
+    if (!canSeeFinance) return
     if (!confirm('Supprimer ce devis ?')) return
     await supabase.from('devis').delete().eq('id', dvId)
     setDevisList(p => p.filter(d => d.id !== dvId))
@@ -220,9 +221,11 @@ export default function ProjetDetail() {
                     <Link to={`/projets/${id}/devis/${dv.id}`} className="btn-ghost btn-sm text-xs">
                       <Eye className="w-3.5 h-3.5" />Ouvrir
                     </Link>
-                    <button onClick={() => deleteDevis(dv.id)} className="btn-ghost btn-sm text-gray-400 hover:text-red-500">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canSeeFinance && (
+                      <button onClick={() => deleteDevis(dv.id)} className="btn-ghost btn-sm text-gray-400 hover:text-red-500">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )
