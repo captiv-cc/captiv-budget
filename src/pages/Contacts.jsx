@@ -505,7 +505,22 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
           mode,
         },
       })
-      if (error) throw error
+      // Si la fonction renvoie un status non-2xx, supabase-js met l'erreur dans `error`
+      // mais le body JSON (avec notre message) est dans error.context.
+      if (error) {
+        let detailed = error.message || 'Erreur inconnue'
+        try {
+          // Tente de lire le body de la réponse pour récupérer notre message
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json()
+            if (body?.error) detailed = body.error
+          } else if (error.context && typeof error.context.text === 'function') {
+            const txt = await error.context.text()
+            if (txt) detailed = txt
+          }
+        } catch { /* ignore — on garde le message par défaut */ }
+        throw new Error(detailed)
+      }
       if (data?.error) throw new Error(data.error)
 
       // Succès : maj locale du form + refresh parent
