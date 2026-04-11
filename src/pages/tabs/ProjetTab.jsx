@@ -406,10 +406,10 @@ function ReadView({
       <SectionCard
         icon={<Users className="w-4 h-4" />}
         title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
-        className="lg:col-span-2"
+        className="lg:col-span-1"
         action={
           <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-            Voir l'équipe →
+            Voir →
           </Link>
         }
       >
@@ -420,7 +420,7 @@ function ReadView({
         ) : persons.length === 0 ? (
           <EmptyHint>Aucun membre attribué pour le moment.</EmptyHint>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
             {persons.map(p => (
               <div key={p.key} className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2">
                 <div className="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold shrink-0">
