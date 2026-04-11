@@ -149,6 +149,17 @@ Deno.serve(async (req: Request) => {
       invited_by: callerId,
     }
 
+    // URL de redirection après vérification du token Supabase. On calcule
+    // l'origine à partir des headers Origin / Referer de la requête pour
+    // que le lien pointe vers /accept-invite (formulaire "Définir mot de
+    // passe") au lieu de la racine du site. Si non détectable, on omet
+    // l'option et Supabase utilise la Site URL par défaut.
+    const origin = req.headers.get('origin') || req.headers.get('referer') || ''
+    const cleanOrigin = origin.replace(/\/$/, '').replace(/\/accept-invite.*$/, '')
+    const redirectTo = cleanOrigin
+      ? `${cleanOrigin}/accept-invite`
+      : undefined
+
     // ── 5. Vérifier qu'aucun user auth n'existe déjà avec cet email ──────
     // (on laisse Supabase renvoyer l'erreur si c'est le cas, c'est plus fiable
     // que de scanner auth.users depuis ici)
@@ -163,7 +174,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await adminClient.auth.admin.generateLink({
         type: 'invite',
         email,
-        options: { data: metadata },
+        options: { data: metadata, redirectTo },
       })
       if (error) return jsonResponse(400, { error: 'generateLink: ' + error.message })
       newUserId = data.user?.id || ''
@@ -172,7 +183,7 @@ Deno.serve(async (req: Request) => {
     } else {
       const { data, error } = await adminClient.auth.admin.inviteUserByEmail(
         email,
-        { data: metadata },
+        { data: metadata, redirectTo },
       )
       if (error) return jsonResponse(400, { error: 'inviteUserByEmail: ' + error.message })
       newUserId = data.user?.id || ''

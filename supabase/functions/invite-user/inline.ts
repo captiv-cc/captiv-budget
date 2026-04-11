@@ -121,6 +121,16 @@ Deno.serve(async (req: Request) => {
       invited_by: callerId,
     }
 
+    // URL de redirection après vérification du token par Supabase.
+    // Permet au destinataire d'atterrir sur la page "Choisissez votre mot
+    // de passe" au lieu de la racine du site. Lu depuis un origin envoyé
+    // par le client, sinon fallback sur Site URL configurée dans Supabase.
+    const origin = req.headers.get('origin') || req.headers.get('referer') || ''
+    const cleanOrigin = origin.replace(/\/$/, '').replace(/\/accept-invite.*$/, '')
+    const redirectTo = cleanOrigin
+      ? `${cleanOrigin}/accept-invite`
+      : undefined
+
     let newUserId: string
     let actionLink: string | null = null
 
@@ -128,7 +138,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await adminClient.auth.admin.generateLink({
         type: 'invite',
         email,
-        options: { data: metadata },
+        options: { data: metadata, redirectTo },
       })
       if (error) return jsonResponse(400, { error: 'generateLink: ' + error.message })
       newUserId = data.user?.id || ''
@@ -137,7 +147,7 @@ Deno.serve(async (req: Request) => {
     } else {
       const { data, error } = await adminClient.auth.admin.inviteUserByEmail(
         email,
-        { data: metadata },
+        { data: metadata, redirectTo },
       )
       if (error) return jsonResponse(400, { error: 'inviteUserByEmail: ' + error.message })
       newUserId = data.user?.id || ''
