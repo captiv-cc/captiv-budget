@@ -18,6 +18,12 @@ import {
 } from '../features/devis/constants'
 import PriceCell from '../features/devis/components/cells/PriceCell'
 import CalcCell from '../features/devis/components/cells/CalcCell'
+import TopbarKpi from '../features/devis/components/TopbarKpi'
+import BarMetric from '../features/devis/components/BarMetric'
+import KpiCard from '../features/devis/components/KpiCard'
+import AdjRow from '../features/devis/components/AdjRow'
+import SynthRow from '../features/devis/components/SynthRow'
+import StatusBadge from '../features/devis/components/StatusBadge'
 import {
   Plus, Trash2, Copy, Download, ChevronLeft,
   ChevronDown, ChevronUp, ChevronRight, Save, Eye, RefreshCw,
@@ -1378,17 +1384,6 @@ function DevisLine({ line, taux, bdd, accentColor, onChange, onChangeBatch, onDe
   )
 }
 
-// ─── KPI inline dans le topbar ────────────────────────────────────────────────
-function TopbarKpi({ label, value, sub, color }) {
-  return (
-    <div className="flex flex-col items-center px-4">
-      <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>{label}</span>
-      <span className="text-sm font-bold leading-tight" style={{ color }}>{value}</span>
-      {sub && <span className="text-[10px] leading-tight" style={{ color: 'var(--txt-3)' }}>{sub}</span>}
-    </div>
-  )
-}
-
 // ─── Bandeau synthèse sticky bas + tiroir détails ─────────────────────────────
 function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUpdateDevis }) {
   const [open, setOpen] = useState(false)
@@ -1609,120 +1604,6 @@ function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUpdateDevis }) {
       </div>{/* fin bulle */}
     </>
   )
-}
-
-// Métrique dans la barre de synthèse
-function BarMetric({ label, value, subvalue, prominent = false, muted = false, color }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[9px] font-semibold uppercase tracking-widest" style={{ color: 'var(--txt-3)' }}>
-        {label}
-      </span>
-      <span className="flex items-baseline gap-1.5">
-        <span
-          className="tabular-nums font-bold"
-          style={{
-            fontSize: prominent ? '15px' : muted ? '12px' : '13px',
-            color: color || (prominent ? 'var(--txt)' : muted ? 'var(--txt-3)' : 'var(--txt-2)'),
-          }}
-        >
-          {value}
-        </span>
-        {subvalue && (
-          <span className="tabular-nums" style={{ fontSize: '10px', color: color || 'var(--txt-3)', opacity: 0.7 }}>
-            {subvalue}
-          </span>
-        )}
-      </span>
-    </div>
-  )
-}
-
-function KpiCard({ icon, label, value, sub, color }) {
-  const bgMap = {
-    blue:   'rgba(77,159,255,.1)',
-    green:  'rgba(0,200,117,.1)',
-    red:    'rgba(255,71,87,.1)',
-    amber:  'rgba(255,206,0,.1)',
-    purple: 'rgba(156,95,253,.1)',
-  }
-  const brdMap = {
-    blue:   'rgba(77,159,255,.25)',
-    green:  'rgba(0,200,117,.25)',
-    red:    'rgba(255,71,87,.25)',
-    amber:  'rgba(255,206,0,.25)',
-    purple: 'rgba(156,95,253,.25)',
-  }
-  return (
-    <div className="rounded-lg border p-2" style={{ background: bgMap[color] || bgMap.blue, borderColor: brdMap[color] || brdMap.blue }}>
-      <div className="flex items-center gap-1 mb-0.5">
-        {icon}
-        <span className="text-[10px] font-medium" style={{ color: 'var(--txt-3)' }}>{label}</span>
-      </div>
-      <p className="text-xs font-bold truncate" style={{ color: 'var(--txt)' }}>{value}</p>
-      {sub && <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>{sub}</p>}
-    </div>
-  )
-}
-
-function AdjRow({ icon, label, value, onChange, suffix, computed }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center gap-1 flex-1 min-w-0">
-        {icon}
-        <span className="text-xs truncate" style={{ color: 'var(--txt-2)' }}>{label}</span>
-      </div>
-      <div className="relative w-16 shrink-0">
-        <input
-          type="number"
-          className="input text-xs text-right pr-4 py-1 h-7 w-full"
-          value={value || ''}
-          onChange={e => onChange(e.target.value)}
-          min={0} max={100} step={0.5}
-          placeholder="0"
-        />
-        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px]" style={{ color: 'var(--txt-3)' }}>{suffix}</span>
-      </div>
-      {value > 0 && (
-        <span className="text-xs w-20 text-right shrink-0" style={{ color: 'var(--txt-3)' }}>{computed}</span>
-      )}
-    </div>
-  )
-}
-
-function SynthRow({ label, val, big, highlight, muted, colored }) {
-  const colorMap = {
-    blue: 'var(--blue)',
-    purple: 'var(--purple)',
-    orange: 'var(--orange)',
-    green: 'var(--green)',
-  }
-  return (
-    <div
-      className="flex items-center justify-between px-2 py-1 rounded"
-      style={highlight ? { background: 'rgba(255,255,255,.08)', border: '1px solid var(--brd)' } : {}}
-    >
-      <span className="text-xs" style={{ color: muted ? 'var(--txt-3)' : highlight ? 'var(--txt-2)' : 'var(--txt-2)', fontWeight: highlight ? 500 : 400 }}>{label}</span>
-      <span
-        style={{
-          fontSize: big ? '0.875rem' : '0.75rem',
-          fontWeight: big ? 700 : 500,
-          color: highlight ? 'var(--txt)' : muted ? 'var(--txt-3)' : colored ? colorMap[colored] : 'var(--txt)',
-        }}
-      >
-        {val}
-      </span>
-    </div>
-  )
-}
-
-function StatusBadge({ status }) {
-  const map = {
-    brouillon: 'badge-gray', envoye: 'badge-blue',
-    accepte: 'badge-green',  refuse: 'badge-red',
-  }
-  const labels = { brouillon:'Brouillon', envoye:'Envoyé', accepte:'Accepté', refuse:'Refusé' }
-  return <span className={`badge ${map[status] || 'badge-gray'}`}>{labels[status] || status}</span>
 }
 
 const STATUS_OPTIONS = [
