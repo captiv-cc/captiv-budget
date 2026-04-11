@@ -633,6 +633,31 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
         </div>
       </div>
 
+      {/* ── BLOC DÉTAILS ADMIN (repliable, en 2e position pour ne pas l'oublier) ─ */}
+      <div className="card overflow-visible">
+        <button
+          type="button"
+          onClick={() => setShowAdmin(s => !s)}
+          className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2 text-gray-700">
+            <Building2 className="w-4 h-4 text-gray-400" />
+            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
+          </div>
+          {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+        </button>
+        {showAdmin && (
+          <div className="p-5 space-y-3">
+            <Field label="Référence projet" placeholder="CAPTIV-2026-001"
+              value={draft.ref_projet} onChange={v => setA('ref_projet', v)} />
+            <Field label="Bon de commande client" placeholder="N° BC / PO"
+              value={draft.bon_commande} onChange={v => setA('bon_commande', v)} />
+            <Field label="Date du devis" type="date"
+              value={draft.date_devis} onChange={v => setA('date_devis', v)} />
+          </div>
+        )}
+      </div>
+
       {/* ── BLOC IDENTITÉ ────────────────────────────────────────────────── */}
       <Block icon={<Clapperboard className="w-4 h-4" />} title="Identité">
         <div className="space-y-4">
@@ -761,30 +786,6 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
         />
       </Block>
 
-      {/* ── BLOC DÉTAILS ADMIN (repliable) ───────────────────────────────── */}
-      <div className="card overflow-visible">
-        <button
-          type="button"
-          onClick={() => setShowAdmin(s => !s)}
-          className="w-full card-header flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2 text-gray-700">
-            <Building2 className="w-4 h-4 text-gray-400" />
-            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">Détails admin</h2>
-          </div>
-          {showAdmin ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-        </button>
-        {showAdmin && (
-          <div className="p-5 space-y-3">
-            <Field label="Référence projet" placeholder="CAPTIV-2026-001"
-              value={draft.ref_projet} onChange={v => setA('ref_projet', v)} />
-            <Field label="Bon de commande client" placeholder="N° BC / PO"
-              value={draft.bon_commande} onChange={v => setA('bon_commande', v)} />
-            <Field label="Date du devis" type="date"
-              value={draft.date_devis} onChange={v => setA('date_devis', v)} />
-          </div>
-        )}
-      </div>
     </>
   )
 }
