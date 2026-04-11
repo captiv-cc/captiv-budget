@@ -8,10 +8,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { CATS } from '../lib/cotisations'
 import TvaPicker from '../components/TvaPicker'
+import toast from 'react-hot-toast'
 import {
   Plus, Search, Trash2, Edit2, X, Check, LayoutGrid, List,
   Users, Phone, Mail, Euro, ChevronUp, ChevronDown, Minus,
-  Link2, Briefcase, FileText,
+  Link2, Briefcase, FileText, Send, Copy, Loader2,
 } from 'lucide-react'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -301,6 +302,7 @@ export default function Contacts() {
           linkedUserIds={contacts
             .filter(c => c.user_id && (modal === 'create' || c.id !== modal.id))
             .map(c => c.user_id)}
+          onInvited={load}
         />
       )}
     </div>
@@ -469,14 +471,77 @@ function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
 }
 
 // ─── Modal créer / éditer ─────────────────────────────────────────────────────
-function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles = [], linkedUserIds = [] }) {
+function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles = [], linkedUserIds = [], onInvited }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const isCreate = modal === 'create'
+  const contactId = typeof modal === 'object' ? modal.id : null
 
   // Users disponibles pour liaison : non liés à un autre contact, + le user actuellement lié (si édition)
   const availableProfiles = profiles.filter(p =>
     !linkedUserIds.includes(p.id) || p.id === form.user_id
   )
+
+  // ch4C.2 : état pour l'invitation (email + lien)
+  const [inviting, setInviting] = useState(null)      // null | 'email' | 'link'
+  const [inviteLink, setInviteLink] = useState(null)  // URL retournée par mode='link'
+  const [inviteRole, setInviteRole] = useState('prestataire')
+
+  async function sendInvite(mode) {
+    if (!contactId) return
+    if (!form.email) {
+      toast.error("L'email du contact est requis pour l'invitation.")
+      return
+    }
+    setInviting(mode)
+    setInviteLink(null)
+    try {
+      const fullName = [form.prenom, form.nom].filter(Boolean).join(' ').trim()
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: {
+          contact_id: contactId,
+          email: form.email,
+          full_name: fullName,
+          role: inviteRole,
+          mode,
+        },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+
+      // Succès : maj locale du form + refresh parent
+      if (data?.user_id) set('user_id', data.user_id)
+      if (mode === 'email') {
+        toast.success('Invitation envoyée par email !')
+        onInvited?.()
+      } else {
+        setInviteLink(data?.action_link || null)
+        if (data?.action_link) {
+          // Copie auto dans le presse-papier
+          try {
+            await navigator.clipboard.writeText(data.action_link)
+            toast.success('Lien copié dans le presse-papier')
+          } catch {
+            toast.success('Lien généré')
+          }
+        }
+        onInvited?.()
+      }
+    } catch (err) {
+      toast.error('Invitation échouée : ' + (err.message || JSON.stringify(err)))
+    } finally {
+      setInviting(null)
+    }
+  }
+
+  async function copyLink() {
+    if (!inviteLink) return
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      toast.success('Lien copié')
+    } catch {
+      toast.error('Impossible de copier — sélectionnez et copiez à la main')
+    }
+  }
 
   const inputStyle = {
     background: 'var(--bg-elev)', border: '1px solid var(--brd)',
@@ -601,6 +666,96 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
               dans les onglets équipe et accès projet.
             </p>
           </div>
+
+          {/* ── Invitation (ch4C.2) ─ seulement si édition + pas déjà lié ─ */}
+          {!isCreate && !form.user_id && (
+            <div className="p-3 rounded-lg space-y-3"
+                 style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}>
+              <div>
+                <p className="text-xs font-semibold mb-0.5" style={{ color: 'var(--txt)' }}>
+                  Inviter cette personne à créer un compte
+                </p>
+                <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                  Envoie un email d'invitation OU génère un lien à partager par message / WhatsApp.
+                </p>
+              </div>
+
+              {/* Rôle à attribuer */}
+              <div>
+                <label style={labelStyle}>Rôle du compte créé</label>
+                <select
+                  value={inviteRole}
+                  onChange={e => setInviteRole(e.target.value)}
+                  style={inputStyle}
+                  disabled={!!inviting}
+                >
+                  <option value="prestataire">Prestataire</option>
+                  <option value="coordinateur">Coordinateur</option>
+                  <option value="charge_prod">Chargé de prod</option>
+                </select>
+              </div>
+
+              {/* Boutons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => sendInvite('email')}
+                  disabled={!!inviting || !form.email}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                  style={{ background: 'var(--blue)', color: 'white' }}
+                  title={!form.email ? 'Ajoutez un email au contact d\'abord' : 'Envoyer un email d\'invitation'}
+                >
+                  {inviting === 'email'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Send className="w-3.5 h-3.5" />}
+                  Envoyer email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendInvite('link')}
+                  disabled={!!inviting || !form.email}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                  style={{ background: 'var(--bg-surf)', color: 'var(--txt)', border: '1px solid var(--brd)' }}
+                  title={!form.email ? 'Ajoutez un email au contact d\'abord' : 'Générer un lien à partager'}
+                >
+                  {inviting === 'link'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Link2 className="w-3.5 h-3.5" />}
+                  Générer un lien
+                </button>
+              </div>
+
+              {/* Lien généré (mode link) */}
+              {inviteLink && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-medium" style={{ color: '#10b981' }}>
+                    ✓ Lien d'invitation généré — copié dans le presse-papier
+                  </p>
+                  <div className="flex gap-1.5">
+                    <input
+                      readOnly
+                      value={inviteLink}
+                      onClick={e => e.target.select()}
+                      style={{ ...inputStyle, fontSize: 10, fontFamily: 'monospace' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={copyLink}
+                      className="px-2 rounded-md shrink-0"
+                      style={{ background: 'var(--bg-surf)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+                      title="Copier à nouveau"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                    Colle ce lien dans un message WhatsApp/SMS/email. Il expire selon
+                    la configuration de ton projet Supabase (24h par défaut).
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           <div>

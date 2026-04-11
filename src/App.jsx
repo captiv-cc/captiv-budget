@@ -17,6 +17,7 @@ import Compta from './pages/Compta'
 import Crew  from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import Unauthorized from './pages/Unauthorized'
+import AcceptInvite from './pages/AcceptInvite'
 
 // ─── Groupes de rôles (alias lisibles pour les gardes) ──────────────────────
 const ROLES_FINANCE = ['admin', 'charge_prod']                       // /compta, /dashboard global, /parametres admin
@@ -66,6 +67,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/devis/public/:token" element={<DevisPublic />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
 
       {/* Private */}
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
