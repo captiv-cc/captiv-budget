@@ -3,13 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { Plus, Search, FolderOpen, ArrowRight, Trash2, Edit2, Check } from 'lucide-react'
-
-const STATUS_OPTIONS = [
-  { value: 'prospect', label: 'Prospect', cls: 'badge-amber' },
-  { value: 'en_cours', label: 'En cours', cls: 'badge-blue' },
-  { value: 'termine',  label: 'Terminé',  cls: 'badge-green' },
-  { value: 'annule',   label: 'Annulé',   cls: 'badge-gray' },
-]
+import { STATUS_OPTIONS } from '../features/projets/constants'
 
 export default function Projets() {
   const { org, profile, isInternal, isAdmin } = useAuth()
