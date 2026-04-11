@@ -234,11 +234,15 @@ export default function HomePage() {
             ) : projets.length === 0 ? (
               <div className="p-10 text-center">
                 <FolderOpen className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
-                <p className="text-sm" style={{ color: 'var(--txt-3)' }}>Aucun projet actif</p>
-                <Link to="/projets" className="inline-flex items-center gap-1 text-sm font-medium mt-3"
-                  style={{ color: 'var(--blue)' }}>
-                  <Plus className="w-4 h-4" /> Créer un projet
-                </Link>
+                <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
+                  {isInternal ? 'Aucun projet actif' : 'Aucun projet assigné pour le moment'}
+                </p>
+                {isInternal && (
+                  <Link to="/projets" className="inline-flex items-center gap-1 text-sm font-medium mt-3"
+                    style={{ color: 'var(--blue)' }}>
+                    <Plus className="w-4 h-4" /> Créer un projet
+                  </Link>
+                )}
               </div>
             ) : projets.map((p, i) => (
               <Link
