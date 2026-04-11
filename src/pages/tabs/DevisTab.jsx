@@ -8,7 +8,7 @@ import { fmtEur, fmtPct } from '../../lib/cotisations'
 import DevisEditor from '../DevisEditor'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import {
-  Plus, Copy, Trash2, FileText,
+  Plus, Copy, Pencil, Trash2, FileText,
   LayoutTemplate, Sparkles, TrendingUp, Layers, Star,
 } from 'lucide-react'
 import { BLOCS_CANONIQUES } from '../DevisEditor'
@@ -129,31 +129,52 @@ export default function DevisTab() {
     setDevisList(p => p.filter(d => d.id !== dvId))
   }
 
-  // ── Duplique un devis (devis + categories + lines) ──────────────────────
+  // ── Duplique un devis (copie complète : devis + cats + lines + membres) ──
   async function duplicateDevis(srcDv, e) {
     e.preventDefault()
     e.stopPropagation()
 
+    // 1. On récupère le devis source en entier (pour avoir tous les champs
+    //    globaux : marge, assurance, remise, tva, acompte, notes…)
+    const { data: srcFull } = await supabase
+      .from('devis')
+      .select('*')
+      .eq('id', srcDv.id)
+      .single()
+
+    if (!srcFull) { console.error('[duplicateDevis] source introuvable'); return }
+
     const nextVer = (devisList[devisList.length - 1]?.version_number || 0) + 1
     const { data: newDevis, error: devisErr } = await supabase.from('devis')
       .insert({
-        project_id:     projectId,
-        version_number: nextVer,
-        title:          srcDv.title,
-        status:         'brouillon',
-        created_by:     profile?.id,
+        project_id:             projectId,
+        version_number:         nextVer,
+        title:                  srcFull.title,
+        status:                 'brouillon',
+        created_by:             profile?.id,
+        // ── Champs globaux qu'on doit reporter ────────────────────────────
+        tva_rate:               srcFull.tva_rate,
+        acompte_pct:            srcFull.acompte_pct,
+        notes:                  srcFull.notes,
+        marge_globale_pct:      srcFull.marge_globale_pct,
+        assurance_pct:          srcFull.assurance_pct,
+        remise_globale_pct:     srcFull.remise_globale_pct,
+        remise_globale_montant: srcFull.remise_globale_montant,
       })
       .select().single()
 
     if (devisErr) { console.error('[duplicateDevis]', devisErr); return }
     if (!newDevis) return
 
-    // Copie des catégories
+    // 2. Catégories (avec notes)
     const { data: srcCats } = await supabase
       .from('devis_categories')
       .select('*')
       .eq('devis_id', srcDv.id)
       .order('sort_order')
+
+    // Map old_line_id → new_line_id pour rebrancher les membres ensuite
+    const lineIdMap = new Map()
 
     for (const srcCat of (srcCats || [])) {
       const { data: newCat } = await supabase.from('devis_categories')
@@ -162,21 +183,22 @@ export default function DevisTab() {
           name:       srcCat.name,
           sort_order: srcCat.sort_order,
           dans_marge: srcCat.dans_marge,
+          notes:      srcCat.notes,
         })
         .select().single()
 
       if (!newCat) continue
 
-      // Copie des lignes de cette catégorie
+      // 3. Lignes de la catégorie — insertion 1-par-1 pour récupérer le mapping
       const { data: srcLines } = await supabase
         .from('devis_lines')
         .select('*')
         .eq('category_id', srcCat.id)
         .order('sort_order')
 
-      if (srcLines?.length) {
-        await supabase.from('devis_lines').insert(
-          srcLines.map(l => ({
+      for (const l of (srcLines || [])) {
+        const { data: newLine } = await supabase.from('devis_lines')
+          .insert({
             devis_id:        newDevis.id,
             category_id:     newCat.id,
             ref:             l.ref,
@@ -187,19 +209,61 @@ export default function DevisTab() {
             interne:         l.interne,
             cout_egal_vente: l.cout_egal_vente,
             dans_marge:      l.dans_marge,
+            nb:              l.nb,           // ← oublié avant (= "nombre")
             quantite:        l.quantite,
             unite:           l.unite,
             tarif_ht:        l.tarif_ht,
             cout_ht:         l.cout_ht,
             remise_pct:      l.remise_pct,
             sort_order:      l.sort_order,
-          }))
+            is_crew:         l.is_crew,      // ← oublié avant
+          })
+          .select().single()
+
+        if (newLine) lineIdMap.set(l.id, newLine.id)
+      }
+    }
+
+    // 4. Affectation des équipes : on copie devis_ligne_membres en remappant
+    //    les line_id vers leurs équivalents dans le nouveau devis
+    if (lineIdMap.size > 0) {
+      const { data: srcMembres } = await supabase
+        .from('devis_ligne_membres')
+        .select('devis_line_id, projet_membre_id, notes')
+        .in('devis_line_id', Array.from(lineIdMap.keys()))
+
+      if (srcMembres?.length) {
+        await supabase.from('devis_ligne_membres').insert(
+          srcMembres
+            .map(m => ({
+              devis_line_id:    lineIdMap.get(m.devis_line_id),
+              projet_membre_id: m.projet_membre_id,
+              notes:            m.notes,
+            }))
+            .filter(m => m.devis_line_id) // sécurité
         )
       }
     }
 
     setDevisList(p => [...p, newDevis])
     navigate(`/projets/${projectId}/devis/${newDevis.id}`)
+  }
+
+  // ── Renommer un devis (titre libre genre "V2 — Sans tournage J2") ───────
+  async function renameDevis(dv, e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const next = prompt(
+      'Nom de cette version (vide pour réinitialiser) :',
+      dv.title || '',
+    )
+    if (next === null) return // annulé
+    const newTitle = next.trim() || null
+    const { error } = await supabase.from('devis')
+      .update({ title: newTitle })
+      .eq('id', dv.id)
+    if (error) { console.error('[renameDevis]', error); return }
+    setDevisList(p => p.map(d => d.id === dv.id ? { ...d, title: newTitle } : d))
   }
 
   async function updateStatus(dvId, status, e) {
@@ -423,6 +487,13 @@ export default function DevisTab() {
                       </select>
 
                       <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={e => renameDevis(dv, e)}
+                          title="Renommer cette version"
+                          className="btn-ghost btn-sm text-gray-400 hover:text-gray-700"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={e => duplicateDevis(dv, e)}
                           title="Dupliquer ce devis"
