@@ -16,6 +16,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import {
   Save, Plus, Trash2, Check, X, RefreshCw,
   Building2, Clapperboard, FileText, StickyNote, Users, Shield,
@@ -148,6 +149,11 @@ export default function ProjetTab() {
   const { isAdmin, isChargeProd } = useAuth()
   const canEdit = isAdmin || isChargeProd
 
+  // Permissions par outil (pour masquer/adapter les blocs liés aux outils
+  // dont l'utilisateur n'a pas accès, ex: livrables)
+  const { canSee: canSeeOutil } = useProjectPermissions(projectId)
+  const canSeeLivrables = canSeeOutil('livrables')
+
   // Mode édition + draft local
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(null)
@@ -253,6 +259,7 @@ export default function ProjetTab() {
           persons={persons}
           loadingMembres={loadingMembres}
           accessCount={accessCount}
+          canSeeLivrables={canSeeLivrables}
         />
       )}
     </div>
@@ -265,6 +272,7 @@ export default function ProjetTab() {
 function ReadView({
   project, get, canEdit, onEdit,
   persons, loadingMembres, accessCount,
+  canSeeLivrables,
 }) {
   const planningSpecs = [
     { label: 'Nb livrables', value: get('nb_livrables') },
@@ -415,7 +423,9 @@ function ReadView({
       </SectionCard>
 
       {/* ── LIVRABLES ────────────────────────────────────────────────────── */}
-      {livrables.length === 0 ? (
+      {/* Si l'utilisateur n'a pas accès à l'outil "livrables" et qu'il n'y en
+          a pas, on masque complètement le bloc (pas de teasing inutile). */}
+      {livrables.length === 0 && !canSeeLivrables ? null : livrables.length === 0 ? (
         <Link
           to={`/projets/${project.id}/livrables`}
           className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-xs text-gray-500 hover:text-blue-700 transition-colors"
@@ -424,7 +434,7 @@ function ReadView({
             <FileText className="w-3.5 h-3.5 text-gray-400" />
             Aucun livrable défini
           </span>
-          <span className="font-medium">+ Ajouter →</span>
+          <span className="font-medium">Voir →</span>
         </Link>
       ) : (
         <SectionCard
