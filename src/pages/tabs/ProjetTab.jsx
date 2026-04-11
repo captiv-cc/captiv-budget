@@ -256,26 +256,11 @@ export default function ProjetTab() {
             projectId={projectId}
           />
         </div>
-      ) : canEdit ? (
-        // Admin / chargé prod : on a du contenu pour la colonne latérale
-        // (AdminFooter + éventuellement Note de prod) → grille 3 colonnes
-        // dense sur desktop.
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:grid-flow-dense items-start">
-          <ReadView
-            project={project}
-            get={get}
-            canEdit={canEdit}
-            onEdit={startEdit}
-            persons={persons}
-            loadingMembres={loadingMembres}
-            accessCount={accessCount}
-            canSeeLivrables={canSeeLivrables}
-          />
-        </div>
       ) : (
-        // Prestataire / lecteur : pas de bloc latéral, on garde un layout
-        // centré confort (les classes lg:col-span sont alors no-op).
-        <div className="max-w-4xl mx-auto space-y-4">
+        // Tous les rôles : grille 3 colonnes desktop avec Équipe en colonne
+        // latérale (col-start-3, row-span-N). Repli en single column sur
+        // mobile/tablette.
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 items-start">
           <ReadView
             project={project}
             get={get}
@@ -330,12 +315,26 @@ function ReadView({
   // pour qu'Équipe (col-span-1, latérale) span exactement le bon nombre de
   // rows et ne crée pas de trou sous le Hero. NB : `lg:row-span-full` ne
   // fonctionne pas ici car il ne spanne que les rows explicites.
-  // Items toujours présents : Hero + AdminFooter + Identité + (Livrables card OR empty link)
-  // Optionnel : Note de prod (canEdit && project.note_prod)
+  // Items potentiels :
+  //   - Hero (toujours)
+  //   - AdminFooter (canEdit)
+  //   - Identité (toujours)
+  //   - Livrables card OU empty link (sauf si !canSeeLivrables ET pas de livrables)
+  //   - Note de prod (canEdit && project.note_prod)
+  const showLivrablesBlock = livrables.length > 0 || canSeeLivrables
   const leftRowCount =
-    4 + (canEdit && project.note_prod ? 1 : 0)
+    1 +                                                    // Hero
+    (canEdit ? 1 : 0) +                                    // AdminFooter
+    1 +                                                    // Identité
+    (showLivrablesBlock ? 1 : 0) +                         // Livrables
+    (canEdit && project.note_prod ? 1 : 0)                 // Note de prod
   // Tailwind a besoin des classes literales pour les détecter :
-  // lg:row-span-4 lg:row-span-5
+  // lg:row-span-2 lg:row-span-3 lg:row-span-4 lg:row-span-5
+  const equipeRowSpanClass =
+    leftRowCount >= 5 ? 'lg:row-span-5'
+    : leftRowCount === 4 ? 'lg:row-span-4'
+    : leftRowCount === 3 ? 'lg:row-span-3'
+    : 'lg:row-span-2'
 
   return (
     <>
@@ -417,7 +416,7 @@ function ReadView({
       <SectionCard
         icon={<Users className="w-4 h-4" />}
         title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
-        className={`lg:col-start-3 lg:row-start-1 lg:self-start ${leftRowCount === 5 ? 'lg:row-span-5' : 'lg:row-span-4'}`}
+        className={`lg:col-start-3 lg:row-start-1 lg:self-start ${equipeRowSpanClass}`}
         action={
           <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
             Voir →
