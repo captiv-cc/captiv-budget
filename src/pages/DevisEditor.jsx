@@ -8,6 +8,15 @@ import { exportDevisPDF } from '../lib/pdfExport'
 import ProduitAutocomplete from '../components/ProduitAutocomplete'
 import { BLOCS_CANONIQUES, getBlocInfo as _getBlocInfoByName } from '../lib/blocs'
 import {
+  CAT_ACCENT_COLORS,
+  REGIME_COMPAT,
+  normalizeRegime,
+  REGIME_META,
+  REGIME_TYPES,
+  EMPTY_LINE,
+  EMPTY_GLOBAL,
+} from '../features/devis/constants'
+import {
   Plus, Trash2, Copy, Download, ChevronLeft,
   ChevronDown, ChevronUp, ChevronRight, Save, Eye, RefreshCw,
   Check, GripVertical, Percent, ShieldCheck, Tag,
@@ -29,46 +38,6 @@ function computeSortedCategories(categories) {
   withInfo.sort((a, b) => a.info.canonicalIdx - b.info.canonicalIdx || a.cat.sort_order - b.cat.sort_order)
   let num = 1
   return withInfo.map(({ cat, info }) => ({ cat, info, num: info.isCanonical ? num++ : null }))
-}
-
-// Couleurs de repli pour blocs non-canoniques
-const CAT_ACCENT_COLORS = ['#00c875','#4d9fff','#ff9f0a','#9c5ffd','#ff5ac4','#ff4757','#ffce00']
-
-// Normalisation des régimes legacy (anciens taux cotisation_config) → régimes actuels
-const REGIME_COMPAT = {
-  'Prestation facturée': 'Externe',
-  'Auto-entrepreneur':   'Externe',
-  'Salarié CDD':         'Externe',
-}
-const normalizeRegime = r => REGIME_COMPAT[r] ?? (CATS.includes(r) ? r : 'Frais')
-
-// Métadonnées régimes — type, abréviation, couleur pour RegimeSelect
-const REGIME_META = {
-  'Intermittent Technicien': { type: 'humain',   abbr: 'Int. Tech.' },
-  'Intermittent Artiste':    { type: 'humain',   abbr: 'Int. Art.'  },
-  'Externe':                 { type: 'humain',   abbr: 'Externe'    },
-  'Interne':                 { type: 'humain',   abbr: 'Interne'    },
-  'Technique':               { type: 'materiel', abbr: 'Tech.'      },
-  'Frais':                   { type: 'frais',    abbr: 'Frais'      },
-}
-// Types de régime — icône, label (sans couleur distinctive)
-const REGIME_TYPES = {
-  humain:   { Icon: Users,  label: 'Humain'   },
-  materiel: { Icon: Wrench, label: 'Matériel' },
-  frais:    { Icon: Tag,    label: 'Frais'    },
-}
-
-const EMPTY_LINE = {
-  id: null, ref: '', produit: '', description: '',
-  regime: 'Frais', use_line: true,
-  nb: 1, quantite: 1, unite: 'F', tarif_ht: 0, cout_ht: null, remise_pct: 0, sort_order: 0,
-}
-
-const EMPTY_GLOBAL = {
-  marge_globale_pct: 0,
-  assurance_pct: 0,
-  remise_globale_pct: 0,
-  remise_globale_montant: 0,
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
