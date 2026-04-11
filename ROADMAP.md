@@ -25,6 +25,53 @@ _(rien pour l'instant)_
 
 ## 📋 Backlog
 
+### Refonte de la page Projet (ProjetTab) — vue résumée + édition contrôlée
+**Ajouté le** : 2026-04-11
+**Priorité** : haute (visible par tous les utilisateurs du projet)
+**Effort estimé** : ~1.5 jour (sans la timeline horizontale, +2-3h avec)
+
+**Contexte** : aujourd'hui `src/pages/tabs/ProjetTab.jsx` (549 lignes) est un gros formulaire en mode édition permanente, sans contrôle de rôle. N'importe qui ayant accès à l'onglet peut tout modifier. C'est la première page que voient TOUS les utilisateurs (admin, charge_prod, coordinateur, prestataires) — elle doit donc résumer le projet visuellement et n'autoriser l'édition qu'aux rôles habilités.
+
+**Objectifs** :
+- Mode **lecture par défaut** pour tous les utilisateurs
+- Mode **édition** uniquement pour `admin` + `charge_prod` (bouton "Modifier" → bascule la page)
+- Présentation **visuelle** type fiche, plus de mur de placeholders
+- Y intégrer un **récap équipe** centré sur la vue groupée par personne (pas par poste)
+- Délégation propre vers AccessTab pour la gestion fine des accès
+
+**Structure cible (lecture)** :
+1. **Hero** — gros titre + sous-ligne (type · réalisateur · agence) + client + ref projet + badge statut cliquable + bouton ✏ Modifier (admin/charge_prod uniquement)
+2. **Planning** — timeline horizontale (Prépa → Tournage → V1 → Master) ou chips datés. V1 sans timeline.
+3. **Équipe** — bloc clé : liste des personnes du projet **groupées par individu**. Si Marc est cadreur ET monteur, il apparaît une seule fois avec "Cadreur · Monteur" en sous-titre. Bouton "Voir →" qui mène à l'onglet Équipe.
+4. **Livrables** — résumé compact (3 livrables, formats, dates de livraison). Bouton "Voir tout".
+5. **Note de production** — texte libre, mode lecture distinct du mode édition.
+6. **Détails admin** — section repliable (collapsed par défaut) : ref projet, BC, date devis.
+7. **Gestion des accès** (admin/charge_prod uniquement) — petit bloc en bas : "X personnes ont accès à ce projet" + bouton "Gérer →" qui mène à AccessTab.
+
+**Mode édition** :
+- Bouton ✏ Modifier en haut bascule toute la page en formulaire (pas d'édition par bloc)
+- Boutons Annuler / Enregistrer explicites (on retire l'auto-save actuel pour gagner en clarté)
+- Seuls les blocs Identité / Planning / Note / Détails admin sont éditables ici
+- Les blocs Équipe et Livrables restent gérés depuis leurs onglets dédiés
+
+**Contrôle de rôle** :
+- Lecture : tous (déjà géré par RequirePermission au niveau de la route)
+- Édition : `isAdmin || isChargeProd`
+- Bouton "Gérer les accès" : `isAdmin || isChargeProd` (cohérent avec AccessTab)
+
+**Détails techniques** :
+- Bloc Équipe : récupérer les rôles depuis la table `project_team_members` (ou équivalent), grouper par `user_id` côté React, agréger les postes en string `"Poste1 · Poste2"`
+- Le hook `useAuth()` expose déjà `isAdmin`, `isChargeProd` — RAS côté permissions
+- Confidentialité : la page n'affiche aucune donnée financière (déjà le cas), donc pas de `canSeeFinance` à gérer ici
+
+**Pistes V2** :
+- Timeline horizontale du planning (graphique Gantt mini)
+- Visibilité par champ (système `_visible` déjà en partie présent dans `metadata`)
+- Édition par bloc (un bouton ✏ par section au lieu du bouton global)
+- Autorisations plus fines (coordinateur peut éditer note + livrables ?)
+
+---
+
 ### Recherche globale + palette Cmd+K
 **Ajouté le** : 2026-04-11
 **Priorité** : moyenne
