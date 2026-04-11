@@ -152,6 +152,17 @@ export default function ProjetLayout() {
     return <Navigate to="/unauthorized" replace state={{ from: location.pathname }} />
   }
 
+  // Garde-fou route-level : si l'URL cible un onglet qui n'est pas dans la
+  // liste autorisée (TABS déjà filtrée par rôle/outil), on redirige vers le
+  // premier onglet accessible. Évite qu'un prestataire accède à /devis ou
+  // /budget en tapant l'URL manuellement.
+  // On ignore les sous-routes de devis (ex: /devis/:devisId) qui sont gérées
+  // séparément par l'éditeur de devis plein écran.
+  if (afterId && !TABS.some(t => t.key === afterId) && !isDevisEditor) {
+    const fallback = TABS[0]?.path || 'projet'
+    return <Navigate to={`/projets/${id}/${fallback}`} replace />
+  }
+
   return (
     <ProjetContext.Provider value={ctx}>
       <div className={`flex flex-col ${isDevisEditor ? 'h-screen overflow-hidden' : 'min-h-full'}`}>
