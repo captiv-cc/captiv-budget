@@ -32,6 +32,7 @@ import EquipeTab          from './pages/tabs/EquipeTab'
 import PlanningTab        from './pages/tabs/PlanningTab'
 import ProductionTab      from './pages/tabs/ProductionTab'
 import LivrablesTab       from './pages/tabs/LivrablesTab'
+import AccessTab          from './pages/tabs/AccessTab'
 
 // Pages placeholders (à créer si besoin)
 function Placeholder({ title }) {
@@ -101,6 +102,7 @@ function AppRoutes() {
           <Route path="budget"      element={<BudgetReelTab />} />
           <Route path="factures"    element={<FacturesTab />} />
           <Route path="dashboard"   element={<DashboardProjetTab />} />
+          <Route path="access"      element={<RequireRole roles={['admin','charge_prod']}><AccessTab /></RequireRole>} />
         </Route>
       </Route>
 

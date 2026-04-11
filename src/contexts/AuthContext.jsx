@@ -141,6 +141,8 @@ export function AuthProvider({ children }) {
   const canSeeFinance    = role === 'admin' || role === 'charge_prod'
   const canSeeCrewBudget = INTERNAL_ROLES.includes(role)
   const isAdmin          = role === ROLES.ADMIN
+  const isChargeProd     = role === 'charge_prod'
+  const isCoordinateur   = role === 'coordinateur'
   const isInternal       = isInternalFn(permCtx)
   const isPrestataire    = isPrestataireFn(permCtx)
 
@@ -149,7 +151,7 @@ export function AuthProvider({ children }) {
       // État
       user, profile, org, loading,
       // Rôle
-      role, isAdmin, isInternal, isPrestataire,
+      role, isAdmin, isChargeProd, isCoordinateur, isInternal, isPrestataire,
       // API rôle / permissions globales (internes uniquement)
       can, canSee, hasRole,
       // Legacy

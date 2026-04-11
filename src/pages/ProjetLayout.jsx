@@ -11,7 +11,7 @@ import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
 import {
   ChevronLeft, TrendingUp, Euro, FileText,
   Settings, BarChart3, Receipt, Activity, Users,
-  Calendar, Clapperboard, CheckSquare,
+  Calendar, Clapperboard, CheckSquare, Shield,
 } from 'lucide-react'
 
 // ─── Contexte projet partagé entre les onglets ────────────────────────────────
@@ -21,6 +21,7 @@ export const useProjet = () => useContext(ProjetContext)
 // ─── Définition des onglets ───────────────────────────────────────────────────
 // finance: true → masqué pour coordinateur et prestataire
 // outil    → clé de outils_catalogue pour filtrage par permission (prestataire)
+// admin   → onglet admin/manager uniquement (admin + charge_prod attaché)
 const ALL_TABS = [
   { key: 'projet',      label: 'Projet',       icon: Settings,     path: 'projet',      finance: false, outil: 'projet_info' },
   { key: 'devis',       label: 'Devis',        icon: FileText,     path: 'devis',       finance: true,  outil: null          },
@@ -31,6 +32,7 @@ const ALL_TABS = [
   { key: 'budget',      label: 'Budget réel',  icon: Activity,     path: 'budget',      finance: true,  outil: null          },
   { key: 'factures',    label: 'Factures',     icon: Receipt,      path: 'factures',    finance: true,  outil: null          },
   { key: 'dashboard',   label: 'Dashboard',    icon: BarChart3,    path: 'dashboard',   finance: true,  outil: null          },
+  { key: 'access',      label: 'Accès',        icon: Shield,       path: 'access',      finance: false, outil: null, admin: true },
 ]
 
 // ─── Composant principal ──────────────────────────────────────────────────────
@@ -38,7 +40,7 @@ export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
   const navigate  = useNavigate()
-  const { org, canSeeFinance, isPrestataire } = useAuth()
+  const { org, canSeeFinance, isPrestataire, isAdmin, isChargeProd } = useAuth()
 
   // Permissions par projet (chantier 3B) : chargées depuis project_access +
   // project_access_permissions via Supabase
@@ -52,7 +54,10 @@ export default function ProjetLayout() {
   //  1) Onglets finance : masqués si l'utilisateur n'a pas accès à la finance
   //  2) Onglets "outil" : pour les prestataires, masqués si pas de droit read
   //     (les rôles internes bypassent dans le hook)
+  //  3) Onglets "admin" : visibles uniquement admin + charge_prod attaché
+  const canManageAccess = isAdmin || (isChargeProd && isAttached)
   const TABS = ALL_TABS.filter(t => {
+    if (t.admin && !canManageAccess) return false
     if (t.finance && !canSeeFinance) return false
     if (isPrestataire && t.outil && !canSeeOutil(t.outil)) return false
     return true
