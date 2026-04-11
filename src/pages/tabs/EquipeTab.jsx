@@ -78,7 +78,7 @@ export default function EquipeTab() {
           : Promise.resolve({ data: [] }),
         supabase
           .from('projet_membres')
-          .select('*, contact:contacts(nom, prenom, email, telephone, specialite, tarif_jour_ref)')
+          .select('*, contact:contacts(nom, prenom, email, telephone, specialite, tarif_jour_ref, user_id)')
           .eq('project_id', projectId)
           .order('created_at'),
       ])
@@ -142,7 +142,7 @@ export default function EquipeTab() {
     const { data, error } = await supabase
       .from('projet_membres')
       .insert(payload)
-      .select('*, contact:contacts(nom, prenom, email, telephone, specialite, tarif_jour_ref)')
+      .select('*, contact:contacts(nom, prenom, email, telephone, specialite, tarif_jour_ref, user_id)')
       .single()
     if (!error && data) { setMembres(p => [...p, data]); showToast(`${fullName(data)} attribué·e`) }
   }
@@ -803,6 +803,7 @@ function groupByPerson(membres, crewLines) {
       map[key] = {
         key, contact_id: m.contact_id,
         nom: m.nom, prenom: m.prenom, email: m.email, telephone: m.telephone,
+        user_id: m.contact?.user_id || null,   // ch4C.1 : compte app lié
         postes: [],
       }
     }
@@ -915,7 +916,19 @@ function PersonCard({ person, catMap = {}, canSeeFinance, canSeeCrewBudget,
         style={{ borderBottom: '1px solid var(--brd-sub)' }}>
         <Avatar m={person} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>{fullName(person)}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>{fullName(person)}</p>
+            {person.user_id && (
+              <span
+                title="Compte app actif — cette personne peut se connecter"
+                className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
+                style={{ background: 'rgba(16,185,129,.12)', color: '#10b981' }}
+              >
+                <span className="w-1 h-1 rounded-full" style={{ background: '#10b981' }} />
+                Compte actif
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 flex-wrap mt-0.5">
             {person.email && (
               <a href={`mailto:${person.email}`} className="text-[11px] flex items-center gap-1 transition-colors"

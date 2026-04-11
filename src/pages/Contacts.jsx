@@ -20,6 +20,7 @@ const EMPTY = {
   regime: 'Externe', specialite: '', tarif_jour_ref: '',
   iban: '', siret: '', notes: '', actif: true,
   default_tva: 0,
+  user_id: null,   // ch4C : lien vers profiles.id (compte app)
 }
 
 export const REGIME_COLORS = {
@@ -61,15 +62,19 @@ export default function Contacts() {
   const [modal,       setModal]       = useState(null)    // null | 'create' | contact_obj
   const [form,        setForm]        = useState(EMPTY)
   const [saving,      setSaving]      = useState(false)
+  // ch4C : liste des profils de l'org (pour le dropdown "Lier à un compte")
+  const [profiles,    setProfiles]    = useState([])
 
   const load = useCallback(async () => {
     if (!org?.id) return
     setLoading(true)
-    const [{ data: cts }, { data: pm }] = await Promise.all([
+    const [{ data: cts }, { data: pm }, { data: profs }] = await Promise.all([
       supabase.from('contacts').select('*').eq('org_id', org.id).eq('actif', true).order('nom'),
       supabase.from('projet_membres').select('contact_id, project_id').not('contact_id', 'is', null),
+      supabase.from('profiles').select('id, full_name, role').eq('org_id', org.id).order('full_name'),
     ])
     setContacts(cts || [])
+    setProfiles(profs || [])
     // Compter le nb de projets distincts par contact
     const counts = {}
     for (const row of pm || []) {
@@ -95,6 +100,7 @@ export default function Contacts() {
       iban: c.iban || '', siret: c.siret || '',
       notes: c.notes || '', actif: c.actif ?? true,
       default_tva: c.default_tva ?? 0,
+      user_id: c.user_id || null,
     })
     setModal(c)
   }
@@ -107,6 +113,7 @@ export default function Contacts() {
         ...form,
         tarif_jour_ref: form.tarif_jour_ref ? Number(form.tarif_jour_ref) : null,
         default_tva: Number(form.default_tva ?? 0),
+        user_id: form.user_id || null,  // empty string → null
       }
       if (modal === 'create') {
         const { data, error } = await supabase.from('contacts').insert({ ...payload, org_id: org.id }).select().single()
@@ -290,6 +297,10 @@ export default function Contacts() {
         <ContactModal
           modal={modal} form={form} setForm={setForm}
           saving={saving} onSave={save} onClose={() => setModal(null)}
+          profiles={profiles}
+          linkedUserIds={contacts
+            .filter(c => c.user_id && (modal === 'create' || c.id !== modal.id))
+            .map(c => c.user_id)}
         />
       )}
     </div>
@@ -329,7 +340,17 @@ function ContactCard({ contact: c, projCount, onEdit, onDelete }) {
         </div>
       </div>
 
-      <RegimeBadge regime={c.regime} />
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <RegimeBadge regime={c.regime} />
+        {c.user_id && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap inline-flex items-center gap-1"
+            style={{ background: 'rgba(16,185,129,.12)', color: '#10b981' }}
+            title="Ce contact est lié à un compte app">
+            <Link2 className="w-2.5 h-2.5" />
+            Compte actif
+          </span>
+        )}
+      </div>
 
       <div className="mt-3 space-y-1">
         {c.email && (
@@ -392,8 +413,17 @@ function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
         </div>
       </div>
 
-      {/* Régime */}
-      <div><RegimeBadge regime={c.regime} /></div>
+      {/* Régime + badge compte lié */}
+      <div className="flex items-center gap-1.5">
+        <RegimeBadge regime={c.regime} />
+        {c.user_id && (
+          <span title="Compte app lié"
+            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>
+            <Link2 className="w-2.5 h-2.5" />
+          </span>
+        )}
+      </div>
 
       {/* Spécialité */}
       <div className="text-xs truncate" style={{ color: 'var(--txt-2)' }}>{c.specialite || '—'}</div>
@@ -439,9 +469,14 @@ function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
 }
 
 // ─── Modal créer / éditer ─────────────────────────────────────────────────────
-function ContactModal({ modal, form, setForm, saving, onSave, onClose }) {
+function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles = [], linkedUserIds = [] }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const isCreate = modal === 'create'
+
+  // Users disponibles pour liaison : non liés à un autre contact, + le user actuellement lié (si édition)
+  const availableProfiles = profiles.filter(p =>
+    !linkedUserIds.includes(p.id) || p.id === form.user_id
+  )
 
   const inputStyle = {
     background: 'var(--bg-elev)', border: '1px solid var(--brd)',
@@ -541,6 +576,30 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose }) {
             <label style={labelStyle}>IBAN</label>
             <input value={form.iban} onChange={e => set('iban', e.target.value)}
               placeholder="FR76 0000 0000 0000 0000 0000 000" style={inputStyle} />
+          </div>
+
+          {/* ── Lien compte app (ch4C.1) ──────────────────────────────────── */}
+          <div>
+            <label style={labelStyle}>
+              <Link2 className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+              Compte utilisateur lié
+            </label>
+            <select
+              value={form.user_id || ''}
+              onChange={e => set('user_id', e.target.value || null)}
+              style={inputStyle}
+            >
+              <option value="">— Aucun compte lié —</option>
+              {availableProfiles.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name || '(sans nom)'} · {p.role}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] mt-1" style={{ color: 'var(--txt-3)' }}>
+              Lier ce contact à un compte permet d'afficher ses infos crew (tarif, régime)
+              dans les onglets équipe et accès projet.
+            </p>
           </div>
 
           {/* Notes */}

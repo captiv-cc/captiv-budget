@@ -22,13 +22,14 @@
  */
 
 import { useEffect, useState, useCallback } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import {
   UserPlus, Trash2, X, Check, Minus, ChevronDown, ChevronRight,
   Shield, User as UserIcon, Settings, Info, Search,
+  Euro, Briefcase, ExternalLink,
 } from 'lucide-react'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -66,13 +67,15 @@ export default function AccessTab() {
   const [overrides,  setOverrides]  = useState({})   // user_id → {outil: {read, comment, edit}}
   const [expanded,   setExpanded]   = useState(null) // user_id dont la matrice est ouverte
   const [showAdd,    setShowAdd]    = useState(false)
+  // ch4C.1 : contacts crew liés à un profil (user_id) → {user_id: contact}
+  const [contactsByUser, setContactsByUser] = useState({})
 
   // ─── Chargement initial ─────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     if (!projectId) return
     setLoading(true)
     try {
-      const [accRes, outilsRes, tplRes, tplPermsRes, ovRes] = await Promise.all([
+      const [accRes, outilsRes, tplRes, tplPermsRes, ovRes, ctsRes] = await Promise.all([
         supabase
           .from('project_access')
           .select(`
@@ -97,6 +100,12 @@ export default function AccessTab() {
           .from('project_access_permissions')
           .select('user_id, outil_key, can_read, can_comment, can_edit')
           .eq('project_id', projectId),
+        // ch4C.1 : tous les contacts crew liés à un profil (filtrés par RLS same-org)
+        supabase
+          .from('contacts')
+          .select('id, nom, prenom, regime, specialite, tarif_jour_ref, user_id')
+          .not('user_id', 'is', null)
+          .eq('actif', true),
       ])
 
       setAccessList(accRes.data || [])
@@ -122,6 +131,13 @@ export default function AccessTab() {
         }
       }
       setOverrides(ovMap)
+
+      // Index contacts par user_id
+      const ctsMap = {}
+      for (const c of ctsRes.data || []) {
+        if (c.user_id) ctsMap[c.user_id] = c
+      }
+      setContactsByUser(ctsMap)
     } catch (err) {
       console.error(err)
       toast.error('Erreur de chargement')
@@ -264,6 +280,7 @@ export default function AccessTab() {
             const isPrestataire = prof?.role === 'prestataire'
             const isExpanded = expanded === a.user_id
             const roleColors = ROLE_COLORS[prof?.role] || ROLE_COLORS.prestataire
+            const contact = contactsByUser[a.user_id]  // ch4C.1 : fiche crew liée
             return (
               <div key={a.user_id}
                    style={idx > 0 ? { borderTop: '1px solid var(--brd-sub)' } : {}}>
@@ -304,6 +321,35 @@ export default function AccessTab() {
                     </div>
                     {a.note && (
                       <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>{a.note}</p>
+                    )}
+                    {/* ch4C.1 : infos crew (si compte lié à un contact) */}
+                    {contact && (
+                      <div className="flex items-center gap-3 mt-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                        {contact.specialite && (
+                          <span className="inline-flex items-center gap-1">
+                            <Briefcase className="w-3 h-3" />
+                            {contact.specialite}
+                          </span>
+                        )}
+                        {contact.regime && (
+                          <span>{contact.regime}</span>
+                        )}
+                        {contact.tarif_jour_ref && (
+                          <span className="inline-flex items-center gap-0.5">
+                            <Euro className="w-3 h-3" />
+                            {Number(contact.tarif_jour_ref).toLocaleString('fr-FR')}/j
+                          </span>
+                        )}
+                        <Link
+                          to="/crew"
+                          className="inline-flex items-center gap-0.5 hover:underline"
+                          style={{ color: 'var(--blue)' }}
+                          title="Voir la fiche crew"
+                        >
+                          Fiche crew
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </Link>
+                      </div>
                     )}
                   </div>
 
@@ -353,6 +399,7 @@ export default function AccessTab() {
           projectId={projectId}
           alreadyAttached={accessList.map(a => a.user_id)}
           templates={templates}
+          contactsByUser={contactsByUser}
           onClose={() => setShowAdd(false)}
           onAdded={() => { setShowAdd(false); loadAll() }}
         />
@@ -444,13 +491,14 @@ function PermCell({ tpl, override, onClick }) {
 }
 
 // ─── Sous-composant : modal d'ajout d'un user ───────────────────────────────
-function AddAccessModal({ projectId, alreadyAttached, templates, onClose, onAdded }) {
+function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser = {}, onClose, onAdded }) {
   const { user: currentUser } = useAuth()
   const [loading, setLoading]     = useState(true)
   const [profiles, setProfiles]   = useState([])
   const [search, setSearch]       = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
   const [selectedTpl,  setSelectedTpl]  = useState('')
+  const [tplAutoPicked, setTplAutoPicked] = useState(false) // flag visuel
   const [roleLabel,    setRoleLabel]    = useState('')
   const [note,         setNote]         = useState('')
   const [saving, setSaving] = useState(false)
@@ -465,6 +513,30 @@ function AddAccessModal({ projectId, alreadyAttached, templates, onClose, onAdde
       setLoading(false)
     })()
   }, [alreadyAttached])
+
+  // ch4C.1 : auto-sélection du template métier d'après la specialite du contact lié
+  useEffect(() => {
+    if (!selectedUser || selectedUser.role !== 'prestataire') {
+      setTplAutoPicked(false)
+      return
+    }
+    const contact = contactsByUser[selectedUser.id]
+    if (!contact?.specialite || !templates.length) return
+    const spec = contact.specialite.toLowerCase().trim()
+    // Match sur label OU key du template (case-insensitive, contient)
+    const match = templates.find(t => {
+      const lbl = (t.label || '').toLowerCase()
+      const key = (t.key   || '').toLowerCase()
+      return lbl === spec || key === spec || lbl.includes(spec) || spec.includes(lbl)
+    })
+    if (match) {
+      setSelectedTpl(match.id)
+      setTplAutoPicked(true)
+      // Pré-remplir le rôle libre avec la spécialité si vide
+      setRoleLabel(prev => prev || contact.specialite)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser])
 
   const filtered = profiles.filter(p =>
     (p.full_name || '').toLowerCase().includes(search.toLowerCase())
@@ -562,23 +634,31 @@ function AddAccessModal({ projectId, alreadyAttached, templates, onClose, onAdde
                     Aucun utilisateur disponible
                   </div>
                 ) : (
-                  filtered.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedUser(p)}
-                      className="w-full flex items-center gap-2 p-2 text-left transition-colors hover:opacity-80"
-                      style={{ borderBottom: '1px solid var(--brd-sub)' }}
-                    >
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-                           style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}>
-                        {initials(p.full_name)}
-                      </div>
-                      <span className="text-xs flex-1" style={{ color: 'var(--txt)' }}>{p.full_name || '—'}</span>
-                      <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                        {ROLE_LABELS[p.role] || p.role}
-                      </span>
-                    </button>
-                  ))
+                  filtered.map(p => {
+                    const ct = contactsByUser[p.id]
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setSelectedUser(p)}
+                        className="w-full flex items-center gap-2 p-2 text-left transition-colors hover:opacity-80"
+                        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+                      >
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                             style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}>
+                          {initials(p.full_name)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs truncate" style={{ color: 'var(--txt)' }}>{p.full_name || '—'}</p>
+                          {ct?.specialite && (
+                            <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>{ct.specialite}</p>
+                          )}
+                        </div>
+                        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                          {ROLE_LABELS[p.role] || p.role}
+                        </span>
+                      </button>
+                    )
+                  })
                 )}
               </div>
             </>
@@ -588,12 +668,18 @@ function AddAccessModal({ projectId, alreadyAttached, templates, onClose, onAdde
         {/* Template métier (prestataire uniquement) */}
         {isPrestataire && (
           <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--txt-2)' }}>
+            <label className="text-xs font-medium block mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--txt-2)' }}>
               Métier <span style={{ color: 'var(--red)' }}>*</span>
+              {tplAutoPicked && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+                      style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>
+                  Auto
+                </span>
+              )}
             </label>
             <select
               value={selectedTpl}
-              onChange={e => setSelectedTpl(e.target.value)}
+              onChange={e => { setSelectedTpl(e.target.value); setTplAutoPicked(false) }}
               className="w-full px-3 py-2 rounded-md text-sm"
               style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
             >
@@ -604,6 +690,11 @@ function AddAccessModal({ projectId, alreadyAttached, templates, onClose, onAdde
                 </option>
               ))}
             </select>
+            {tplAutoPicked && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
+                Pré-rempli depuis la fiche crew de l'utilisateur.
+              </p>
+            )}
           </div>
         )}
 
