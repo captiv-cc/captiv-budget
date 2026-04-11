@@ -10,7 +10,7 @@ import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
 import {
   ChevronLeft, TrendingUp, Euro, FileText,
-  Settings, BarChart3, Receipt, Activity, Users,
+  LayoutDashboard, BarChart3, Receipt, Activity, Users,
   Calendar, Clapperboard, CheckSquare, Shield,
 } from 'lucide-react'
 
@@ -23,7 +23,7 @@ export const useProjet = () => useContext(ProjetContext)
 // outil    → clé de outils_catalogue pour filtrage par permission (prestataire)
 // admin   → onglet admin/manager uniquement (admin + charge_prod attaché)
 const ALL_TABS = [
-  { key: 'projet',      label: 'Projet',       icon: Settings,     path: 'projet',      finance: false, outil: 'projet_info' },
+  { key: 'projet',      label: 'Projet',       icon: LayoutDashboard, path: 'projet',   finance: false, outil: 'projet_info' },
   { key: 'devis',       label: 'Devis',        icon: FileText,     path: 'devis',       finance: true,  outil: null          },
   { key: 'equipe',      label: 'Équipe',       icon: Users,        path: 'equipe',      finance: false, outil: 'equipe'      },
   { key: 'planning',    label: 'Planning',     icon: Calendar,     path: 'planning',    finance: false, outil: 'planning'    },

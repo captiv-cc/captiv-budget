@@ -593,7 +593,7 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
   return (
     <>
       {/* ── Barre d'actions sticky en haut ───────────────────────────────── */}
-      <div className="sticky top-0 z-20 -mx-5 px-5 py-3 bg-white/95 backdrop-blur border-b border-gray-100 flex items-center justify-between">
+      <div className="sticky top-2 z-20 card px-4 py-2.5 flex items-center justify-between shadow-md ring-1 ring-blue-100">
         <div className="flex items-center gap-2 text-gray-700">
           <Edit2 className="w-4 h-4 text-blue-500" />
           <span className="text-sm font-semibold">Mode édition</span>
