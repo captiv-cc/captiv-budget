@@ -65,17 +65,30 @@ export default function Contacts() {
   const [saving,      setSaving]      = useState(false)
   // ch4C : liste des profils de l'org (pour le dropdown "Lier à un compte")
   const [profiles,    setProfiles]    = useState([])
+  // ch4C.2 : invitations en attente (contact_id → row invitations_log)
+  const [pendingInvites, setPendingInvites] = useState({})
 
   const load = useCallback(async () => {
     if (!org?.id) return
     setLoading(true)
-    const [{ data: cts }, { data: pm }, { data: profs }] = await Promise.all([
+    const [{ data: cts }, { data: pm }, { data: profs }, { data: invs }] = await Promise.all([
       supabase.from('contacts').select('*').eq('org_id', org.id).eq('actif', true).order('nom'),
       supabase.from('projet_membres').select('contact_id, project_id').not('contact_id', 'is', null),
       supabase.from('profiles').select('id, full_name, role').eq('org_id', org.id).order('full_name'),
+      supabase.from('invitations_log')
+        .select('id, contact_id, email, mode, invited_at, last_resent_at, resend_count')
+        .eq('org_id', org.id)
+        .is('accepted_at', null)
+        .order('invited_at', { ascending: false }),
     ])
     setContacts(cts || [])
     setProfiles(profs || [])
+    // Garder la plus récente par contact
+    const invMap = {}
+    for (const inv of invs || []) {
+      if (inv.contact_id && !invMap[inv.contact_id]) invMap[inv.contact_id] = inv
+    }
+    setPendingInvites(invMap)
     // Compter le nb de projets distincts par contact
     const counts = {}
     for (const row of pm || []) {
@@ -248,6 +261,7 @@ export default function Contacts() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(c => (
             <ContactCard key={c.id} contact={c} projCount={projCounts[c.id] || 0}
+              pendingInvite={pendingInvites[c.id]}
               onEdit={() => openEdit(c)} onDelete={() => del(c.id)} />
           ))}
         </div>
@@ -288,6 +302,7 @@ export default function Contacts() {
           {/* Lignes */}
           {filtered.map(c => (
             <ContactRow key={c.id} contact={c} projCount={projCounts[c.id] || 0}
+              pendingInvite={pendingInvites[c.id]}
               onEdit={() => openEdit(c)} onDelete={() => del(c.id)} />
           ))}
         </div>
@@ -302,6 +317,7 @@ export default function Contacts() {
           linkedUserIds={contacts
             .filter(c => c.user_id && (modal === 'create' || c.id !== modal.id))
             .map(c => c.user_id)}
+          pendingInvite={typeof modal === 'object' ? pendingInvites[modal.id] : null}
           onInvited={load}
         />
       )}
@@ -310,7 +326,7 @@ export default function Contacts() {
 }
 
 // ─── Carte contact (vue grille) ───────────────────────────────────────────────
-function ContactCard({ contact: c, projCount, onEdit, onDelete }) {
+function ContactCard({ contact: c, projCount, pendingInvite, onEdit, onDelete }) {
   const col = REGIME_COLORS[c.regime] || { bg: 'var(--bg-elev)', fg: 'var(--txt-3)' }
   return (
     <div className="rounded-xl p-4 group relative transition-all"
@@ -344,12 +360,20 @@ function ContactCard({ contact: c, projCount, onEdit, onDelete }) {
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <RegimeBadge regime={c.regime} />
-        {c.user_id && (
+        {c.user_id && !pendingInvite && (
           <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap inline-flex items-center gap-1"
             style={{ background: 'rgba(16,185,129,.12)', color: '#10b981' }}
             title="Ce contact est lié à un compte app">
             <Link2 className="w-2.5 h-2.5" />
             Compte actif
+          </span>
+        )}
+        {c.user_id && pendingInvite && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap inline-flex items-center gap-1"
+            style={{ background: 'rgba(255,159,10,.12)', color: '#ff9f0a' }}
+            title={`Invitation envoyée le ${new Date(pendingInvite.invited_at).toLocaleDateString('fr-FR')}${pendingInvite.resend_count > 0 ? ` · ${pendingInvite.resend_count} relance${pendingInvite.resend_count > 1 ? 's' : ''}` : ''}`}>
+            <Send className="w-2.5 h-2.5" />
+            En attente
           </span>
         )}
       </div>
@@ -388,7 +412,7 @@ function ContactCard({ contact: c, projCount, onEdit, onDelete }) {
 }
 
 // ─── Ligne contact (vue liste) ────────────────────────────────────────────────
-function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
+function ContactRow({ contact: c, projCount, pendingInvite, onEdit, onDelete }) {
   return (
     <div className="grid items-center px-4 py-3 group transition-colors text-sm"
       style={{
@@ -418,11 +442,18 @@ function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
       {/* Régime + badge compte lié */}
       <div className="flex items-center gap-1.5">
         <RegimeBadge regime={c.regime} />
-        {c.user_id && (
+        {c.user_id && !pendingInvite && (
           <span title="Compte app lié"
             className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
             style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>
             <Link2 className="w-2.5 h-2.5" />
+          </span>
+        )}
+        {c.user_id && pendingInvite && (
+          <span title={`Invitation en attente (envoyée le ${new Date(pendingInvite.invited_at).toLocaleDateString('fr-FR')})`}
+            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(255,159,10,.15)', color: '#ff9f0a' }}>
+            <Send className="w-2.5 h-2.5" />
           </span>
         )}
       </div>
@@ -471,7 +502,7 @@ function ContactRow({ contact: c, projCount, onEdit, onDelete }) {
 }
 
 // ─── Modal créer / éditer ─────────────────────────────────────────────────────
-function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles = [], linkedUserIds = [], onInvited }) {
+function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles = [], linkedUserIds = [], pendingInvite = null, onInvited }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const isCreate = modal === 'create'
   const contactId = typeof modal === 'object' ? modal.id : null
@@ -486,7 +517,7 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
   const [inviteLink, setInviteLink] = useState(null)  // URL retournée par mode='link'
   const [inviteRole, setInviteRole] = useState('prestataire')
 
-  async function sendInvite(mode) {
+  async function sendInvite(mode, resend = false) {
     if (!contactId) return
     if (!form.email) {
       toast.error("L'email du contact est requis pour l'invitation.")
@@ -503,6 +534,7 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
           full_name: fullName,
           role: inviteRole,
           mode,
+          resend,
         },
       })
       // Si la fonction renvoie un status non-2xx, supabase-js met l'erreur dans `error`
@@ -526,7 +558,7 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
       // Succès : maj locale du form + refresh parent
       if (data?.user_id) set('user_id', data.user_id)
       if (mode === 'email') {
-        toast.success('Invitation envoyée par email !')
+        toast.success(resend ? 'Invitation relancée par email !' : 'Invitation envoyée par email !')
         onInvited?.()
       } else {
         setInviteLink(data?.action_link || null)
@@ -682,7 +714,7 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
             </p>
           </div>
 
-          {/* ── Invitation (ch4C.2) ─ seulement si édition + pas déjà lié ─ */}
+          {/* ── Invitation (ch4C.2) ─ 3 cas : nouvelle / en attente / activée ─ */}
           {!isCreate && !form.user_id && (
             <div className="p-3 rounded-lg space-y-3"
                  style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}>
@@ -767,6 +799,86 @@ function ContactModal({ modal, form, setForm, saving, onSave, onClose, profiles 
                     Colle ce lien dans un message WhatsApp/SMS/email. Il expire selon
                     la configuration de ton projet Supabase (24h par défaut).
                   </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Invitation en attente : bouton "Relancer" (ch4C.2) ───────────── */}
+          {!isCreate && form.user_id && pendingInvite && (
+            <div className="p-3 rounded-lg space-y-3"
+                 style={{ background: 'rgba(255,159,10,.08)', border: '1px solid rgba(255,159,10,.3)' }}>
+              <div className="flex items-start gap-2">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                     style={{ background: 'rgba(255,159,10,.15)' }}>
+                  <Send className="w-3 h-3" style={{ color: '#ff9f0a' }} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                    Invitation en attente
+                  </p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
+                    Envoyée le {new Date(pendingInvite.invited_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {pendingInvite.last_resent_at && (
+                      <> · Dernière relance le {new Date(pendingInvite.last_resent_at).toLocaleDateString('fr-FR')}</>
+                    )}
+                    {pendingInvite.resend_count > 0 && (
+                      <> · {pendingInvite.resend_count} relance{pendingInvite.resend_count > 1 ? 's' : ''}</>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => sendInvite('email', true)}
+                  disabled={!!inviting || !form.email}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                  style={{ background: '#ff9f0a', color: 'white' }}
+                  title="Renvoyer l'invitation par email"
+                >
+                  {inviting === 'email'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Send className="w-3.5 h-3.5" />}
+                  Renvoyer email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendInvite('link', true)}
+                  disabled={!!inviting || !form.email}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
+                  style={{ background: 'var(--bg-surf)', color: 'var(--txt)', border: '1px solid var(--brd)' }}
+                  title="Regénérer un lien à partager"
+                >
+                  {inviting === 'link'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Link2 className="w-3.5 h-3.5" />}
+                  Regénérer lien
+                </button>
+              </div>
+
+              {inviteLink && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-medium" style={{ color: '#10b981' }}>
+                    ✓ Nouveau lien généré — copié dans le presse-papier
+                  </p>
+                  <div className="flex gap-1.5">
+                    <input
+                      readOnly
+                      value={inviteLink}
+                      onClick={e => e.target.select()}
+                      style={{ ...inputStyle, fontSize: 10, fontFamily: 'monospace' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={copyLink}
+                      className="px-2 rounded-md shrink-0"
+                      style={{ background: 'var(--bg-surf)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

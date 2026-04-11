@@ -71,6 +71,18 @@ export default function AcceptInvite() {
       setPhase('ready')
       return
     }
+
+    // Marque l'invitation comme acceptée dans le log (la policy update
+    // autorise l'utilisateur dont l'email correspond à la ligne à la
+    // modifier — voir ch4c2_invitations_log.sql).
+    if (userInfo?.email) {
+      await supabase
+        .from('invitations_log')
+        .update({ accepted_at: new Date().toISOString() })
+        .ilike('email', userInfo.email)
+        .is('accepted_at', null)
+    }
+
     setPhase('done')
     toast.success('Bienvenue dans CAPTIV !')
     // Petite pause pour que le toast soit visible

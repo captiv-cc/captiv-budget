@@ -34,6 +34,7 @@ Deno.serve(async (req: Request) => {
       full_name,
       role = 'prestataire',
       mode = 'email',
+      resend = false,
     } = body || {}
 
     if (!contact_id || !email) {
@@ -51,7 +52,6 @@ Deno.serve(async (req: Request) => {
     if (!authHeader) {
       return jsonResponse(401, { error: 'Authorization header manquant' })
     }
-    // Extraction du JWT (format attendu : "Bearer xxxx")
     const jwt = authHeader.replace(/^Bearer\s+/i, '').trim()
     if (!jwt) {
       return jsonResponse(401, { error: 'JWT manquant dans Authorization header' })
@@ -60,14 +60,10 @@ Deno.serve(async (req: Request) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-    // Client admin (service_role) pour toutes les opérations privilégiées
-    // ET pour vérifier le JWT de l'appelant via getUser(jwt).
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Vérification du JWT de l'appelant : on passe explicitement le token
-    // à getUser() pour que le SDK appelle /auth/v1/user avec ce JWT.
     const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt)
     if (userErr || !userData?.user) {
       return jsonResponse(401, {
@@ -104,8 +100,37 @@ Deno.serve(async (req: Request) => {
     if (contact.org_id !== callerProfile.org_id) {
       return jsonResponse(403, { error: "Ce contact n'appartient pas à votre organisation" })
     }
-    if (contact.user_id) {
-      return jsonResponse(400, { error: 'Ce contact est déjà lié à un compte' })
+
+    // ─── Validation resend vs nouvelle invitation ────────────────────────
+    if (!resend && contact.user_id) {
+      return jsonResponse(400, {
+        error: 'Ce contact est déjà lié à un compte (utilisez resend=true pour relancer)',
+      })
+    }
+    if (resend && !contact.user_id) {
+      return jsonResponse(400, {
+        error: 'Aucun compte à relancer pour ce contact',
+      })
+    }
+
+    // Si resend, vérifier qu'il existe bien une invite pending
+    let pendingLogId: string | null = null
+    if (resend) {
+      const { data: pendingLog } = await adminClient
+        .from('invitations_log')
+        .select('id, accepted_at')
+        .eq('contact_id', contact_id)
+        .is('accepted_at', null)
+        .order('invited_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!pendingLog) {
+        return jsonResponse(400, {
+          error: 'Aucune invitation en attente à relancer (déjà acceptée ?)',
+        })
+      }
+      pendingLogId = pendingLog.id
     }
 
     const finalName =
@@ -121,17 +146,13 @@ Deno.serve(async (req: Request) => {
       invited_by: callerId,
     }
 
-    // URL de redirection après vérification du token par Supabase.
-    // Permet au destinataire d'atterrir sur la page "Choisissez votre mot
-    // de passe" au lieu de la racine du site. Lu depuis un origin envoyé
-    // par le client, sinon fallback sur Site URL configurée dans Supabase.
     const origin = req.headers.get('origin') || req.headers.get('referer') || ''
     const cleanOrigin = origin.replace(/\/$/, '').replace(/\/accept-invite.*$/, '')
     const redirectTo = cleanOrigin
       ? `${cleanOrigin}/accept-invite`
       : undefined
 
-    let newUserId: string
+    let newUserId: string = contact.user_id || ''
     let actionLink: string | null = null
 
     if (mode === 'link') {
@@ -141,7 +162,7 @@ Deno.serve(async (req: Request) => {
         options: { data: metadata, redirectTo },
       })
       if (error) return jsonResponse(400, { error: 'generateLink: ' + error.message })
-      newUserId = data.user?.id || ''
+      if (data.user?.id) newUserId = data.user.id
       // @ts-ignore
       actionLink = data.properties?.action_link || null
     } else {
@@ -150,40 +171,76 @@ Deno.serve(async (req: Request) => {
         { data: metadata, redirectTo },
       )
       if (error) return jsonResponse(400, { error: 'inviteUserByEmail: ' + error.message })
-      newUserId = data.user?.id || ''
+      if (data.user?.id) newUserId = data.user.id
     }
 
     if (!newUserId) {
       return jsonResponse(500, { error: "Création du user échouée (id manquant)" })
     }
 
-    const { error: profErr } = await adminClient
-      .from('profiles')
-      .upsert(
-        {
-          id: newUserId,
-          org_id: callerProfile.org_id,
-          full_name: finalName,
-          role,
-        },
-        { onConflict: 'id' },
-      )
-    if (profErr) {
-      return jsonResponse(500, { error: 'Création profil : ' + profErr.message })
+    // ─── Upsert profil + lien contact (uniquement sur première invite) ──
+    if (!resend) {
+      const { error: profErr } = await adminClient
+        .from('profiles')
+        .upsert(
+          {
+            id: newUserId,
+            org_id: callerProfile.org_id,
+            full_name: finalName,
+            role,
+          },
+          { onConflict: 'id' },
+        )
+      if (profErr) {
+        return jsonResponse(500, { error: 'Création profil : ' + profErr.message })
+      }
+
+      const { error: linkErr } = await adminClient
+        .from('contacts')
+        .update({ user_id: newUserId })
+        .eq('id', contact_id)
+      if (linkErr) {
+        return jsonResponse(500, { error: 'Liaison contact : ' + linkErr.message })
+      }
     }
 
-    const { error: linkErr } = await adminClient
-      .from('contacts')
-      .update({ user_id: newUserId })
-      .eq('id', contact_id)
-    if (linkErr) {
-      return jsonResponse(500, { error: 'Liaison contact : ' + linkErr.message })
+    // ─── Log dans invitations_log ────────────────────────────────────────
+    if (resend && pendingLogId) {
+      // Update du log existant
+      const { error: logErr } = await adminClient
+        .from('invitations_log')
+        .update({
+          last_resent_at: new Date().toISOString(),
+          resend_count: await incrementResendCount(adminClient, pendingLogId),
+          mode,
+        })
+        .eq('id', pendingLogId)
+      if (logErr) {
+        console.error('[invite-user] log update failed:', logErr.message)
+      }
+    } else {
+      // Nouvelle entrée de log
+      const { error: logErr } = await adminClient
+        .from('invitations_log')
+        .insert({
+          org_id: callerProfile.org_id,
+          contact_id,
+          email,
+          full_name: finalName,
+          role,
+          mode,
+          invited_by: callerId,
+        })
+      if (logErr) {
+        console.error('[invite-user] log insert failed:', logErr.message)
+      }
     }
 
     return jsonResponse(200, {
       success: true,
       user_id: newUserId,
       mode,
+      resend,
       action_link: actionLink,
       email,
       full_name: finalName,
@@ -194,3 +251,13 @@ Deno.serve(async (req: Request) => {
     return jsonResponse(500, { error: (err as Error).message || 'Erreur inconnue' })
   }
 })
+
+// Helper : lit resend_count actuel et renvoie +1
+async function incrementResendCount(client: any, logId: string): Promise<number> {
+  const { data } = await client
+    .from('invitations_log')
+    .select('resend_count')
+    .eq('id', logId)
+    .single()
+  return (data?.resend_count || 0) + 1
+}
