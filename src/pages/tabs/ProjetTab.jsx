@@ -241,30 +241,34 @@ export default function ProjetTab() {
   const get = (k) => meta[k] ?? project[k] ?? ''
 
   return (
-    <div className="p-5 max-w-4xl mx-auto space-y-4 pb-16">
+    <div className="p-5 max-w-7xl mx-auto pb-16">
       {editing ? (
-        <EditView
-          draft={draft}
-          setDraft={setDraft}
-          clientsList={clientsList}
-          onCancel={cancelEdit}
-          onSave={saveEdit}
-          saving={saving}
-          showAdmin={showAdmin}
-          setShowAdmin={setShowAdmin}
-          projectId={projectId}
-        />
+        <div className="max-w-4xl mx-auto space-y-4">
+          <EditView
+            draft={draft}
+            setDraft={setDraft}
+            clientsList={clientsList}
+            onCancel={cancelEdit}
+            onSave={saveEdit}
+            saving={saving}
+            showAdmin={showAdmin}
+            setShowAdmin={setShowAdmin}
+            projectId={projectId}
+          />
+        </div>
       ) : (
-        <ReadView
-          project={project}
-          get={get}
-          canEdit={canEdit}
-          onEdit={startEdit}
-          persons={persons}
-          loadingMembres={loadingMembres}
-          accessCount={accessCount}
-          canSeeLivrables={canSeeLivrables}
-        />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:grid-flow-dense items-start">
+          <ReadView
+            project={project}
+            get={get}
+            canEdit={canEdit}
+            onEdit={startEdit}
+            persons={persons}
+            loadingMembres={loadingMembres}
+            accessCount={accessCount}
+            canSeeLivrables={canSeeLivrables}
+          />
+        </div>
       )}
     </div>
   )
@@ -307,7 +311,7 @@ function ReadView({
   return (
     <>
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
-      <div className="card overflow-visible">
+      <div className="card overflow-visible lg:col-span-2">
         <div className="p-6">
           <div className="flex items-start gap-4">
             {/* Avatar projet — image projet, sinon logo client, sinon initiales */}
@@ -339,11 +343,11 @@ function ReadView({
 
       {/* ── FOOTER ADMIN (admin/charge_prod uniquement, juste sous le hero) ─ */}
       {canEdit && (
-        <AdminFooter project={project} accessCount={accessCount} />
+        <AdminFooter project={project} accessCount={accessCount} className="lg:col-span-1" />
       )}
 
       {/* ── IDENTITÉ (+ planning fusionné) ───────────────────────────────── */}
-      <SectionCard icon={<Clapperboard className="w-4 h-4" />} title="Identité">
+      <SectionCard icon={<Clapperboard className="w-4 h-4" />} title="Identité" className="lg:col-span-2">
         <div className="space-y-5">
           <InfoGrid items={[
             { label: 'Type',                value: get('type_projet') },
@@ -384,6 +388,7 @@ function ReadView({
       <SectionCard
         icon={<Users className="w-4 h-4" />}
         title={`Équipe${persons.length ? ` (${persons.length})` : ''}`}
+        className="lg:col-span-2"
         action={
           <Link to={`/projets/${project.id}/equipe`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
             Voir l'équipe →
@@ -421,7 +426,7 @@ function ReadView({
       {livrables.length === 0 && !canSeeLivrables ? null : livrables.length === 0 ? (
         <Link
           to={`/projets/${project.id}/livrables`}
-          className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-xs text-gray-500 hover:text-blue-700 transition-colors"
+          className="lg:col-span-2 flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-xs text-gray-500 hover:text-blue-700 transition-colors"
         >
           <span className="flex items-center gap-2">
             <FileText className="w-3.5 h-3.5 text-gray-400" />
@@ -433,6 +438,7 @@ function ReadView({
         <SectionCard
           icon={<FileText className="w-4 h-4" />}
           title={`Livrables (${livrables.length})`}
+          className="lg:col-span-2"
           action={
             <Link to={`/projets/${project.id}/livrables`} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
               Voir tout →
@@ -460,7 +466,7 @@ function ReadView({
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
       {canEdit && project.note_prod && (
-        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
+        <SectionCard icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis" className="lg:col-span-1">
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{project.note_prod}</p>
         </SectionCard>
       )}
@@ -614,7 +620,7 @@ function ClientLine({ project }) {
 
 // Footer compact regroupant les infos admin (réf, BC, date devis)
 // et l'accès délégué vers AccessTab. Visible uniquement pour admin/charge_prod.
-function AdminFooter({ project, accessCount }) {
+function AdminFooter({ project, accessCount, className = '' }) {
   const adminBits = [
     project.ref_projet   && { label: 'Réf', value: project.ref_projet, mono: true },
     project.bon_commande && { label: 'BC',  value: project.bon_commande, mono: true },
@@ -627,7 +633,7 @@ function AdminFooter({ project, accessCount }) {
     `${accessCount} utilisateur${accessCount > 1 ? 's' : ''}`
 
   return (
-    <div className="card mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 text-xs">
+    <div className={`card flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 text-xs ${className}`}>
       <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-gray-500">
         <Building2 className="w-3.5 h-3.5 text-gray-400" />
         {adminBits.length === 0 ? (
@@ -652,9 +658,9 @@ function AdminFooter({ project, accessCount }) {
   )
 }
 
-function SectionCard({ icon, title, action, children }) {
+function SectionCard({ icon, title, action, children, className = '' }) {
   return (
-    <div className="card overflow-visible">
+    <div className={`card overflow-visible ${className}`}>
       <div className="card-header">
         <div className="flex items-center gap-2 text-gray-700">
           <span className="text-gray-400">{icon}</span>
