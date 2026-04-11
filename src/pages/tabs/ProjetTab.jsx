@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import {
-  Save, Plus, Trash2, Check, X, RefreshCw,
+  Save, Plus, Trash2, Check, X, RefreshCw, Upload,
   Building2, Clapperboard, FileText, StickyNote, Users, Shield,
   ChevronDown, ChevronRight, Edit2, Calendar, Mail, Phone, MapPin,
 } from 'lucide-react'
@@ -78,6 +78,7 @@ function buildDraftFromProject(project) {
     bon_commande: project.bon_commande  || '',
     date_devis:   project.date_devis    || '',
     client_id:    project.client_id     || '',
+    cover_url:    project.cover_url     || '',
     fields,
     visible,
     livrables,
@@ -94,6 +95,7 @@ function buildPayloadFromDraft(draft) {
     ref_projet:     draft.ref_projet,
     bon_commande:   draft.bon_commande,
     date_devis:     draft.date_devis    || null,
+    cover_url:      draft.cover_url     || null,
     type_projet:    draft.fields.type_projet  || null,
     agence:         draft.fields.agence       || null,
     realisateur:    draft.fields.realisateur  || null,
@@ -249,6 +251,7 @@ export default function ProjetTab() {
           saving={saving}
           showAdmin={showAdmin}
           setShowAdmin={setShowAdmin}
+          projectId={projectId}
         />
       ) : (
         <ReadView
@@ -510,6 +513,107 @@ function ProjectAvatar({ project }) {
   )
 }
 
+// Uploader pour le visuel projet — composant utilisé en mode édition.
+// Upload vers Supabase Storage (bucket "project-covers"), path = <projectId>/<filename>.
+// Met à jour le draft via onChange(url) avec l'URL publique. La persistance en
+// base se fait via le bouton "Enregistrer" classique (cover_url est dans le draft).
+function ProjectCoverUploader({ projectId, project, currentUrl, onChange }) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState(null)
+  const inputRef = useRef(null)
+
+  async function handleFile(file) {
+    if (!file || !projectId) return
+    setError(null)
+
+    if (!file.type.startsWith('image/')) {
+      setError('Le fichier doit être une image.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image trop lourde (max 5 Mo).')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const path = `${projectId}/cover-${Date.now()}.${ext}`
+
+      const { error: upErr } = await supabase.storage
+        .from('project-covers')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (upErr) throw upErr
+
+      const { data: pub } = supabase.storage
+        .from('project-covers')
+        .getPublicUrl(path)
+
+      onChange(pub.publicUrl)
+    } catch (e) {
+      console.error('Upload cover projet:', e)
+      setError(e.message || 'Erreur lors de l\'upload.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleRemove() {
+    onChange('')
+    setError(null)
+  }
+
+  // L'avatar préview reflète l'état courant (URL ou fallback initiales du draft)
+  const previewProject = { ...project, cover_url: currentUrl }
+
+  return (
+    <div>
+      <FieldLabel>Visuel du projet</FieldLabel>
+      <div className="flex items-center gap-4">
+        <ProjectAvatar project={previewProject} />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="btn-secondary btn-sm"
+            >
+              {uploading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Upload className="w-3.5 h-3.5" />
+              )}
+              {uploading ? 'Envoi…' : (currentUrl ? 'Remplacer' : 'Téléverser')}
+            </button>
+            {currentUrl && (
+              <button
+                type="button"
+                onClick={handleRemove}
+                disabled={uploading}
+                className="btn-secondary btn-sm text-red-600 hover:text-red-700"
+              >
+                <Trash2 className="w-3.5 h-3.5" />Retirer
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-400">
+            JPG, PNG ou WebP — 5 Mo max. À défaut, le logo du client (s'il existe) ou les initiales du projet seront utilisés.
+          </p>
+          {error && <p className="text-[11px] text-red-600">{error}</p>}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={e => handleFile(e.target.files?.[0])}
+        />
+      </div>
+    </div>
+  )
+}
+
 function SubLine({ get, project }) {
   const parts = [
     get('type_projet'),
@@ -624,7 +728,7 @@ function EmptyHint({ children }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VUE ÉDITION — formulaire complet (admin + charge_prod uniquement)
 // ══════════════════════════════════════════════════════════════════════════════
-function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, showAdmin, setShowAdmin }) {
+function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, showAdmin, setShowAdmin, projectId }) {
   const setA = (k, v) => setDraft(p => ({ ...p, [k]: v }))
   const setF = (k, v) => setDraft(p => ({ ...p, fields: { ...p.fields, [k]: v } }))
 
@@ -707,6 +811,13 @@ function EditView({ draft, setDraft, clientsList, onCancel, onSave, saving, show
       {/* ── BLOC IDENTITÉ ────────────────────────────────────────────────── */}
       <Block icon={<Clapperboard className="w-4 h-4" />} title="Identité">
         <div className="space-y-4">
+          {/* Visuel projet (upload Supabase Storage → cover_url) */}
+          <ProjectCoverUploader
+            projectId={projectId}
+            project={draft}
+            currentUrl={draft.cover_url}
+            onChange={url => setA('cover_url', url)}
+          />
           <Field
             label="Nom du projet"
             placeholder="Titre du projet…"
