@@ -256,8 +256,26 @@ export default function ProjetTab() {
             projectId={projectId}
           />
         </div>
-      ) : (
+      ) : canEdit ? (
+        // Admin / chargé prod : on a du contenu pour la colonne latérale
+        // (AdminFooter + éventuellement Note de prod) → grille 3 colonnes
+        // dense sur desktop.
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:grid-flow-dense items-start">
+          <ReadView
+            project={project}
+            get={get}
+            canEdit={canEdit}
+            onEdit={startEdit}
+            persons={persons}
+            loadingMembres={loadingMembres}
+            accessCount={accessCount}
+            canSeeLivrables={canSeeLivrables}
+          />
+        </div>
+      ) : (
+        // Prestataire / lecteur : pas de bloc latéral, on garde un layout
+        // centré confort (les classes lg:col-span sont alors no-op).
+        <div className="max-w-4xl mx-auto space-y-4">
           <ReadView
             project={project}
             get={get}
