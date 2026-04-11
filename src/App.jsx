@@ -3,7 +3,8 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
 import RequireRole from './components/guards/RequireRole'
-import RequirePermission from './components/guards/RequirePermission'
+// RequirePermission est disponible (src/components/guards/RequirePermission.jsx)
+// pour les futures routes granulaires outil+action — non utilisé pour l'instant.
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import HomePage from './pages/HomePage'

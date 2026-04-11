@@ -6,6 +6,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import { useParams, useNavigate, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
 import {
   ChevronLeft, TrendingUp, Euro, FileText,
@@ -37,15 +38,23 @@ export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
   const navigate  = useNavigate()
-  const { org, canSeeFinance, canSee, isPrestataire } = useAuth()
+  const { org, canSeeFinance, isPrestataire } = useAuth()
+
+  // Permissions par projet (chantier 3B) : chargées depuis project_access +
+  // project_access_permissions via Supabase
+  const {
+    loading: permLoading,
+    isAttached,
+    canSee: canSeeOutil,
+  } = useProjectPermissions(id)
 
   // Filtrer les onglets selon le rôle et les permissions par outil
   //  1) Onglets finance : masqués si l'utilisateur n'a pas accès à la finance
   //  2) Onglets "outil" : pour les prestataires, masqués si pas de droit read
-  //     (les rôles internes bypassent via can() dans AuthContext)
+  //     (les rôles internes bypassent dans le hook)
   const TABS = ALL_TABS.filter(t => {
     if (t.finance && !canSeeFinance) return false
-    if (isPrestataire && t.outil && !canSee(t.outil)) return false
+    if (isPrestataire && t.outil && !canSeeOutil(t.outil)) return false
     return true
   })
 
@@ -125,11 +134,18 @@ export default function ProjetLayout() {
   const isDevisEditor = location.pathname.includes('/devis/') &&
     pathSegments[pathSegments.length - 1] !== 'devis'
 
-  if (loading) return (
+  if (loading || permLoading) return (
     <div className="flex items-center justify-center h-full">
       <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
+
+  // RLS côté Supabase renvoie déjà NULL pour un projet auquel l'utilisateur
+  // n'a pas accès (→ project === null). On ajoute en plus le garde-fou
+  // isAttached du hook (défense en profondeur).
+  if (!project || !isAttached) {
+    return <Navigate to="/unauthorized" replace state={{ from: location.pathname }} />
+  }
 
   return (
     <ProjetContext.Provider value={ctx}>

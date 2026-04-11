@@ -1,18 +1,28 @@
 // ════════════════════════════════════════════════════════════════════════════
-// MOTEUR DE PERMISSIONS — Chantier 3A
+// MOTEUR DE PERMISSIONS — Chantier 3A + 3B
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Ce module est PUR (aucune dépendance React, aucun appel réseau). Toute la
-// logique est testable unitairement avec Vitest. Les données d'entrée sont
-// les lignes brutes récupérées depuis Supabase (permissions du template et
-// overrides utilisateur) et la sortie est un objet permissions exploitable
-// par l'UI.
+// logique est testable unitairement avec Vitest.
 //
-// Philosophie :
+// Scope depuis 3B : toutes les permissions sont maintenant résolues PAR PROJET.
+//   - Le template métier est lu sur `project_access.metier_template_id` de la
+//     ligne (user, projet) — un même humain peut donc être monteur sur un
+//     projet et chef op sur un autre.
+//   - Les overrides par outil vivent sur `project_access_permissions` et ne
+//     s'appliquent qu'au projet courant.
+//
+// Les appels UI doivent donc instancier un `ctx` par projet (voir le hook
+// `useProjectPermissions(projectId)`), et non plus un ctx global par user.
+//
+// Philosophie inchangée :
 //   - Les rôles internes (admin, charge_prod, coordinateur) ont un BYPASS
-//     total : ils voient tous les outils, peu importe leur template.
+//     total au niveau du moteur : si `ctx.role` est interne, `can()` renvoie
+//     toujours true. Le filtrage côté projet (attachement via project_access)
+//     est géré en amont par le hook — le moteur ne voit que les permissions
+//     d'un projet où l'utilisateur est bien attaché.
 //   - Les prestataires n'ont accès qu'à ce que leur template + overrides
-//     autorisent explicitement.
+//     autorisent explicitement pour ce projet.
 //   - En cas de doute → on refuse (fail-safe).
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -70,16 +80,20 @@ function normalize(perm) {
 }
 
 /**
- * Construit l'objet `permissions` final à partir des lignes template + overrides.
+ * Construit l'objet `permissions` final pour UN PROJET DONNÉ à partir des
+ * lignes template + overrides récupérées sur Supabase.
  *
- * @param {Array} templateRows - Lignes de metier_template_permissions pour le template du user
- * @param {Array} overrideRows - Lignes de prestataire_outils pour le user (peut être vide)
+ * @param {Array} templateRows - Lignes `metier_template_permissions` pour
+ *                               le template pointé par project_access.metier_template_id
+ * @param {Array} overrideRows - Lignes `project_access_permissions` pour
+ *                               (user_id, project_id) courant (peut être vide)
  * @returns {Object} Objet {[outil_key]: {can_read, can_comment, can_edit}}
  *
  * Règle de fusion : un override NON NULL remplace la valeur du template.
  * Un override à NULL (champ non défini) laisse la valeur du template intacte.
+ * Monotonie : edit ⊃ comment ⊃ read (appliquée via normalize()).
  */
-export function buildPermissions(templateRows = [], overrideRows = []) {
+export function buildProjectPermissions(templateRows = [], overrideRows = []) {
   const out = {}
 
   // 1) On applique d'abord le template comme base
@@ -105,6 +119,10 @@ export function buildPermissions(templateRows = [], overrideRows = []) {
 
   return out
 }
+
+// Alias rétro-compat : ancien nom utilisé par les tests. Conservé pour ne pas
+// casser la suite existante — même comportement, même signature.
+export const buildPermissions = buildProjectPermissions
 
 /**
  * Vérifie si une action est autorisée sur un outil donné.

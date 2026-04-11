@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase'
 import {
   ROLES,
   INTERNAL_ROLES,
-  buildPermissions,
   can as canFn,
   canSee as canSeeFn,
   hasRole as hasRoleFn,
@@ -17,10 +16,12 @@ export function AuthProvider({ children }) {
   const [user, setUser]             = useState(null)
   const [profile, setProfile]       = useState(null)
   const [org, setOrg]               = useState(null)
-  const [permissions, setPermissions] = useState({}) // { outil_key: { can_read, can_comment, can_edit } }
   const [loading, setLoading]       = useState(true)
 
-  // ─── Chargement du profil + permissions ───────────────────────────────────
+  // ─── Chargement du profil ─────────────────────────────────────────────────
+  // Depuis chantier 3B, les permissions outil vivent PAR PROJET (project_access
+  // + project_access_permissions). On ne charge donc plus rien de global ici —
+  // les pages-projet instancient leur propre contexte via useProjectPermissions.
   const loadProfile = useCallback(async (userId) => {
     const { data: prof } = await supabase
       .from('profiles')
@@ -31,7 +32,6 @@ export function AuthProvider({ children }) {
     if (!prof) {
       setProfile(null)
       setOrg(null)
-      setPermissions({})
       return
     }
 
@@ -45,26 +45,6 @@ export function AuthProvider({ children }) {
         .eq('id', prof.org_id)
         .single()
       if (orgData) setOrg(orgData)
-    }
-
-    // Permissions : seulement pertinentes pour les prestataires externes.
-    // Les rôles internes (admin/charge_prod/coordinateur) bypassent le moteur,
-    // donc on ne charge rien pour eux (économie de requêtes réseau).
-    if (prof.role === ROLES.PRESTATAIRE && prof.metier_template_id) {
-      const [{ data: templateRows }, { data: overrideRows }] = await Promise.all([
-        supabase
-          .from('metier_template_permissions')
-          .select('outil_key, can_read, can_comment, can_edit')
-          .eq('template_id', prof.metier_template_id),
-        supabase
-          .from('prestataire_outils')
-          .select('outil_key, can_read, can_comment, can_edit')
-          .eq('user_id', userId),
-      ])
-
-      setPermissions(buildPermissions(templateRows || [], overrideRows || []))
-    } else {
-      setPermissions({}) // vide : bypass internes OU prestataire sans template
     }
   }, [])
 
@@ -82,7 +62,6 @@ export function AuthProvider({ children }) {
       else {
         setProfile(null)
         setOrg(null)
-        setPermissions({})
       }
     })
 
@@ -105,7 +84,7 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut()
-    setUser(null); setProfile(null); setOrg(null); setPermissions({})
+    setUser(null); setProfile(null); setOrg(null)
   }
 
   async function createOrg(name, siret, email) {
@@ -144,16 +123,22 @@ export function AuthProvider({ children }) {
   // ─── Dérivés rôle ─────────────────────────────────────────────────────────
   const role = profile?.role || ROLES.COORDINATEUR
 
-  // ─── API de permissions stable (mémoïsée) ─────────────────────────────────
-  // On mémoïse le ctx pour éviter que can/canSee ne se recréent à chaque render.
-  const permCtx = useMemo(() => ({ role, permissions }), [role, permissions])
+  // ─── API rôle (globale, stable) ───────────────────────────────────────────
+  // On garde un permCtx "léger" (rôle seul) pour les helpers globaux.
+  // Les permissions par outil sont résolues PAR PROJET via useProjectPermissions.
+  const permCtx = useMemo(() => ({ role, permissions: {} }), [role])
 
-  const can        = useCallback((outil, action) => canFn(permCtx, outil, action), [permCtx])
-  const canSee     = useCallback((outil)          => canSeeFn(permCtx, outil),      [permCtx])
-  const hasRole    = useCallback((roles)          => hasRoleFn(permCtx, roles),     [permCtx])
+  // hasRole reste global : c'est une simple comparaison de rôle.
+  const hasRole = useCallback((roles) => hasRoleFn(permCtx, roles), [permCtx])
+
+  // can/canSee globaux : bypassent pour les internes, renvoient false pour
+  // les prestataires (qui doivent passer par useProjectPermissions). Gardés
+  // pour la rétro-compat de certains appels sidebar.
+  const can    = useCallback((outil, action) => canFn(permCtx, outil, action), [permCtx])
+  const canSee = useCallback((outil)         => canSeeFn(permCtx, outil),      [permCtx])
 
   // ─── Dérivés legacy (compatibilité ascendante avec le code existant) ─────
-  const canSeeFinance    = INTERNAL_ROLES.includes(role) && (role === 'admin' || role === 'charge_prod')
+  const canSeeFinance    = role === 'admin' || role === 'charge_prod'
   const canSeeCrewBudget = INTERNAL_ROLES.includes(role)
   const isAdmin          = role === ROLES.ADMIN
   const isInternal       = isInternalFn(permCtx)
@@ -162,10 +147,10 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       // État
-      user, profile, org, loading, permissions,
+      user, profile, org, loading,
       // Rôle
       role, isAdmin, isInternal, isPrestataire,
-      // API permissions
+      // API rôle / permissions globales (internes uniquement)
       can, canSee, hasRole,
       // Legacy
       canSeeFinance, canSeeCrewBudget,
