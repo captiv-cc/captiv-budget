@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Plus, Search, FolderOpen, ArrowRight, Trash2, Edit2 } from 'lucide-react'
 import { STATUS_OPTIONS } from '../features/projets/constants'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
+import ProjectAvatar from '../features/projets/components/ProjectAvatar'
 
 export default function Projets() {
   const { org, profile, isInternal, isAdmin } = useAuth()
@@ -21,7 +22,7 @@ export default function Projets() {
   async function loadAll() {
     setLoading(true)
     const [{ data: projs }, { data: cls }] = await Promise.all([
-      supabase.from('projects').select('*, clients(name)').eq('org_id', org.id).order('updated_at', { ascending: false }),
+      supabase.from('projects').select('*, clients(name, logo_url)').eq('org_id', org.id).order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
     ])
     setProjects(projs || [])
@@ -103,6 +104,7 @@ export default function Projets() {
         {filtered.map(p => (
           <div key={p.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors group">
             <Link to={`/projets/${p.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+              <ProjectAvatar project={p} size={40} rounded="lg" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-900 truncate">{p.title}</p>
                 <p className="text-xs text-gray-500">{p.clients?.name || '—'}</p>

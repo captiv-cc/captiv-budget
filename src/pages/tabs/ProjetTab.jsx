@@ -17,6 +17,7 @@ import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import {
   Save, Plus, Trash2, Check, X, RefreshCw, Upload,
   Building2, Clapperboard, FileText, StickyNote, Users, Shield,
@@ -469,49 +470,9 @@ function ReadView({
 
 // ─── Sous-composants de la vue lecture ──────────────────────────────────────
 
-// Avatar projet 64×64. Cascade de fallback :
-//   1) project.cover_url      (à venir, upload côté projet — colonne future)
-//   2) project.clients.logo_url (logo client déjà géré côté DB clients)
-//   3) initiales du titre projet sur fond coloré déterministe
-function ProjectAvatar({ project }) {
-  const src = project.cover_url || project.clients?.logo_url || null
-
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt={project.title || 'Projet'}
-        className="w-16 h-16 rounded-xl object-cover shrink-0 ring-1 ring-gray-100 bg-white"
-        onError={e => { e.currentTarget.style.display = 'none' }}
-      />
-    )
-  }
-
-  // Fallback : initiales sur fond coloré (hash déterministe sur le titre)
-  const title = (project.title || '?').trim()
-  const initials = title
-    .split(/\s+/).slice(0, 2)
-    .map(w => w[0]).join('')
-    .toUpperCase() || '?'
-
-  const palette = [
-    'from-blue-500 to-indigo-600',
-    'from-purple-500 to-pink-600',
-    'from-emerald-500 to-teal-600',
-    'from-amber-500 to-orange-600',
-    'from-rose-500 to-red-600',
-    'from-cyan-500 to-blue-600',
-  ]
-  let h = 0
-  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) | 0
-  const grad = palette[Math.abs(h) % palette.length]
-
-  return (
-    <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-white font-bold text-lg shrink-0 ring-1 ring-black/5 shadow-sm`}>
-      {initials}
-    </div>
-  )
-}
+// Note : ProjectAvatar est désormais un composant partagé importé depuis
+// src/features/projets/components/ProjectAvatar.jsx (réutilisé sur Projets +
+// HomePage). Voir l'import en tête de fichier.
 
 // Uploader pour le visuel projet — composant utilisé en mode édition.
 // Upload vers Supabase Storage (bucket "project-covers"), path = <projectId>/<filename>.

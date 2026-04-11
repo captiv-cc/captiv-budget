@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { fmtEur } from '../lib/cotisations'
+import ProjectAvatar from '../features/projets/components/ProjectAvatar'
 import {
   FolderOpen, Users, CheckSquare, Calendar,
   Plus, ArrowRight, Clock, AlertCircle,
@@ -104,7 +105,7 @@ export default function HomePage() {
       // Projets actifs (affichés à tous les rôles — sans chiffres)
       const { data: projs } = await supabase
         .from('projects')
-        .select('id, title, status, type_projet, date_fin, clients(name)')
+        .select('id, title, status, type_projet, date_fin, cover_url, clients(name, logo_url)')
         .eq('org_id', org.id)
         .in('status', ['prospect', 'en_cours'])
         .order('updated_at', { ascending: false })
@@ -261,6 +262,7 @@ export default function HomePage() {
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{ background: STATUS_DOT[p.status] || 'var(--txt-3)' }}
                   />
+                  <ProjectAvatar project={p} size={36} rounded="lg" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: 'var(--txt)' }}>
                       {p.title}
