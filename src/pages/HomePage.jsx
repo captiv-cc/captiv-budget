@@ -83,7 +83,7 @@ function SectionTitle({ children }) {
 // ─── Page Accueil ─────────────────────────────────────────────────────────────
 export default function HomePage() {
     
-  const { profile, org, canSeeFinance } = useAuth()
+  const { profile, org, canSeeFinance, isInternal } = useAuth()
 
   const [loading,   setLoading]   = useState(true)
   const [projets,   setProjets]   = useState([])
@@ -181,14 +181,16 @@ export default function HomePage() {
             {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
         </div>
-        <Link
-          to="/projets"
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          style={{ background: 'var(--blue)', color: 'white' }}
-        >
-          <Plus className="w-4 h-4" />
-          Nouveau projet
-        </Link>
+        {isInternal && (
+          <Link
+            to="/projets"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            style={{ background: 'var(--blue)', color: 'white' }}
+          >
+            <Plus className="w-4 h-4" />
+            Nouveau projet
+          </Link>
+        )}
       </div>
 
       {/* ── Stats ───────────────────────────────────────────────────────────── */}
@@ -357,10 +359,17 @@ export default function HomePage() {
           <div>
             <SectionTitle>Actions rapides</SectionTitle>
             <div className="space-y-2">
-              <QuickAction to="/projets" icon={FolderOpen} label="Nouveau projet" color="blue" />
-              <QuickAction to="/crew" icon={Users} label="Ajouter au Crew" color="purple" />
+              {isInternal && (
+                <>
+                  <QuickAction to="/projets" icon={FolderOpen} label="Nouveau projet" color="blue" />
+                  <QuickAction to="/crew" icon={Users} label="Ajouter au Crew" color="purple" />
+                </>
+              )}
               {canSeeFinance && (
                 <QuickAction to="/compta" icon={Receipt} label="Voir les factures" color="amber" />
+              )}
+              {!isInternal && (
+                <QuickAction to="/projets" icon={FolderOpen} label="Mes projets" color="blue" />
               )}
             </div>
           </div>

@@ -12,7 +12,7 @@ const STATUS_OPTIONS = [
 ]
 
 export default function Projets() {
-  const { org, profile } = useAuth()
+  const { org, profile, isInternal } = useAuth()
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [clients, setClients]   = useState([])
@@ -64,9 +64,11 @@ export default function Projets() {
           <h1 className="text-xl font-bold text-gray-900">Projets</h1>
           <p className="text-sm text-gray-500 mt-0.5">{projects.length} projets</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Nouveau projet
-        </button>
+        {isInternal && (
+          <button onClick={() => setShowModal(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> Nouveau projet
+          </button>
+        )}
       </div>
 
       {/* Search */}
