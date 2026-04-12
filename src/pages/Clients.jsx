@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { notify } from '../lib/notify'
 import { useAuth } from '../contexts/AuthContext'
 import { Edit2, X, Check, Plus, Search, Users, Trash2 } from 'lucide-react'
 
@@ -25,7 +26,11 @@ export default function Clients() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('clients').select('*').eq('org_id', org.id).order('name')
+    const { data, error } = await supabase.from('clients').select('*').eq('org_id', org.id).order('name')
+    if (error) {
+      console.error('[Clients] load:', error)
+      notify.error('Impossible de charger les clients')
+    }
     setClients(data || [])
     setLoading(false)
   }, [org?.id])
@@ -78,7 +83,7 @@ export default function Clients() {
       }
       setModal(null)
     } catch (err) {
-      alert('Erreur : ' + (err.message || JSON.stringify(err)))
+      notify.error('Erreur : ' + (err.message || JSON.stringify(err)))
     } finally {
       setSaving(false)
     }
@@ -86,7 +91,12 @@ export default function Clients() {
 
   async function del(id) {
     if (!confirm('Supprimer ce client ?')) return
-    await supabase.from('clients').delete().eq('id', id)
+    const { error } = await supabase.from('clients').delete().eq('id', id)
+    if (error) {
+      console.error('[Clients] delete:', error)
+      notify.error('Impossible de supprimer le client : ' + error.message)
+      return
+    }
     setClients((p) => p.filter((c) => c.id !== id))
   }
 

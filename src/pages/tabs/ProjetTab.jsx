@@ -16,6 +16,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import {
@@ -289,7 +290,7 @@ export default function ProjetTab() {
       .single()
     setSaving(false)
     if (error) {
-      alert('Erreur sauvegarde : ' + error.message)
+      notify.error('Erreur sauvegarde : ' + error.message)
       return
     }
     if (data) {

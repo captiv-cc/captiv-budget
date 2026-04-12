@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { notify } from '../lib/notify'
 import { useAuth } from '../contexts/AuthContext'
 import { fmtEur, UNITES } from '../lib/cotisations'
 import {
@@ -86,7 +87,7 @@ export default function BDD() {
 
   const loadAll = useCallback(async () => {
     setLoading(true)
-    const [{ data: prods }, { data: grille }, { data: fourns }, { data: usageRows }] =
+    const [prodsRes, grilleRes, fournsRes, usageRes] =
       await Promise.all([
         supabase
           .from('produits_bdd')
@@ -98,11 +99,14 @@ export default function BDD() {
         supabase.from('fournisseurs').select('*').order('nom'),
         supabase.from('devis_lines').select('fournisseur_id').not('fournisseur_id', 'is', null),
       ])
-    setProduits(prods || [])
-    setGrilleCC(grille || [])
-    setFournisseurs(fourns || [])
+    if (prodsRes.error) console.error('[BDD] load produits:', prodsRes.error)
+    if (grilleRes.error) console.error('[BDD] load grille:', grilleRes.error)
+    if (fournsRes.error) console.error('[BDD] load fournisseurs:', fournsRes.error)
+    setProduits(prodsRes.data || [])
+    setGrilleCC(grilleRes.data || [])
+    setFournisseurs(fournsRes.data || [])
     const usage = {}
-    for (const r of usageRows || []) {
+    for (const r of usageRes.data || []) {
       usage[r.fournisseur_id] = (usage[r.fournisseur_id] || 0) + 1
     }
     setFournUsage(usage)
@@ -126,7 +130,7 @@ export default function BDD() {
     if (modal === 'create') {
       const { data, error } = await supabase.from('produits_bdd').insert(payload).select().single()
       if (error) {
-        alert(`Erreur : ${error.message}`)
+        notify.error(`Erreur : ${error.message}`)
         return
       }
       if (data)
@@ -145,7 +149,7 @@ export default function BDD() {
         .select()
         .single()
       if (error) {
-        alert(`Erreur : ${error.message}`)
+        notify.error(`Erreur : ${error.message}`)
         return
       }
       if (data) setProduits((p) => p.map((x) => (x.id === data.id ? data : x)))
@@ -155,7 +159,12 @@ export default function BDD() {
 
   async function del(id) {
     if (!confirm('Supprimer cette ligne ?')) return
-    await supabase.from('produits_bdd').delete().eq('id', id)
+    const { error } = await supabase.from('produits_bdd').delete().eq('id', id)
+    if (error) {
+      console.error('[BDD] delete produit:', error)
+      notify.error('Impossible de supprimer : ' + error.message)
+      return
+    }
     setProduits((p) => p.filter((x) => x.id !== id))
   }
 
@@ -168,7 +177,7 @@ export default function BDD() {
       .select()
       .single()
     if (error) {
-      alert(`Erreur : ${error.message}`)
+      notify.error(`Erreur : ${error.message}`)
       return
     }
     if (data) setProduits((p) => p.map((x) => (x.id === data.id ? data : x)))
@@ -188,13 +197,13 @@ export default function BDD() {
       default_tva: Number(rest.default_tva ?? 20),
     }
     if (!payload.nom) {
-      alert('Le nom est obligatoire.')
+      notify.warn('Le nom est obligatoire.')
       return
     }
     if (fournModal === 'create') {
       const { data, error } = await supabase.from('fournisseurs').insert(payload).select().single()
       if (error) {
-        alert(`Erreur : ${error.message}`)
+        notify.error(`Erreur : ${error.message}`)
         return
       }
       if (data) setFournisseurs((p) => [...p, data].sort((a, b) => a.nom.localeCompare(b.nom)))
@@ -206,7 +215,7 @@ export default function BDD() {
         .select()
         .single()
       if (error) {
-        alert(`Erreur : ${error.message}`)
+        notify.error(`Erreur : ${error.message}`)
         return
       }
       if (data)
@@ -226,7 +235,7 @@ export default function BDD() {
     if (!confirm(msg)) return
     const { error } = await supabase.from('fournisseurs').delete().eq('id', f.id)
     if (error) {
-      alert(`Erreur : ${error.message}`)
+      notify.error(`Erreur : ${error.message}`)
       return
     }
     setFournisseurs((p) => p.filter((x) => x.id !== f.id))

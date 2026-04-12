@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { notify } from '../lib/notify'
 import { calcSynthese, REGIMES_SALARIES, CATS_HUMAINS, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
 import { exportDevisPDF } from '../lib/pdfExport'
@@ -660,7 +661,7 @@ export default function DevisEditor({ embedded = false }) {
                 <span
                   className="font-medium cursor-pointer"
                   style={{ color: 'var(--red)' }}
-                  onClick={() => alert(`Erreur sauvegarde :\n${saveError}`)}
+                  onClick={() => notify.error(`Erreur sauvegarde : ${saveError}`)}
                 >
                   ⚠ Erreur save
                 </span>
@@ -682,7 +683,7 @@ export default function DevisEditor({ embedded = false }) {
                   client,
                   org,
                   taux,
-                ).catch(console.error)
+                ).catch((err) => { console.error('[DevisEditor] PDF export:', err); notify.error('Erreur export PDF') })
               }
               className="btn-secondary btn-sm"
             >
@@ -693,7 +694,7 @@ export default function DevisEditor({ embedded = false }) {
               onClick={() => {
                 const url = `${window.location.origin}/devis/public/${devis?.public_token}`
                 navigator.clipboard.writeText(url)
-                alert(`Lien copié :\n${url}`)
+                notify.success('Lien copié dans le presse-papier')
               }}
               className="btn-primary btn-sm"
             >

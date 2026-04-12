@@ -25,7 +25,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import toast from 'react-hot-toast'
+import { notify } from '../../lib/notify'
 import {
   UserPlus,
   Trash2,
@@ -166,7 +166,7 @@ export default function AccessTab() {
       setContactsByUser(ctsMap)
     } catch (err) {
       console.error(err)
-      toast.error('Erreur de chargement')
+      notify.error('Erreur de chargement')
     } finally {
       setLoading(false)
     }
@@ -185,10 +185,10 @@ export default function AccessTab() {
       .eq('project_id', projectId)
       .eq('user_id', userId)
     if (error) {
-      toast.error('Retrait impossible : ' + error.message)
+      notify.error('Retrait impossible : ' + error.message)
       return
     }
-    toast.success('Accès retiré')
+    notify.success('Accès retiré')
     loadAll()
   }
 
@@ -224,7 +224,7 @@ export default function AccessTab() {
         .eq('project_id', projectId)
         .eq('outil_key', outilKey)
       if (error) {
-        toast.error(error.message)
+        notify.error(error.message)
         return
       }
     } else {
@@ -232,7 +232,7 @@ export default function AccessTab() {
         .from('project_access_permissions')
         .upsert(row, { onConflict: 'user_id,project_id,outil_key' })
       if (error) {
-        toast.error(error.message)
+        notify.error(error.message)
         return
       }
     }
@@ -709,10 +709,10 @@ function AddAccessModal({
     const { error } = await supabase.from('project_access').insert(row)
     setSaving(false)
     if (error) {
-      toast.error('Ajout impossible : ' + error.message)
+      notify.error('Ajout impossible : ' + error.message)
       return
     }
-    toast.success(`${selectedUser.full_name || 'Utilisateur'} ajouté au projet`)
+    notify.success(`${selectedUser.full_name || 'Utilisateur'} ajouté au projet`)
     onAdded()
   }
 

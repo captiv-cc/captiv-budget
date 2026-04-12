@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { notify } from '../lib/notify'
 import { useAuth } from '../contexts/AuthContext'
 import {
   LayoutGrid,
@@ -69,7 +70,7 @@ export default function Projets() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: projs }, { data: cls }] = await Promise.all([
+    const [projRes, clsRes] = await Promise.all([
       supabase
         .from('projects')
         .select('*, clients(name)')
@@ -77,18 +78,31 @@ export default function Projets() {
         .order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
     ])
-    setProjects(projs || [])
-    setClients(cls || [])
+    if (projRes.error) {
+      console.error('[Projets] load projects:', projRes.error)
+      notify.error('Impossible de charger les projets')
+    }
+    if (clsRes.error) {
+      console.error('[Projets] load clients:', clsRes.error)
+      notify.error('Impossible de charger les clients')
+    }
+    setProjects(projRes.data || [])
+    setClients(clsRes.data || [])
     setLoading(false)
   }
 
   async function handleCreate(e) {
     e.preventDefault()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('projects')
       .insert({ ...form, org_id: org.id, created_by: profile?.id })
       .select()
       .single()
+    if (error) {
+      console.error('[Projets] create:', error)
+      notify.error('Impossible de créer le projet : ' + error.message)
+      return
+    }
     if (data) {
       setShowModal(false)
       setForm({
@@ -106,8 +120,14 @@ export default function Projets() {
   async function deleteProject(id) {
     if (!isAdmin) return
     if (!confirm('Supprimer ce projet et tous ses devis ?')) return
-    await supabase.from('projects').delete().eq('id', id)
+    const { error } = await supabase.from('projects').delete().eq('id', id)
+    if (error) {
+      console.error('[Projets] delete:', error)
+      notify.error('Impossible de supprimer le projet : ' + error.message)
+      return
+    }
     setProjects((p) => p.filter((x) => x.id !== id))
+    notify.success('Projet supprimé')
   }
 
   // Archivage : flag d'affichage uniquement, le contenu du projet est intact.
@@ -125,9 +145,9 @@ export default function Projets() {
     setProjects((p) => p.map((x) => (x.id === id ? { ...x, archived_at: now } : x)))
     const { error } = await supabase.from('projects').update({ archived_at: now }).eq('id', id)
     if (error) {
-      console.warn('Erreur archivage projet:', error)
+      console.error('[Projets] archive:', error)
       setProjects(previous)
-      alert("Impossible d'archiver : " + error.message)
+      notify.error("Impossible d'archiver : " + error.message)
     }
   }
 
@@ -138,9 +158,9 @@ export default function Projets() {
     setProjects((p) => p.map((x) => (x.id === id ? { ...x, archived_at: null } : x)))
     const { error } = await supabase.from('projects').update({ archived_at: null }).eq('id', id)
     if (error) {
-      console.warn('Erreur désarchivage projet:', error)
+      console.error('[Projets] unarchive:', error)
       setProjects(previous)
-      alert('Impossible de désarchiver : ' + error.message)
+      notify.error('Impossible de désarchiver : ' + error.message)
     }
   }
 
@@ -153,9 +173,9 @@ export default function Projets() {
       .update({ status: newStatus })
       .eq('id', projectId)
     if (error) {
-      console.warn('Erreur changement statut projet:', error)
+      console.error('[Projets] updateStatus:', error)
       setProjects(previous)
-      alert('Impossible de mettre à jour le statut : ' + error.message)
+      notify.error('Impossible de mettre à jour le statut : ' + error.message)
     }
   }
 

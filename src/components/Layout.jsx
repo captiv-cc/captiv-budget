@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { notify } from '../lib/notify'
 import {
   Home,
   FolderOpen,
@@ -63,7 +64,7 @@ function SidebarSearchButton({ collapsed }) {
   // Placeholder pour la future palette de commandes Cmd+K (cf. ROADMAP).
   // En attendant, le clic affiche un message "en développement".
   function handleClick() {
-    alert(
+    notify.error(
       '🚧 Recherche globale — fonctionnalité en développement.\n\nElle te permettra bientôt de chercher projets, devis, clients, crew… via Cmd+K.',
     )
   }

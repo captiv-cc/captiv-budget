@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { CATS } from '../lib/cotisations'
 import TvaPicker from '../components/TvaPicker'
-import toast from 'react-hot-toast'
+import { notify } from '../lib/notify'
 import {
   Plus,
   Search,
@@ -105,7 +105,7 @@ export default function Contacts() {
   const load = useCallback(async () => {
     if (!org?.id) return
     setLoading(true)
-    const [{ data: cts }, { data: pm }, { data: profs }, { data: invs }] = await Promise.all([
+    const [ctsRes, pmRes, profsRes, invsRes] = await Promise.all([
       supabase.from('contacts').select('*').eq('org_id', org.id).eq('actif', true).order('nom'),
       supabase
         .from('projet_membres')
@@ -123,17 +123,19 @@ export default function Contacts() {
         .is('accepted_at', null)
         .order('invited_at', { ascending: false }),
     ])
-    setContacts(cts || [])
-    setProfiles(profs || [])
+    if (ctsRes.error) console.error('[Contacts] load contacts:', ctsRes.error)
+    if (pmRes.error) console.error('[Contacts] load membres:', pmRes.error)
+    setContacts(ctsRes.data || [])
+    setProfiles(profsRes.data || [])
     // Garder la plus récente par contact
     const invMap = {}
-    for (const inv of invs || []) {
+    for (const inv of invsRes.data || []) {
       if (inv.contact_id && !invMap[inv.contact_id]) invMap[inv.contact_id] = inv
     }
     setPendingInvites(invMap)
     // Compter le nb de projets distincts par contact
     const counts = {}
-    for (const row of pm || []) {
+    for (const row of pmRes.data || []) {
       counts[row.contact_id] = counts[row.contact_id] || new Set()
       counts[row.contact_id].add(row.project_id)
     }
@@ -201,7 +203,7 @@ export default function Contacts() {
       }
       setModal(null)
     } catch (err) {
-      alert('Erreur : ' + (err.message || JSON.stringify(err)))
+      notify.error('Erreur : ' + (err.message || JSON.stringify(err)))
     } finally {
       setSaving(false)
     }
@@ -209,7 +211,12 @@ export default function Contacts() {
 
   async function del(id) {
     if (!confirm('Archiver ce contact ?')) return
-    await supabase.from('contacts').update({ actif: false }).eq('id', id)
+    const { error } = await supabase.from('contacts').update({ actif: false }).eq('id', id)
+    if (error) {
+      console.error('[Contacts] archive:', error)
+      notify.error('Impossible d\'archiver le contact : ' + error.message)
+      return
+    }
     setContacts((p) => p.filter((c) => c.id !== id))
   }
 
@@ -713,7 +720,7 @@ function ContactModal({
   async function sendInvite(mode, resend = false) {
     if (!contactId) return
     if (!form.email) {
-      toast.error("L'email du contact est requis pour l'invitation.")
+      notify.error("L'email du contact est requis pour l'invitation.")
       return
     }
     setInviting(mode)
@@ -753,7 +760,7 @@ function ContactModal({
       // Succès : maj locale du form + refresh parent
       if (data?.user_id) set('user_id', data.user_id)
       if (mode === 'email') {
-        toast.success(resend ? 'Invitation relancée par email !' : 'Invitation envoyée par email !')
+        notify.success(resend ? 'Invitation relancée par email !' : 'Invitation envoyée par email !')
         onInvited?.()
       } else {
         setInviteLink(data?.action_link || null)
@@ -761,15 +768,15 @@ function ContactModal({
           // Copie auto dans le presse-papier
           try {
             await navigator.clipboard.writeText(data.action_link)
-            toast.success('Lien copié dans le presse-papier')
+            notify.success('Lien copié dans le presse-papier')
           } catch {
-            toast.success('Lien généré')
+            notify.success('Lien généré')
           }
         }
         onInvited?.()
       }
     } catch (err) {
-      toast.error('Invitation échouée : ' + (err.message || JSON.stringify(err)))
+      notify.error('Invitation échouée : ' + (err.message || JSON.stringify(err)))
     } finally {
       setInviting(null)
     }
@@ -779,9 +786,9 @@ function ContactModal({
     if (!inviteLink) return
     try {
       await navigator.clipboard.writeText(inviteLink)
-      toast.success('Lien copié')
+      notify.success('Lien copié')
     } catch {
-      toast.error('Impossible de copier — sélectionnez et copiez à la main')
+      notify.error('Impossible de copier — sélectionnez et copiez à la main')
     }
   }
 

@@ -6,6 +6,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { notify } from '../lib/notify'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
@@ -200,9 +201,9 @@ export default function ProjetLayout() {
       .select('*, clients(*)')
       .single()
     if (error) {
-      console.error('Erreur changement statut projet:', error)
+      console.error('[ProjetLayout] status update:', error)
       setProject(previous)
-      alert('Impossible de mettre à jour le statut : ' + error.message)
+      notify.error('Impossible de mettre à jour le statut : ' + error.message)
     } else if (data) {
       setProject(data)
     }

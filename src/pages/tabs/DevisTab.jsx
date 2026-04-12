@@ -4,6 +4,7 @@
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { notify } from '../../lib/notify'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
 import DevisEditor, { BLOCS_CANONIQUES } from '../DevisEditor'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
@@ -69,6 +70,7 @@ export default function DevisTab() {
 
     if (devisErr) {
       console.error('[createDevis]', devisErr)
+      notify.error('Impossible de créer le devis : ' + devisErr.message)
       return
     }
     if (!newDevis) return
@@ -139,7 +141,12 @@ export default function DevisTab() {
     e.preventDefault()
     e.stopPropagation()
     if (!confirm('Supprimer ce devis et toutes ses lignes ?')) return
-    await supabase.from('devis').delete().eq('id', dvId)
+    const { error } = await supabase.from('devis').delete().eq('id', dvId)
+    if (error) {
+      console.error('[deleteDevis]', error)
+      notify.error('Impossible de supprimer le devis')
+      return
+    }
     setDevisList((p) => p.filter((d) => d.id !== dvId))
   }
 
@@ -154,6 +161,7 @@ export default function DevisTab() {
 
     if (!srcFull) {
       console.error('[duplicateDevis] source introuvable')
+      notify.error('Devis source introuvable')
       return
     }
 
@@ -180,6 +188,7 @@ export default function DevisTab() {
 
     if (devisErr) {
       console.error('[duplicateDevis]', devisErr)
+      notify.error('Impossible de dupliquer le devis : ' + devisErr.message)
       return
     }
     if (!newDevis) return
@@ -281,6 +290,7 @@ export default function DevisTab() {
     const { error } = await supabase.from('devis').update({ title: newTitle }).eq('id', dv.id)
     if (error) {
       console.error('[renameDevis]', error)
+      notify.error('Impossible de renommer le devis')
       return
     }
     setDevisList((p) => p.map((d) => (d.id === dv.id ? { ...d, title: newTitle } : d)))

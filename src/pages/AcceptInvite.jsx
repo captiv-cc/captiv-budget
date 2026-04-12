@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import toast from 'react-hot-toast'
+import { notify } from '../lib/notify'
 import { Lock, Check, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function AcceptInvite() {
@@ -85,7 +85,7 @@ export default function AcceptInvite() {
     }
 
     setPhase('done')
-    toast.success('Bienvenue dans CAPTIV !')
+    notify.success('Bienvenue dans CAPTIV !')
     // Petite pause pour que le toast soit visible
     setTimeout(() => navigate('/accueil', { replace: true }), 800)
   }

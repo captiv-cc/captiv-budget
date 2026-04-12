@@ -18,7 +18,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import toast from 'react-hot-toast'
+import { notify } from '../../lib/notify'
 import {
   Plus,
   Edit3,
@@ -106,7 +106,7 @@ export default function TemplatesMetiersTab() {
       setUsageByTpl(usage)
     } catch (e) {
       console.error('[TemplatesMetiers] load error:', e)
-      toast.error('Erreur de chargement')
+      notify.error('Erreur de chargement')
     } finally {
       setLoading(false)
     }
@@ -129,7 +129,7 @@ export default function TemplatesMetiersTab() {
     try {
       const { data, error } = await supabase.rpc('clone_metier_template', { source_id: sourceId })
       if (error) throw error
-      toast.success('Template cloné — édite-le librement')
+      notify.success('Template cloné — édite-le librement')
       await loadAll()
       // Ouvre direct l&apos;éditeur sur le nouveau template
       const newTpl = (await supabase.from('metiers_template').select('*').eq('id', data).single())
@@ -137,7 +137,7 @@ export default function TemplatesMetiersTab() {
       if (newTpl) setEditing(newTpl)
     } catch (e) {
       console.error(e)
-      toast.error(e.message || 'Clonage impossible')
+      notify.error(e.message || 'Clonage impossible')
     } finally {
       setBusy(false)
     }
@@ -146,7 +146,7 @@ export default function TemplatesMetiersTab() {
   async function deleteTemplate(tpl) {
     const usage = usageByTpl[tpl.id] || 0
     if (usage > 0) {
-      toast.error(
+      notify.error(
         `Ce template est utilisé par ${usage} prestataire${usage > 1 ? 's' : ''}. Retire-les d'abord.`,
       )
       return
@@ -158,11 +158,11 @@ export default function TemplatesMetiersTab() {
       // Les permissions sont supprimées en cascade
       const { error } = await supabase.from('metiers_template').delete().eq('id', tpl.id)
       if (error) throw error
-      toast.success('Template supprimé')
+      notify.success('Template supprimé')
       await loadAll()
     } catch (e) {
       console.error(e)
-      toast.error(e.message || 'Suppression impossible')
+      notify.error(e.message || 'Suppression impossible')
     } finally {
       setBusy(false)
     }
@@ -454,7 +454,7 @@ function TemplateEditorModal({
 
   async function save() {
     if (!label.trim()) {
-      toast.error('Nom obligatoire')
+      notify.error('Nom obligatoire')
       return
     }
     setSaving(true)
@@ -520,11 +520,11 @@ function TemplateEditorModal({
         if (insErr) throw insErr
       }
 
-      toast.success(isNew ? 'Template créé' : 'Template enregistré')
+      notify.success(isNew ? 'Template créé' : 'Template enregistré')
       onSaved()
     } catch (e) {
       console.error(e)
-      toast.error(e.message || "Erreur à l'enregistrement")
+      notify.error(e.message || "Erreur à l'enregistrement")
     } finally {
       setSaving(false)
     }

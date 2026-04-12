@@ -23,7 +23,11 @@ export function AuthProvider({ children }) {
   // + project_access_permissions). On ne charge donc plus rien de global ici —
   // les pages-projet instancient leur propre contexte via useProjectPermissions.
   const loadProfile = useCallback(async (userId) => {
-    const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).single()
+    const { data: prof, error: profErr } = await supabase.from('profiles').select('*').eq('id', userId).single()
+
+    if (profErr) {
+      console.error('[Auth] load profile:', profErr)
+    }
 
     if (!prof) {
       setProfile(null)
@@ -35,11 +39,12 @@ export function AuthProvider({ children }) {
 
     // Organisation
     if (prof.org_id) {
-      const { data: orgData } = await supabase
+      const { data: orgData, error: orgErr } = await supabase
         .from('organisations')
         .select('*')
         .eq('id', prof.org_id)
         .single()
+      if (orgErr) console.error('[Auth] load org:', orgErr)
       if (orgData) setOrg(orgData)
     }
   }, [])
@@ -100,7 +105,7 @@ export function AuthProvider({ children }) {
     if (orgErr) return { error: orgErr.message }
 
     // Insert default cotisation taux
-    await supabase.from('cotisation_config').insert([
+    const { error: cotErr } = await supabase.from('cotisation_config').insert([
       {
         org_id: newOrg.id,
         key: 'Intermittent Technicien',
@@ -122,6 +127,10 @@ export function AuthProvider({ children }) {
       },
       { org_id: newOrg.id, key: 'Prestation facturée', value: 0, label: 'Prestation externe HT' },
     ])
+    if (cotErr) {
+      console.error('[Auth] cotisation config:', cotErr)
+      // Non-blocking: la configuration par défaut peut être recréée plus tard
+    }
 
     // Update profile : créateur = admin par défaut
     const { error: profErr } = await supabase

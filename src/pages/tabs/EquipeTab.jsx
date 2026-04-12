@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { Link, useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { notify } from '../../lib/notify'
 import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
 import {
@@ -233,7 +234,7 @@ export default function EquipeTab() {
       .select()
       .single()
     if (error) {
-      alert('Erreur : ' + error.message)
+      notify.error('Erreur : ' + error.message)
       return
     }
     await updateMembre(membre.id, { contact_id: ct.id })
