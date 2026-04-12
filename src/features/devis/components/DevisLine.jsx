@@ -8,7 +8,7 @@
  * Extrait de DevisEditor.jsx — chantier refacto.
  */
 
-import { GripVertical, Copy, Trash2, Equal } from 'lucide-react'
+import { GripVertical, Copy, Trash2 } from 'lucide-react'
 import {
   calcLine, fmtEur, fmtPct,
   REGIMES_SALARIES, UNITES,
@@ -160,7 +160,7 @@ export default function DevisLine({ line, index = 0, taux, bdd, accentColor, onC
               placeholder={
                 line.regime === 'Ext. Intermittent'
                   ? 'brut'
-                  : <Equal className="w-3 h-3 inline opacity-60" />
+                  : <span className="tabular-nums">= {fmtEur(line.tarif_ht || 0)}</span>
               }
               nullable
               style={{ color: line.regime === 'Ext. Intermittent' ? 'var(--purple, #7c3aed)' : 'var(--orange)' }}
