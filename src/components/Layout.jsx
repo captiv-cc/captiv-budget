@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   Home, FolderOpen, Users, Package,
   LogOut, Settings, BarChart3, Calculator,
-  PanelLeft,
+  PanelLeft, Search,
 } from 'lucide-react'
 
 // ─── Sections de la sidebar ───────────────────────────────────────────────────
@@ -54,6 +54,69 @@ function SidebarSection({ label, collapsed }) {
     >
       {label}
     </p>
+  )
+}
+
+function SidebarSearchButton({ collapsed }) {
+  // Placeholder pour la future palette de commandes Cmd+K (cf. ROADMAP).
+  // En attendant, le clic affiche un message "en développement".
+  function handleClick() {
+    alert('🚧 Recherche globale — fonctionnalité en développement.\n\nElle te permettra bientôt de chercher projets, devis, clients, crew… via Cmd+K.')
+  }
+
+  if (collapsed) {
+    return (
+      <div className="relative group">
+        <button
+          onClick={handleClick}
+          title="Recherche (Cmd+K)"
+          className="flex items-center justify-center rounded-lg w-full py-2 transition-colors"
+          style={{ color: 'var(--txt-2)' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        >
+          <Search className="w-4 h-4" />
+        </button>
+        <span
+          className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt)',
+            border: '1px solid var(--brd)',
+            zIndex: 50,
+          }}
+        >
+          Rechercher
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-sm transition-colors"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+        color: 'var(--txt-3)',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brd)'; e.currentTarget.style.color = 'var(--txt-2)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--brd-sub)'; e.currentTarget.style.color = 'var(--txt-3)' }}
+    >
+      <Search className="w-4 h-4 shrink-0" />
+      <span className="flex-1 text-left">Rechercher…</span>
+      <kbd
+        className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+        style={{
+          background: 'var(--bg)',
+          border: '1px solid var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+      >
+        ⌘K
+      </kbd>
+    </button>
   )
 }
 
@@ -138,17 +201,20 @@ export default function Layout() {
           borderRight: '1px solid var(--brd-sub)',
         }}
       >
-        {/* Header — logo + bouton collapse */}
+        {/* Header — logo + bouton collapse. Hauteur fixe pour aligner sur le header de page */}
         <div
-          className={`flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-4'} py-3.5`}
-          style={{ borderBottom: '1px solid var(--brd-sub)', minHeight: '57px' }}
+          className={`flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-4'}`}
+          style={{ borderBottom: '1px solid var(--brd-sub)', height: '57px' }}
         >
           {!collapsed && (
-            <img
-              src="/captiv-logo.png"
-              alt="CAPTIV"
-              style={{ height: '24px', width: 'auto', display: 'block' }}
-            />
+            // Wrapper flex de la même hauteur que le bouton pour garantir un alignement vertical pixel-perfect
+            <div className="flex items-center" style={{ height: '26px' }}>
+              <img
+                src="/captiv-logo.png"
+                alt="CAPTIV"
+                style={{ height: '22px', width: 'auto', display: 'block' }}
+              />
+            </div>
           )}
           <button
             onClick={() => setCollapsed(c => !c)}
@@ -170,8 +236,11 @@ export default function Layout() {
         {/* overflow visible pour laisser sortir les tooltips en mode collapsed */}
         <nav className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2`} style={{ overflow: 'visible' }}>
 
+          {/* Recherche globale — placeholder pour la future fonctionnalité Cmd+K */}
+          <SidebarSearchButton collapsed={collapsed} />
+
           {/* Principal */}
-          <div className="space-y-0.5">
+          <div className="space-y-0.5 mt-2">
             {NAV_MAIN.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
           </div>
 
@@ -226,23 +295,23 @@ export default function Layout() {
 
             {!collapsed && (
               <>
-                {/* Nom + rôle */}
-                <div className="min-w-0 flex-1">
+                {/* Nom + rôle — leading-tight pour que le bloc texte fasse exactement 32px (= hauteur avatar) */}
+                <div className="min-w-0 flex-1 leading-tight">
                   <p className="text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
                     {profile?.full_name || 'Utilisateur'}
                   </p>
-                  <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
+                  <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--txt-3)' }}>
                     {ROLE_LABELS[role] || role}
                   </p>
                 </div>
 
-                {/* Bouton logout aligné à droite */}
+                {/* Bouton logout aligné à droite — 32x32 pour matcher l'avatar */}
                 <button
                   onClick={handleSignOut}
                   title="Déconnexion"
                   className="flex items-center justify-center rounded-md shrink-0 transition-all"
                   style={{
-                    width: '28px', height: '28px',
+                    width: '32px', height: '32px',
                     color: 'var(--txt-3)',
                     background: 'transparent',
                   }}
