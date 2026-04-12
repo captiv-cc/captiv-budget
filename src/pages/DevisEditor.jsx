@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { calcLine, calcSynthese, fmtEur, fmtPct, fmtNum, CATS, CAT_COLORS, REGIMES_SALARIES, CATS_HUMAINS, UNITES, TAUX_DEFAUT } from '../lib/cotisations'
+import { applyCategoryDansMarge } from '../lib/devisLines'
 import { exportDevisPDF } from '../lib/pdfExport'
 import ProduitAutocomplete from '../components/ProduitAutocomplete'
 import { BLOCS_CANONIQUES, getBlocInfo as _getBlocInfoByName } from '../lib/blocs'
@@ -478,10 +479,13 @@ export default function DevisEditor({ embedded = false }) {
   }
 
   // ── Calcul synthèse global ────────────────────────────────────────────────
-  // Si une catégorie a dans_marge=false, ses lignes ne comptent pas dans la marge globale
-  const allLines = categories.flatMap(c =>
-    c.lines.map(l => ({ ...l, dans_marge: c.dans_marge !== false ? l.dans_marge : false }))
+  // Si une catégorie a dans_marge=false, ses lignes ne comptent pas dans la
+  // marge globale. La normalisation est centralisée dans applyCategoryDansMarge
+  // pour qu'éditeur ET ProjetLayout (header BUDGET) calculent la même chose.
+  const flatLines = categories.flatMap(c =>
+    c.lines.map(l => ({ ...l, category_id: c.id }))
   )
+  const allLines = applyCategoryDansMarge(flatLines, categories)
   // Affiche la colonne Remise si au moins une ligne a une remise, OU si l'utilisateur l'a forcée
   const hasAnyRemise = categories.some(c => c.lines.some(l => l.remise_pct > 0))
   const remiseVisible = showRemise || hasAnyRemise

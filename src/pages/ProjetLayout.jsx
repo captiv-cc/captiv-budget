@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
+import { applyCategoryDansMarge } from '../lib/devisLines'
 import {
   ChevronLeft, TrendingUp, Euro, FileText,
   LayoutDashboard, BarChart3, Receipt, Activity, Users,
@@ -89,16 +90,22 @@ export default function ProjetLayout() {
       setDevisList(dvs || [])
 
       if (dvs?.length) {
-        const { data: lines } = await supabase
-          .from('devis_lines')
-          .select('*')
-          .in('devis_id', dvs.map(d => d.id))
+        // Lignes ET catégories : on a besoin des catégories pour propager
+        // `dans_marge` aux lignes (via applyCategoryDansMarge), sinon le
+        // calcul d'ici diverge de celui du DevisEditor.
+        const dvIds = dvs.map(d => d.id)
+        const [{ data: lines }, { data: cats }] = await Promise.all([
+          supabase.from('devis_lines').select('*').in('devis_id', dvIds),
+          supabase.from('devis_categories').select('*').in('devis_id', dvIds),
+        ])
 
         const stats = {}
         for (const dv of dvs) {
           const dvLines = (lines || []).filter(l => l.devis_id === dv.id)
+          const dvCats  = (cats  || []).filter(c => c.devis_id === dv.id)
+          const normalizedLines = applyCategoryDansMarge(dvLines, dvCats)
           stats[dv.id] = calcSynthese(
-            dvLines,
+            normalizedLines,
             dv.tva_rate    || 20,
             dv.acompte_pct || 30,
             TAUX_DEFAUT,
