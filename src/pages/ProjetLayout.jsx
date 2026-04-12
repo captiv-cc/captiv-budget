@@ -264,10 +264,18 @@ export default function ProjetLayout() {
             {TABS.map(tab => {
               const Icon = tab.icon
               const isActive = tab.key === activeTab
+              // Onglet Devis : raccourci direct vers l'éditeur de la dernière
+              // version (devisList est trié par version_number asc). Évite un
+              // clic supplémentaire dans le workflow le plus fréquent.
+              // S'il n'y a aucun devis, on tombe sur la liste pour en créer un.
+              const latestDevis = tab.key === 'devis' ? devisList[devisList.length - 1] : null
+              const tabHref = latestDevis
+                ? `/projets/${id}/devis/${latestDevis.id}`
+                : `/projets/${id}/${tab.path}`
               return (
                 <Link
                   key={tab.key}
-                  to={`/projets/${id}/${tab.path}`}
+                  to={tabHref}
                   className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all duration-150 whitespace-nowrap border-b-2"
                   style={isActive
                     ? { borderColor: 'var(--blue)', color: 'var(--blue)', background: 'var(--blue-bg)' }
