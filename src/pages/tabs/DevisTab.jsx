@@ -458,22 +458,30 @@ export default function DevisTab() {
 
                     {/* Infos devis */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 truncate">
                           {dv.title || `Devis V${dv.version_number}`}
                         </span>
+                        {/* Bouton renommer juste à côté du titre — passe en
+                            ambre quand un autre devis porte le même nom, en
+                            indice subtil qu'il faudrait personnaliser. */}
+                        <button
+                          onClick={e => renameDevis(dv, e)}
+                          title={isDuplicate
+                            ? 'Plusieurs versions portent ce nom — renomme pour les distinguer'
+                            : 'Renommer cette version'}
+                          className={`p-1 rounded transition-colors ${
+                            isDuplicate
+                              ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50'
+                              : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
                         {isRef && (
                           <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-bold uppercase tracking-wider">
                             <Star className="w-2.5 h-2.5 fill-current" />
                             Référence
-                          </span>
-                        )}
-                        {isDuplicate && !isRef && (
-                          <span
-                            title="Plusieurs versions partagent ce nom — renomme pour les distinguer"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium border border-amber-100 cursor-help"
-                          >
-                            Nom dupliqué
                           </span>
                         )}
                       </div>
@@ -547,13 +555,6 @@ export default function DevisTab() {
                       </select>
 
                       <div className="flex items-center gap-0.5">
-                        <button
-                          onClick={e => renameDevis(dv, e)}
-                          title="Renommer cette version"
-                          className="btn-ghost btn-sm text-gray-400 hover:text-gray-700"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
                         <button
                           onClick={e => duplicateDevis(dv, e)}
                           title="Dupliquer ce devis"
