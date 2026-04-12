@@ -71,10 +71,6 @@ export default function BudgetReelTab() {
     setFilters({ estimees: false, nonPayees: false, ecart: false, additifs: false })
   const anyFilter = filters.estimees || filters.nonPayees || filters.ecart || filters.additifs
 
-  useEffect(() => {
-    if (projectId && refDevis?.id) load()
-  }, [projectId, refDevis?.id, load])
-
   const load = useCallback(async () => {
     setLoading(true)
     const [cR, lR, mR, rR, fR] = await Promise.all([
@@ -94,6 +90,10 @@ export default function BudgetReelTab() {
     setFournisseurs(fR.data || [])
     setLoading(false)
   }, [projectId, refDevis?.id])
+
+  useEffect(() => {
+    if (projectId && refDevis?.id) load()
+  }, [projectId, refDevis?.id, load])
 
   // ─── Maps dérivées ─────────────────────────────────────────────────────────
 

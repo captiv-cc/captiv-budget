@@ -17,7 +17,7 @@ export default function Dashboard() {
       // Projets en cours
       const { data: projects } = await supabase
         .from('projects')
-        .select('id, title, status, client_id, clients(name), updated_at')
+        .select('id, title, status, client_id, clients(nom_commercial), updated_at')
         .eq('org_id', org.id)
         .order('updated_at', { ascending: false })
         .limit(10)
@@ -153,7 +153,7 @@ export default function Dashboard() {
                 <div className={`w-2 h-2 rounded-full ${STATUS_DOT[p.status] || 'bg-gray-300'}`} />
                 <div>
                   <p className="text-sm font-medium text-gray-900">{p.title}</p>
-                  <p className="text-xs text-gray-500">{p.clients?.name || '—'}</p>
+                  <p className="text-xs text-gray-500">{p.clients?.nom_commercial || '—'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">

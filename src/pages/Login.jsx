@@ -49,8 +49,8 @@ export default function Login() {
           <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mb-3">
             <Film className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">CAPTIV</h1>
-          <p className="text-slate-400 text-sm mt-1">Gestion budgétaire audiovisuelle</p>
+          <h1 className="text-2xl font-bold text-white">CAPTIV DESK</h1>
+          <p className="text-slate-400 text-sm mt-1">Gestion de production audiovisuelle</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">

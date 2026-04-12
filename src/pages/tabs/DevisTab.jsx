@@ -330,8 +330,8 @@ export default function DevisTab() {
             <h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">
               {project?.title || 'Projet sans nom'}
             </h1>
-            {project?.clients?.name && (
-              <p className="text-xs text-gray-500 truncate mt-0.5">{project.clients.name}</p>
+            {project?.clients?.nom_commercial && (
+              <p className="text-xs text-gray-500 truncate mt-0.5">{project.clients.nom_commercial}</p>
             )}
           </div>
           {devisList.length > 0 && (

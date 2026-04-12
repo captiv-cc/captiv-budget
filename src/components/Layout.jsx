@@ -224,8 +224,8 @@ export default function Layout() {
             // Wrapper flex de la même hauteur que le bouton pour garantir un alignement vertical pixel-perfect
             <div className="flex items-center" style={{ height: '26px' }}>
               <img
-                src="/captiv-logo.png"
-                alt="CAPTIV"
+                src="/CAPTIV-desk-logo-blanc.png"
+                alt="CAPTIV DESK"
                 style={{ height: '22px', width: 'auto', display: 'block' }}
               />
             </div>

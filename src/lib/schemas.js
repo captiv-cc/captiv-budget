@@ -76,15 +76,23 @@ export const projectSchema = z.object({
 
 // ─── Schéma : Client ─────────────────────────────────────────────────────────
 export const clientSchema = z.object({
-  name: z
+  nom_commercial: z
     .string()
     .trim()
-    .min(2, 'La raison sociale doit faire au moins 2 caractères')
-    .max(120, 'Raison sociale trop longue'),
+    .min(2, 'Le nom commercial doit faire au moins 2 caractères')
+    .max(120, 'Nom commercial trop long'),
+  raison_sociale: optionalString,
+  type_client: z.string().min(1, 'Type requis'),
+  statut: z.string().min(1, 'Statut requis'),
   contact_name: optionalString,
+  contact_fonction: optionalString,
   email: optionalEmail,
+  email_facturation: optionalEmail,
   phone: optionalPhone,
   address: optionalString,
+  code_postal: optionalString,
+  ville: optionalString,
+  pays: optionalString,
   siret: optionalSiret,
   tva_number: optionalString,
   notes: optionalString,

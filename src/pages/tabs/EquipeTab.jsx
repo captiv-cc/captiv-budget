@@ -104,10 +104,6 @@ export default function EquipeTab() {
   const [toast, setToast] = useState(null)
   const [activeTab, setActiveTab] = useState('attribution') // 'attribution' | 'equipe'
 
-  useEffect(() => {
-    if (projectId) load()
-  }, [projectId, refDevis?.id, load])
-
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -141,6 +137,10 @@ export default function EquipeTab() {
       setLoading(false)
     }
   }, [projectId, refDevis?.id])
+
+  useEffect(() => {
+    if (projectId) load()
+  }, [projectId, refDevis?.id, load])
 
   function showToast(text, ok = true) {
     setToast({ text, ok })

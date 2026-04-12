@@ -75,22 +75,6 @@ export default function DevisEditor({ embedded = false }) {
   const insertingTempIds = useRef(new Set()) // évite double-INSERT
   const hasChanges = useRef(false) // true seulement après modif utilisateur
 
-  // ── Chargement initial ────────────────────────────────────────────────────
-  useEffect(() => {
-    loadAll()
-  }, [devisId, loadAll])
-
-  // ── Auto-save : useEffect avec dépendances ────────────────────────────────
-  // Ne se déclenche QUE si l'utilisateur a fait une modification (hasChanges)
-  useEffect(() => {
-    if (!devis || loading || !hasChanges.current) return
-    const snapCats = categories
-    const snapAdj = globalAdj
-    const snapDv = devis
-    const timer = setTimeout(() => doSave(snapCats, snapDv, snapAdj), 1500)
-    return () => clearTimeout(timer)
-  }, [categories, globalAdj, devis?.title, devis?.status]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
@@ -156,6 +140,22 @@ export default function DevisEditor({ embedded = false }) {
       setLoading(false)
     }
   }, [devisId, projectId, org?.id])
+
+  // ── Chargement initial ────────────────────────────────────────────────────
+  useEffect(() => {
+    loadAll()
+  }, [devisId, loadAll])
+
+  // ── Auto-save : useEffect avec dépendances ────────────────────────────────
+  // Ne se déclenche QUE si l'utilisateur a fait une modification (hasChanges)
+  useEffect(() => {
+    if (!devis || loading || !hasChanges.current) return
+    const snapCats = categories
+    const snapAdj = globalAdj
+    const snapDv = devis
+    const timer = setTimeout(() => doSave(snapCats, snapDv, snapAdj), 1500)
+    return () => clearTimeout(timer)
+  }, [categories, globalAdj, devis?.title, devis?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── doSave : reçoit les valeurs en paramètre → jamais de closure stale ─────
   async function doSave(cats, dv, adj) {

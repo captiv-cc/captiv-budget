@@ -200,7 +200,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   doc.setFont('WS', 'normal')
   doc.setFontSize(6.5)
   let clientBlockH = 0
-  if (client?.name) clientBlockH += 3.8
+  if (client?.raison_sociale || client?.nom_commercial) clientBlockH += 3.8
   if (client?.contact_name) clientBlockH += 3.4
   if (client?.address) clientBlockH += doc.splitTextToSize(client.address || '', halfW).length * 3.4
   if (client?.email) clientBlockH += 3.4
@@ -234,8 +234,8 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
 
   // Client (droite, sur fond gris déjà dessiné) — démarre 4mm plus bas (ligne vide en haut)
   let cy = y + 4
-  if (client?.name) {
-    txt(client.name, rightX, cy, { size: 7.5, bold: true })
+  if (client?.raison_sociale || client?.nom_commercial) {
+    txt(client?.raison_sociale || client?.nom_commercial, rightX, cy, { size: 7.5, bold: true })
     cy += 3.8
   }
   if (client?.contact_name) {
@@ -280,7 +280,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   fillRect(x2, y, colCl, valH, C.light)
   fillRect(x3, y, colR, valH, C.light)
   txt(project?.title || '—', M + 3, y + 4.2, { size: 7.5, bold: true, maxW: colP - 6 })
-  txt(client?.name || '—', x2 + 3, y + 4.2, { size: 7, maxW: colCl - 6 })
+  txt(client?.raison_sociale || client?.nom_commercial || '—', x2 + 3, y + 4.2, { size: 7, maxW: colCl - 6 })
   txt(project?.ref_projet || '—', x3 + 3, y + 4.2, { size: 7 })
   y += valH + 3
 

@@ -237,8 +237,8 @@ export default function ProjetTab() {
   useEffect(() => {
     supabase
       .from('clients')
-      .select('id, name')
-      .order('name')
+      .select('id, nom_commercial')
+      .order('nom_commercial')
       .then(({ data }) => setClientsList(data || []))
   }, [])
 
@@ -739,7 +739,7 @@ function ClientLine({ project }) {
   if (!c && !ref) return null
   return (
     <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
-      {c?.name && <span className="text-gray-600 font-medium">{c.name}</span>}
+      {c?.nom_commercial && <span className="text-gray-600 font-medium">{c.nom_commercial}</span>}
       {ref && <span className="font-mono">{ref}</span>}
       {c?.email && (
         <span className="flex items-center gap-1">
@@ -999,7 +999,7 @@ function EditView({
               <option value="">— Aucun client —</option>
               {clientsList.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {c.nom_commercial}
                 </option>
               ))}
             </select>

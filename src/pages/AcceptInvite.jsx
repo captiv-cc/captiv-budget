@@ -85,7 +85,7 @@ export default function AcceptInvite() {
     }
 
     setPhase('done')
-    notify.success('Bienvenue dans CAPTIV !')
+    notify.success('Bienvenue sur Desk !')
     // Petite pause pour que le toast soit visible
     setTimeout(() => navigate('/accueil', { replace: true }), 800)
   }
@@ -109,7 +109,7 @@ export default function AcceptInvite() {
             <Lock className="w-6 h-6" style={{ color: 'var(--blue)' }} />
           </div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>
-            Bienvenue sur CAPTIV
+            Bienvenue sur Desk
           </h1>
           <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
             Finalisez la création de votre compte

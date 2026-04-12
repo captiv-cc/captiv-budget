@@ -127,7 +127,7 @@ export default function DevisPublic() {
             <p className="text-xs font-semibold text-gray-400 uppercase mb-3">
               À l&apos;attention de
             </p>
-            <p className="font-bold text-gray-900">{client?.name || '—'}</p>
+            <p className="font-bold text-gray-900">{client?.raison_sociale || client?.nom_commercial || '—'}</p>
             {client?.contact_name && <p className="text-sm text-gray-500">{client.contact_name}</p>}
             {client?.email && <p className="text-sm text-gray-500">{client.email}</p>}
           </div>
@@ -231,7 +231,7 @@ export default function DevisPublic() {
         )}
 
         <p className="text-xs text-gray-400 text-center mt-8">
-          Document généré par CAPTIV Budget · {org?.name || ''} ·{' '}
+          Document généré par CAPTIV Desk · {org?.name || ''} ·{' '}
           {org?.siret ? 'SIRET ' + org.siret : ''}
         </p>
       </div>

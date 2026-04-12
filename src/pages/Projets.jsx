@@ -73,7 +73,7 @@ export default function Projets() {
     const [projRes, clsRes] = await Promise.all([
       supabase
         .from('projects')
-        .select('*, clients(name)')
+        .select('*, clients(nom_commercial)')
         .eq('org_id', org.id)
         .order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
@@ -191,7 +191,7 @@ export default function Projets() {
   const { activeList, archivedList, statusCounts } = useMemo(() => {
     const q = search.trim().toLowerCase()
     const matchSearch = (p) =>
-      !q || p.title.toLowerCase().includes(q) || p.clients?.name?.toLowerCase().includes(q)
+      !q || p.title.toLowerCase().includes(q) || p.clients?.nom_commercial?.toLowerCase().includes(q)
 
     const cmp = (a, b) => {
       switch (sortBy) {
@@ -452,7 +452,7 @@ export default function Projets() {
                 <option value="">— Sélectionner un client —</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {c.nom_commercial}
                   </option>
                 ))}
               </select>
@@ -544,7 +544,7 @@ function ProjectListView({
                 {p.title}
               </p>
               <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-                {p.clients?.name || '—'}
+                {p.clients?.nom_commercial || '—'}
               </p>
             </div>
           </Link>
@@ -635,7 +635,7 @@ function ProjectGridView({
                 {p.title}
               </p>
               <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
-                {p.clients?.name || '—'}
+                {p.clients?.nom_commercial || '—'}
               </p>
             </div>
             <div className="flex items-center justify-between mt-auto">

@@ -127,7 +127,7 @@ export default function HomePage() {
       // Projets actifs (affichés à tous les rôles — sans chiffres)
       const { data: projs } = await supabase
         .from('projects')
-        .select('id, title, status, type_projet, date_fin, cover_url, clients(name)')
+        .select('id, title, status, type_projet, date_fin, cover_url, clients(nom_commercial)')
         .eq('org_id', org.id)
         .in('status', ['prospect', 'en_cours'])
         .order('updated_at', { ascending: false })
@@ -323,7 +323,7 @@ export default function HomePage() {
                         {p.title}
                       </p>
                       <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
-                        {p.clients?.name || '—'}
+                        {p.clients?.nom_commercial || '—'}
                         {p.date_fin && <span> · fin {fmtDate(p.date_fin)}</span>}
                       </p>
                     </div>

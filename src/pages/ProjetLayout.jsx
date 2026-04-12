@@ -133,10 +133,6 @@ export default function ProjetLayout() {
   const [devisStats, setDevisStats] = useState({})
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadAll()
-  }, [id, loadAll])
-
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
@@ -188,6 +184,10 @@ export default function ProjetLayout() {
       setLoading(false)
     }
   }, [id])
+
+  useEffect(() => {
+    loadAll()
+  }, [id, loadAll])
 
   // Changement de statut depuis le badge du breadcrumb (optimistic)
   async function updateStatus(_projectId, newStatus) {
@@ -286,10 +286,10 @@ export default function ProjetLayout() {
 
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {project?.clients?.name && (
-                    <span className="text-slate-400 text-xs truncate">{project.clients.name}</span>
+                  {project?.clients?.nom_commercial && (
+                    <span className="text-slate-400 text-xs truncate">{project.clients.nom_commercial}</span>
                   )}
-                  {project?.clients?.name && <span className="text-slate-600 text-xs">·</span>}
+                  {project?.clients?.nom_commercial && <span className="text-slate-600 text-xs">·</span>}
                   <h1 className="text-sm font-bold text-white truncate">{project?.title || '—'}</h1>
                   {project?.ref_projet && (
                     <span className="text-xs text-slate-400 font-mono">{project.ref_projet}</span>

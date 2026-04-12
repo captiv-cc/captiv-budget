@@ -72,7 +72,7 @@ export default class ErrorBoundary extends Component {
 
           <p className="text-sm text-gray-700 leading-relaxed mb-6">
             Vos données sont sauvegardées. Tu peux recharger la page pour reprendre là où tu en
-            étais. Si le problème se répète, contacte l&apos;équipe CAPTIV avec une capture
+            étais. Si le problème se répète, contacte l&apos;équipe via Desk avec une capture
             d&apos;écran.
           </p>
 

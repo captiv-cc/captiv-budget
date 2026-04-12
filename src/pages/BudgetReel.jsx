@@ -26,7 +26,7 @@ export default function BudgetReel() {
     setLoading(true)
     const { data: proj } = await supabase
       .from('projects')
-      .select('*, clients(name)')
+      .select('*, clients(nom_commercial)')
       .eq('id', projectId)
       .single()
     setProject(proj)

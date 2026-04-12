@@ -240,7 +240,7 @@ export default function Compta() {
         projects (
           id,
           title,
-          clients ( name )
+          clients ( nom_commercial )
         )
       `,
       )
@@ -249,7 +249,7 @@ export default function Compta() {
     const mapped = (facs || []).map((f) => ({
       ...f,
       project_title: f.projects?.title || '',
-      client_name: f.projects?.clients?.name || '',
+      client_name: f.projects?.clients?.nom_commercial || '',
     }))
 
     // Tri par priorité statut, puis date échéance
