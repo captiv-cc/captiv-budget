@@ -15,15 +15,12 @@ export default function TvaPicker({ value, onChange, label = 'TVA par défaut', 
   return (
     <div>
       {label && (
-        <label
-          className="block text-xs mb-1.5"
-          style={{ color: 'var(--txt-3)' }}
-        >
+        <label className="block text-xs mb-1.5" style={{ color: 'var(--txt-3)' }}>
           {label}
         </label>
       )}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {PRESETS.map(p => {
+        {PRESETS.map((p) => {
           const active = num === p
           return (
             <button
@@ -31,9 +28,15 @@ export default function TvaPicker({ value, onChange, label = 'TVA par défaut', 
               type="button"
               onClick={() => onChange(p)}
               className="px-2.5 py-1 rounded-md text-xs font-medium transition-all"
-              style={active
-                ? { background: 'var(--blue)', color: 'white' }
-                : { background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }}
+              style={
+                active
+                  ? { background: 'var(--blue)', color: 'white' }
+                  : {
+                      background: 'var(--bg-elev)',
+                      color: 'var(--txt-2)',
+                      border: '1px solid var(--brd-sub)',
+                    }
+              }
             >
               {p}%
             </button>
@@ -46,7 +49,7 @@ export default function TvaPicker({ value, onChange, label = 'TVA par défaut', 
             max={100}
             step={0.1}
             value={isPreset ? '' : num}
-            onChange={e => {
+            onChange={(e) => {
               const v = e.target.value
               onChange(v === '' ? 0 : Number(v))
             }}
@@ -58,7 +61,9 @@ export default function TvaPicker({ value, onChange, label = 'TVA par défaut', 
               color: 'var(--txt)',
             }}
           />
-          <span className="text-xs" style={{ color: 'var(--txt-3)' }}>%</span>
+          <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
+            %
+          </span>
         </div>
       </div>
     </div>

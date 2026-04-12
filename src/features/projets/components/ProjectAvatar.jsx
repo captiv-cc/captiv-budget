@@ -13,7 +13,8 @@ export default function ProjectAvatar({ project, size = 64, rounded = 'xl' }) {
 
   const src = project.cover_url || project.clients?.logo_url || null
   const dim = { width: size, height: size }
-  const radius = rounded === 'full' ? 'rounded-full' : rounded === 'lg' ? 'rounded-lg' : 'rounded-xl'
+  const radius =
+    rounded === 'full' ? 'rounded-full' : rounded === 'lg' ? 'rounded-lg' : 'rounded-xl'
 
   if (src) {
     return (
@@ -22,17 +23,22 @@ export default function ProjectAvatar({ project, size = 64, rounded = 'xl' }) {
         alt={project.title || 'Projet'}
         style={dim}
         className={`${radius} object-cover shrink-0 ring-1 ring-gray-100 bg-white`}
-        onError={e => { e.currentTarget.style.display = 'none' }}
+        onError={(e) => {
+          e.currentTarget.style.display = 'none'
+        }}
       />
     )
   }
 
   // Fallback : initiales sur fond coloré (hash déterministe sur le titre)
   const title = (project.title || '?').trim()
-  const initials = title
-    .split(/\s+/).slice(0, 2)
-    .map(w => w[0]).join('')
-    .toUpperCase() || '?'
+  const initials =
+    title
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?'
 
   const palette = [
     'from-blue-500 to-indigo-600',

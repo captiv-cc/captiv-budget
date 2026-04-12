@@ -48,7 +48,7 @@ function line(overrides = {}) {
 }
 
 // Tolérance pour les comparaisons flottantes (arrondis de cotisations, TVA…)
-const EPS = 1e-9
+const _EPS = 1e-9
 
 // =============================================================================
 // constantes exportées
@@ -73,10 +73,7 @@ describe('Constantes et configuration', () => {
   })
 
   it('REGIMES_SALARIES ne contient QUE les intermittents purs', () => {
-    expect(REGIMES_SALARIES).toEqual([
-      'Intermittent Technicien',
-      'Intermittent Artiste',
-    ])
+    expect(REGIMES_SALARIES).toEqual(['Intermittent Technicien', 'Intermittent Artiste'])
     // Ext. Intermittent est facturé en externe → PAS dans les salariés
     expect(REGIMES_SALARIES).not.toContain('Ext. Intermittent')
   })
@@ -99,12 +96,14 @@ describe('Constantes et configuration', () => {
 // =============================================================================
 describe('calcLine — ligne inactive (use_line=false)', () => {
   it('retourne tous les montants à zéro, quel que soit le régime', () => {
-    const r = calcLine(line({
-      use_line: false,
-      regime: 'Intermittent Technicien',
-      quantite: 5,
-      tarif_ht: 500,
-    }))
+    const r = calcLine(
+      line({
+        use_line: false,
+        regime: 'Intermittent Technicien',
+        quantite: 5,
+        tarif_ht: 500,
+      }),
+    )
     expect(r.prixVenteHT).toBe(0)
     expect(r.margeHT).toBe(0)
     expect(r.pctMarge).toBe(0)
@@ -145,7 +144,11 @@ describe('calcLine — régime Frais (0 % charges, cout par défaut = prix)', ()
 
   it('nb absent → vaut 1 (rétrocompatibilité)', () => {
     const r = calcLine({
-      use_line: true, quantite: 4, tarif_ht: 50, regime: 'Frais', remise_pct: 0,
+      use_line: true,
+      quantite: 4,
+      tarif_ht: 50,
+      regime: 'Frais',
+      remise_pct: 0,
     })
     expect(r.prixVenteHT).toBe(200)
   })
@@ -157,9 +160,14 @@ describe('calcLine — régime Frais (0 % charges, cout par défaut = prix)', ()
 describe('calcLine — régime Technique (coût explicite)', () => {
   it('cout_ht > 0 → marge classique', () => {
     // 1 × 1000 de vente, coût 600 → marge 400 soit 40 %
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 1,
+        tarif_ht: 1000,
+        cout_ht: 600,
+      }),
+    )
     expect(r.prixVenteHT).toBe(1000)
     expect(r.coutReelHT).toBe(600)
     expect(r.margeHT).toBe(400)
@@ -167,9 +175,14 @@ describe('calcLine — régime Technique (coût explicite)', () => {
   })
 
   it('cout_ht = 0 → marge 100 % (produit gratuit en coût)', () => {
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 2, tarif_ht: 300, cout_ht: 0,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 2,
+        tarif_ht: 300,
+        cout_ht: 0,
+      }),
+    )
     expect(r.prixVenteHT).toBe(600)
     expect(r.coutReelHT).toBe(0)
     expect(r.margeHT).toBe(600)
@@ -177,26 +190,41 @@ describe('calcLine — régime Technique (coût explicite)', () => {
   })
 
   it('cout_ht null → coût = prix de vente → marge 0 %', () => {
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 2, tarif_ht: 300, cout_ht: null,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 2,
+        tarif_ht: 300,
+        cout_ht: null,
+      }),
+    )
     expect(r.coutReelHT).toBe(600)
     expect(r.margeHT).toBe(0)
   })
 
   it("cout_ht chaîne vide '' traitée comme non renseigné", () => {
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 2, tarif_ht: 300, cout_ht: '',
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 2,
+        tarif_ht: 300,
+        cout_ht: '',
+      }),
+    )
     expect(r.coutReelHT).toBe(600)
     expect(r.margeHT).toBe(0)
   })
 
   it('cout_ht est multiplié par la quantité (coût unitaire)', () => {
     // 5 × 100 vente, cout_ht 40 unitaire → coût total 5 × 40 = 200
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 5, tarif_ht: 100, cout_ht: 40,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 5,
+        tarif_ht: 100,
+        cout_ht: 40,
+      }),
+    )
     expect(r.prixVenteHT).toBe(500)
     expect(r.coutReelHT).toBe(200)
     expect(r.margeHT).toBe(300)
@@ -204,9 +232,15 @@ describe('calcLine — régime Technique (coût explicite)', () => {
 
   it('remise + cout_ht : seul le prix de vente baisse', () => {
     // 10 × 100 = 1000, remise 20 % → prix 800, cout 10 × 60 = 600, marge 200
-    const r = calcLine(line({
-      regime: 'Technique', quantite: 10, tarif_ht: 100, remise_pct: 20, cout_ht: 60,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Technique',
+        quantite: 10,
+        tarif_ht: 100,
+        remise_pct: 20,
+        cout_ht: 60,
+      }),
+    )
     expect(r.prixVenteHT).toBe(800)
     expect(r.coutReelHT).toBe(600)
     expect(r.margeHT).toBe(200)
@@ -220,48 +254,73 @@ describe('calcLine — régime Technique (coût explicite)', () => {
 describe('calcLine — Intermittent Technicien / Artiste (salariés)', () => {
   it('coût réel = salaire brut (qt × tarif)', () => {
     // 5 jours × 400 € brut = 2000 coût
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 5, tarif_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 5,
+        tarif_ht: 400,
+      }),
+    )
     expect(r.prixVenteHT).toBe(2000)
     expect(r.coutReelHT).toBe(2000)
   })
 
   it('charges patronales = 67 % du brut', () => {
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 5, tarif_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 5,
+        tarif_ht: 400,
+      }),
+    )
     expect(r.chargesPat).toBeCloseTo(1340, 9) // 2000 × 0.67
     expect(r.coutCharge).toBeCloseTo(3340, 9) // 2000 + 1340
   })
 
   it('chargesFacturees = chargesPat → le client paie brut + charges', () => {
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 5, tarif_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 5,
+        tarif_ht: 400,
+      }),
+    )
     expect(r.chargesFacturees).toBeCloseTo(1340, 9)
   })
 
   it('marge calculée sur coutReelHT (brut), PAS sur coût chargé', () => {
     // Prix 2000, coût brut 2000 → marge 0 (les charges partent en facturation)
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 5, tarif_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 5,
+        tarif_ht: 400,
+      }),
+    )
     expect(r.margeHT).toBe(0)
   })
 
   it('ignore cout_ht — salarié = coût imposé = brut', () => {
     // On renseigne 999 mais il est IGNORÉ côté intermittent
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 2, tarif_ht: 500, cout_ht: 999,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 2,
+        tarif_ht: 500,
+        cout_ht: 999,
+      }),
+    )
     expect(r.coutReelHT).toBe(1000) // 2 × 500, pas 999
   })
 
   it('Intermittent Artiste — même logique que technicien', () => {
-    const r = calcLine(line({
-      regime: 'Intermittent Artiste', quantite: 3, tarif_ht: 250,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Artiste',
+        quantite: 3,
+        tarif_ht: 250,
+      }),
+    )
     expect(r.prixVenteHT).toBe(750)
     expect(r.coutReelHT).toBe(750)
     expect(r.chargesPat).toBeCloseTo(502.5, 9)
@@ -275,9 +334,14 @@ describe('calcLine — Intermittent Technicien / Artiste (salariés)', () => {
 describe('calcLine — Ext. Intermittent (charges = coût interne)', () => {
   it('charges calculées mais PAS facturées au client', () => {
     // Vente 3000, brut 2000, charges 1340 → client paie seulement 3000
-    const r = calcLine(line({
-      regime: 'Ext. Intermittent', quantite: 5, tarif_ht: 600, cout_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Ext. Intermittent',
+        quantite: 5,
+        tarif_ht: 600,
+        cout_ht: 400,
+      }),
+    )
     expect(r.prixVenteHT).toBe(3000)
     expect(r.coutReelHT).toBe(2000) // 5 × 400
     expect(r.chargesPat).toBeCloseTo(1340, 9) // 2000 × 0.67
@@ -286,9 +350,14 @@ describe('calcLine — Ext. Intermittent (charges = coût interne)', () => {
 
   it('marge calculée sur le coût CHARGÉ (brut + cotisations)', () => {
     // Vente 3000, coût chargé 3340 → marge NÉGATIVE -340
-    const r = calcLine(line({
-      regime: 'Ext. Intermittent', quantite: 5, tarif_ht: 600, cout_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Ext. Intermittent',
+        quantite: 5,
+        tarif_ht: 600,
+        cout_ht: 400,
+      }),
+    )
     expect(r.coutCharge).toBeCloseTo(3340, 9)
     expect(r.margeHT).toBeCloseTo(-340, 9)
     expect(r.pctMarge).toBeCloseTo(-340 / 3000, 9)
@@ -296,9 +365,13 @@ describe('calcLine — Ext. Intermittent (charges = coût interne)', () => {
 
   it('sans cout_ht → coût par défaut = prix de vente → marge négative garantie', () => {
     // Coût par défaut = prix vente 1000, charges 670 → coût chargé 1670
-    const r = calcLine(line({
-      regime: 'Ext. Intermittent', quantite: 2, tarif_ht: 500,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Ext. Intermittent',
+        quantite: 2,
+        tarif_ht: 500,
+      }),
+    )
     expect(r.prixVenteHT).toBe(1000)
     expect(r.coutReelHT).toBe(1000)
     expect(r.coutCharge).toBeCloseTo(1670, 9)
@@ -307,9 +380,14 @@ describe('calcLine — Ext. Intermittent (charges = coût interne)', () => {
 
   it('Ext. Intermittent bien facturé avec vraie marge positive', () => {
     // Vente 10000, brut 3000 → charges 2010 → coût chargé 5010 → marge 4990
-    const r = calcLine(line({
-      regime: 'Ext. Intermittent', quantite: 1, tarif_ht: 10000, cout_ht: 3000,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Ext. Intermittent',
+        quantite: 1,
+        tarif_ht: 10000,
+        cout_ht: 3000,
+      }),
+    )
     expect(r.coutCharge).toBeCloseTo(5010, 9)
     expect(r.margeHT).toBeCloseTo(4990, 9)
     expect(r.pctMarge).toBeCloseTo(0.499, 9)
@@ -322,18 +400,28 @@ describe('calcLine — Ext. Intermittent (charges = coût interne)', () => {
 describe('calcLine — Interne et Externe (0 % charges)', () => {
   it('Interne : pas de charges, marge possible via cout_ht', () => {
     // Facturé 1000 au client, coût interne 400 → marge 600
-    const r = calcLine(line({
-      regime: 'Interne', quantite: 1, tarif_ht: 1000, cout_ht: 400,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Interne',
+        quantite: 1,
+        tarif_ht: 1000,
+        cout_ht: 400,
+      }),
+    )
     expect(r.chargesPat).toBe(0)
     expect(r.chargesFacturees).toBe(0)
     expect(r.margeHT).toBe(600)
   })
 
   it('Externe : 0 % de charges, calcul identique à Technique', () => {
-    const r = calcLine(line({
-      regime: 'Externe', quantite: 2, tarif_ht: 500, cout_ht: 300,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'Externe',
+        quantite: 2,
+        tarif_ht: 500,
+        cout_ht: 300,
+      }),
+    )
     expect(r.chargesPat).toBe(0)
     expect(r.margeHT).toBe(400) // (2×500) - (2×300)
   })
@@ -345,16 +433,25 @@ describe('calcLine — Interne et Externe (0 % charges)', () => {
 describe('calcLine — taux custom', () => {
   it('accepte un objet taux personnalisé', () => {
     const tauxCustom = { ...TAUX_DEFAUT, 'Intermittent Technicien': 0.5 }
-    const r = calcLine(line({
-      regime: 'Intermittent Technicien', quantite: 2, tarif_ht: 100,
-    }), tauxCustom)
+    const r = calcLine(
+      line({
+        regime: 'Intermittent Technicien',
+        quantite: 2,
+        tarif_ht: 100,
+      }),
+      tauxCustom,
+    )
     expect(r.chargesPat).toBeCloseTo(100, 9) // 200 × 0.5
   })
 
   it('régime inconnu → 0 % charges, pas de crash', () => {
-    const r = calcLine(line({
-      regime: 'RegimeInconnu', quantite: 1, tarif_ht: 500,
-    }))
+    const r = calcLine(
+      line({
+        regime: 'RegimeInconnu',
+        quantite: 1,
+        tarif_ht: 500,
+      }),
+    )
     expect(r.chargesPat).toBe(0)
     expect(r.prixVenteHT).toBe(500)
   })
@@ -374,9 +471,7 @@ describe('calcSynthese — cas vide / inactifs', () => {
   })
 
   it('ligne inactive ignorée', () => {
-    const s = calcSynthese([
-      line({ use_line: false, quantite: 10, tarif_ht: 500 }),
-    ])
+    const s = calcSynthese([line({ use_line: false, quantite: 10, tarif_ht: 500 })])
     expect(s.sousTotal).toBe(0)
   })
 })
@@ -386,44 +481,56 @@ describe('calcSynthese — cas vide / inactifs', () => {
 // =============================================================================
 describe('calcSynthese — agrégation', () => {
   it('somme des prix de vente sur les lignes actives', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600 }),
-      line({ regime: 'Frais',     quantite: 2, tarif_ht: 100,  cout_ht: 80 }),
-    ], 20, 30)
+    const s = calcSynthese(
+      [
+        line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600 }),
+        line({ regime: 'Frais', quantite: 2, tarif_ht: 100, cout_ht: 80 }),
+      ],
+      20,
+      30,
+    )
     // Vente : 1000 + 200 = 1200
     expect(s.sousTotal).toBe(1200)
   })
 
   it('TVA 20 % et TTC = HT × 1.2', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 20, 30)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      20,
+      30,
+    )
     expect(s.totalHTFinal).toBe(1000)
     expect(s.tva).toBeCloseTo(200, 9)
     expect(s.totalTTC).toBeCloseTo(1200, 9)
   })
 
   it('acompte 30 % du TTC et solde = reste', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 20, 30)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      20,
+      30,
+    )
     expect(s.acompte).toBeCloseTo(360, 9) // 1200 × 0.3
-    expect(s.solde).toBeCloseTo(840, 9)   // 1200 - 360
+    expect(s.solde).toBeCloseTo(840, 9) // 1200 - 360
     expect(s.acompte + s.solde).toBeCloseTo(s.totalTTC, 9)
   })
 
   it('TVA 0 % (ex: export hors UE)', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 0, 30)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      0,
+      30,
+    )
     expect(s.tva).toBe(0)
     expect(s.totalTTC).toBe(1000)
   })
 
   it('TVA 10 % (activités culturelles)', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 10, 30)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      10,
+      30,
+    )
     expect(s.tva).toBeCloseTo(100, 9)
   })
 })
@@ -449,7 +556,7 @@ describe('calcSynthese — charges intermittents ajoutées au total client', () 
       line({ regime: 'Ext. Intermittent', quantite: 5, tarif_ht: 600, cout_ht: 400 }),
     ])
     expect(s.sousTotal).toBe(3000)
-    expect(s.totalCharges).toBe(0)                   // 0 facturé
+    expect(s.totalCharges).toBe(0) // 0 facturé
     expect(s.totalChargesInternes).toBeCloseTo(1340, 9) // mais tracé en interne
     expect(s.totalHTFinal).toBe(3000)
   })
@@ -466,8 +573,8 @@ describe('calcSynthese — blocs dans_marge vs hors marge', () => {
       // Hors marge : vente 500, coût 500 → marge ignorée
       line({ regime: 'Technique', quantite: 1, tarif_ht: 500, cout_ht: 500, dans_marge: false }),
     ])
-    expect(s.sousTotal).toBe(1500)     // tout compte
-    expect(s.totalMarge).toBe(400)     // seulement la ligne dans_marge
+    expect(s.sousTotal).toBe(1500) // tout compte
+    expect(s.totalMarge).toBe(400) // seulement la ligne dans_marge
     expect(s.pctMargeLignes).toBeCloseTo(400 / 1000, 9) // sur 1000, pas 1500
   })
 
@@ -488,10 +595,16 @@ describe('calcSynthese — blocs dans_marge vs hors marge', () => {
 describe('calcSynthese — marge globale (Mg+Fg)', () => {
   it('appliquée SEULEMENT sur le CA dans_marge', () => {
     // dans_marge 1000, hors marge 500, Mg 10 % → 100 € (pas 150)
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600, dans_marge: true }),
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 500, cout_ht: 400, dans_marge: false }),
-    ], 20, 30, TAUX_DEFAUT, { marge_globale_pct: 10 })
+    const s = calcSynthese(
+      [
+        line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600, dans_marge: true }),
+        line({ regime: 'Technique', quantite: 1, tarif_ht: 500, cout_ht: 400, dans_marge: false }),
+      ],
+      20,
+      30,
+      TAUX_DEFAUT,
+      { marge_globale_pct: 10 },
+    )
     expect(s.montantMargeGlobale).toBeCloseTo(100, 9)
     expect(s.sousTotalAvecCharges).toBeCloseTo(1600, 9) // 1500 + 100
   })
@@ -499,10 +612,16 @@ describe('calcSynthese — marge globale (Mg+Fg)', () => {
 
 describe('calcSynthese — assurance', () => {
   it('appliquée sur TOUT le CA (dans_marge + hors marge)', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600, dans_marge: true }),
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 500, cout_ht: 400, dans_marge: false }),
-    ], 20, 30, TAUX_DEFAUT, { assurance_pct: 5 })
+    const s = calcSynthese(
+      [
+        line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 600, dans_marge: true }),
+        line({ regime: 'Technique', quantite: 1, tarif_ht: 500, cout_ht: 400, dans_marge: false }),
+      ],
+      20,
+      30,
+      TAUX_DEFAUT,
+      { assurance_pct: 5 },
+    )
     expect(s.montantAssurance).toBeCloseTo(75, 9) // 1500 × 5 %
   })
 })
@@ -510,17 +629,25 @@ describe('calcSynthese — assurance', () => {
 describe('calcSynthese — remise globale', () => {
   it('remise en % appliquée sur le sous-total avec charges', () => {
     // Base 1000, remise 10 % → 100 de remise
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 20, 30, TAUX_DEFAUT, { remise_globale_pct: 10 })
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      20,
+      30,
+      TAUX_DEFAUT,
+      { remise_globale_pct: 10 },
+    )
     expect(s.montantRemiseGlobale).toBeCloseTo(100, 9)
     expect(s.totalHTFinal).toBeCloseTo(900, 9)
   })
 
   it('remise en montant fixe prioritaire sur le %', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 }),
-    ], 20, 30, TAUX_DEFAUT, { remise_globale_pct: 10, remise_globale_montant: 250 })
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1000, cout_ht: 500 })],
+      20,
+      30,
+      TAUX_DEFAUT,
+      { remise_globale_pct: 10, remise_globale_montant: 250 },
+    )
     // Montant prioritaire → 250, pas 100
     expect(s.montantRemiseGlobale).toBe(250)
     expect(s.totalHTFinal).toBeCloseTo(750, 9)
@@ -555,12 +682,16 @@ describe('calcSynthese — scénario projet réaliste', () => {
     const lignes = [
       line({
         regime: 'Intermittent Technicien',
-        nb: 3, quantite: 2, tarif_ht: 500,
+        nb: 3,
+        quantite: 2,
+        tarif_ht: 500,
         dans_marge: true,
       }),
       line({
         regime: 'Technique',
-        quantite: 1, tarif_ht: 2000, cout_ht: 1200,
+        quantite: 1,
+        tarif_ht: 2000,
+        cout_ht: 1200,
         dans_marge: true,
       }),
     ]
@@ -646,16 +777,20 @@ describe('fmtEur / fmtPct / fmtNum', () => {
 // =============================================================================
 describe('Invariants globaux', () => {
   it('TVA(HT) + HT = TTC toujours', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 3, tarif_ht: 777, cout_ht: 333 }),
-    ], 20, 30)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 3, tarif_ht: 777, cout_ht: 333 })],
+      20,
+      30,
+    )
     expect(s.totalHTFinal + s.tva).toBeCloseTo(s.totalTTC, 9)
   })
 
   it('Acompte + solde = TTC toujours', () => {
-    const s = calcSynthese([
-      line({ regime: 'Technique', quantite: 1, tarif_ht: 1234, cout_ht: 567 }),
-    ], 20, 42)
+    const s = calcSynthese(
+      [line({ regime: 'Technique', quantite: 1, tarif_ht: 1234, cout_ht: 567 })],
+      20,
+      42,
+    )
     expect(s.acompte + s.solde).toBeCloseTo(s.totalTTC, 9)
   })
 

@@ -15,9 +15,9 @@ export default function Unauthorized() {
   const location = useLocation()
   const { role, profile } = useAuth()
 
-  const from         = location.state?.from
+  const from = location.state?.from
   const requiredRole = location.state?.requiredRole
-  const displayName  = profile?.full_name || profile?.email || 'Utilisateur'
+  const displayName = profile?.full_name || profile?.email || 'Utilisateur'
 
   return (
     <div className="flex items-center justify-center min-h-[70vh] p-6">
@@ -30,16 +30,19 @@ export default function Unauthorized() {
           <ShieldOff className="w-7 h-7 text-amber-600" aria-hidden="true" />
         </div>
 
-        <h1 className="text-xl font-semibold text-gray-900 mb-2">
-          Accès non autorisé
-        </h1>
+        <h1 className="text-xl font-semibold text-gray-900 mb-2">Accès non autorisé</h1>
 
         <p className="text-sm text-gray-600 leading-relaxed mb-1">
-          Tu n'as pas les droits pour consulter cette page.
+          Tu n&apos;as pas les droits pour consulter cette page.
         </p>
         <p className="text-xs text-gray-400 mb-6">
           Connecté en tant que <span className="font-medium text-gray-600">{displayName}</span>
-          {role && <> — rôle <span className="font-mono text-gray-600">{role}</span></>}
+          {role && (
+            <>
+              {' '}
+              — rôle <span className="font-mono text-gray-600">{role}</span>
+            </>
+          )}
           {requiredRole && (
             <>
               <br />
@@ -73,7 +76,8 @@ export default function Unauthorized() {
         )}
 
         <p className="mt-6 text-[11px] text-gray-400">
-          Si tu penses que c'est une erreur, contacte l'administrateur de ton organisation.
+          Si tu penses que c&apos;est une erreur, contacte l&apos;administrateur de ton
+          organisation.
         </p>
       </div>
     </div>

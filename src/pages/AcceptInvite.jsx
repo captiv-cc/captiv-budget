@@ -23,8 +23,8 @@ import { Lock, Check, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function AcceptInvite() {
   const navigate = useNavigate()
-  const [phase, setPhase] = useState('checking')   // checking | ready | invalid | saving | done
-  const [userInfo, setUserInfo] = useState(null)   // { email, full_name }
+  const [phase, setPhase] = useState('checking') // checking | ready | invalid | saving | done
+  const [userInfo, setUserInfo] = useState(null) // { email, full_name }
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
   const [error, setError] = useState(null)
@@ -36,8 +36,10 @@ export default function AcceptInvite() {
       // Supabase parse automatiquement access_token dans le hash
       // au moment où createClient est appelé. On attend un petit délai
       // pour laisser onAuthStateChange se déclencher.
-      await new Promise(r => setTimeout(r, 300))
-      const { data: { session } } = await supabase.auth.getSession()
+      await new Promise((r) => setTimeout(r, 300))
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
       if (!session) {
         setPhase('invalid')
         return
@@ -78,8 +80,8 @@ export default function AcceptInvite() {
     // toujours la RLS selon le contexte JWT.
     try {
       await supabase.rpc('mark_invitation_accepted')
-    } catch (e) {
-      console.warn('[AcceptInvite] mark_invitation_accepted failed:', e)
+    } catch {
+      // ignore
     }
 
     setPhase('done')
@@ -90,15 +92,20 @@ export default function AcceptInvite() {
 
   // ── UI ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center p-4"
-         style={{ background: 'var(--bg)' }}>
-      <div className="w-full max-w-md rounded-2xl p-8"
-           style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}>
-
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: 'var(--bg)' }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-8"
+        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      >
         {/* Logo / titre */}
         <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-xl mx-auto mb-3 flex items-center justify-center"
-               style={{ background: 'var(--blue-bg)' }}>
+          <div
+            className="w-12 h-12 rounded-xl mx-auto mb-3 flex items-center justify-center"
+            style={{ background: 'var(--blue-bg)' }}
+          >
             <Lock className="w-6 h-6" style={{ color: 'var(--blue)' }} />
           </div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>
@@ -112,7 +119,9 @@ export default function AcceptInvite() {
         {phase === 'checking' && (
           <div className="flex flex-col items-center gap-3 py-8">
             <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--blue)' }} />
-            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>Vérification du lien…</p>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Vérification du lien…
+            </p>
           </div>
         )}
 
@@ -124,7 +133,7 @@ export default function AcceptInvite() {
                 Lien invalide ou expiré
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
-                Ce lien d'invitation a peut-être déjà été utilisé, ou bien il a expiré.
+                Ce lien d&apos;invitation a peut-être déjà été utilisé, ou bien il a expiré.
                 Demandez un nouveau lien à votre administrateur.
               </p>
             </div>
@@ -156,13 +165,17 @@ export default function AcceptInvite() {
               <input
                 type="password"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="Minimum 6 caractères"
                 required
                 minLength={6}
                 autoFocus
                 className="w-full px-3 py-2 rounded-md text-sm"
-                style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd)',
+                  color: 'var(--txt)',
+                }}
               />
             </div>
 
@@ -173,18 +186,28 @@ export default function AcceptInvite() {
               <input
                 type="password"
                 value={password2}
-                onChange={e => setPassword2(e.target.value)}
+                onChange={(e) => setPassword2(e.target.value)}
                 placeholder="Retapez le même mot de passe"
                 required
                 minLength={6}
                 className="w-full px-3 py-2 rounded-md text-sm"
-                style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd)',
+                  color: 'var(--txt)',
+                }}
               />
             </div>
 
             {error && (
-              <div className="flex items-start gap-2 p-2.5 rounded-md text-xs"
-                   style={{ background: 'rgba(255,59,48,.1)', color: 'var(--red)', border: '1px solid rgba(255,59,48,.25)' }}>
+              <div
+                className="flex items-start gap-2 p-2.5 rounded-md text-xs"
+                style={{
+                  background: 'rgba(255,59,48,.1)',
+                  color: 'var(--red)',
+                  border: '1px solid rgba(255,59,48,.25)',
+                }}
+              >
                 <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 {error}
               </div>
@@ -196,23 +219,33 @@ export default function AcceptInvite() {
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-opacity disabled:opacity-50"
               style={{ background: 'var(--blue)', color: 'white' }}
             >
-              {phase === 'saving'
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> Enregistrement…</>
-                : <><Check className="w-4 h-4" /> Activer mon compte</>}
+              {phase === 'saving' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Enregistrement…
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" /> Activer mon compte
+                </>
+              )}
             </button>
           </form>
         )}
 
         {phase === 'done' && (
           <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center"
-                 style={{ background: 'rgba(16,185,129,.15)' }}>
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(16,185,129,.15)' }}
+            >
               <Check className="w-5 h-5" style={{ color: '#10b981' }} />
             </div>
             <p className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
               Compte activé !
             </p>
-            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>Redirection…</p>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Redirection…
+            </p>
           </div>
         )}
       </div>

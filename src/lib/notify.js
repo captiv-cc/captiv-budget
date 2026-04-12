@@ -17,7 +17,7 @@ import toast from 'react-hot-toast'
  */
 
 const DEFAULT_DURATION = 3500
-const ERROR_DURATION   = 5000
+const ERROR_DURATION = 5000
 
 export const notify = {
   /** Succès — vert, 3.5 s */

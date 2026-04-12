@@ -31,8 +31,8 @@
 export function applyCategoryDansMarge(lines, categories) {
   if (!lines?.length) return []
   // Index catégorie par id pour un lookup O(1)
-  const catById = new Map((categories || []).map(c => [c.id, c]))
-  return lines.map(l => {
+  const catById = new Map((categories || []).map((c) => [c.id, c]))
+  return lines.map((l) => {
     const cat = catById.get(l.category_id)
     const catDansMarge = cat ? cat.dans_marge !== false : true
     return {

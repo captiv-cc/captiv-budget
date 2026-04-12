@@ -1,8 +1,19 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Search, FolderOpen, ArrowRight, Trash2, LayoutGrid, List as ListIcon, Archive, ArchiveRestore, ChevronDown } from 'lucide-react'
+import {
+  LayoutGrid,
+  List as ListIcon,
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  Plus,
+  Search,
+  Trash2,
+  ArrowRight,
+  FolderOpen,
+} from 'lucide-react'
 import { STATUS_OPTIONS } from '../features/projets/constants'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 import ProjectAvatar from '../features/projets/components/ProjectAvatar'
@@ -12,10 +23,10 @@ const VIEW_KEY = 'captiv:projets-view'
 
 // Options de tri exposées dans la barre d'outils
 const SORT_OPTIONS = [
-  { value: 'recent',   label: 'Récents' },
-  { value: 'oldest',   label: 'Anciens' },
-  { value: 'az',       label: 'A → Z' },
-  { value: 'za',       label: 'Z → A' },
+  { value: 'recent', label: 'Récents' },
+  { value: 'oldest', label: 'Anciens' },
+  { value: 'az', label: 'A → Z' },
+  { value: 'za', label: 'Z → A' },
   { value: 'deadline', label: 'Échéance' },
 ]
 
@@ -23,11 +34,11 @@ export default function Projets() {
   const { org, profile, isInternal, isAdmin } = useAuth()
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
-  const [clients, setClients]   = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [search, setSearch]     = useState('')
+  const [clients, setClients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all') // 'all' ou un value de STATUS_OPTIONS
-  const [sortBy, setSortBy]     = useState('recent')
+  const [sortBy, setSortBy] = useState('recent')
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window === 'undefined') return 'list'
     return window.localStorage.getItem(VIEW_KEY) || 'list'
@@ -36,16 +47,34 @@ export default function Projets() {
   const [archivedExpanded, setArchivedExpanded] = useState(false)
 
   useEffect(() => {
-    try { window.localStorage.setItem(VIEW_KEY, viewMode) } catch (_) {}
+    try {
+      window.localStorage.setItem(VIEW_KEY, viewMode)
+    } catch {
+      // Ignore localStorage errors
+    }
   }, [viewMode])
-  const [form, setForm] = useState({ title: '', client_id: '', status: 'prospect', description: '', date_debut: '', date_fin: '' })
+  const [form, setForm] = useState({
+    title: '',
+    client_id: '',
+    status: 'prospect',
+    description: '',
+    date_debut: '',
+    date_fin: '',
+  })
 
-  useEffect(() => { if (org?.id) loadAll() }, [org])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (org?.id) loadAll()
+  }, [org?.id])
 
   async function loadAll() {
     setLoading(true)
     const [{ data: projs }, { data: cls }] = await Promise.all([
-      supabase.from('projects').select('*, clients(name)').eq('org_id', org.id).order('updated_at', { ascending: false }),
+      supabase
+        .from('projects')
+        .select('*, clients(name)')
+        .eq('org_id', org.id)
+        .order('updated_at', { ascending: false }),
       supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
     ])
     setProjects(projs || [])
@@ -55,12 +84,21 @@ export default function Projets() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    const { data } = await supabase.from('projects')
+    const { data } = await supabase
+      .from('projects')
       .insert({ ...form, org_id: org.id, created_by: profile?.id })
-      .select().single()
+      .select()
+      .single()
     if (data) {
       setShowModal(false)
-      setForm({ title: '', client_id: '', status: 'prospect', description: '', date_debut: '', date_fin: '' })
+      setForm({
+        title: '',
+        client_id: '',
+        status: 'prospect',
+        description: '',
+        date_debut: '',
+        date_fin: '',
+      })
       navigate(`/projets/${data.id}`)
     }
   }
@@ -69,22 +107,27 @@ export default function Projets() {
     if (!isAdmin) return
     if (!confirm('Supprimer ce projet et tous ses devis ?')) return
     await supabase.from('projects').delete().eq('id', id)
-    setProjects(p => p.filter(x => x.id !== id))
+    setProjects((p) => p.filter((x) => x.id !== id))
   }
 
   // Archivage : flag d'affichage uniquement, le contenu du projet est intact.
   // Optimistic update + rollback en cas d'erreur réseau, pour rester réactif.
   async function archiveProject(id) {
     if (!isInternal) return
-    if (!confirm('Archiver ce projet ? Il sera masqué de la liste principale et accessible via "Projets archivés".')) return
+    if (
+      !confirm(
+        'Archiver ce projet ? Il sera masqué de la liste principale et accessible via "Projets archivés".',
+      )
+    )
+      return
     const previous = projects
     const now = new Date().toISOString()
-    setProjects(p => p.map(x => x.id === id ? { ...x, archived_at: now } : x))
+    setProjects((p) => p.map((x) => (x.id === id ? { ...x, archived_at: now } : x)))
     const { error } = await supabase.from('projects').update({ archived_at: now }).eq('id', id)
     if (error) {
-      console.error('Erreur archivage projet:', error)
+      console.warn('Erreur archivage projet:', error)
       setProjects(previous)
-      alert('Impossible d\'archiver : ' + error.message)
+      alert("Impossible d'archiver : " + error.message)
     }
   }
 
@@ -92,10 +135,10 @@ export default function Projets() {
     if (!isInternal) return
     if (!confirm('Désarchiver ce projet ? Il réapparaîtra dans la liste principale.')) return
     const previous = projects
-    setProjects(p => p.map(x => x.id === id ? { ...x, archived_at: null } : x))
+    setProjects((p) => p.map((x) => (x.id === id ? { ...x, archived_at: null } : x)))
     const { error } = await supabase.from('projects').update({ archived_at: null }).eq('id', id)
     if (error) {
-      console.error('Erreur désarchivage projet:', error)
+      console.warn('Erreur désarchivage projet:', error)
       setProjects(previous)
       alert('Impossible de désarchiver : ' + error.message)
     }
@@ -104,13 +147,13 @@ export default function Projets() {
   async function updateStatus(projectId, newStatus) {
     // Optimistic UI : on bascule l'affichage avant la confirmation serveur
     const previous = projects
-    setProjects(p => p.map(x => x.id === projectId ? { ...x, status: newStatus } : x))
+    setProjects((p) => p.map((x) => (x.id === projectId ? { ...x, status: newStatus } : x)))
     const { error } = await supabase
       .from('projects')
       .update({ status: newStatus })
       .eq('id', projectId)
     if (error) {
-      console.error('Erreur changement statut projet:', error)
+      console.warn('Erreur changement statut projet:', error)
       setProjects(previous)
       alert('Impossible de mettre à jour le statut : ' + error.message)
     }
@@ -121,22 +164,25 @@ export default function Projets() {
   // pour éviter de balayer projects[] plusieurs fois par render.
   const { activeList, archivedList, statusCounts } = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const matchSearch = (p) => !q
-      || p.title.toLowerCase().includes(q)
-      || p.clients?.name?.toLowerCase().includes(q)
+    const matchSearch = (p) =>
+      !q || p.title.toLowerCase().includes(q) || p.clients?.name?.toLowerCase().includes(q)
 
     const cmp = (a, b) => {
       switch (sortBy) {
-        case 'oldest':   return new Date(a.updated_at) - new Date(b.updated_at)
-        case 'az':       return (a.title || '').localeCompare(b.title || '', 'fr')
-        case 'za':       return (b.title || '').localeCompare(a.title || '', 'fr')
+        case 'oldest':
+          return new Date(a.updated_at) - new Date(b.updated_at)
+        case 'az':
+          return (a.title || '').localeCompare(b.title || '', 'fr')
+        case 'za':
+          return (b.title || '').localeCompare(a.title || '', 'fr')
         case 'deadline':
           if (!a.date_fin && !b.date_fin) return 0
           if (!a.date_fin) return 1
           if (!b.date_fin) return -1
           return new Date(a.date_fin) - new Date(b.date_fin)
         case 'recent':
-        default:         return new Date(b.updated_at) - new Date(a.updated_at)
+        default:
+          return new Date(b.updated_at) - new Date(a.updated_at)
       }
     }
 
@@ -178,8 +224,12 @@ export default function Projets() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>Projets</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--txt-3)' }}>{statusCounts.all} projets</p>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>
+            Projets
+          </h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--txt-3)' }}>
+            {statusCounts.all} projets
+          </p>
         </div>
         {isInternal && (
           <button onClick={() => setShowModal(true)} className="btn-primary">
@@ -190,9 +240,16 @@ export default function Projets() {
 
       {/* Search */}
       <div className="relative mb-4">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--txt-3)' }} />
-        <input className="input pl-9" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Rechercher un projet ou un client…" />
+        <Search
+          className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: 'var(--txt-3)' }}
+        />
+        <input
+          className="input pl-9"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un projet ou un client…"
+        />
       </div>
 
       {/* Toolbar : chips de filtre à gauche, tri + toggle vue à droite */}
@@ -204,7 +261,7 @@ export default function Projets() {
             active={statusFilter === 'all'}
             onClick={() => setStatusFilter('all')}
           />
-          {STATUS_OPTIONS.map(opt => (
+          {STATUS_OPTIONS.map((opt) => (
             <FilterChip
               key={opt.value}
               label={opt.label}
@@ -219,7 +276,7 @@ export default function Projets() {
           {/* Tri */}
           <select
             value={sortBy}
-            onChange={e => setSortBy(e.target.value)}
+            onChange={(e) => setSortBy(e.target.value)}
             className="text-xs rounded-md px-2.5 py-1.5 outline-none cursor-pointer"
             style={{
               background: 'var(--bg-elev)',
@@ -227,8 +284,10 @@ export default function Projets() {
               color: 'var(--txt-2)',
             }}
           >
-            {SORT_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </select>
 
@@ -255,12 +314,16 @@ export default function Projets() {
 
       {/* Contenu : liste ou grille */}
       {loading && (
-        <div className="card p-8 text-center text-sm" style={{ color: 'var(--txt-3)' }}>Chargement…</div>
+        <div className="card p-8 text-center text-sm" style={{ color: 'var(--txt-3)' }}>
+          Chargement…
+        </div>
       )}
       {!loading && activeList.length === 0 && (
         <div className="card p-12 text-center">
           <FolderOpen className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
-          <p className="text-sm" style={{ color: 'var(--txt-2)' }}>Aucun projet trouvé</p>
+          <p className="text-sm" style={{ color: 'var(--txt-2)' }}>
+            Aucun projet trouvé
+          </p>
         </div>
       )}
 
@@ -290,11 +353,11 @@ export default function Projets() {
       {!loading && (archivedList.length > 0 || archivedExpanded) && (
         <div className="mt-8">
           <button
-            onClick={() => setArchivedExpanded(v => !v)}
+            onClick={() => setArchivedExpanded((v) => !v)}
             className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider px-1 py-1.5 rounded transition-colors"
             style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--txt-2)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--txt-3)'}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt-2)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
           >
             <ChevronDown
               className="w-3.5 h-3.5 transition-transform"
@@ -307,7 +370,9 @@ export default function Projets() {
           {showArchived && (
             <div className="mt-3">
               {archivedList.length === 0 && (
-                <p className="text-xs px-1" style={{ color: 'var(--txt-3)' }}>Aucun projet archivé pour cette recherche.</p>
+                <p className="text-xs px-1" style={{ color: 'var(--txt-3)' }}>
+                  Aucun projet archivé pour cette recherche.
+                </p>
               )}
               {archivedList.length > 0 && viewMode === 'list' && (
                 <ProjectListView
@@ -342,41 +407,79 @@ export default function Projets() {
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
               <label className="label">Titre du projet *</label>
-              <input className="input" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                placeholder="Ex: Film institutionnel 2026" required />
+              <input
+                className="input"
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Ex: Film institutionnel 2026"
+                required
+              />
             </div>
             <div>
               <label className="label">Client</label>
-              <select className="input" value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}>
+              <select
+                className="input"
+                value={form.client_id}
+                onChange={(e) => setForm((f) => ({ ...f, client_id: e.target.value }))}
+              >
                 <option value="">— Sélectionner un client —</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">Date début</label>
-                <input type="date" className="input" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} />
+                <input
+                  type="date"
+                  className="input"
+                  value={form.date_debut}
+                  onChange={(e) => setForm((f) => ({ ...f, date_debut: e.target.value }))}
+                />
               </div>
               <div>
                 <label className="label">Date fin</label>
-                <input type="date" className="input" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} />
+                <input
+                  type="date"
+                  className="input"
+                  value={form.date_fin}
+                  onChange={(e) => setForm((f) => ({ ...f, date_fin: e.target.value }))}
+                />
               </div>
             </div>
             <div>
               <label className="label">Statut</label>
-              <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              <select
+                className="input"
+                value={form.status}
+                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
               <label className="label">Description</label>
-              <textarea className="input resize-none h-20" value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                placeholder="Brève description du projet…" />
+              <textarea
+                className="input resize-none h-20"
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Brève description du projet…"
+              />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Annuler</button>
-              <button type="submit" className="btn-primary">Créer le projet</button>
+              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">
+                Annuler
+              </button>
+              <button type="submit" className="btn-primary">
+                Créer le projet
+              </button>
             </div>
           </form>
         </Modal>
@@ -387,7 +490,16 @@ export default function Projets() {
 
 // ─── Vues partagées (utilisées par la liste active ET la liste archivée) ──
 
-function ProjectListView({ projects, isAdmin, isInternal, onUpdateStatus, onDelete, onArchive, onUnarchive, archived }) {
+function ProjectListView({
+  projects,
+  isAdmin,
+  isInternal,
+  onUpdateStatus,
+  onDelete,
+  onArchive,
+  onUnarchive,
+  archived,
+}) {
   return (
     <div className="card" style={{ overflow: 'hidden', opacity: archived ? 0.75 : 1 }}>
       {projects.map((p, i) => (
@@ -395,35 +507,58 @@ function ProjectListView({ projects, isAdmin, isInternal, onUpdateStatus, onDele
           key={p.id}
           className="flex items-center justify-between px-5 py-3.5 transition-colors group"
           style={{ borderTop: i === 0 ? 'none' : '1px solid var(--brd-sub)' }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
         >
           <Link to={`/projets/${p.id}`} className="flex items-center gap-3 flex-1 min-w-0">
             <ProjectAvatar project={p} size={40} rounded="lg" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
-              <p className="text-xs" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                {p.title}
+              </p>
+              <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+                {p.clients?.name || '—'}
+              </p>
             </div>
           </Link>
           <div className="ml-4 shrink-0">
-            <StatusBadgeMenu project={p} onChange={onUpdateStatus} canEdit={isInternal && !archived} />
+            <StatusBadgeMenu
+              project={p}
+              onChange={onUpdateStatus}
+              canEdit={isInternal && !archived}
+            />
           </div>
           <span className="text-xs shrink-0 ml-3" style={{ color: 'var(--txt-3)' }}>
             {new Date(p.updated_at).toLocaleDateString('fr-FR')}
           </span>
           <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
             {isAdmin && (
-              <button onClick={() => onDelete(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Supprimer">
+              <button
+                onClick={() => onDelete(p.id)}
+                className="btn-ghost btn-sm"
+                style={{ color: 'var(--txt-3)' }}
+                title="Supprimer"
+              >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
             {isInternal && !archived && onArchive && (
-              <button onClick={() => onArchive(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Archiver">
+              <button
+                onClick={() => onArchive(p.id)}
+                className="btn-ghost btn-sm"
+                style={{ color: 'var(--txt-3)' }}
+                title="Archiver"
+              >
                 <Archive className="w-3.5 h-3.5" />
               </button>
             )}
             {isInternal && archived && onUnarchive && (
-              <button onClick={() => onUnarchive(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Désarchiver">
+              <button
+                onClick={() => onUnarchive(p.id)}
+                className="btn-ghost btn-sm"
+                style={{ color: 'var(--txt-3)' }}
+                title="Désarchiver"
+              >
                 <ArchiveRestore className="w-3.5 h-3.5" />
               </button>
             )}
@@ -437,25 +572,51 @@ function ProjectListView({ projects, isAdmin, isInternal, onUpdateStatus, onDele
   )
 }
 
-function ProjectGridView({ projects, isAdmin, isInternal, onUpdateStatus, onDelete, onArchive, onUnarchive, archived }) {
+function ProjectGridView({
+  projects,
+  _isAdmin,
+  isInternal,
+  onUpdateStatus,
+  _onDelete,
+  onArchive,
+  onUnarchive,
+  archived,
+}) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" style={{ opacity: archived ? 0.75 : 1 }}>
-      {projects.map(p => (
+    <div
+      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+      style={{ opacity: archived ? 0.75 : 1 }}
+    >
+      {projects.map((p) => (
         <div key={p.id} className="relative group">
           <Link
             to={`/projets/${p.id}`}
             className="card p-4 transition-all flex flex-col gap-3"
             style={{ textDecoration: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brd)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.transform = '' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--brd)'
+              e.currentTarget.style.transform = 'translateY(-1px)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = ''
+              e.currentTarget.style.transform = ''
+            }}
           >
             <ProjectAvatar project={p} size={48} rounded="lg" />
             <div className="min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
-              <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                {p.title}
+              </p>
+              <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+                {p.clients?.name || '—'}
+              </p>
             </div>
             <div className="flex items-center justify-between mt-auto">
-              <StatusBadgeMenu project={p} onChange={onUpdateStatus} canEdit={isInternal && !archived} />
+              <StatusBadgeMenu
+                project={p}
+                onChange={onUpdateStatus}
+                canEdit={isInternal && !archived}
+              />
               <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
                 {new Date(p.updated_at).toLocaleDateString('fr-FR')}
               </span>
@@ -467,18 +628,25 @@ function ProjectGridView({ projects, isAdmin, isInternal, onUpdateStatus, onDele
               onClick={archived ? () => onUnarchive(p.id) : () => onArchive(p.id)}
               className="absolute top-2 right-2 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition-all"
               style={{
-                width: '26px', height: '26px',
+                width: '26px',
+                height: '26px',
                 background: 'var(--bg-elev)',
                 border: '1px solid var(--brd-sub)',
                 color: 'var(--txt-3)',
               }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--txt)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
               title={archived ? 'Désarchiver' : 'Archiver'}
             >
-              {archived
-                ? <ArchiveRestore className="w-3.5 h-3.5" />
-                : <Archive className="w-3.5 h-3.5" />}
+              {archived ? (
+                <ArchiveRestore className="w-3.5 h-3.5" />
+              ) : (
+                <Archive className="w-3.5 h-3.5" />
+              )}
             </button>
           )}
         </div>
@@ -494,12 +662,17 @@ function FilterChip({ label, count, active, onClick }) {
     <button
       onClick={onClick}
       className="text-xs font-medium rounded-full px-3 py-1.5 transition-all flex items-center gap-1.5"
-      style={active
-        ? { background: 'var(--blue-bg)', color: 'var(--blue)', border: '1px solid transparent' }
-        : { background: 'transparent', color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }
+      style={
+        active
+          ? { background: 'var(--blue-bg)', color: 'var(--blue)', border: '1px solid transparent' }
+          : { background: 'transparent', color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }
       }
-      onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-hov)' }}
-      onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.background = 'var(--bg-hov)'
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = 'transparent'
+      }}
     >
       <span>{label}</span>
       <span className="text-[10px] opacity-70">{count}</span>
@@ -514,7 +687,8 @@ function ViewToggleButton({ active, onClick, icon: Icon, title }) {
       title={title}
       className="flex items-center justify-center rounded transition-all"
       style={{
-        width: '26px', height: '24px',
+        width: '26px',
+        height: '24px',
         background: active ? 'var(--bg-hov)' : 'transparent',
         color: active ? 'var(--txt)' : 'var(--txt-3)',
       }}
@@ -530,7 +704,12 @@ function Modal({ title, onClose, children }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+          >
+            ×
+          </button>
         </div>
         <div className="p-6">{children}</div>
       </div>

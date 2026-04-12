@@ -8,25 +8,38 @@
 
 import { X, ChevronDown, ChevronRight } from 'lucide-react'
 
-export default function FiltersBar({ filters, counts, onToggle, onClear, anyFilter, onCollapseAll, onExpandAll, anyCollapsed }) {
+export default function FiltersBar({
+  filters,
+  counts,
+  onToggle,
+  onClear,
+  anyFilter,
+  onCollapseAll,
+  onExpandAll,
+  anyCollapsed,
+}) {
   const allChips = [
-    { key: 'estimees',  label: 'Non saisies',  count: counts.estimees,  color: 'var(--amber)' },
-    { key: 'nonPayees', label: 'Non payées',   count: counts.nonPayees, color: 'var(--blue)'  },
-    { key: 'ecart',     label: 'Écart > 10 %', count: counts.ecart,     color: 'var(--red)'   },
-    { key: 'additifs',  label: 'Additifs',     count: counts.additifs,  color: 'var(--red)'   },
+    { key: 'estimees', label: 'Non saisies', count: counts.estimees, color: 'var(--amber)' },
+    { key: 'nonPayees', label: 'Non payées', count: counts.nonPayees, color: 'var(--blue)' },
+    { key: 'ecart', label: 'Écart > 10 %', count: counts.ecart, color: 'var(--red)' },
+    { key: 'additifs', label: 'Additifs', count: counts.additifs, color: 'var(--red)' },
   ]
   // On masque les chips à 0 (sauf si déjà actifs, pour pouvoir les désactiver)
-  const chips = allChips.filter(c => (c.count || 0) > 0 || filters[c.key])
+  const chips = allChips.filter((c) => (c.count || 0) > 0 || filters[c.key])
   const hasFilterArea = chips.length > 0 || anyFilter
 
   return (
     <div className="flex items-center gap-2 flex-wrap px-1">
       {hasFilterArea && (
-        <span className="text-[9px] uppercase tracking-widest font-semibold"
-          style={{ color: 'var(--txt-3)' }}>Filtres</span>
+        <span
+          className="text-[9px] uppercase tracking-widest font-semibold"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Filtres
+        </span>
       )}
 
-      {chips.map(c => {
+      {chips.map((c) => {
         const active = filters[c.key]
         return (
           <button
@@ -43,14 +56,16 @@ export default function FiltersBar({ filters, counts, onToggle, onClear, anyFilt
             }}
           >
             <span>{c.label}</span>
-            <span className="tabular-nums rounded-full px-1.5"
+            <span
+              className="tabular-nums rounded-full px-1.5"
               style={{
                 fontSize: 9,
                 background: active ? 'rgba(255,255,255,.25)' : 'var(--bg-elev)',
                 color: active ? 'white' : 'var(--txt-3)',
                 minWidth: 16,
                 textAlign: 'center',
-              }}>
+              }}
+            >
               {c.count || 0}
             </span>
           </button>
@@ -88,8 +103,9 @@ export default function FiltersBar({ filters, counts, onToggle, onClear, anyFilt
             border: '1px solid var(--brd)',
             cursor: 'pointer',
           }}
-          onMouseEnter={e => e.currentTarget.style.color = 'var(--txt)'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--txt-3)'}>
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt)')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+        >
           <ChevronRight className="w-2.5 h-2.5" />
           Tout replier
         </button>
@@ -106,8 +122,9 @@ export default function FiltersBar({ filters, counts, onToggle, onClear, anyFilt
               border: '1px solid var(--brd)',
               cursor: 'pointer',
             }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--txt)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--txt-3)'}>
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+          >
             <ChevronDown className="w-2.5 h-2.5" />
             Tout déplier
           </button>

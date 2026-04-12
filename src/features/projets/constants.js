@@ -10,11 +10,16 @@
 export const STATUS_OPTIONS = [
   { value: 'prospect', label: 'Prospect', cls: 'badge-amber' },
   { value: 'en_cours', label: 'En cours', cls: 'badge-blue' },
-  { value: 'termine',  label: 'Terminé',  cls: 'badge-green' },
-  { value: 'annule',   label: 'Annulé',   cls: 'badge-gray' },
+  { value: 'termine', label: 'Terminé', cls: 'badge-green' },
+  { value: 'annule', label: 'Annulé', cls: 'badge-gray' },
 ]
 
 export function getStatusOption(value) {
-  return STATUS_OPTIONS.find(s => s.value === value)
-      || { value, label: value || '—', cls: 'badge-gray' }
+  return (
+    STATUS_OPTIONS.find((s) => s.value === value) || {
+      value,
+      label: value || '—',
+      cls: 'badge-gray',
+    }
+  )
 }

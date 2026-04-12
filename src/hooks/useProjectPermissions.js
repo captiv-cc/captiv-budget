@@ -24,7 +24,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  ROLES,
   INTERNAL_ROLES,
   buildProjectPermissions,
   can as canFn,
@@ -34,7 +33,7 @@ import {
 export function useProjectPermissions(projectId) {
   const { user, role, isAdmin } = useAuth()
 
-  const [loading, setLoading]       = useState(true)
+  const [loading, setLoading] = useState(true)
   const [isAttached, setIsAttached] = useState(false)
   const [permissions, setPermissions] = useState({}) // { outil_key: {can_read, can_comment, can_edit} }
 
@@ -108,30 +107,21 @@ export function useProjectPermissions(projectId) {
 
       if (!alive) return
 
-      setPermissions(
-        buildProjectPermissions(
-          templateRes.data || [],
-          overrideRes.data || [],
-        )
-      )
+      setPermissions(buildProjectPermissions(templateRes.data || [], overrideRes.data || []))
       setLoading(false)
     }
 
     load()
-    return () => { alive = false }
+    return () => {
+      alive = false
+    }
   }, [user?.id, projectId, role, isAdmin])
 
   // ─── Contexte pour le moteur permissions ──────────────────────────────────
   const permCtx = useMemo(() => ({ role, permissions }), [role, permissions])
 
-  const can = useCallback(
-    (outil, action) => canFn(permCtx, outil, action),
-    [permCtx],
-  )
-  const canSee = useCallback(
-    (outil) => canSeeFn(permCtx, outil),
-    [permCtx],
-  )
+  const can = useCallback((outil, action) => canFn(permCtx, outil, action), [permCtx])
+  const canSee = useCallback((outil) => canSeeFn(permCtx, outil), [permCtx])
 
   return {
     loading,

@@ -8,16 +8,16 @@
 
 const CLASS_MAP = {
   brouillon: 'badge-gray',
-  envoye:    'badge-blue',
-  accepte:   'badge-green',
-  refuse:    'badge-red',
+  envoye: 'badge-blue',
+  accepte: 'badge-green',
+  refuse: 'badge-red',
 }
 
 const LABEL_MAP = {
   brouillon: 'Brouillon',
-  envoye:    'Envoyé',
-  accepte:   'Accepté',
-  refuse:    'Refusé',
+  envoye: 'Envoyé',
+  accepte: 'Accepté',
+  refuse: 'Refusé',
 }
 
 export default function StatusBadge({ status }) {

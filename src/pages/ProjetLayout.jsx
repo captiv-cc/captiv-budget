@@ -3,16 +3,26 @@
  * Banner KPI en haut + navigation par onglets
  */
 import { useState, useEffect, createContext, useContext } from 'react'
-import { useParams, useNavigate, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
+import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
 import {
-  ChevronLeft, TrendingUp, Euro, FileText,
-  LayoutDashboard, BarChart3, Receipt, Activity, Users,
-  Calendar, Clapperboard, CheckSquare, Shield,
+  ChevronLeft,
+  TrendingUp,
+  Euro,
+  FileText,
+  LayoutDashboard,
+  BarChart3,
+  Receipt,
+  Activity,
+  Users,
+  Calendar,
+  Clapperboard,
+  CheckSquare,
+  Shield,
 } from 'lucide-react'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 
@@ -25,32 +35,84 @@ export const useProjet = () => useContext(ProjetContext)
 // outil    → clé de outils_catalogue pour filtrage par permission (prestataire)
 // admin   → onglet admin/manager uniquement (admin + charge_prod attaché)
 const ALL_TABS = [
-  { key: 'projet',      label: 'Projet',       icon: LayoutDashboard, path: 'projet',   finance: false, outil: 'projet_info' },
-  { key: 'devis',       label: 'Devis',        icon: FileText,     path: 'devis',       finance: true,  outil: null          },
-  { key: 'equipe',      label: 'Équipe',       icon: Users,        path: 'equipe',      finance: false, outil: 'equipe'      },
-  { key: 'planning',    label: 'Planning',     icon: Calendar,     path: 'planning',    finance: false, outil: 'planning'    },
-  { key: 'production',  label: 'Production',   icon: Clapperboard, path: 'production',  finance: false, outil: 'production'  },
-  { key: 'livrables',   label: 'Livrables',    icon: CheckSquare,  path: 'livrables',   finance: false, outil: 'livrables'   },
-  { key: 'budget',      label: 'Budget réel',  icon: Activity,     path: 'budget',      finance: true,  outil: null          },
-  { key: 'factures',    label: 'Factures',     icon: Receipt,      path: 'factures',    finance: true,  outil: null          },
-  { key: 'dashboard',   label: 'Dashboard',    icon: BarChart3,    path: 'dashboard',   finance: true,  outil: null          },
-  { key: 'access',      label: 'Accès',        icon: Shield,       path: 'access',      finance: false, outil: null, admin: true },
+  {
+    key: 'projet',
+    label: 'Projet',
+    icon: LayoutDashboard,
+    path: 'projet',
+    finance: false,
+    outil: 'projet_info',
+  },
+  { key: 'devis', label: 'Devis', icon: FileText, path: 'devis', finance: true, outil: null },
+  { key: 'equipe', label: 'Équipe', icon: Users, path: 'equipe', finance: false, outil: 'equipe' },
+  {
+    key: 'planning',
+    label: 'Planning',
+    icon: Calendar,
+    path: 'planning',
+    finance: false,
+    outil: 'planning',
+  },
+  {
+    key: 'production',
+    label: 'Production',
+    icon: Clapperboard,
+    path: 'production',
+    finance: false,
+    outil: 'production',
+  },
+  {
+    key: 'livrables',
+    label: 'Livrables',
+    icon: CheckSquare,
+    path: 'livrables',
+    finance: false,
+    outil: 'livrables',
+  },
+  {
+    key: 'budget',
+    label: 'Budget réel',
+    icon: Activity,
+    path: 'budget',
+    finance: true,
+    outil: null,
+  },
+  {
+    key: 'factures',
+    label: 'Factures',
+    icon: Receipt,
+    path: 'factures',
+    finance: true,
+    outil: null,
+  },
+  {
+    key: 'dashboard',
+    label: 'Dashboard',
+    icon: BarChart3,
+    path: 'dashboard',
+    finance: true,
+    outil: null,
+  },
+  {
+    key: 'access',
+    label: 'Accès',
+    icon: Shield,
+    path: 'access',
+    finance: false,
+    outil: null,
+    admin: true,
+  },
 ]
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
-  const navigate  = useNavigate()
-  const { org, canSeeFinance, isPrestataire, isAdmin, isChargeProd } = useAuth()
+  const { _org, canSeeFinance, isPrestataire, isAdmin, isChargeProd } = useAuth()
 
   // Permissions par projet (chantier 3B) : chargées depuis project_access +
   // project_access_permissions via Supabase
-  const {
-    loading: permLoading,
-    isAttached,
-    canSee: canSeeOutil,
-  } = useProjectPermissions(id)
+  const { loading: permLoading, isAttached, canSee: canSeeOutil } = useProjectPermissions(id)
 
   // Filtrer les onglets selon le rôle et les permissions par outil
   //  1) Onglets finance : masqués si l'utilisateur n'a pas accès à la finance
@@ -58,19 +120,22 @@ export default function ProjetLayout() {
   //     (les rôles internes bypassent dans le hook)
   //  3) Onglets "admin" : visibles uniquement admin + charge_prod attaché
   const canManageAccess = isAdmin || (isChargeProd && isAttached)
-  const TABS = ALL_TABS.filter(t => {
+  const TABS = ALL_TABS.filter((t) => {
     if (t.admin && !canManageAccess) return false
     if (t.finance && !canSeeFinance) return false
     if (isPrestataire && t.outil && !canSeeOutil(t.outil)) return false
     return true
   })
 
-  const [project,    setProject]    = useState(null)
-  const [devisList,  setDevisList]  = useState([])
+  const [project, setProject] = useState(null)
+  const [devisList, setDevisList] = useState([])
   const [devisStats, setDevisStats] = useState({})
-  const [loading,    setLoading]    = useState(true)
+  const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadAll() }, [id])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    loadAll()
+  }, [id])
 
   async function loadAll() {
     setLoading(true)
@@ -93,7 +158,7 @@ export default function ProjetLayout() {
         // Lignes ET catégories : on a besoin des catégories pour propager
         // `dans_marge` aux lignes (via applyCategoryDansMarge), sinon le
         // calcul d'ici diverge de celui du DevisEditor.
-        const dvIds = dvs.map(d => d.id)
+        const dvIds = dvs.map((d) => d.id)
         const [{ data: lines }, { data: cats }] = await Promise.all([
           supabase.from('devis_lines').select('*').in('devis_id', dvIds),
           supabase.from('devis_categories').select('*').in('devis_id', dvIds),
@@ -101,20 +166,20 @@ export default function ProjetLayout() {
 
         const stats = {}
         for (const dv of dvs) {
-          const dvLines = (lines || []).filter(l => l.devis_id === dv.id)
-          const dvCats  = (cats  || []).filter(c => c.devis_id === dv.id)
+          const dvLines = (lines || []).filter((l) => l.devis_id === dv.id)
+          const dvCats = (cats || []).filter((c) => c.devis_id === dv.id)
           const normalizedLines = applyCategoryDansMarge(dvLines, dvCats)
           stats[dv.id] = calcSynthese(
             normalizedLines,
-            dv.tva_rate    || 20,
+            dv.tva_rate || 20,
             dv.acompte_pct || 30,
             TAUX_DEFAUT,
             {
-              marge_globale_pct:      dv.marge_globale_pct,
-              assurance_pct:          dv.assurance_pct,
-              remise_globale_pct:     dv.remise_globale_pct,
+              marge_globale_pct: dv.marge_globale_pct,
+              assurance_pct: dv.assurance_pct,
+              remise_globale_pct: dv.remise_globale_pct,
               remise_globale_montant: dv.remise_globale_montant,
-            }
+            },
           )
         }
         setDevisStats(stats)
@@ -129,8 +194,11 @@ export default function ProjetLayout() {
     const previous = project
     setProject({ ...project, status: newStatus })
     const { error, data } = await supabase
-      .from('projects').update({ status: newStatus }).eq('id', id)
-      .select('*, clients(*)').single()
+      .from('projects')
+      .update({ status: newStatus })
+      .eq('id', id)
+      .select('*, clients(*)')
+      .single()
     if (error) {
       console.error('Erreur changement statut projet:', error)
       setProject(previous)
@@ -141,33 +209,38 @@ export default function ProjetLayout() {
   }
 
   // Dévis de référence : accepté en priorité, sinon le plus récent
-  const refDevis  = devisList.find(d => d.status === 'accepte') || devisList[devisList.length - 1]
-  const refSynth  = refDevis ? devisStats[refDevis.id] : null
+  const refDevis = devisList.find((d) => d.status === 'accepte') || devisList[devisList.length - 1]
+  const refSynth = refDevis ? devisStats[refDevis.id] : null
 
   // Onglet actif depuis l'URL
   const pathSegments = location.pathname.split('/')
-  const afterId      = pathSegments[pathSegments.indexOf(id) + 1]
-  const activeTab    = TABS.find(t => t.key === afterId)?.key || 'projet'
+  const afterId = pathSegments[pathSegments.indexOf(id) + 1]
+  const activeTab = TABS.find((t) => t.key === afterId)?.key || 'projet'
 
   // Contexte partagé avec les onglets enfants
   const ctx = {
-    project, setProject,
-    devisList, setDevisList,
-    devisStats, setDevisStats,
-    refDevis, refSynth,
+    project,
+    setProject,
+    devisList,
+    setDevisList,
+    devisStats,
+    setDevisStats,
+    refDevis,
+    refSynth,
     reload: loadAll,
     projectId: id,
   }
 
   // Déterminer si on est dans l'éditeur de devis (plein écran)
-  const isDevisEditor = location.pathname.includes('/devis/') &&
-    pathSegments[pathSegments.length - 1] !== 'devis'
+  const isDevisEditor =
+    location.pathname.includes('/devis/') && pathSegments[pathSegments.length - 1] !== 'devis'
 
-  if (loading || permLoading) return (
-    <div className="flex items-center justify-center h-full">
-      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  if (loading || permLoading)
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
 
   // RLS côté Supabase renvoie déjà NULL pour un projet auquel l'utilisateur
   // n'a pas accès (→ project === null). On ajoute en plus le garde-fou
@@ -182,7 +255,7 @@ export default function ProjetLayout() {
   // /budget en tapant l'URL manuellement.
   // On ignore les sous-routes de devis (ex: /devis/:devisId) qui sont gérées
   // séparément par l'éditeur de devis plein écran.
-  if (afterId && !TABS.some(t => t.key === afterId) && !isDevisEditor) {
+  if (afterId && !TABS.some((t) => t.key === afterId) && !isDevisEditor) {
     const fallback = TABS[0]?.path || 'projet'
     return <Navigate to={`/projets/${id}/${fallback}`} replace />
   }
@@ -190,9 +263,14 @@ export default function ProjetLayout() {
   return (
     <ProjetContext.Provider value={ctx}>
       <div className={`flex flex-col ${isDevisEditor ? 'h-screen overflow-hidden' : 'min-h-full'}`}>
-
         {/* ── Banner ──────────────────────────────────────────────────────── */}
-        <div className="text-white shrink-0" style={{ background: 'linear-gradient(135deg, var(--bg-side) 0%, var(--bg-surf) 100%)', borderBottom: '1px solid var(--brd)' }}>
+        <div
+          className="text-white shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, var(--bg-side) 0%, var(--bg-surf) 100%)',
+            borderBottom: '1px solid var(--brd)',
+          }}
+        >
           <div className="px-5 py-3 flex items-center justify-between">
             {/* Gauche : breadcrumb + identité projet */}
             <div className="flex items-center gap-4 min-w-0">
@@ -237,7 +315,11 @@ export default function ProjetLayout() {
             {canSeeFinance && refSynth && !isDevisEditor ? (
               <div className="flex items-center gap-6 shrink-0 ml-4">
                 <BannerKpi
-                  label={refDevis?.status === 'accepte' ? 'Budget accepté HT' : `Budget V${refDevis?.version_number} HT`}
+                  label={
+                    refDevis?.status === 'accepte'
+                      ? 'Budget accepté HT'
+                      : `Budget V${refDevis?.version_number} HT`
+                  }
                   value={fmtEur(refSynth.totalHTFinal)}
                   icon={<Euro className="w-3.5 h-3.5" />}
                   color="blue"
@@ -247,11 +329,19 @@ export default function ProjetLayout() {
                   value={fmtPct(refSynth.pctMargeFinale)}
                   sub={fmtEur(refSynth.margeFinale)}
                   icon={<TrendingUp className="w-3.5 h-3.5" />}
-                  color={refSynth.pctMargeFinale < 0 ? 'red' : refSynth.pctMargeFinale > 0.25 ? 'green' : 'amber'}
+                  color={
+                    refSynth.pctMargeFinale < 0
+                      ? 'red'
+                      : refSynth.pctMargeFinale > 0.25
+                        ? 'green'
+                        : 'amber'
+                  }
                 />
                 <div className="text-right hidden lg:block">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide">Devis</p>
-                  <p className="text-xs font-medium text-slate-300">{devisList.length} version{devisList.length > 1 ? 's' : ''}</p>
+                  <p className="text-xs font-medium text-slate-300">
+                    {devisList.length} version{devisList.length > 1 ? 's' : ''}
+                  </p>
                 </div>
               </div>
             ) : canSeeFinance && !isDevisEditor ? (
@@ -260,8 +350,11 @@ export default function ProjetLayout() {
           </div>
 
           {/* ── Navigation onglets ──────────────────────────────────────── */}
-          <div className="flex items-end px-5 gap-0.5" style={{ borderTop: '1px solid var(--brd-sub)' }}>
-            {TABS.map(tab => {
+          <div
+            className="flex items-end px-5 gap-0.5"
+            style={{ borderTop: '1px solid var(--brd-sub)' }}
+          >
+            {TABS.map((tab) => {
               const Icon = tab.icon
               const isActive = tab.key === activeTab
               // Onglet Devis : raccourci direct vers l'éditeur de la dernière
@@ -277,21 +370,37 @@ export default function ProjetLayout() {
                   key={tab.key}
                   to={tabHref}
                   className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all duration-150 whitespace-nowrap border-b-2"
-                  style={isActive
-                    ? { borderColor: 'var(--blue)', color: 'var(--blue)', background: 'var(--blue-bg)' }
-                    : { borderColor: 'transparent', color: 'var(--txt-3)' }
+                  style={
+                    isActive
+                      ? {
+                          borderColor: 'var(--blue)',
+                          color: 'var(--blue)',
+                          background: 'var(--blue-bg)',
+                        }
+                      : { borderColor: 'transparent', color: 'var(--txt-3)' }
                   }
-                  onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--txt-2)'; e.currentTarget.style.borderColor = 'var(--brd)' } }}
-                  onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.borderColor = 'transparent' } }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = 'var(--txt-2)'
+                      e.currentTarget.style.borderColor = 'var(--brd)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = 'var(--txt-3)'
+                      e.currentTarget.style.borderColor = 'transparent'
+                    }
+                  }}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {tab.label}
                   {tab.key === 'devis' && devisList.length > 0 && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-                      style={isActive
-                        ? { background: 'var(--blue)', color: 'white' }
-                        : { background: 'var(--bg-elev)', color: 'var(--txt-2)' }
+                      style={
+                        isActive
+                          ? { background: 'var(--blue)', color: 'white' }
+                          : { background: 'var(--bg-elev)', color: 'var(--txt-2)' }
                       }
                     >
                       {devisList.length}
@@ -304,7 +413,9 @@ export default function ProjetLayout() {
         </div>
 
         {/* ── Contenu de l'onglet ──────────────────────────────────────────── */}
-        <div className={`flex-1 ${isDevisEditor ? 'overflow-hidden flex flex-col' : 'overflow-auto'}`}>
+        <div
+          className={`flex-1 ${isDevisEditor ? 'overflow-hidden flex flex-col' : 'overflow-auto'}`}
+        >
           <Outlet context={ctx} />
         </div>
       </div>
@@ -315,10 +426,10 @@ export default function ProjetLayout() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function BannerKpi({ label, value, sub, icon, color }) {
   const colors = {
-    blue:  'text-blue-300',
+    blue: 'text-blue-300',
     green: 'text-green-300',
     amber: 'text-amber-300',
-    red:   'text-red-300',
+    red: 'text-red-300',
   }
   return (
     <div className="text-right">
@@ -331,4 +442,3 @@ function BannerKpi({ label, value, sub, icon, color }) {
     </div>
   )
 }
-

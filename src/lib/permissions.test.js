@@ -25,43 +25,43 @@ function ctx(role, permissions = {}) {
 
 /** Fixture : template Monteur (livrables edit + equipe read + production read) */
 const MONTEUR_TEMPLATE = [
-  { outil_key: 'livrables',   can_read: true,  can_comment: true,  can_edit: true  },
-  { outil_key: 'equipe',      can_read: true,  can_comment: false, can_edit: false },
-  { outil_key: 'production',  can_read: true,  can_comment: false, can_edit: false },
-  { outil_key: 'projet_info', can_read: true,  can_comment: false, can_edit: false },
+  { outil_key: 'livrables', can_read: true, can_comment: true, can_edit: true },
+  { outil_key: 'equipe', can_read: true, can_comment: false, can_edit: false },
+  { outil_key: 'production', can_read: true, can_comment: false, can_edit: false },
+  { outil_key: 'projet_info', can_read: true, can_comment: false, can_edit: false },
 ]
 
 /** Fixture : template Cadreur */
 const CADREUR_TEMPLATE = [
-  { outil_key: 'callsheet',   can_read: true,  can_comment: false, can_edit: false },
-  { outil_key: 'planning',    can_read: true,  can_comment: false, can_edit: false },
-  { outil_key: 'equipe',      can_read: true,  can_comment: false, can_edit: false },
-  { outil_key: 'materiel',    can_read: true,  can_comment: true,  can_edit: false },
-  { outil_key: 'projet_info', can_read: true,  can_comment: false, can_edit: false },
+  { outil_key: 'callsheet', can_read: true, can_comment: false, can_edit: false },
+  { outil_key: 'planning', can_read: true, can_comment: false, can_edit: false },
+  { outil_key: 'equipe', can_read: true, can_comment: false, can_edit: false },
+  { outil_key: 'materiel', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'projet_info', can_read: true, can_comment: false, can_edit: false },
 ]
 
 /** Fixture : template Réalisateur (read+comment tout + edit livrables) */
 const REALISATEUR_TEMPLATE = [
   { outil_key: 'projet_info', can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'equipe',      can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'planning',    can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'callsheet',   can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'production',  can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'livrables',   can_read: true, can_comment: true, can_edit: true  },
-  { outil_key: 'materiel',    can_read: true, can_comment: true, can_edit: false },
-  { outil_key: 'decors',      can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'equipe', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'planning', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'callsheet', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'production', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'livrables', can_read: true, can_comment: true, can_edit: true },
+  { outil_key: 'materiel', can_read: true, can_comment: true, can_edit: false },
+  { outil_key: 'decors', can_read: true, can_comment: true, can_edit: false },
 ]
 
 /** Fixture : catalogue d'outils minimal */
 const CATALOGUE = [
-  { key: 'projet_info', label: 'Fiche projet',  sort_order: 10 },
-  { key: 'equipe',      label: 'Équipe',        sort_order: 20 },
-  { key: 'planning',    label: 'Planning',      sort_order: 30 },
-  { key: 'callsheet',   label: 'Call sheet',    sort_order: 40 },
-  { key: 'production',  label: 'Production',    sort_order: 50 },
-  { key: 'livrables',   label: 'Livrables',     sort_order: 60 },
-  { key: 'materiel',    label: 'Matériel',      sort_order: 70 },
-  { key: 'decors',      label: 'Décors',        sort_order: 80 },
+  { key: 'projet_info', label: 'Fiche projet', sort_order: 10 },
+  { key: 'equipe', label: 'Équipe', sort_order: 20 },
+  { key: 'planning', label: 'Planning', sort_order: 30 },
+  { key: 'callsheet', label: 'Call sheet', sort_order: 40 },
+  { key: 'production', label: 'Production', sort_order: 50 },
+  { key: 'livrables', label: 'Livrables', sort_order: 60 },
+  { key: 'materiel', label: 'Matériel', sort_order: 70 },
+  { key: 'decors', label: 'Décors', sort_order: 80 },
 ]
 
 // ─── 1. Constantes ──────────────────────────────────────────────────────────
@@ -115,14 +115,18 @@ describe('buildPermissions — template seul', () => {
   it('monotonie : edit=true force comment et read à true', () => {
     const rows = [{ outil_key: 'x', can_read: false, can_comment: false, can_edit: true }]
     expect(buildPermissions(rows).x).toEqual({
-      can_read: true, can_comment: true, can_edit: true,
+      can_read: true,
+      can_comment: true,
+      can_edit: true,
     })
   })
 
   it('monotonie : comment=true force read à true', () => {
     const rows = [{ outil_key: 'x', can_read: false, can_comment: true, can_edit: false }]
     expect(buildPermissions(rows).x).toEqual({
-      can_read: true, can_comment: true, can_edit: false,
+      can_read: true,
+      can_comment: true,
+      can_edit: false,
     })
   })
 })
@@ -136,19 +140,25 @@ describe('buildPermissions — avec overrides', () => {
   })
 
   it('override remplace la valeur du template', () => {
-    const overrides = [{ outil_key: 'livrables', can_read: true, can_comment: false, can_edit: false }]
+    const overrides = [
+      { outil_key: 'livrables', can_read: true, can_comment: false, can_edit: false },
+    ]
     const perms = buildPermissions(MONTEUR_TEMPLATE, overrides)
     expect(perms.livrables.can_edit).toBe(false)
   })
 
   it('override NULL préserve la valeur du template', () => {
-    const overrides = [{ outil_key: 'livrables', can_read: null, can_comment: null, can_edit: null }]
+    const overrides = [
+      { outil_key: 'livrables', can_read: null, can_comment: null, can_edit: null },
+    ]
     const perms = buildPermissions(MONTEUR_TEMPLATE, overrides)
     expect(perms.livrables.can_edit).toBe(true) // template intact
   })
 
   it('override partiel : seul can_edit modifié', () => {
-    const overrides = [{ outil_key: 'livrables', can_read: null, can_comment: null, can_edit: false }]
+    const overrides = [
+      { outil_key: 'livrables', can_read: null, can_comment: null, can_edit: false },
+    ]
     const perms = buildPermissions(MONTEUR_TEMPLATE, overrides)
     expect(perms.livrables).toEqual({ can_read: true, can_comment: true, can_edit: false })
   })
@@ -159,14 +169,14 @@ describe('can() — bypass rôles internes', () => {
   it('admin a accès à TOUT, même sans permissions', () => {
     const user = ctx(ROLES.ADMIN, {})
     expect(can(user, 'livrables', 'edit')).toBe(true)
-    expect(can(user, 'compta',    'edit')).toBe(true)
-    expect(can(user, 'inconnu',   'edit')).toBe(true)
+    expect(can(user, 'compta', 'edit')).toBe(true)
+    expect(can(user, 'inconnu', 'edit')).toBe(true)
   })
 
   it('charge_prod a accès à tout', () => {
     const user = ctx(ROLES.CHARGE_PROD, {})
-    expect(can(user, 'livrables',  'edit')).toBe(true)
-    expect(can(user, 'decors',     'comment')).toBe(true)
+    expect(can(user, 'livrables', 'edit')).toBe(true)
+    expect(can(user, 'decors', 'comment')).toBe(true)
   })
 
   it('coordinateur a accès à tout (interne)', () => {
@@ -193,14 +203,14 @@ describe('can() — prestataire Monteur', () => {
 
   it('ne voit PAS callsheet ni planning ni matériel', () => {
     expect(can(user, 'callsheet', 'read')).toBe(false)
-    expect(can(user, 'planning',  'read')).toBe(false)
-    expect(can(user, 'materiel',  'read')).toBe(false)
+    expect(can(user, 'planning', 'read')).toBe(false)
+    expect(can(user, 'materiel', 'read')).toBe(false)
   })
 
   it('ne voit PAS les outils financiers', () => {
-    expect(can(user, 'compta',   'read')).toBe(false)
-    expect(can(user, 'devis',    'read')).toBe(false)
-    expect(can(user, 'bdd',      'read')).toBe(false)
+    expect(can(user, 'compta', 'read')).toBe(false)
+    expect(can(user, 'devis', 'read')).toBe(false)
+    expect(can(user, 'bdd', 'read')).toBe(false)
   })
 })
 
@@ -210,8 +220,8 @@ describe('can() — prestataire Cadreur', () => {
 
   it('peut lire callsheet, planning, équipe', () => {
     expect(can(user, 'callsheet', 'read')).toBe(true)
-    expect(can(user, 'planning',  'read')).toBe(true)
-    expect(can(user, 'equipe',    'read')).toBe(true)
+    expect(can(user, 'planning', 'read')).toBe(true)
+    expect(can(user, 'equipe', 'read')).toBe(true)
   })
 
   it('peut commenter matériel mais pas éditer', () => {
@@ -239,8 +249,8 @@ describe('can() — prestataire Réalisateur', () => {
   it('ne peut éditer QUE les livrables', () => {
     expect(can(user, 'livrables', 'edit')).toBe(true)
     expect(can(user, 'callsheet', 'edit')).toBe(false)
-    expect(can(user, 'planning',  'edit')).toBe(false)
-    expect(can(user, 'decors',    'edit')).toBe(false)
+    expect(can(user, 'planning', 'edit')).toBe(false)
+    expect(can(user, 'decors', 'edit')).toBe(false)
   })
 })
 
@@ -254,7 +264,9 @@ describe('can() — cas limites', () => {
   })
 
   it('action manquante → false', () => {
-    expect(can(ctx(ROLES.PRESTATAIRE, { livrables: { can_read: true } }), 'livrables', null)).toBe(false)
+    expect(can(ctx(ROLES.PRESTATAIRE, { livrables: { can_read: true } }), 'livrables', null)).toBe(
+      false,
+    )
   })
 
   it('action inconnue → false (fail-safe)', () => {
@@ -286,7 +298,7 @@ describe('visibleOutils()', () => {
 
   it('retourne uniquement les outils lisibles par le Monteur', () => {
     const user = ctx(ROLES.PRESTATAIRE, buildPermissions(MONTEUR_TEMPLATE))
-    const visibles = visibleOutils(user, CATALOGUE).map(o => o.key)
+    const visibles = visibleOutils(user, CATALOGUE).map((o) => o.key)
     expect(visibles).toContain('livrables')
     expect(visibles).toContain('equipe')
     expect(visibles).toContain('production')
@@ -336,7 +348,7 @@ describe('isInternal() / isPrestataire()', () => {
     expect(isInternal(ctx(ROLES.PRESTATAIRE))).toBe(false)
   })
 
-  it('isPrestataire est l\'inverse sur le seul cas prestataire', () => {
+  it("isPrestataire est l'inverse sur le seul cas prestataire", () => {
     expect(isPrestataire(ctx(ROLES.PRESTATAIRE))).toBe(true)
     expect(isPrestataire(ctx(ROLES.ADMIN))).toBe(false)
   })
@@ -360,8 +372,8 @@ describe('Invariants globaux', () => {
 
   it('le catalogue et la matrice de permissions sont disjoints', () => {
     // Aucune contamination entre templates (vérification paranoïaque)
-    const monteurPerms    = buildPermissions(MONTEUR_TEMPLATE)
-    const cadreurPerms    = buildPermissions(CADREUR_TEMPLATE)
+    const monteurPerms = buildPermissions(MONTEUR_TEMPLATE)
+    const cadreurPerms = buildPermissions(CADREUR_TEMPLATE)
     expect(monteurPerms.callsheet).toBeUndefined()
     expect(cadreurPerms.livrables).toBeUndefined()
   })

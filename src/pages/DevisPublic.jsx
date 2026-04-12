@@ -10,27 +10,37 @@ import { Film, Check, X } from 'lucide-react'
 
 export default function DevisPublic() {
   const { token } = useParams()
-  const [devis, setDevis]     = useState(null)
+  const [devis, setDevis] = useState(null)
   const [project, setProject] = useState(null)
-  const [client, setClient]   = useState(null)
-  const [org, setOrg]         = useState(null)
+  const [client, setClient] = useState(null)
+  const [org, setOrg] = useState(null)
   const [categories, setCategories] = useState([])
-  const [synth, setSynth]     = useState(null)
+  const [synth, setSynth] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [accepted, setAccepted] = useState(false)
 
-  useEffect(() => { load() }, [token])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    load()
+  }, [token])
 
   async function load() {
-    const { data: dv } = await supabase
-      .from('devis').select('*').eq('public_token', token).single()
+    const { data: dv } = await supabase.from('devis').select('*').eq('public_token', token).single()
 
-    if (!dv) { setNotFound(true); setLoading(false); return }
+    if (!dv) {
+      setNotFound(true)
+      setLoading(false)
+      return
+    }
     setDevis(dv)
 
     const [{ data: proj }, { data: cats }, { data: lines }] = await Promise.all([
-      supabase.from('projects').select('*, clients(*), organisations(*)').eq('id', dv.project_id).single(),
+      supabase
+        .from('projects')
+        .select('*, clients(*), organisations(*)')
+        .eq('id', dv.project_id)
+        .single(),
       supabase.from('devis_categories').select('*').eq('devis_id', dv.id).order('sort_order'),
       supabase.from('devis_lines').select('*').eq('devis_id', dv.id).order('sort_order'),
     ])
@@ -39,10 +49,14 @@ export default function DevisPublic() {
     setClient(proj?.clients)
     setOrg(proj?.organisations)
 
-    const catsWithLines = (cats || []).map(cat => ({
-      ...cat,
-      lines: (lines || []).filter(l => l.category_id === cat.id && l.use_line && l.produit?.trim())
-    })).filter(c => c.lines.length > 0)
+    const catsWithLines = (cats || [])
+      .map((cat) => ({
+        ...cat,
+        lines: (lines || []).filter(
+          (l) => l.category_id === cat.id && l.use_line && l.produit?.trim(),
+        ),
+      }))
+      .filter((c) => c.lines.length > 0)
 
     setCategories(catsWithLines)
     setSynth(calcSynthese(lines || [], dv.tva_rate || 20, dv.acompte_pct || 30, TAUX_DEFAUT))
@@ -53,24 +67,26 @@ export default function DevisPublic() {
   async function handleAccept() {
     await supabase.from('devis').update({ status: 'accepte' }).eq('id', devis.id)
     setAccepted(true)
-    setDevis(d => ({ ...d, status: 'accepte' }))
+    setDevis((d) => ({ ...d, status: 'accepte' }))
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
-
-  if (notFound) return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-center p-8">
-      <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mb-4">
-        <X className="w-8 h-8 text-red-500" />
+  if (loading)
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
       </div>
-      <h1 className="text-xl font-bold text-gray-900 mb-2">Devis introuvable</h1>
-      <p className="text-gray-500 text-sm">Ce lien est invalide ou a expiré.</p>
-    </div>
-  )
+    )
+
+  if (notFound)
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-center p-8">
+        <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mb-4">
+          <X className="w-8 h-8 text-red-500" />
+        </div>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Devis introuvable</h1>
+        <p className="text-gray-500 text-sm">Ce lien est invalide ou a expiré.</p>
+      </div>
+    )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -109,7 +125,9 @@ export default function DevisPublic() {
             {org?.siret && <p className="text-xs text-gray-400 mt-1">SIRET : {org.siret}</p>}
           </div>
           <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase mb-3">À l'attention de</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase mb-3">
+              À l&apos;attention de
+            </p>
             <p className="font-bold text-gray-900">{client?.name || '—'}</p>
             {client?.contact_name && <p className="text-sm text-gray-500">{client.contact_name}</p>}
             {client?.email && <p className="text-sm text-gray-500">{client.email}</p>}
@@ -130,14 +148,16 @@ export default function DevisPublic() {
             <div className="w-px h-8 bg-gray-200" />
             <div>
               <p className="text-xs text-gray-400">Date</p>
-              <p className="font-semibold text-gray-900">{new Date(devis?.created_at).toLocaleDateString('fr-FR')}</p>
+              <p className="font-semibold text-gray-900">
+                {new Date(devis?.created_at).toLocaleDateString('fr-FR')}
+              </p>
             </div>
           </div>
         </div>
 
         {/* Lignes (sans coûts ni marges) */}
         <div className="card overflow-hidden mb-6">
-          {categories.map(cat => (
+          {categories.map((cat) => (
             <div key={cat.id}>
               <div className="px-4 py-2 bg-slate-800 text-white text-xs font-bold uppercase tracking-wider">
                 {cat.name}
@@ -154,16 +174,20 @@ export default function DevisPublic() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {cat.lines.map(line => {
+                  {cat.lines.map((line) => {
                     const c = calcLine(line, TAUX_DEFAUT)
                     return (
                       <tr key={line.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5 font-medium text-sm">{line.produit}</td>
                         <td className="px-4 py-2.5 text-sm text-gray-500">{line.description}</td>
                         <td className="px-4 py-2.5 text-right text-sm">{line.quantite}</td>
-                        <td className="px-4 py-2.5 text-center text-xs text-gray-400">{line.unite}</td>
+                        <td className="px-4 py-2.5 text-center text-xs text-gray-400">
+                          {line.unite}
+                        </td>
                         <td className="px-4 py-2.5 text-right text-sm">{fmtEur(line.tarif_ht)}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-sm">{fmtEur(c.prixVenteHT)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-sm">
+                          {fmtEur(c.prixVenteHT)}
+                        </td>
                       </tr>
                     )
                   })}
@@ -208,7 +232,8 @@ export default function DevisPublic() {
         )}
 
         <p className="text-xs text-gray-400 text-center mt-8">
-          Document généré par CAPTIV Budget · {org?.name || ''} · {org?.siret ? 'SIRET ' + org.siret : ''}
+          Document généré par CAPTIV Budget · {org?.name || ''} ·{' '}
+          {org?.siret ? 'SIRET ' + org.siret : ''}
         </p>
       </div>
     </div>

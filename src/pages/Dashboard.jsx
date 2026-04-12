@@ -2,16 +2,19 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { fmtEur, fmtPct, calcLine, calcSynthese, TAUX_DEFAUT } from '../lib/cotisations'
-import { FolderOpen, TrendingUp, Euro, AlertTriangle, Plus, ArrowRight } from 'lucide-react'
+import { fmtEur, fmtPct, calcSynthese, TAUX_DEFAUT } from '../lib/cotisations'
+import { FolderOpen, TrendingUp, Euro, Plus, ArrowRight } from 'lucide-react'
 
 export default function Dashboard() {
   const { org, profile } = useAuth()
-  const [stats, setStats]     = useState(null)
-  const [recent, setRecent]   = useState([])
+  const [stats, setStats] = useState(null)
+  const [recent, setRecent] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { if (org?.id) loadDashboard() }, [org])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (org?.id) loadDashboard()
+  }, [org])
 
   async function loadDashboard() {
     setLoading(true)
@@ -31,25 +34,36 @@ export default function Dashboard() {
         .eq('status', 'accepte')
 
       // Lignes des devis
-      let totalCA = 0, totalMarge = 0, projetsActifs = 0, projetsAlerte = 0
+      let totalCA = 0,
+        totalMarge = 0,
+        projetsActifs = 0
+      const _projetsAlerte = 0
 
       if (devisAcceptes?.length) {
         const { data: lines } = await supabase
           .from('devis_lines')
           .select('*')
-          .in('devis_id', devisAcceptes.map(d => d.id))
+          .in(
+            'devis_id',
+            devisAcceptes.map((d) => d.id),
+          )
 
         for (const dv of devisAcceptes) {
-          const dvLines = (lines || []).filter(l => l.devis_id === dv.id)
+          const dvLines = (lines || []).filter((l) => l.devis_id === dv.id)
           const s = calcSynthese(dvLines, dv.tva_rate || 20, dv.acompte_pct || 30, TAUX_DEFAUT)
-          totalCA    += s.totalPrixVente
+          totalCA += s.totalPrixVente
           totalMarge += s.totalMarge
         }
       }
 
-      projetsActifs = (projects || []).filter(p => p.status === 'en_cours').length
+      projetsActifs = (projects || []).filter((p) => p.status === 'en_cours').length
 
-      setStats({ totalCA, totalMarge, projetsActifs, pctMarge: totalCA > 0 ? totalMarge / totalCA : 0 })
+      setStats({
+        totalCA,
+        totalMarge,
+        projetsActifs,
+        pctMarge: totalCA > 0 ? totalMarge / totalCA : 0,
+      })
       setRecent(projects || [])
     } finally {
       setLoading(false)
@@ -70,7 +84,7 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-gray-900">
           {greeting()}, {profile?.full_name?.split(' ')[0] || 'Hugo'} 👋
         </h1>
-        <p className="text-gray-500 text-sm mt-1">{org?.name} — vue d'ensemble</p>
+        <p className="text-gray-500 text-sm mt-1">{org?.name} — vue d&apos;ensemble</p>
       </div>
 
       {/* Stats */}
@@ -85,14 +99,30 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard icon={FolderOpen} color="blue"
-            label="Projets actifs" value={stats?.projetsActifs ?? 0} />
-          <StatCard icon={Euro} color="green"
-            label="CA devisé (accepté)" value={fmtEur(stats?.totalCA)} />
-          <StatCard icon={TrendingUp} color="purple"
-            label="Marge globale" value={fmtPct(stats?.pctMarge)} />
-          <StatCard icon={Euro} color="amber"
-            label="Marge totale HT" value={fmtEur(stats?.totalMarge)} />
+          <StatCard
+            icon={FolderOpen}
+            color="blue"
+            label="Projets actifs"
+            value={stats?.projetsActifs ?? 0}
+          />
+          <StatCard
+            icon={Euro}
+            color="green"
+            label="CA devisé (accepté)"
+            value={fmtEur(stats?.totalCA)}
+          />
+          <StatCard
+            icon={TrendingUp}
+            color="purple"
+            label="Marge globale"
+            value={fmtPct(stats?.pctMarge)}
+          />
+          <StatCard
+            icon={Euro}
+            color="amber"
+            label="Marge totale HT"
+            value={fmtEur(stats?.totalMarge)}
+          />
         </div>
       )}
 
@@ -108,15 +138,18 @@ export default function Dashboard() {
           {recent.length === 0 && !loading && (
             <div className="p-12 text-center">
               <FolderOpen className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">Aucun projet pour l'instant</p>
+              <p className="text-gray-500 text-sm">Aucun projet pour l&apos;instant</p>
               <Link to="/projets" className="btn-primary btn-sm mt-4 inline-flex">
                 Créer votre premier projet
               </Link>
             </div>
           )}
-          {recent.map(p => (
-            <Link key={p.id} to={`/projets/${p.id}`}
-              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors">
+          {recent.map((p) => (
+            <Link
+              key={p.id}
+              to={`/projets/${p.id}`}
+              className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+            >
               <div className="flex items-center gap-3">
                 <div className={`w-2 h-2 rounded-full ${STATUS_DOT[p.status] || 'bg-gray-300'}`} />
                 <div>
@@ -140,8 +173,10 @@ export default function Dashboard() {
 
 function StatCard({ icon: Icon, color, label, value }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-600', green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600', amber: 'bg-amber-50 text-amber-600',
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-green-50 text-green-600',
+    purple: 'bg-purple-50 text-purple-600',
+    amber: 'bg-amber-50 text-amber-600',
   }
   return (
     <div className="card p-5">
@@ -156,6 +191,21 @@ function StatCard({ icon: Icon, color, label, value }) {
   )
 }
 
-const STATUS_DOT   = { en_cours: 'bg-blue-500', termine: 'bg-green-500', annule: 'bg-gray-400', prospect: 'bg-amber-400' }
-const STATUS_BADGE = { en_cours: 'badge-blue',  termine: 'badge-green',  annule: 'badge-gray',  prospect: 'badge-amber' }
-const STATUS_LABEL = { en_cours: 'En cours',    termine: 'Terminé',      annule: 'Annulé',       prospect: 'Prospect' }
+const STATUS_DOT = {
+  en_cours: 'bg-blue-500',
+  termine: 'bg-green-500',
+  annule: 'bg-gray-400',
+  prospect: 'bg-amber-400',
+}
+const STATUS_BADGE = {
+  en_cours: 'badge-blue',
+  termine: 'badge-green',
+  annule: 'badge-gray',
+  prospect: 'badge-amber',
+}
+const STATUS_LABEL = {
+  en_cours: 'En cours',
+  termine: 'Terminé',
+  annule: 'Annulé',
+  prospect: 'Prospect',
+}

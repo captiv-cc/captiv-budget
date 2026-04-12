@@ -27,24 +27,40 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
 import {
-  UserPlus, Trash2, X, Check, Minus, ChevronDown, ChevronRight,
-  Shield, User as UserIcon, Settings, Info, Search,
-  Euro, Briefcase, ExternalLink,
+  UserPlus,
+  Trash2,
+  X,
+  Check,
+  Minus,
+  ChevronDown,
+  ChevronRight,
+  Shield,
+  User as UserIcon,
+  Settings,
+  Info,
+  Search,
+  Euro,
+  Briefcase,
+  ExternalLink,
 } from 'lucide-react'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const ROLE_LABELS = {
-  admin:        'Admin',
-  charge_prod:  'Chargé de prod',
+  admin: 'Admin',
+  charge_prod: 'Chargé de prod',
   coordinateur: 'Coordinateur',
-  prestataire:  'Prestataire',
+  prestataire: 'Prestataire',
 }
 
 const ROLE_COLORS = {
-  admin:        { bg: 'rgba(255,59,48,.12)',  color: 'var(--red)',    border: 'rgba(255,59,48,.28)' },
-  charge_prod:  { bg: 'rgba(0,122,255,.12)',  color: 'var(--blue)',   border: 'rgba(0,122,255,.28)' },
-  coordinateur: { bg: 'rgba(0,200,117,.12)',  color: 'var(--green)',  border: 'rgba(0,200,117,.28)' },
-  prestataire:  { bg: 'rgba(156,95,253,.12)', color: 'var(--purple)', border: 'rgba(156,95,253,.28)' },
+  admin: { bg: 'rgba(255,59,48,.12)', color: 'var(--red)', border: 'rgba(255,59,48,.28)' },
+  charge_prod: { bg: 'rgba(0,122,255,.12)', color: 'var(--blue)', border: 'rgba(0,122,255,.28)' },
+  coordinateur: { bg: 'rgba(0,200,117,.12)', color: 'var(--green)', border: 'rgba(0,200,117,.28)' },
+  prestataire: {
+    bg: 'rgba(156,95,253,.12)',
+    color: 'var(--purple)',
+    border: 'rgba(156,95,253,.28)',
+  },
 }
 
 function initials(name) {
@@ -56,17 +72,17 @@ function initials(name) {
 // ─── Composant principal ─────────────────────────────────────────────────────
 export default function AccessTab() {
   const { project } = useOutletContext()
-  const { isAdmin } = useAuth()
+  const { _isAdmin } = useAuth()
   const projectId = project?.id
 
-  const [loading,    setLoading]    = useState(true)
-  const [accessList, setAccessList] = useState([])   // project_access JOIN profiles
-  const [outils,     setOutils]     = useState([])   // outils_catalogue
-  const [templates,  setTemplates]  = useState([])   // metiers_template
+  const [loading, setLoading] = useState(true)
+  const [accessList, setAccessList] = useState([]) // project_access JOIN profiles
+  const [outils, setOutils] = useState([]) // outils_catalogue
+  const [templates, setTemplates] = useState([]) // metiers_template
   const [templatePerms, setTemplatePerms] = useState({}) // template_id → {outil: {read, comment, edit}}
-  const [overrides,  setOverrides]  = useState({})   // user_id → {outil: {read, comment, edit}}
-  const [expanded,   setExpanded]   = useState(null) // user_id dont la matrice est ouverte
-  const [showAdd,    setShowAdd]    = useState(false)
+  const [overrides, setOverrides] = useState({}) // user_id → {outil: {read, comment, edit}}
+  const [expanded, setExpanded] = useState(null) // user_id dont la matrice est ouverte
+  const [showAdd, setShowAdd] = useState(false)
   // ch4C.1 : contacts crew liés à un profil (user_id) → {user_id: contact}
   const [contactsByUser, setContactsByUser] = useState({})
 
@@ -78,11 +94,13 @@ export default function AccessTab() {
       const [accRes, outilsRes, tplRes, tplPermsRes, ovRes, ctsRes] = await Promise.all([
         supabase
           .from('project_access')
-          .select(`
+          .select(
+            `
             user_id, metier_template_id, role_label, note, added_at, added_by,
             profiles:user_id ( id, full_name, role ),
             template:metier_template_id ( id, key, label, color )
-          `)
+          `,
+          )
           .eq('project_id', projectId)
           .order('added_at'),
         supabase
@@ -90,9 +108,7 @@ export default function AccessTab() {
           .select('key, label, icon, sort_order')
           .eq('is_active', true)
           .order('sort_order'),
-        supabase
-          .from('metiers_template')
-          .select('id, org_id, key, label, color, is_system'),
+        supabase.from('metiers_template').select('id, org_id, key, label, color, is_system'),
         supabase
           .from('metier_template_permissions')
           .select('template_id, outil_key, can_read, can_comment, can_edit'),
@@ -114,8 +130,8 @@ export default function AccessTab() {
       // ch4D : déduplication par `key` — si un override org existe, il masque
       // le template système correspondant dans le picker.
       const allTpls = tplRes.data || []
-      const orgKeys = new Set(allTpls.filter(t => t.org_id).map(t => t.key))
-      const dedupedTpls = allTpls.filter(t => t.org_id || !orgKeys.has(t.key))
+      const orgKeys = new Set(allTpls.filter((t) => t.org_id).map((t) => t.key))
+      const dedupedTpls = allTpls.filter((t) => t.org_id || !orgKeys.has(t.key))
       setTemplates(dedupedTpls)
 
       // Index des perms de template : template_id → { outil: {read, comment, edit} }
@@ -123,7 +139,9 @@ export default function AccessTab() {
       for (const p of tplPermsRes.data || []) {
         if (!tplMap[p.template_id]) tplMap[p.template_id] = {}
         tplMap[p.template_id][p.outil_key] = {
-          read: p.can_read, comment: p.can_comment, edit: p.can_edit,
+          read: p.can_read,
+          comment: p.can_comment,
+          edit: p.can_edit,
         }
       }
       setTemplatePerms(tplMap)
@@ -133,7 +151,9 @@ export default function AccessTab() {
       for (const o of ovRes.data || []) {
         if (!ovMap[o.user_id]) ovMap[o.user_id] = {}
         ovMap[o.user_id][o.outil_key] = {
-          read: o.can_read, comment: o.can_comment, edit: o.can_edit,
+          read: o.can_read,
+          comment: o.can_comment,
+          edit: o.can_edit,
         }
       }
       setOverrides(ovMap)
@@ -152,7 +172,9 @@ export default function AccessTab() {
     }
   }, [projectId])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => {
+    loadAll()
+  }, [loadAll])
 
   // ─── Actions : retrait d'un user ────────────────────────────────────────
   async function handleRemove(userId, fullName) {
@@ -183,17 +205,16 @@ export default function AccessTab() {
     // Construction de la row complète (3 champs) : on ne touche que l'action
     // mais il faut envoyer les 3 pour upsert
     const row = {
-      user_id:    userId,
+      user_id: userId,
       project_id: projectId,
-      outil_key:  outilKey,
-      can_read:    action === 'read'    ? nextVal : (current.read    ?? null),
+      outil_key: outilKey,
+      can_read: action === 'read' ? nextVal : (current.read ?? null),
       can_comment: action === 'comment' ? nextVal : (current.comment ?? null),
-      can_edit:    action === 'edit'    ? nextVal : (current.edit    ?? null),
+      can_edit: action === 'edit' ? nextVal : (current.edit ?? null),
     }
 
     // Si les 3 valeurs sont NULL → supprimer la row (pas de surcharge)
-    const allNull =
-      row.can_read === null && row.can_comment === null && row.can_edit === null
+    const allNull = row.can_read === null && row.can_comment === null && row.can_edit === null
 
     if (allNull) {
       const { error } = await supabase
@@ -202,23 +223,33 @@ export default function AccessTab() {
         .eq('user_id', userId)
         .eq('project_id', projectId)
         .eq('outil_key', outilKey)
-      if (error) { toast.error(error.message); return }
+      if (error) {
+        toast.error(error.message)
+        return
+      }
     } else {
       const { error } = await supabase
         .from('project_access_permissions')
         .upsert(row, { onConflict: 'user_id,project_id,outil_key' })
-      if (error) { toast.error(error.message); return }
+      if (error) {
+        toast.error(error.message)
+        return
+      }
     }
 
     // Mise à jour locale
-    setOverrides(prev => {
+    setOverrides((prev) => {
       const next = { ...prev }
       if (!next[userId]) next[userId] = {}
       else next[userId] = { ...next[userId] }
       if (allNull) {
         delete next[userId][outilKey]
       } else {
-        next[userId][outilKey] = { read: row.can_read, comment: row.can_comment, edit: row.can_edit }
+        next[userId][outilKey] = {
+          read: row.can_read,
+          comment: row.can_comment,
+          edit: row.can_edit,
+        }
       }
       return next
     })
@@ -228,8 +259,10 @@ export default function AccessTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 rounded-full animate-spin"
-             style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }} />
+        <div
+          className="w-6 h-6 border-2 rounded-full animate-spin"
+          style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }}
+        />
       </div>
     )
   }
@@ -239,13 +272,16 @@ export default function AccessTab() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--txt)' }}>
+          <h2
+            className="text-base font-semibold flex items-center gap-2"
+            style={{ color: 'var(--txt)' }}
+          >
             <Shield className="w-4 h-4" style={{ color: 'var(--blue)' }} />
             Accès au projet
           </h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
-            Qui voit quoi sur ce projet. Les prestataires héritent des droits de leur métier,
-            avec possibilité d'ajuster par outil.
+            Qui voit quoi sur ce projet. Les prestataires héritent des droits de leur métier, avec
+            possibilité d&apos;ajuster par outil.
           </p>
         </div>
         <button
@@ -259,87 +295,136 @@ export default function AccessTab() {
       </div>
 
       {/* ── Info banner ─────────────────────────────────────────────────── */}
-      <div className="flex items-start gap-2 p-3 rounded-lg text-xs"
-           style={{ background: 'var(--blue-bg)', color: 'var(--txt-2)', border: '1px solid rgba(0,122,255,.2)' }}>
+      <div
+        className="flex items-start gap-2 p-3 rounded-lg text-xs"
+        style={{
+          background: 'var(--blue-bg)',
+          color: 'var(--txt-2)',
+          border: '1px solid rgba(0,122,255,.2)',
+        }}
+      >
         <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--blue)' }} />
         <div>
-          <p className="font-medium mb-0.5" style={{ color: 'var(--txt)' }}>Comment ça marche</p>
+          <p className="font-medium mb-0.5" style={{ color: 'var(--txt)' }}>
+            Comment ça marche
+          </p>
           <p>
-            Les rôles internes (admin, chargé de prod, coordinateur) n'ont pas besoin de template :
-            ils accèdent à tous les outils de leurs projets attachés.
-            Un prestataire reçoit un <strong>métier</strong> (ex: Monteur) qui définit ses permissions par défaut.
-            Vous pouvez ensuite <strong>surcharger</strong> une permission spécifique pour ce projet uniquement.
+            Les rôles internes (admin, chargé de prod, coordinateur) n&apos;ont pas besoin de
+            template : ils accèdent à tous les outils de leurs projets attachés. Un prestataire
+            reçoit un <strong>métier</strong> (ex: Monteur) qui définit ses permissions par défaut.
+            Vous pouvez ensuite <strong>surcharger</strong> une permission spécifique pour ce projet
+            uniquement.
           </p>
         </div>
       </div>
 
       {/* ── Liste des accès ─────────────────────────────────────────────── */}
       {accessList.length === 0 ? (
-        <div className="p-8 text-center rounded-lg text-sm"
-             style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)', border: '1px dashed var(--brd)' }}>
-          Aucun utilisateur n'est encore attaché à ce projet.
+        <div
+          className="p-8 text-center rounded-lg text-sm"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt-3)',
+            border: '1px dashed var(--brd)',
+          }}
+        >
+          Aucun utilisateur n&apos;est encore attaché à ce projet.
         </div>
       ) : (
-        <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}>
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}
+        >
           {accessList.map((a, idx) => {
             const prof = a.profiles
             const isPrestataire = prof?.role === 'prestataire'
             const isExpanded = expanded === a.user_id
             const roleColors = ROLE_COLORS[prof?.role] || ROLE_COLORS.prestataire
-            const contact = contactsByUser[a.user_id]  // ch4C.1 : fiche crew liée
+            const contact = contactsByUser[a.user_id] // ch4C.1 : fiche crew liée
             return (
-              <div key={a.user_id}
-                   style={idx > 0 ? { borderTop: '1px solid var(--brd-sub)' } : {}}>
+              <div key={a.user_id} style={idx > 0 ? { borderTop: '1px solid var(--brd-sub)' } : {}}>
                 {/* Ligne principale */}
                 <div className="flex items-center gap-3 p-3">
                   {/* Avatar */}
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                       style={{ background: roleColors.bg, color: roleColors.color, border: `1px solid ${roleColors.border}` }}>
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{
+                      background: roleColors.bg,
+                      color: roleColors.color,
+                      border: `1px solid ${roleColors.border}`,
+                    }}
+                  >
                     {initials(prof?.full_name)}
                   </div>
 
                   {/* Nom + rôle + template */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium truncate" style={{ color: 'var(--txt)' }}>
+                      <span
+                        className="text-sm font-medium truncate"
+                        style={{ color: 'var(--txt)' }}
+                      >
                         {prof?.full_name || '—'}
                       </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                            style={{ background: roleColors.bg, color: roleColors.color, border: `1px solid ${roleColors.border}` }}>
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                        style={{
+                          background: roleColors.bg,
+                          color: roleColors.color,
+                          border: `1px solid ${roleColors.border}`,
+                        }}
+                      >
                         {ROLE_LABELS[prof?.role] || prof?.role}
                       </span>
                       {isPrestataire && a.template && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
-                              style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}>
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
+                          style={{
+                            background: 'var(--bg-elev)',
+                            color: 'var(--txt-2)',
+                            border: '1px solid var(--brd)',
+                          }}
+                        >
                           <UserIcon className="w-3 h-3" />
                           {a.template.label}
                         </span>
                       )}
                       {isPrestataire && !a.template && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                              style={{ background: 'rgba(255,174,0,.12)', color: 'var(--amber)', border: '1px solid rgba(255,174,0,.28)' }}>
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                          style={{
+                            background: 'rgba(255,174,0,.12)',
+                            color: 'var(--amber)',
+                            border: '1px solid rgba(255,174,0,.28)',
+                          }}
+                        >
                           Aucun métier
                         </span>
                       )}
                       {a.role_label && (
-                        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>· {a.role_label}</span>
+                        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                          · {a.role_label}
+                        </span>
                       )}
                     </div>
                     {a.note && (
-                      <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>{a.note}</p>
+                      <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>
+                        {a.note}
+                      </p>
                     )}
                     {/* ch4C.1 : infos crew (si compte lié à un contact) */}
                     {contact && (
-                      <div className="flex items-center gap-3 mt-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                      <div
+                        className="flex items-center gap-3 mt-1 text-[11px]"
+                        style={{ color: 'var(--txt-3)' }}
+                      >
                         {contact.specialite && (
                           <span className="inline-flex items-center gap-1">
                             <Briefcase className="w-3 h-3" />
                             {contact.specialite}
                           </span>
                         )}
-                        {contact.regime && (
-                          <span>{contact.regime}</span>
-                        )}
+                        {contact.regime && <span>{contact.regime}</span>}
                         {contact.tarif_jour_ref && (
                           <span className="inline-flex items-center gap-0.5">
                             <Euro className="w-3 h-3" />
@@ -365,11 +450,18 @@ export default function AccessTab() {
                       <button
                         onClick={() => setExpanded(isExpanded ? null : a.user_id)}
                         className="p-2 rounded-md transition-colors text-xs flex items-center gap-1"
-                        style={{ color: 'var(--txt-2)', background: isExpanded ? 'var(--bg-elev)' : 'transparent' }}
+                        style={{
+                          color: 'var(--txt-2)',
+                          background: isExpanded ? 'var(--bg-elev)' : 'transparent',
+                        }}
                         title="Éditer les permissions"
                       >
                         <Settings className="w-3.5 h-3.5" />
-                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        {isExpanded ? (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     )}
                     <button
@@ -388,7 +480,9 @@ export default function AccessTab() {
                   <PermissionsMatrix
                     userId={a.user_id}
                     outils={outils}
-                    templatePerms={a.metier_template_id ? templatePerms[a.metier_template_id] || {} : {}}
+                    templatePerms={
+                      a.metier_template_id ? templatePerms[a.metier_template_id] || {} : {}
+                    }
                     userOverrides={overrides[a.user_id] || {}}
                     onCycle={(outil, action) => cycleOverride(a.user_id, outil, action)}
                   />
@@ -403,11 +497,14 @@ export default function AccessTab() {
       {showAdd && (
         <AddAccessModal
           projectId={projectId}
-          alreadyAttached={accessList.map(a => a.user_id)}
+          alreadyAttached={accessList.map((a) => a.user_id)}
           templates={templates}
           contactsByUser={contactsByUser}
           onClose={() => setShowAdd(false)}
-          onAdded={() => { setShowAdd(false); loadAll() }}
+          onAdded={() => {
+            setShowAdd(false)
+            loadAll()
+          }}
         />
       )}
     </div>
@@ -419,29 +516,60 @@ function PermissionsMatrix({ outils, templatePerms, userOverrides, onCycle }) {
   return (
     <div className="p-3" style={{ background: 'var(--bg)', borderTop: '1px solid var(--brd-sub)' }}>
       <p className="text-[11px] mb-2" style={{ color: 'var(--txt-3)' }}>
-        <strong style={{ color: 'var(--txt-2)' }}>Clic sur une case</strong> pour cycler :
-        hérité du métier → forcer OUI → forcer NON → hérité.
+        <strong style={{ color: 'var(--txt-2)' }}>Clic sur une case</strong> pour cycler : hérité du
+        métier → forcer OUI → forcer NON → hérité.
       </p>
       <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--brd-sub)' }}>
         <table className="w-full text-xs">
           <thead style={{ background: 'var(--bg-elev)' }}>
             <tr>
-              <th className="text-left px-3 py-2 font-medium" style={{ color: 'var(--txt-2)' }}>Outil</th>
-              <th className="text-center px-3 py-2 font-medium w-24" style={{ color: 'var(--txt-2)' }}>Lire</th>
-              <th className="text-center px-3 py-2 font-medium w-24" style={{ color: 'var(--txt-2)' }}>Commenter</th>
-              <th className="text-center px-3 py-2 font-medium w-24" style={{ color: 'var(--txt-2)' }}>Éditer</th>
+              <th className="text-left px-3 py-2 font-medium" style={{ color: 'var(--txt-2)' }}>
+                Outil
+              </th>
+              <th
+                className="text-center px-3 py-2 font-medium w-24"
+                style={{ color: 'var(--txt-2)' }}
+              >
+                Lire
+              </th>
+              <th
+                className="text-center px-3 py-2 font-medium w-24"
+                style={{ color: 'var(--txt-2)' }}
+              >
+                Commenter
+              </th>
+              <th
+                className="text-center px-3 py-2 font-medium w-24"
+                style={{ color: 'var(--txt-2)' }}
+              >
+                Éditer
+              </th>
             </tr>
           </thead>
           <tbody>
-            {outils.map(o => {
+            {outils.map((o) => {
               const tpl = templatePerms[o.key] || {}
               const ov = userOverrides[o.key] || {}
               return (
                 <tr key={o.key} style={{ borderTop: '1px solid var(--brd-sub)' }}>
-                  <td className="px-3 py-2" style={{ color: 'var(--txt)' }}>{o.label}</td>
-                  <PermCell tpl={tpl.read}    override={ov.read}    onClick={() => onCycle(o.key, 'read')} />
-                  <PermCell tpl={tpl.comment} override={ov.comment} onClick={() => onCycle(o.key, 'comment')} />
-                  <PermCell tpl={tpl.edit}    override={ov.edit}    onClick={() => onCycle(o.key, 'edit')} />
+                  <td className="px-3 py-2" style={{ color: 'var(--txt)' }}>
+                    {o.label}
+                  </td>
+                  <PermCell
+                    tpl={tpl.read}
+                    override={ov.read}
+                    onClick={() => onCycle(o.key, 'read')}
+                  />
+                  <PermCell
+                    tpl={tpl.comment}
+                    override={ov.comment}
+                    onClick={() => onCycle(o.key, 'comment')}
+                  />
+                  <PermCell
+                    tpl={tpl.edit}
+                    override={ov.edit}
+                    onClick={() => onCycle(o.key, 'edit')}
+                  />
                 </tr>
               )
             })}
@@ -455,25 +583,33 @@ function PermissionsMatrix({ outils, templatePerms, userOverrides, onCycle }) {
 // ─── Sous-composant : cellule permission 3 états ────────────────────────────
 function PermCell({ tpl, override, onClick }) {
   // Valeur effective : override si défini, sinon template
-  const effective = override !== null && override !== undefined ? override : (tpl || false)
+  const effective = override !== null && override !== undefined ? override : tpl || false
   const isOverride = override !== null && override !== undefined
 
   let bg, color, Icon, title
   if (isOverride) {
     if (override === true) {
-      bg = 'rgba(0,200,117,.18)'; color = 'var(--green)'; Icon = Check
+      bg = 'rgba(0,200,117,.18)'
+      color = 'var(--green)'
+      Icon = Check
       title = 'Forcé OUI (surcharge)'
     } else {
-      bg = 'rgba(255,59,48,.15)'; color = 'var(--red)'; Icon = X
+      bg = 'rgba(255,59,48,.15)'
+      color = 'var(--red)'
+      Icon = X
       title = 'Forcé NON (surcharge)'
     }
   } else {
     // Hérité
     if (effective) {
-      bg = 'rgba(0,122,255,.10)'; color = 'var(--blue)'; Icon = Check
+      bg = 'rgba(0,122,255,.10)'
+      color = 'var(--blue)'
+      Icon = Check
       title = 'Hérité du métier : OUI'
     } else {
-      bg = 'var(--bg-elev)'; color = 'var(--txt-3)'; Icon = Minus
+      bg = 'var(--bg-elev)'
+      color = 'var(--txt-3)'
+      Icon = Minus
       title = 'Hérité du métier : NON'
     }
   }
@@ -497,25 +633,32 @@ function PermCell({ tpl, override, onClick }) {
 }
 
 // ─── Sous-composant : modal d'ajout d'un user ───────────────────────────────
-function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser = {}, onClose, onAdded }) {
+function AddAccessModal({
+  projectId,
+  alreadyAttached,
+  templates,
+  contactsByUser = {},
+  onClose,
+  onAdded,
+}) {
   const { user: currentUser } = useAuth()
-  const [loading, setLoading]     = useState(true)
-  const [profiles, setProfiles]   = useState([])
-  const [search, setSearch]       = useState('')
+  const [loading, setLoading] = useState(true)
+  const [profiles, setProfiles] = useState([])
+  const [search, setSearch] = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
-  const [selectedTpl,  setSelectedTpl]  = useState('')
+  const [selectedTpl, setSelectedTpl] = useState('')
   const [tplAutoPicked, setTplAutoPicked] = useState(false) // flag visuel
-  const [roleLabel,    setRoleLabel]    = useState('')
-  const [note,         setNote]         = useState('')
+  const [roleLabel, setRoleLabel] = useState('')
+  const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    (async () => {
+    ;(async () => {
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, role')
         .order('full_name')
-      setProfiles((data || []).filter(p => !alreadyAttached.includes(p.id)))
+      setProfiles((data || []).filter((p) => !alreadyAttached.includes(p.id)))
       setLoading(false)
     })()
   }, [alreadyAttached])
@@ -530,22 +673,22 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
     if (!contact?.specialite || !templates.length) return
     const spec = contact.specialite.toLowerCase().trim()
     // Match sur label OU key du template (case-insensitive, contient)
-    const match = templates.find(t => {
+    const match = templates.find((t) => {
       const lbl = (t.label || '').toLowerCase()
-      const key = (t.key   || '').toLowerCase()
+      const key = (t.key || '').toLowerCase()
       return lbl === spec || key === spec || lbl.includes(spec) || spec.includes(lbl)
     })
     if (match) {
       setSelectedTpl(match.id)
       setTplAutoPicked(true)
       // Pré-remplir le rôle libre avec la spécialité si vide
-      setRoleLabel(prev => prev || contact.specialite)
+      setRoleLabel((prev) => prev || contact.specialite)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser])
 
-  const filtered = profiles.filter(p =>
-    (p.full_name || '').toLowerCase().includes(search.toLowerCase())
+  const filtered = profiles.filter((p) =>
+    (p.full_name || '').toLowerCase().includes(search.toLowerCase()),
   )
 
   const isPrestataire = selectedUser?.role === 'prestataire'
@@ -556,12 +699,12 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
     if (!canSave) return
     setSaving(true)
     const row = {
-      user_id:    selectedUser.id,
+      user_id: selectedUser.id,
       project_id: projectId,
       metier_template_id: isPrestataire ? selectedTpl : null,
       role_label: roleLabel || null,
-      note:       note || null,
-      added_by:   currentUser?.id || null,
+      note: note || null,
+      added_by: currentUser?.id || null,
     }
     const { error } = await supabase.from('project_access').insert(row)
     setSaving(false)
@@ -574,20 +717,30 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-         style={{ background: 'rgba(0,0,0,.6)' }}
-         onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl p-5 space-y-4"
-           style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-           onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,.6)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl p-5 space-y-4"
+        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--txt)' }}>
+          <h3
+            className="text-base font-semibold flex items-center gap-2"
+            style={{ color: 'var(--txt)' }}
+          >
             <UserPlus className="w-4 h-4" style={{ color: 'var(--blue)' }} />
             Ajouter un accès
           </h3>
-          <button onClick={onClose} className="p-1.5 rounded-md transition-colors"
-                  style={{ color: 'var(--txt-3)' }}>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md transition-colors"
+            style={{ color: 'var(--txt-3)' }}
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -598,10 +751,14 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
             Utilisateur
           </label>
           {selectedUser ? (
-            <div className="flex items-center gap-2 p-2 rounded-md"
-                 style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)' }}>
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
-                   style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}>
+            <div
+              className="flex items-center gap-2 p-2 rounded-md"
+              style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)' }}
+            >
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
+                style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
+              >
                 {initials(selectedUser.full_name)}
               </div>
               <div className="flex-1 min-w-0">
@@ -612,35 +769,48 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
                   {ROLE_LABELS[selectedUser.role] || selectedUser.role}
                 </p>
               </div>
-              <button onClick={() => setSelectedUser(null)}
-                      className="p-1 rounded" style={{ color: 'var(--txt-3)' }}>
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="p-1 rounded"
+                style={{ color: 'var(--txt-3)' }}
+              >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
             <>
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2"
-                        style={{ color: 'var(--txt-3)' }} />
+                <Search
+                  className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2"
+                  style={{ color: 'var(--txt-3)' }}
+                />
                 <input
                   type="text"
                   value={search}
-                  onChange={e => setSearch(e.target.value)}
+                  onChange={(e) => setSearch(e.target.value)}
                   placeholder="Rechercher un utilisateur…"
                   className="w-full pl-8 pr-3 py-2 rounded-md text-sm"
-                  style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                  style={{
+                    background: 'var(--bg-elev)',
+                    border: '1px solid var(--brd)',
+                    color: 'var(--txt)',
+                  }}
                 />
               </div>
-              <div className="mt-2 max-h-48 overflow-auto rounded-md"
-                   style={{ border: '1px solid var(--brd-sub)' }}>
+              <div
+                className="mt-2 max-h-48 overflow-auto rounded-md"
+                style={{ border: '1px solid var(--brd-sub)' }}
+              >
                 {loading ? (
-                  <div className="p-3 text-center text-xs" style={{ color: 'var(--txt-3)' }}>Chargement…</div>
+                  <div className="p-3 text-center text-xs" style={{ color: 'var(--txt-3)' }}>
+                    Chargement…
+                  </div>
                 ) : filtered.length === 0 ? (
                   <div className="p-3 text-center text-xs" style={{ color: 'var(--txt-3)' }}>
                     Aucun utilisateur disponible
                   </div>
                 ) : (
-                  filtered.map(p => {
+                  filtered.map((p) => {
                     const ct = contactsByUser[p.id]
                     return (
                       <button
@@ -649,14 +819,20 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
                         className="w-full flex items-center gap-2 p-2 text-left transition-colors hover:opacity-80"
                         style={{ borderBottom: '1px solid var(--brd-sub)' }}
                       >
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-                             style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}>
+                        <div
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
+                        >
                           {initials(p.full_name)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs truncate" style={{ color: 'var(--txt)' }}>{p.full_name || '—'}</p>
+                          <p className="text-xs truncate" style={{ color: 'var(--txt)' }}>
+                            {p.full_name || '—'}
+                          </p>
                           {ct?.specialite && (
-                            <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>{ct.specialite}</p>
+                            <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>
+                              {ct.specialite}
+                            </p>
                           )}
                         </div>
                         <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
@@ -674,23 +850,35 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
         {/* Template métier (prestataire uniquement) */}
         {isPrestataire && (
           <div>
-            <label className="text-xs font-medium block mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--txt-2)' }}>
+            <label
+              className="text-xs font-medium block mb-1.5 flex items-center gap-1.5"
+              style={{ color: 'var(--txt-2)' }}
+            >
               Métier <span style={{ color: 'var(--red)' }}>*</span>
               {tplAutoPicked && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                      style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}>
+                <span
+                  className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+                  style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}
+                >
                   Auto
                 </span>
               )}
             </label>
             <select
               value={selectedTpl}
-              onChange={e => { setSelectedTpl(e.target.value); setTplAutoPicked(false) }}
+              onChange={(e) => {
+                setSelectedTpl(e.target.value)
+                setTplAutoPicked(false)
+              }}
               className="w-full px-3 py-2 rounded-md text-sm"
-              style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt)',
+              }}
             >
               <option value="">— Choisir un métier —</option>
-              {templates.map(t => (
+              {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.label} {t.is_system ? '(système)' : ''}
                 </option>
@@ -698,7 +886,7 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
             </select>
             {tplAutoPicked && (
               <p className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
-                Pré-rempli depuis la fiche crew de l'utilisateur.
+                Pré-rempli depuis la fiche crew de l&apos;utilisateur.
               </p>
             )}
           </div>
@@ -712,10 +900,14 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
           <input
             type="text"
             value={roleLabel}
-            onChange={e => setRoleLabel(e.target.value)}
+            onChange={(e) => setRoleLabel(e.target.value)}
             placeholder="ex: Chef op, Script, 2e assistant…"
             className="w-full px-3 py-2 rounded-md text-sm"
-            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
           />
         </div>
 
@@ -726,10 +918,14 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
           <input
             type="text"
             value={note}
-            onChange={e => setNote(e.target.value)}
+            onChange={(e) => setNote(e.target.value)}
             placeholder="ex: Sur le tournage des 3-5 mai"
             className="w-full px-3 py-2 rounded-md text-sm"
-            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
           />
         </div>
 
@@ -738,7 +934,11 @@ function AddAccessModal({ projectId, alreadyAttached, templates, contactsByUser 
           <button
             onClick={onClose}
             className="px-3 py-2 rounded-md text-xs font-medium"
-            style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
+            }}
           >
             Annuler
           </button>

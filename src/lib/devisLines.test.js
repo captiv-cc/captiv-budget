@@ -23,21 +23,21 @@ describe('applyCategoryDansMarge', () => {
   })
 
   it('garde dans_marge=true quand la catégorie est dans la marge', () => {
-    const cats  = [{ id: 'cat1', dans_marge: true }]
+    const cats = [{ id: 'cat1', dans_marge: true }]
     const lines = [{ id: 'l1', category_id: 'cat1', dans_marge: true }]
     const out = applyCategoryDansMarge(lines, cats)
     expect(out[0].dans_marge).toBe(true)
   })
 
   it('force dans_marge=false quand la catégorie est hors marge', () => {
-    const cats  = [{ id: 'cat1', dans_marge: false }]
+    const cats = [{ id: 'cat1', dans_marge: false }]
     const lines = [{ id: 'l1', category_id: 'cat1', dans_marge: true }]
     const out = applyCategoryDansMarge(lines, cats)
     expect(out[0].dans_marge).toBe(false)
   })
 
   it('garde dans_marge=false quand la ligne est explicitement hors marge', () => {
-    const cats  = [{ id: 'cat1', dans_marge: true }]
+    const cats = [{ id: 'cat1', dans_marge: true }]
     const lines = [{ id: 'l1', category_id: 'cat1', dans_marge: false }]
     const out = applyCategoryDansMarge(lines, cats)
     expect(out[0].dans_marge).toBe(false)
@@ -46,15 +46,15 @@ describe('applyCategoryDansMarge', () => {
   it('gère plusieurs catégories et lignes', () => {
     const cats = [
       { id: 'cat-prod', dans_marge: true },
-      { id: 'cat-hm',   dans_marge: false },
+      { id: 'cat-hm', dans_marge: false },
     ]
     const lines = [
       { id: 'l1', category_id: 'cat-prod', dans_marge: true },
-      { id: 'l2', category_id: 'cat-hm',   dans_marge: true },
-      { id: 'l3', category_id: 'cat-hm',   dans_marge: false },
+      { id: 'l2', category_id: 'cat-hm', dans_marge: true },
+      { id: 'l3', category_id: 'cat-hm', dans_marge: false },
     ]
     const out = applyCategoryDansMarge(lines, cats)
-    expect(out.map(l => l.dans_marge)).toEqual([true, false, false])
+    expect(out.map((l) => l.dans_marge)).toEqual([true, false, false])
   })
 
   it('considère dans_marge=true par défaut si la catégorie est introuvable', () => {
@@ -65,8 +65,8 @@ describe('applyCategoryDansMarge', () => {
     expect(out[0].dans_marge).toBe(true)
   })
 
-  it('ne mute pas les lignes d\'origine', () => {
-    const cats  = [{ id: 'cat1', dans_marge: false }]
+  it("ne mute pas les lignes d'origine", () => {
+    const cats = [{ id: 'cat1', dans_marge: false }]
     const lines = [{ id: 'l1', category_id: 'cat1', dans_marge: true }]
     applyCategoryDansMarge(lines, cats)
     expect(lines[0].dans_marge).toBe(true) // intacte
@@ -97,18 +97,28 @@ describe('applyCategoryDansMarge — régression DevisEditor vs ProjetLayout', (
   it('produit le même totalHTFinal que le calcul brut + transformation', () => {
     const cats = [
       { id: 'cat-preprod', dans_marge: false },
-      { id: 'cat-prod',    dans_marge: true  },
+      { id: 'cat-prod', dans_marge: true },
     ]
     const rawLines = [
       {
-        id: 'dirprod', category_id: 'cat-preprod',
-        use_line: true, nb: 1, quantite: 1, tarif_ht: 600,
-        regime: 'Frais', dans_marge: true,  // ← incohérent avec sa cat
+        id: 'dirprod',
+        category_id: 'cat-preprod',
+        use_line: true,
+        nb: 1,
+        quantite: 1,
+        tarif_ht: 600,
+        regime: 'Frais',
+        dans_marge: true, // ← incohérent avec sa cat
       },
       {
-        id: 'cadreur', category_id: 'cat-prod',
-        use_line: true, nb: 1, quantite: 1, tarif_ht: 1500,
-        regime: 'Frais', dans_marge: true,
+        id: 'cadreur',
+        category_id: 'cat-prod',
+        use_line: true,
+        nb: 1,
+        quantite: 1,
+        tarif_ht: 1500,
+        regime: 'Frais',
+        dans_marge: true,
       },
     ]
 
@@ -116,12 +126,9 @@ describe('applyCategoryDansMarge — régression DevisEditor vs ProjetLayout', (
     const opts = [TAUX_DEFAUT, global]
 
     // Calcul "buggé" : on passe les lignes brutes
-    const buggy   = calcSynthese(rawLines, 20, 30, ...opts)
+    const buggy = calcSynthese(rawLines, 20, 30, ...opts)
     // Calcul corrigé : on passe par le helper
-    const correct = calcSynthese(
-      applyCategoryDansMarge(rawLines, cats),
-      20, 30, ...opts,
-    )
+    const correct = calcSynthese(applyCategoryDansMarge(rawLines, cats), 20, 30, ...opts)
 
     // Le helper doit faire converger les deux vers la valeur "correcte"
     expect(correct.totalHTFinal).toBeCloseTo(2247, 2)

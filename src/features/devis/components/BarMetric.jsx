@@ -8,7 +8,14 @@
  * Extraite de DevisEditor.jsx — chantier refacto.
  */
 
-export default function BarMetric({ label, value, subvalue, prominent = false, muted = false, color }) {
+export default function BarMetric({
+  label,
+  value,
+  subvalue,
+  prominent = false,
+  muted = false,
+  color,
+}) {
   return (
     <div className="flex flex-col gap-0.5">
       <span

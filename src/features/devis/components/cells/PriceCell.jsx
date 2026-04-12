@@ -24,7 +24,7 @@ export default function PriceCell({
 
   function commit(raw) {
     if (nullable) {
-      onChange(raw === '' ? null : parseFloat(raw) ?? null)
+      onChange(raw === '' ? null : (parseFloat(raw) ?? null))
     } else {
       onChange(parseFloat(raw) || 0)
     }
@@ -43,8 +43,14 @@ export default function PriceCell({
         step={0.01}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter')  { e.preventDefault(); commit(e.currentTarget.value) }
-          if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit(e.currentTarget.value)
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            setEditing(false)
+          }
         }}
         style={style}
       />
@@ -59,9 +65,11 @@ export default function PriceCell({
       onFocus={() => setEditing(true)}
       style={style}
     >
-      {value !== null && value !== undefined
-        ? fmtEur(value)
-        : <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>{placeholder}</span>}
+      {value !== null && value !== undefined ? (
+        fmtEur(value)
+      ) : (
+        <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>{placeholder}</span>
+      )}
     </div>
   )
 }

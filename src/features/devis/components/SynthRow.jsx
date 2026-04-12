@@ -11,17 +11,19 @@
  */
 
 const COLOR_MAP = {
-  blue:   'var(--blue)',
+  blue: 'var(--blue)',
   purple: 'var(--purple)',
   orange: 'var(--orange)',
-  green:  'var(--green)',
+  green: 'var(--green)',
 }
 
 export default function SynthRow({ label, val, big, highlight, muted, colored }) {
   return (
     <div
       className="flex items-center justify-between px-2 py-1 rounded"
-      style={highlight ? { background: 'rgba(255,255,255,.08)', border: '1px solid var(--brd)' } : {}}
+      style={
+        highlight ? { background: 'rgba(255,255,255,.08)', border: '1px solid var(--brd)' } : {}
+      }
     >
       <span
         className="text-xs"
@@ -36,10 +38,13 @@ export default function SynthRow({ label, val, big, highlight, muted, colored })
         style={{
           fontSize: big ? '0.875rem' : '0.75rem',
           fontWeight: big ? 700 : 500,
-          color: highlight ? 'var(--txt)'
-               : muted     ? 'var(--txt-3)'
-               : colored   ? COLOR_MAP[colored]
-               :             'var(--txt)',
+          color: highlight
+            ? 'var(--txt)'
+            : muted
+              ? 'var(--txt-3)'
+              : colored
+                ? COLOR_MAP[colored]
+                : 'var(--txt)',
         }}
       >
         {val}

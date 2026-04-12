@@ -10,7 +10,9 @@ export default function AdjRow({ icon, label, value, onChange, suffix, computed 
     <div className="flex items-center gap-2">
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {icon}
-        <span className="text-xs truncate" style={{ color: 'var(--txt-2)' }}>{label}</span>
+        <span className="text-xs truncate" style={{ color: 'var(--txt-2)' }}>
+          {label}
+        </span>
       </div>
       <div className="relative w-16 shrink-0">
         <input

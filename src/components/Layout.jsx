@@ -2,33 +2,40 @@ import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  Home, FolderOpen, Users, Package,
-  LogOut, Settings, BarChart3, Calculator,
-  PanelLeft, Search,
+  Home,
+  FolderOpen,
+  Users,
+  Package,
+  LogOut,
+  Settings,
+  BarChart3,
+  Calculator,
+  PanelLeft,
+  Search,
 } from 'lucide-react'
 
 // ─── Sections de la sidebar ───────────────────────────────────────────────────
 const NAV_MAIN = [
-  { to: '/accueil', icon: Home,       label: 'Accueil' },
+  { to: '/accueil', icon: Home, label: 'Accueil' },
   { to: '/projets', icon: FolderOpen, label: 'Projets' },
 ]
 
 const NAV_BDD = [
-  { to: '/clients',  icon: Users,    label: 'Clients' },
-  { to: '/crew',     icon: Users,    label: 'Crew' },
-  { to: '/produits', icon: Package,  label: 'Produits & Matériel' },
+  { to: '/clients', icon: Users, label: 'Clients' },
+  { to: '/crew', icon: Users, label: 'Crew' },
+  { to: '/produits', icon: Package, label: 'Produits & Matériel' },
 ]
 
 const NAV_FINANCE = [
-  { to: '/dashboard', icon: BarChart3,  label: 'Dashboard' },
-  { to: '/compta',    icon: Calculator, label: 'Compta' },
+  { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
+  { to: '/compta', icon: Calculator, label: 'Compta' },
 ]
 
 const ROLE_LABELS = {
-  admin:        'Admin',
-  charge_prod:  'Chargé de prod',
+  admin: 'Admin',
+  charge_prod: 'Chargé de prod',
   coordinateur: 'Coordinateur',
-  prestataire:  'Prestataire',
+  prestataire: 'Prestataire',
 }
 
 const STORAGE_KEY = 'captiv:sidebar-collapsed'
@@ -40,12 +47,7 @@ function SidebarSection({ label, collapsed }) {
   // label (qui n'aurait plus la place de respirer). Garde la respiration entre
   // groupes sans encombrer.
   if (collapsed) {
-    return (
-      <div
-        className="mx-3 my-3"
-        style={{ height: '1px', background: 'var(--brd-sub)' }}
-      />
-    )
+    return <div className="mx-3 my-3" style={{ height: '1px', background: 'var(--brd-sub)' }} />
   }
   return (
     <p
@@ -61,7 +63,9 @@ function SidebarSearchButton({ collapsed }) {
   // Placeholder pour la future palette de commandes Cmd+K (cf. ROADMAP).
   // En attendant, le clic affiche un message "en développement".
   function handleClick() {
-    alert('🚧 Recherche globale — fonctionnalité en développement.\n\nElle te permettra bientôt de chercher projets, devis, clients, crew… via Cmd+K.')
+    alert(
+      '🚧 Recherche globale — fonctionnalité en développement.\n\nElle te permettra bientôt de chercher projets, devis, clients, crew… via Cmd+K.',
+    )
   }
 
   if (collapsed) {
@@ -72,8 +76,8 @@ function SidebarSearchButton({ collapsed }) {
           title="Recherche (Cmd+K)"
           className="flex items-center justify-center rounded-lg w-full py-2 transition-colors"
           style={{ color: 'var(--txt-2)' }}
-          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
         >
           <Search className="w-4 h-4" />
         </button>
@@ -101,8 +105,14 @@ function SidebarSearchButton({ collapsed }) {
         border: '1px solid var(--brd-sub)',
         color: 'var(--txt-3)',
       }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brd)'; e.currentTarget.style.color = 'var(--txt-2)' }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--brd-sub)'; e.currentTarget.style.color = 'var(--txt-3)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'var(--brd)'
+        e.currentTarget.style.color = 'var(--txt-2)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'var(--brd-sub)'
+        e.currentTarget.style.color = 'var(--txt-3)'
+      }}
     >
       <Search className="w-4 h-4 shrink-0" />
       <span className="flex-1 text-left">Rechercher…</span>
@@ -129,10 +139,11 @@ function SidebarLink({ to, icon: Icon, label, collapsed }) {
         className={`flex items-center rounded-lg text-sm font-medium transition-all duration-150 ${
           collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-3 py-2'
         }`}
-        style={({ isActive }) => isActive
-          // Active : pill plein, sans barre latérale, sans bord
-          ? { background: 'var(--blue-bg)', color: 'var(--blue)' }
-          : { color: 'var(--txt-2)' }
+        style={({ isActive }) =>
+          isActive
+            ? // Active : pill plein, sans barre latérale, sans bord
+              { background: 'var(--blue-bg)', color: 'var(--blue)' }
+            : { color: 'var(--txt-2)' }
         }
       >
         <Icon className="w-4 h-4 shrink-0" />
@@ -159,9 +170,8 @@ function SidebarLink({ to, icon: Icon, label, collapsed }) {
 
 function Initials({ name }) {
   const parts = (name || 'U').split(' ')
-  const letters = parts.length >= 2
-    ? parts[0][0] + parts[parts.length - 1][0]
-    : parts[0].slice(0, 2)
+  const letters =
+    parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2)
   return letters.toUpperCase()
 }
 
@@ -176,7 +186,11 @@ export default function Layout() {
     return window.localStorage.getItem(STORAGE_KEY) === '1'
   })
   useEffect(() => {
-    try { window.localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0') } catch (_) {}
+    try {
+      window.localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
   }, [collapsed])
 
   // Les sections BDD et Finance sont réservées aux rôles internes.
@@ -190,7 +204,6 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
-
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
       <aside
         className={`flex flex-col shrink-0 select-none transition-[width] duration-200 ${
@@ -217,16 +230,23 @@ export default function Layout() {
             </div>
           )}
           <button
-            onClick={() => setCollapsed(c => !c)}
+            onClick={() => setCollapsed((c) => !c)}
             title={collapsed ? 'Développer la sidebar' : 'Réduire la sidebar'}
             className="flex items-center justify-center rounded-md transition-all"
             style={{
-              width: '26px', height: '26px',
+              width: '26px',
+              height: '26px',
               color: 'var(--txt-3)',
               background: 'transparent',
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--txt)'; e.currentTarget.style.background = 'var(--bg-hov)' }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--txt)'
+              e.currentTarget.style.background = 'var(--bg-hov)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--txt-3)'
+              e.currentTarget.style.background = 'transparent'
+            }}
           >
             <PanelLeft className="w-4 h-4" />
           </button>
@@ -234,14 +254,18 @@ export default function Layout() {
 
         {/* Navigation */}
         {/* overflow visible pour laisser sortir les tooltips en mode collapsed */}
-        <nav className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2`} style={{ overflow: 'visible' }}>
-
+        <nav
+          className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2`}
+          style={{ overflow: 'visible' }}
+        >
           {/* Recherche globale — placeholder pour la future fonctionnalité Cmd+K */}
           <SidebarSearchButton collapsed={collapsed} />
 
           {/* Principal */}
           <div className="space-y-0.5 mt-2">
-            {NAV_MAIN.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
+            {NAV_MAIN.map((item) => (
+              <SidebarLink key={item.to} {...item} collapsed={collapsed} />
+            ))}
           </div>
 
           {/* Base de données — interne uniquement */}
@@ -249,7 +273,9 @@ export default function Layout() {
             <>
               <SidebarSection label="Base de données" collapsed={collapsed} />
               <div className="space-y-0.5">
-                {NAV_BDD.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
+                {NAV_BDD.map((item) => (
+                  <SidebarLink key={item.to} {...item} collapsed={collapsed} />
+                ))}
               </div>
             </>
           )}
@@ -259,7 +285,9 @@ export default function Layout() {
             <>
               <SidebarSection label="Finance" collapsed={collapsed} />
               <div className="space-y-0.5">
-                {NAV_FINANCE.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
+                {NAV_FINANCE.map((item) => (
+                  <SidebarLink key={item.to} {...item} collapsed={collapsed} />
+                ))}
               </div>
             </>
           )}
@@ -269,26 +297,38 @@ export default function Layout() {
             <>
               <SidebarSection label="Admin" collapsed={collapsed} />
               <div className="space-y-0.5">
-                <SidebarLink to="/parametres" icon={Settings} label="Paramètres" collapsed={collapsed} />
+                <SidebarLink
+                  to="/parametres"
+                  icon={Settings}
+                  label="Paramètres"
+                  collapsed={collapsed}
+                />
               </div>
             </>
           )}
         </nav>
 
         {/* User footer — carte unique avec bouton logout intégré (style Jane Cooper) */}
-        <div className={`${collapsed ? 'px-2' : 'px-2.5'} py-3`} style={{ borderTop: '1px solid var(--brd-sub)' }}>
+        <div
+          className={`${collapsed ? 'px-2' : 'px-2.5'} py-3`}
+          style={{ borderTop: '1px solid var(--brd-sub)' }}
+        >
           <div
             className={`flex items-center rounded-lg transition-colors ${
               collapsed ? 'justify-center p-1.5' : 'gap-2.5 px-2 py-2'
             }`}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
             {/* Avatar */}
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white"
               style={{ background: 'linear-gradient(135deg, var(--blue), var(--purple))' }}
-              title={collapsed ? `${profile?.full_name || 'Utilisateur'} — ${ROLE_LABELS[role] || role}` : undefined}
+              title={
+                collapsed
+                  ? `${profile?.full_name || 'Utilisateur'} — ${ROLE_LABELS[role] || role}`
+                  : undefined
+              }
             >
               <Initials name={profile?.full_name} />
             </div>
@@ -311,12 +351,19 @@ export default function Layout() {
                   title="Déconnexion"
                   className="flex items-center justify-center rounded-md shrink-0 transition-all"
                   style={{
-                    width: '32px', height: '32px',
+                    width: '32px',
+                    height: '32px',
                     color: 'var(--txt-3)',
                     background: 'transparent',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.background = 'var(--bg-elev)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--red)'
+                    e.currentTarget.style.background = 'var(--bg-elev)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--txt-3)'
+                    e.currentTarget.style.background = 'transparent'
+                  }}
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -331,12 +378,19 @@ export default function Layout() {
               title="Déconnexion"
               className="flex items-center justify-center rounded-md mt-1 mx-auto transition-all"
               style={{
-                width: '32px', height: '28px',
+                width: '32px',
+                height: '28px',
                 color: 'var(--txt-3)',
                 background: 'transparent',
               }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.background = 'var(--bg-hov)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--red)'
+                e.currentTarget.style.background = 'var(--bg-hov)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--txt-3)'
+                e.currentTarget.style.background = 'transparent'
+              }}
             >
               <LogOut className="w-3.5 h-3.5" />
             </button>

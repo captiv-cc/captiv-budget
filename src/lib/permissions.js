@@ -28,10 +28,10 @@
 
 // ─── Rôles ──────────────────────────────────────────────────────────────────
 export const ROLES = {
-  ADMIN:        'admin',
-  CHARGE_PROD:  'charge_prod',
+  ADMIN: 'admin',
+  CHARGE_PROD: 'charge_prod',
   COORDINATEUR: 'coordinateur',
-  PRESTATAIRE:  'prestataire',
+  PRESTATAIRE: 'prestataire',
 }
 
 /** Rôles qui bypass les permissions prestataire et ont accès à tout */
@@ -40,20 +40,20 @@ export const INTERNAL_ROLES = [ROLES.ADMIN, ROLES.CHARGE_PROD, ROLES.COORDINATEU
 // ─── Outils (miroir de outils_catalogue côté base) ─────────────────────────
 export const OUTILS = {
   PROJET_INFO: 'projet_info',
-  EQUIPE:      'equipe',
-  PLANNING:    'planning',
-  CALLSHEET:   'callsheet',
-  PRODUCTION:  'production',
-  LIVRABLES:   'livrables',
-  MATERIEL:    'materiel',
-  DECORS:      'decors',
+  EQUIPE: 'equipe',
+  PLANNING: 'planning',
+  CALLSHEET: 'callsheet',
+  PRODUCTION: 'production',
+  LIVRABLES: 'livrables',
+  MATERIEL: 'materiel',
+  DECORS: 'decors',
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────
 export const ACTIONS = {
-  READ:    'read',
+  READ: 'read',
   COMMENT: 'comment',
-  EDIT:    'edit',
+  EDIT: 'edit',
 }
 
 // ─── Règles métier ──────────────────────────────────────────────────────────
@@ -68,14 +68,14 @@ export const ACTIONS = {
  * can_edit=true mais can_read=false (incohérent).
  */
 function normalize(perm) {
-  const read    = perm.can_read    === true
+  const read = perm.can_read === true
   const comment = perm.can_comment === true
-  const edit    = perm.can_edit    === true
+  const edit = perm.can_edit === true
 
   return {
-    can_read:    read    || comment || edit,
+    can_read: read || comment || edit,
     can_comment: comment || edit,
-    can_edit:    edit,
+    can_edit: edit,
   }
 }
 
@@ -100,9 +100,9 @@ export function buildProjectPermissions(templateRows = [], overrideRows = []) {
   for (const row of templateRows) {
     if (!row?.outil_key) continue
     out[row.outil_key] = normalize({
-      can_read:    row.can_read,
+      can_read: row.can_read,
       can_comment: row.can_comment,
-      can_edit:    row.can_edit,
+      can_edit: row.can_edit,
     })
   }
 
@@ -111,9 +111,9 @@ export function buildProjectPermissions(templateRows = [], overrideRows = []) {
     if (!row?.outil_key) continue
     const base = out[row.outil_key] || { can_read: false, can_comment: false, can_edit: false }
     out[row.outil_key] = normalize({
-      can_read:    row.can_read    ?? base.can_read,
+      can_read: row.can_read ?? base.can_read,
       can_comment: row.can_comment ?? base.can_comment,
-      can_edit:    row.can_edit    ?? base.can_edit,
+      can_edit: row.can_edit ?? base.can_edit,
     })
   }
 
@@ -149,10 +149,14 @@ export function can(ctx, outil, action) {
   if (!outilPerms) return false
 
   switch (action) {
-    case ACTIONS.READ:    return outilPerms.can_read    === true
-    case ACTIONS.COMMENT: return outilPerms.can_comment === true
-    case ACTIONS.EDIT:    return outilPerms.can_edit    === true
-    default:              return false
+    case ACTIONS.READ:
+      return outilPerms.can_read === true
+    case ACTIONS.COMMENT:
+      return outilPerms.can_comment === true
+    case ACTIONS.EDIT:
+      return outilPerms.can_edit === true
+    default:
+      return false
   }
 }
 
@@ -175,7 +179,7 @@ export function canSee(ctx, outil) {
  */
 export function visibleOutils(ctx, catalogue = []) {
   if (INTERNAL_ROLES.includes(ctx?.role)) return catalogue
-  return catalogue.filter(o => canSee(ctx, o.key))
+  return catalogue.filter((o) => canSee(ctx, o.key))
 }
 
 /**

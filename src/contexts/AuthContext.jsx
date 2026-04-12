@@ -13,21 +13,17 @@ import {
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser]             = useState(null)
-  const [profile, setProfile]       = useState(null)
-  const [org, setOrg]               = useState(null)
-  const [loading, setLoading]       = useState(true)
+  const [user, setUser] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [org, setOrg] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   // ─── Chargement du profil ─────────────────────────────────────────────────
   // Depuis chantier 3B, les permissions outil vivent PAR PROJET (project_access
   // + project_access_permissions). On ne charge donc plus rien de global ici —
   // les pages-projet instancient leur propre contexte via useProjectPermissions.
   const loadProfile = useCallback(async (userId) => {
-    const { data: prof } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).single()
 
     if (!prof) {
       setProfile(null)
@@ -56,7 +52,9 @@ export function AuthProvider({ children }) {
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) loadProfile(session.user.id)
       else {
@@ -76,15 +74,18 @@ export function AuthProvider({ children }) {
 
   async function signUp(email, password, fullName) {
     const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { full_name: fullName } }
+      email,
+      password,
+      options: { data: { full_name: fullName } },
     })
     return { data, error }
   }
 
   async function signOut() {
     await supabase.auth.signOut()
-    setUser(null); setProfile(null); setOrg(null)
+    setUser(null)
+    setProfile(null)
+    setOrg(null)
   }
 
   async function createOrg(name, siret, email) {
@@ -100,11 +101,26 @@ export function AuthProvider({ children }) {
 
     // Insert default cotisation taux
     await supabase.from('cotisation_config').insert([
-      { org_id: newOrg.id, key: 'Intermittent Technicien', value: 0.67, label: 'Taux charges patronales IT' },
-      { org_id: newOrg.id, key: 'Intermittent Artiste',    value: 0.67, label: 'Taux charges patronales IA' },
-      { org_id: newOrg.id, key: 'Salarié CDD',             value: 0.45, label: 'Taux charges patronales CDD' },
-      { org_id: newOrg.id, key: 'Auto-entrepreneur',       value: 0,    label: 'Pas de charges côté client' },
-      { org_id: newOrg.id, key: 'Prestation facturée',     value: 0,    label: 'Prestation externe HT' },
+      {
+        org_id: newOrg.id,
+        key: 'Intermittent Technicien',
+        value: 0.67,
+        label: 'Taux charges patronales IT',
+      },
+      {
+        org_id: newOrg.id,
+        key: 'Intermittent Artiste',
+        value: 0.67,
+        label: 'Taux charges patronales IA',
+      },
+      { org_id: newOrg.id, key: 'Salarié CDD', value: 0.45, label: 'Taux charges patronales CDD' },
+      {
+        org_id: newOrg.id,
+        key: 'Auto-entrepreneur',
+        value: 0,
+        label: 'Pas de charges côté client',
+      },
+      { org_id: newOrg.id, key: 'Prestation facturée', value: 0, label: 'Prestation externe HT' },
     ])
 
     // Update profile : créateur = admin par défaut
@@ -134,34 +150,51 @@ export function AuthProvider({ children }) {
   // can/canSee globaux : bypassent pour les internes, renvoient false pour
   // les prestataires (qui doivent passer par useProjectPermissions). Gardés
   // pour la rétro-compat de certains appels sidebar.
-  const can    = useCallback((outil, action) => canFn(permCtx, outil, action), [permCtx])
-  const canSee = useCallback((outil)         => canSeeFn(permCtx, outil),      [permCtx])
+  const can = useCallback((outil, action) => canFn(permCtx, outil, action), [permCtx])
+  const canSee = useCallback((outil) => canSeeFn(permCtx, outil), [permCtx])
 
   // ─── Dérivés legacy (compatibilité ascendante avec le code existant) ─────
-  const canSeeFinance    = role === 'admin' || role === 'charge_prod'
+  const canSeeFinance = role === 'admin' || role === 'charge_prod'
   const canSeeCrewBudget = INTERNAL_ROLES.includes(role)
-  const isAdmin          = role === ROLES.ADMIN
-  const isChargeProd     = role === 'charge_prod'
-  const isCoordinateur   = role === 'coordinateur'
-  const isInternal       = isInternalFn(permCtx)
-  const isPrestataire    = isPrestataireFn(permCtx)
+  const isAdmin = role === ROLES.ADMIN
+  const isChargeProd = role === 'charge_prod'
+  const isCoordinateur = role === 'coordinateur'
+  const isInternal = isInternalFn(permCtx)
+  const isPrestataire = isPrestataireFn(permCtx)
 
   return (
-    <AuthContext.Provider value={{
-      // État
-      user, profile, org, loading,
-      // Rôle
-      role, isAdmin, isChargeProd, isCoordinateur, isInternal, isPrestataire,
-      // API rôle / permissions globales (internes uniquement)
-      can, canSee, hasRole,
-      // Legacy
-      canSeeFinance, canSeeCrewBudget,
-      // Auth actions
-      signIn, signUp, signOut, createOrg,
-    }}>
+    <AuthContext.Provider
+      value={{
+        // État
+        user,
+        profile,
+        org,
+        loading,
+        // Rôle
+        role,
+        isAdmin,
+        isChargeProd,
+        isCoordinateur,
+        isInternal,
+        isPrestataire,
+        // API rôle / permissions globales (internes uniquement)
+        can,
+        canSee,
+        hasRole,
+        // Legacy
+        canSeeFinance,
+        canSeeCrewBudget,
+        // Auth actions
+        signIn,
+        signUp,
+        signOut,
+        createOrg,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext)

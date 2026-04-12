@@ -25,7 +25,7 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     // Appelé pendant la "commit phase" — bon endroit pour logger
-    // eslint-disable-next-line no-console
+
     console.error('[ErrorBoundary] Crash React capturé:', error, errorInfo)
     this.setState({ errorInfo })
 
@@ -62,19 +62,17 @@ export default class ErrorBoundary extends Component {
               <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">
-                Oups, une erreur est survenue
-              </h1>
+              <h1 className="text-lg font-semibold text-gray-900">Oups, une erreur est survenue</h1>
               <p className="text-xs text-gray-500 mt-0.5">
-                L'application a rencontré un problème inattendu
+                L&apos;application a rencontré un problème inattendu
               </p>
             </div>
           </div>
 
           <p className="text-sm text-gray-700 leading-relaxed mb-6">
-            Vos données sont sauvegardées. Tu peux recharger la page pour reprendre
-            là où tu en étais. Si le problème se répète, contacte l'équipe CAPTIV
-            avec une capture d'écran.
+            Vos données sont sauvegardées. Tu peux recharger la page pour reprendre là où tu en
+            étais. Si le problème se répète, contacte l&apos;équipe CAPTIV avec une capture
+            d&apos;écran.
           </p>
 
           {isDev && error && (
@@ -110,7 +108,7 @@ export default class ErrorBoundary extends Component {
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium transition"
             >
               <Home className="w-4 h-4" aria-hidden="true" />
-              Retour à l'accueil
+              Retour à l&apos;accueil
             </button>
           </div>
         </div>
