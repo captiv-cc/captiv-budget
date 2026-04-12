@@ -59,22 +59,38 @@ function SidebarSection({ label, collapsed }) {
 
 function SidebarLink({ to, icon: Icon, label, collapsed }) {
   return (
-    <NavLink
-      to={to}
-      end={to === '/accueil'}
-      title={collapsed ? label : undefined}
-      className={`flex items-center rounded-lg text-sm font-medium transition-all duration-150 ${
-        collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-3 py-2'
-      }`}
-      style={({ isActive }) => isActive
-        // Active : pill plein, sans barre latérale, sans bord
-        ? { background: 'var(--blue-bg)', color: 'var(--blue)' }
-        : { color: 'var(--txt-2)' }
-      }
-    >
-      <Icon className="w-4 h-4 shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
-    </NavLink>
+    <div className="relative group">
+      <NavLink
+        to={to}
+        end={to === '/accueil'}
+        className={`flex items-center rounded-lg text-sm font-medium transition-all duration-150 ${
+          collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-3 py-2'
+        }`}
+        style={({ isActive }) => isActive
+          // Active : pill plein, sans barre latérale, sans bord
+          ? { background: 'var(--blue-bg)', color: 'var(--blue)' }
+          : { color: 'var(--txt-2)' }
+        }
+      >
+        <Icon className="w-4 h-4 shrink-0" />
+        {!collapsed && <span className="truncate">{label}</span>}
+      </NavLink>
+
+      {/* Tooltip flottant — visible uniquement en mode collapsed au hover */}
+      {collapsed && (
+        <span
+          className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt)',
+            border: '1px solid var(--brd)',
+            zIndex: 50,
+          }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -151,7 +167,8 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2 overflow-y-auto`}>
+        {/* overflow visible pour laisser sortir les tooltips en mode collapsed */}
+        <nav className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2`} style={{ overflow: 'visible' }}>
 
           {/* Principal */}
           <div className="space-y-0.5">
