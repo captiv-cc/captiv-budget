@@ -2,7 +2,7 @@
  * ProjetLayout — Layout partagé pour toutes les vues d'un projet
  * Banner KPI en haut + navigation par onglets
  */
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -133,12 +133,11 @@ export default function ProjetLayout() {
   const [devisStats, setDevisStats] = useState({})
   const [loading, setLoading] = useState(true)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadAll()
-  }, [id])
+  }, [id, loadAll])
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     try {
       const { data: proj } = await supabase
@@ -188,7 +187,7 @@ export default function ProjetLayout() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
   // Changement de statut depuis le badge du breadcrumb (optimistic)
   async function updateStatus(_projectId, newStatus) {

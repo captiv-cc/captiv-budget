@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -76,10 +76,9 @@ export default function DevisEditor({ embedded = false }) {
   const hasChanges = useRef(false) // true seulement après modif utilisateur
 
   // ── Chargement initial ────────────────────────────────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadAll()
-  }, [devisId])
+  }, [devisId, loadAll])
 
   // ── Auto-save : useEffect avec dépendances ────────────────────────────────
   // Ne se déclenche QUE si l'utilisateur a fait une modification (hasChanges)
@@ -92,7 +91,7 @@ export default function DevisEditor({ embedded = false }) {
     return () => clearTimeout(timer)
   }, [categories, globalAdj, devis?.title, devis?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     try {
       // Devis + categories + lines
@@ -156,7 +155,7 @@ export default function DevisEditor({ embedded = false }) {
       hasChanges.current = false // reset : pas de save auto juste après le chargement
       setLoading(false)
     }
-  }
+  }, [devisId, projectId, org?.id])
 
   // ── doSave : reçoit les valeurs en paramètre → jamais de closure stale ─────
   async function doSave(cats, dv, adj) {

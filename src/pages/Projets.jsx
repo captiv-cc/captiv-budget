@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { notify } from '../lib/notify'
@@ -63,12 +63,7 @@ export default function Projets() {
     date_fin: '',
   })
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (org?.id) loadAll()
-  }, [org?.id])
-
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     const [projRes, clsRes] = await Promise.all([
       supabase
@@ -89,7 +84,11 @@ export default function Projets() {
     setProjects(projRes.data || [])
     setClients(clsRes.data || [])
     setLoading(false)
-  }
+  }, [org?.id])
+
+  useEffect(() => {
+    if (org?.id) loadAll()
+  }, [org?.id, loadAll])
 
   async function handleCreate(e) {
     e.preventDefault()

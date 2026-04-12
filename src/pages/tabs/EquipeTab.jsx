@@ -6,7 +6,7 @@
  * - Salaire brut intermittent visible avec label "→ MovinMotion"
  * - Lien direct vers la ligne de devis correspondante
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -104,12 +104,11 @@ export default function EquipeTab() {
   const [toast, setToast] = useState(null)
   const [activeTab, setActiveTab] = useState('attribution') // 'attribution' | 'equipe'
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (projectId) load()
-  }, [projectId, refDevis?.id])
+  }, [projectId, refDevis?.id, load])
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const [linesRes, catsRes, memsRes] = await Promise.all([
@@ -141,7 +140,7 @@ export default function EquipeTab() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectId, refDevis?.id])
 
   function showToast(text, ok = true) {
     setToast({ text, ok })

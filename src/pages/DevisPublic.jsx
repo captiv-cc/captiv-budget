@@ -2,7 +2,7 @@
  * Vue publique du devis — accessible via /devis/public/:token
  * Partageable avec le client : ne montre PAS les coûts ni les marges
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { calcLine, calcSynthese, fmtEur, TAUX_DEFAUT } from '../lib/cotisations'
@@ -20,12 +20,7 @@ export default function DevisPublic() {
   const [notFound, setNotFound] = useState(false)
   const [accepted, setAccepted] = useState(false)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    load()
-  }, [token])
-
-  async function load() {
+  const load = useCallback(async () => {
     const { data: dv } = await supabase.from('devis').select('*').eq('public_token', token).single()
 
     if (!dv) {
@@ -62,7 +57,11 @@ export default function DevisPublic() {
     setSynth(calcSynthese(lines || [], dv.tva_rate || 20, dv.acompte_pct || 30, TAUX_DEFAUT))
     setAccepted(dv.status === 'accepte')
     setLoading(false)
-  }
+  }, [token])
+
+  useEffect(() => {
+    load()
+  }, [token, load])
 
   async function handleAccept() {
     await supabase.from('devis').update({ status: 'accepte' }).eq('id', devis.id)

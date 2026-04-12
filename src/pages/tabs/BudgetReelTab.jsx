@@ -9,7 +9,7 @@
  * ─ TVA 0 / 5,5 / 10 / 20 %, Validé, Payé par ligne
  * ─ Totaux par bloc + KPIs globaux
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { calcLine, CATS_HUMAINS } from '../../lib/cotisations'
@@ -71,12 +71,11 @@ export default function BudgetReelTab() {
     setFilters({ estimees: false, nonPayees: false, ecart: false, additifs: false })
   const anyFilter = filters.estimees || filters.nonPayees || filters.ecart || filters.additifs
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (projectId && refDevis?.id) load()
-  }, [projectId, refDevis?.id])
+  }, [projectId, refDevis?.id, load])
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     const [cR, lR, mR, rR, fR] = await Promise.all([
       supabase.from('devis_categories').select('*').eq('devis_id', refDevis.id).order('sort_order'),
@@ -94,7 +93,7 @@ export default function BudgetReelTab() {
     setReel(rR.data || [])
     setFournisseurs(fR.data || [])
     setLoading(false)
-  }
+  }, [projectId, refDevis?.id])
 
   // ─── Maps dérivées ─────────────────────────────────────────────────────────
 

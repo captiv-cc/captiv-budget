@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -121,12 +121,7 @@ export default function HomePage() {
     montantEnAttente: 0,
   })
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (org?.id) load()
-  }, [org])
-
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       // Projets actifs (affichés à tous les rôles — sans chiffres)
@@ -192,7 +187,11 @@ export default function HomePage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [org, canSeeFinance])
+
+  useEffect(() => {
+    if (org?.id) load()
+  }, [org, load])
 
   const firstName = profile?.full_name?.split(' ')[0] || profile?.prenom || 'Hugo'
 

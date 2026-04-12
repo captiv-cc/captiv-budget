@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,12 +11,7 @@ export default function Dashboard() {
   const [recent, setRecent] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (org?.id) loadDashboard()
-  }, [org])
-
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     setLoading(true)
     try {
       // Projets en cours
@@ -68,7 +63,11 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [org])
+
+  useEffect(() => {
+    if (org?.id) loadDashboard()
+  }, [org, loadDashboard])
 
   const greeting = () => {
     const h = new Date().getHours()
