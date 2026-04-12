@@ -106,10 +106,19 @@ export const contactSchema = z.object({
     .min(1, 'Le nom est obligatoire')
     .max(80, 'Nom trop long'),
   prenom: optionalString,
+  date_naissance: optionalString,
   email: optionalEmail,
   telephone: optionalPhone,
+  address: optionalString,
+  code_postal: optionalString,
+  ville: optionalString,
+  pays: optionalString,
   regime: z.string().min(1, 'Régime obligatoire'),
   specialite: optionalString,
+  taille_tshirt: optionalString,
+  regime_alimentaire: optionalString,
+  permis: z.boolean().optional().default(false),
+  vehicule: z.boolean().optional().default(false),
   tarif_jour_ref: z
     .union([z.string(), z.number()])
     .optional()

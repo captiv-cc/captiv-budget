@@ -14,12 +14,8 @@ import {
   Trash2,
   Building2,
   Mail,
-  Phone,
-  MapPin,
   FileText,
-  ChevronDown,
   FolderOpen,
-  Filter,
 } from 'lucide-react'
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -27,7 +23,7 @@ import {
 const TYPES = [
   { value: 'production', label: 'Production', color: 'var(--blue)' },
   { value: 'agence', label: 'Agence', color: 'var(--purple, #8b5cf6)' },
-  { value: 'marque', label: 'Marque', color: 'var(--amber)' },
+  { value: 'entreprise', label: 'Entreprise', color: 'var(--amber)' },
   { value: 'institution', label: 'Institution', color: 'var(--green)' },
   { value: 'association', label: 'Association', color: 'var(--teal, #14b8a6)' },
   { value: 'particulier', label: 'Particulier', color: 'var(--txt-3)' },
@@ -65,17 +61,41 @@ function statutInfo(val) {
   return STATUTS.find((s) => s.value === val) || STATUTS[0]
 }
 
+// ─── Chip de filtre (même style que Projets) ─────────────────────────────────
+
+function FilterChip({ label, count, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs font-medium rounded-full px-3 py-1.5 transition-all flex items-center gap-1.5"
+      style={
+        active
+          ? { background: 'var(--blue-bg)', color: 'var(--blue)', border: '1px solid transparent' }
+          : { background: 'transparent', color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }
+      }
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.background = 'var(--bg-hov)'
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = 'transparent'
+      }}
+    >
+      <span>{label}</span>
+      <span className="text-[10px] opacity-70">{count}</span>
+    </button>
+  )
+}
+
 // ─── Composant principal ─────────────────────────────────────────────────────
 
 export default function Clients() {
   const { org } = useAuth()
   const [clients, setClients] = useState([])
-  const [projectCounts, setProjectCounts] = useState({}) // client_id → nb projets
+  const [projectCounts, setProjectCounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterType, setFilterType] = useState('') // '' = tous
-  const [filterStatut, setFilterStatut] = useState('actif') // par défaut on montre les actifs
-  const [showFilters, setShowFilters] = useState(false)
+  const [statutFilter, setStatutFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
 
   // Slide-over state
   const [panel, setPanel] = useState(null) // null | 'create' | client_obj
@@ -104,7 +124,6 @@ export default function Clients() {
     }
     setClients(clientsRes.data || [])
 
-    // Compter les projets par client
     const counts = {}
     for (const p of projectsRes.data || []) {
       counts[p.client_id] = (counts[p.client_id] || 0) + 1
@@ -117,36 +136,36 @@ export default function Clients() {
     if (org?.id) load()
   }, [org?.id, load])
 
-  // ── Filtrage ────────────────────────────────────────────────────────────────
+  // ── Filtrage + compteurs ────────────────────────────────────────────────────
 
-  const filtered = useMemo(() => {
+  const { filtered, statutCounts, typeCounts } = useMemo(() => {
     const q = search.toLowerCase()
-    return clients.filter((c) => {
-      if (filterStatut && c.statut !== filterStatut) return false
-      if (filterType && c.type_client !== filterType) return false
+    const sCounts = { all: 0 }
+    for (const s of STATUTS) sCounts[s.value] = 0
+
+    const tCounts = { all: 0 }
+    for (const t of TYPES) tCounts[t.value] = 0
+
+    const result = []
+    for (const c of clients) {
+      sCounts.all++
+      if (sCounts[c.statut] !== undefined) sCounts[c.statut]++
+      if (tCounts[c.type_client] !== undefined) tCounts[c.type_client]++
+      tCounts.all++
+
+      if (statutFilter !== 'all' && c.statut !== statutFilter) continue
+      if (typeFilter !== 'all' && c.type_client !== typeFilter) continue
       if (q) {
-        const haystack = [
-          c.nom_commercial,
-          c.raison_sociale,
-          c.contact_name,
-          c.email,
-          c.ville,
-        ]
+        const haystack = [c.nom_commercial, c.raison_sociale, c.contact_name, c.email, c.ville]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
-        if (!haystack.includes(q)) return false
+        if (!haystack.includes(q)) continue
       }
-      return true
-    })
-  }, [clients, search, filterType, filterStatut])
-
-  // Stats rapides
-  const stats = useMemo(() => ({
-    total: clients.length,
-    actifs: clients.filter((c) => c.statut === 'actif').length,
-    prospects: clients.filter((c) => c.statut === 'prospect').length,
-  }), [clients])
+      result.push(c)
+    }
+    return { filtered: result, statutCounts: sCounts, typeCounts: tCounts }
+  }, [clients, search, statutFilter, typeFilter])
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
@@ -235,198 +254,189 @@ export default function Clients() {
   // ── Rendu ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6" style={{ maxWidth: panel ? '100%' : '1100px', margin: '0 auto' }}>
-      <div className="flex items-center justify-between mb-5">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>Clients</h1>
-          <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-            {stats.total} clients · {stats.actifs} actifs · {stats.prospects} prospects
+          <p className="text-sm mt-0.5" style={{ color: 'var(--txt-3)' }}>
+            {statutCounts.all} client{statutCounts.all > 1 ? 's' : ''}
           </p>
         </div>
         <button onClick={openCreate} className="btn-primary">
-          <Plus className="w-4 h-4" /> Nouveau client
+          <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Nouveau client</span>
         </button>
       </div>
 
-      {/* Barre de recherche + filtres */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--txt-3)' }} />
-          <input
-            className="input pl-9 w-full"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher par nom, contact, email, ville…"
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search
+          className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: 'var(--txt-3)' }}
+        />
+        <input
+          className="input pl-9"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un client…"
+        />
+      </div>
+
+      {/* Toolbar : chips statut + filtre type + compteur */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <FilterChip
+            label="Tous"
+            count={statutCounts.all}
+            active={statutFilter === 'all'}
+            onClick={() => setStatutFilter('all')}
           />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`btn-secondary flex items-center gap-1.5 ${showFilters ? 'ring-2 ring-blue-200' : ''}`}
-        >
-          <Filter className="w-3.5 h-3.5" />
-          Filtres
-          {(filterType || filterStatut !== 'actif') && (
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ background: 'var(--blue)' }}
+          {STATUTS.map((s) => (
+            <FilterChip
+              key={s.value}
+              label={s.label}
+              count={statutCounts[s.value] || 0}
+              active={statutFilter === s.value}
+              onClick={() => setStatutFilter(s.value)}
             />
-          )}
-        </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="text-xs rounded-md px-2.5 py-1.5 outline-none cursor-pointer"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+              color: 'var(--txt-2)',
+            }}
+          >
+            <option value="all">Tous les types</option>
+            {TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Filtres déroulants */}
-      {showFilters && (
-        <div
-          className="flex items-center gap-3 mb-4 p-3 rounded-xl"
-          style={{ background: 'var(--bg-sub)', border: '1px solid var(--brd)' }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium" style={{ color: 'var(--txt-2)' }}>Statut</span>
-            <select
-              value={filterStatut}
-              onChange={(e) => setFilterStatut(e.target.value)}
-              className="input text-sm py-1"
-            >
-              <option value="">Tous</option>
-              {STATUTS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+      {/* Liste */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      >
+        {loading && (
+          <div className="p-8 text-center text-sm" style={{ color: 'var(--txt-3)' }}>
+            Chargement…
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium" style={{ color: 'var(--txt-2)' }}>Type</span>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="input text-sm py-1"
-            >
-              <option value="">Tous</option>
-              {TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+        )}
+        {!loading && filtered.length === 0 && (
+          <div className="p-12 text-center">
+            <Users className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
+            <p className="text-sm" style={{ color: 'var(--txt-2)' }}>
+              {search || statutFilter !== 'all' || typeFilter !== 'all'
+                ? 'Aucun client ne correspond aux filtres'
+                : 'Aucun client pour le moment'}
+            </p>
           </div>
-          {(filterType || filterStatut !== 'actif') && (
-            <button
-              onClick={() => { setFilterType(''); setFilterStatut('actif') }}
-              className="text-xs underline"
-              style={{ color: 'var(--blue)' }}
+        )}
+        {filtered.map((c) => {
+          const type = typeInfo(c.type_client)
+          const statut = statutInfo(c.statut)
+          const projCount = projectCounts[c.id] || 0
+          const isActive = panel && panel !== 'create' && panel.id === c.id
+          return (
+            <div
+              key={c.id}
+              onClick={() => openEdit(c)}
+              className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-3 sm:py-3.5 cursor-pointer transition-colors"
+              style={{
+                borderBottom: '1px solid var(--brd-sub)',
+                background: isActive ? 'var(--bg-sub)' : 'transparent',
+              }}
+              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-sub))' }}
+              onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
             >
-              Réinitialiser
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Layout : liste + slide-over */}
-      <div className="flex gap-0">
-        {/* Liste */}
-        <div className={`flex-1 transition-all duration-300 ${panel ? 'mr-5' : ''}`} style={{ minWidth: 0 }}>
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-          >
-            {loading && (
-              <div className="p-8 text-center text-sm" style={{ color: 'var(--txt-3)' }}>
-                Chargement…
+              {/* Avatar initiales */}
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
+                style={{ background: type.color + '18', color: type.color }}
+              >
+                {(c.nom_commercial || '?').slice(0, 2).toUpperCase()}
               </div>
-            )}
-            {!loading && filtered.length === 0 && (
-              <div className="p-12 text-center">
-                <Users className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
-                <p className="text-sm" style={{ color: 'var(--txt-2)' }}>
-                  {search || filterType || filterStatut !== 'actif'
-                    ? 'Aucun client ne correspond aux filtres'
-                    : 'Aucun client pour le moment'}
+
+              {/* Infos */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                    {c.nom_commercial}
+                  </p>
+                  {c.raison_sociale && c.raison_sociale !== c.nom_commercial && (
+                    <span className="text-xs truncate hidden sm:inline" style={{ color: 'var(--txt-3)' }}>
+                      ({c.raison_sociale})
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+                  {[c.contact_name, c.ville, c.email].filter(Boolean).join(' · ')}
                 </p>
               </div>
-            )}
-            {filtered.map((c) => {
-              const type = typeInfo(c.type_client)
-              const statut = statutInfo(c.statut)
-              const projCount = projectCounts[c.id] || 0
-              const isActive = panel && panel !== 'create' && panel.id === c.id
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => openEdit(c)}
-                  className="flex items-center gap-4 px-5 py-3.5 cursor-pointer transition-colors"
-                  style={{
-                    borderBottom: '1px solid var(--brd-sub)',
-                    background: isActive ? 'var(--bg-sub)' : 'transparent',
-                  }}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-sub))' }}
-                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
-                >
-                  {/* Avatar initiales */}
-                  <div
-                    className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
-                    style={{ background: type.color + '18', color: type.color }}
+
+              {/* Badges */}
+              <div className="flex items-center gap-2 shrink-0">
+                {projCount > 0 && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium hidden sm:inline"
+                    style={{ background: 'var(--bg-sub)', color: 'var(--txt-2)' }}
                   >
-                    {(c.nom_commercial || '?').slice(0, 2).toUpperCase()}
-                  </div>
+                    {projCount} projet{projCount > 1 ? 's' : ''}
+                  </span>
+                )}
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{ background: type.color + '18', color: type.color }}
+                >
+                  {type.label}
+                </span>
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: statut.color }}
+                  title={statut.label}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-                  {/* Infos */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                        {c.nom_commercial}
-                      </p>
-                      {c.raison_sociale && c.raison_sociale !== c.nom_commercial && (
-                        <span className="text-xs truncate hidden sm:inline" style={{ color: 'var(--txt-3)' }}>
-                          ({c.raison_sociale})
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
-                      {[c.contact_name, c.ville, c.email].filter(Boolean).join(' · ')}
-                    </p>
-                  </div>
-
-                  {/* Badges */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {projCount > 0 && (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{ background: 'var(--bg-sub)', color: 'var(--txt-2)' }}
-                      >
-                        {projCount} projet{projCount > 1 ? 's' : ''}
-                      </span>
-                    )}
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: type.color + '18', color: type.color }}
-                    >
-                      {type.label}
-                    </span>
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: statut.color }}
-                      title={statut.label}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Slide-over */}
-        {panel && (
+      {/* ── Slide-over (overlay) ────────────────────────────────────────────── */}
+      {panel && (
+        <>
+          {/* Backdrop */}
           <div
-            className="w-[480px] shrink-0 rounded-xl overflow-hidden flex flex-col"
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.3)' }}
+            onClick={() => setPanel(null)}
+          />
+
+          {/* Panneau */}
+          <div
+            className="fixed top-0 right-0 h-full z-50 flex flex-col"
             style={{
+              width: '500px',
+              maxWidth: '90vw',
               background: 'var(--bg-surf)',
-              border: '1px solid var(--brd)',
-              maxHeight: 'calc(100vh - 180px)',
+              borderLeft: '1px solid var(--brd)',
+              boxShadow: '-8px 0 30px rgba(0,0,0,0.15)',
             }}
           >
             {/* Header */}
             <div
-              className="flex items-center justify-between px-5 py-3.5 shrink-0"
+              className="flex items-center justify-between px-4 sm:px-6 py-4 shrink-0"
               style={{ borderBottom: '1px solid var(--brd-sub)' }}
             >
-              <h3 className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
+              <h3 className="font-semibold" style={{ color: 'var(--txt)' }}>
                 {panel === 'create' ? 'Nouveau client' : 'Fiche client'}
               </h3>
               <div className="flex items-center gap-1">
@@ -444,14 +454,14 @@ export default function Clients() {
                   className="p-1.5 rounded-lg transition-colors"
                   style={{ color: 'var(--txt-3)' }}
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Navigation sections */}
+            {/* Onglets */}
             <div
-              className="flex gap-0 px-5 shrink-0"
+              className="flex gap-0 px-4 sm:px-6 shrink-0 overflow-x-auto"
               style={{ borderBottom: '1px solid var(--brd-sub)' }}
             >
               {[
@@ -482,7 +492,7 @@ export default function Clients() {
 
             {/* Contenu scrollable */}
             <form onSubmit={save} className="flex-1 overflow-y-auto">
-              <div className="p-5 space-y-4">
+              <div className="p-4 sm:p-6 space-y-4">
 
                 {/* Section Identité */}
                 {activeSection === 'identite' && (
@@ -493,7 +503,7 @@ export default function Clients() {
                         className="input"
                         value={form.nom_commercial}
                         onChange={(e) => { set('nom_commercial', e.target.value); clearField('nom_commercial') }}
-                        placeholder="V and B Fest, TF1 Production…"
+                        placeholder="Nom d'usage"
                       />
                       <FieldError error={errors.nom_commercial} />
                       <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
@@ -506,10 +516,10 @@ export default function Clients() {
                         className="input"
                         value={form.raison_sociale}
                         onChange={(e) => set('raison_sociale', e.target.value)}
-                        placeholder="Association l'Opus Sonore, SAS TF1…"
+                        placeholder="Nom légal (si différent)"
                       />
                       <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
-                        Le nom légal affiché sur les devis et factures
+                        Affiché sur les devis et factures
                       </p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -544,7 +554,7 @@ export default function Clients() {
                         className="input resize-none h-20"
                         value={form.notes}
                         onChange={(e) => set('notes', e.target.value)}
-                        placeholder="Infos utiles sur ce client…"
+                        placeholder="Notes, remarques…"
                       />
                     </div>
                   </>
@@ -560,7 +570,7 @@ export default function Clients() {
                           className="input"
                           value={form.contact_name}
                           onChange={(e) => set('contact_name', e.target.value)}
-                          placeholder="Jean Dupont"
+                          placeholder="Nom et prénom"
                         />
                       </div>
                       <div>
@@ -569,7 +579,7 @@ export default function Clients() {
                           className="input"
                           value={form.contact_fonction}
                           onChange={(e) => set('contact_fonction', e.target.value)}
-                          placeholder="Directeur artistique"
+                          placeholder="Poste occupé"
                         />
                       </div>
                     </div>
@@ -581,7 +591,7 @@ export default function Clients() {
                           className="input"
                           value={form.email}
                           onChange={(e) => { set('email', e.target.value); clearField('email') }}
-                          placeholder="contact@client.fr"
+                          placeholder="email@exemple.fr"
                         />
                         <FieldError error={errors.email} />
                       </div>
@@ -592,7 +602,7 @@ export default function Clients() {
                           className="input"
                           value={form.email_facturation}
                           onChange={(e) => { set('email_facturation', e.target.value); clearField('email_facturation') }}
-                          placeholder="compta@client.fr"
+                          placeholder="compta@exemple.fr"
                         />
                         <FieldError error={errors.email_facturation} />
                       </div>
@@ -603,7 +613,7 @@ export default function Clients() {
                         className="input"
                         value={form.phone}
                         onChange={(e) => { set('phone', e.target.value); clearField('phone') }}
-                        placeholder="+33 1 00 00 00 00"
+                        placeholder="+33 0 00 00 00 00"
                       />
                       <FieldError error={errors.phone} />
                     </div>
@@ -613,7 +623,7 @@ export default function Clients() {
                         className="input"
                         value={form.address}
                         onChange={(e) => set('address', e.target.value)}
-                        placeholder="12 rue de la Paix"
+                        placeholder="Numéro et rue"
                       />
                     </div>
                     <div className="grid grid-cols-3 gap-3">
@@ -623,7 +633,7 @@ export default function Clients() {
                           className="input"
                           value={form.code_postal}
                           onChange={(e) => set('code_postal', e.target.value)}
-                          placeholder="75002"
+                          placeholder="00000"
                         />
                       </div>
                       <div>
@@ -632,7 +642,7 @@ export default function Clients() {
                           className="input"
                           value={form.ville}
                           onChange={(e) => set('ville', e.target.value)}
-                          placeholder="Paris"
+                          placeholder="Ville"
                         />
                       </div>
                       <div>
@@ -641,7 +651,6 @@ export default function Clients() {
                           className="input"
                           value={form.pays}
                           onChange={(e) => set('pays', e.target.value)}
-                          placeholder="France"
                         />
                       </div>
                     </div>
@@ -657,7 +666,7 @@ export default function Clients() {
                         className="input"
                         value={form.siret}
                         onChange={(e) => { set('siret', e.target.value); clearField('siret') }}
-                        placeholder="000 000 000 00000"
+                        placeholder="14 chiffres"
                       />
                       <FieldError error={errors.siret} />
                     </div>
@@ -700,7 +709,7 @@ export default function Clients() {
               {/* Footer : boutons save */}
               {activeSection !== 'projets' && (
                 <div
-                  className="flex justify-end gap-2 px-5 py-3 shrink-0"
+                  className="flex justify-end gap-2 px-4 sm:px-6 py-4 shrink-0"
                   style={{ borderTop: '1px solid var(--brd-sub)' }}
                 >
                   <button type="button" onClick={() => setPanel(null)} className="btn-secondary">
@@ -718,8 +727,8 @@ export default function Clients() {
               )}
             </form>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }

@@ -76,7 +76,7 @@ export default function Projets() {
         .select('*, clients(nom_commercial)')
         .eq('org_id', org.id)
         .order('updated_at', { ascending: false }),
-      supabase.from('clients').select('id, name').eq('org_id', org.id).order('name'),
+      supabase.from('clients').select('id, nom_commercial').eq('org_id', org.id).order('nom_commercial'),
     ])
     if (projRes.error) {
       console.error('[Projets] load projects:', projRes.error)
@@ -247,7 +247,7 @@ export default function Projets() {
   const showArchived = archivedExpanded || (search.trim() !== '' && archivedList.length > 0)
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>
@@ -259,7 +259,7 @@ export default function Projets() {
         </div>
         {isInternal && (
           <button onClick={() => setShowModal(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> Nouveau projet
+            <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Nouveau projet</span>
           </button>
         )}
       </div>
@@ -280,7 +280,7 @@ export default function Projets() {
 
       {/* Toolbar : chips de filtre à gauche, tri + toggle vue à droite */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 overflow-x-auto">
           <FilterChip
             label="Tous"
             count={statusCounts.all}
@@ -532,7 +532,7 @@ function ProjectListView({
       {projects.map((p, i) => (
         <div
           key={p.id}
-          className="flex items-center justify-between px-5 py-3.5 transition-colors group"
+          className="flex items-center justify-between px-3 sm:px-5 py-3 sm:py-3.5 transition-colors group"
           style={{ borderTop: i === 0 ? 'none' : '1px solid var(--brd-sub)' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -555,10 +555,10 @@ function ProjectListView({
               canEdit={isInternal && !archived}
             />
           </div>
-          <span className="text-xs shrink-0 ml-3" style={{ color: 'var(--txt-3)' }}>
+          <span className="text-xs shrink-0 ml-3 hidden sm:inline" style={{ color: 'var(--txt-3)' }}>
             {new Date(p.updated_at).toLocaleDateString('fr-FR')}
           </span>
-          <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1 ml-3 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
             {isAdmin && (
               <button
                 onClick={() => onDelete(p.id)}
@@ -618,7 +618,7 @@ function ProjectGridView({
         <div key={p.id} className="relative group">
           <Link
             to={`/projets/${p.id}`}
-            className="card p-4 transition-all flex flex-col gap-3"
+            className="card p-3 sm:p-4 transition-all flex flex-col gap-3"
             style={{ textDecoration: 'none' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--brd)'
@@ -727,18 +727,27 @@ function ViewToggleButton({ active, onClick, icon: Icon, title }) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">{title}</h3>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+      <div
+        className="rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--brd-sub)' }}
+      >
+        <div
+          className="flex items-center justify-between px-4 sm:px-6 py-4"
+          style={{ borderBottom: '1px solid var(--brd-sub)' }}
+        >
+          <h3 className="font-semibold" style={{ color: 'var(--txt)' }}>{title}</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            className="text-xl leading-none"
+            style={{ color: 'var(--txt-3)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
           >
             ×
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-4 sm:p-6">{children}</div>
       </div>
     </div>
   )
