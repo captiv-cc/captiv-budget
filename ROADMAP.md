@@ -165,7 +165,28 @@ _(rien pour l'instant)_
 
 ## 💡 Idées à creuser
 
-_(rien encore — à remplir au fil de l'eau)_
+### Grilles tarifaires par client (price lists)
+**Ajouté le** : 2026-04-12
+**Priorité** : moyenne (utile dès qu'il y a des clients récurrents avec accords-cadres)
+**Effort estimé** : ~0.5–1 jour
+
+**Objectif** : pouvoir définir des tarifs négociés par client pour certains éléments du catalogue. Lors de la création d'un devis, le système applique automatiquement le tarif client s'il existe, sinon le `tarif_defaut` du catalogue.
+
+**Exemple concret** : ZQSD Productions a négocié un tarif cadreur à 350 €/j au lieu des 400 €/j du catalogue. Quand on crée un devis pour ZQSD et qu'on ajoute "Cadreur", le tarif pré-rempli est 350 € — pas 400 €.
+
+**Implémentation pressentie** :
+- Nouvelle table `tarifs_client` : `id`, `client_id` (FK clients), `produit_id` (FK produits_bdd), `tarif_ht` (numeric), `notes` (text), `created_at`
+- Index unique sur `(client_id, produit_id)` pour éviter les doublons
+- UI côté fiche client : section "Tarifs négociés" avec liste des surcharges + ajout/suppression
+- UI côté catalogue : indicateur discret si l'élément a des tarifs spécifiques (ex: petit badge "2 clients")
+- Logique AddLineModal / ProduitAutocomplete : lookup `tarifs_client` en priorité, fallback `tarif_defaut`
+
+**Prérequis** : catalogue stabilisé + flux devis solide (les deux zones impactées).
+
+**Pistes V2** :
+- Grilles par type de projet (pub vs fiction vs corporate) en plus de par client
+- Import/export des grilles tarifaires en Excel
+- Historique des tarifs (date début / date fin) pour tracer l'évolution
 
 ---
 

@@ -81,7 +81,7 @@ export default function BudgetReelTab() {
         .select('*, contact:contacts(nom, prenom, default_tva)')
         .eq('project_id', projectId),
       supabase.from('budget_reel').select('*').eq('project_id', projectId),
-      supabase.from('fournisseurs').select('*').order('nom'),
+      supabase.from('fournisseurs').select('*').eq('org_id', project.org_id).order('nom'),
     ])
     setCats(cR.data || [])
     setLines(lR.data || [])
@@ -89,7 +89,7 @@ export default function BudgetReelTab() {
     setReel(rR.data || [])
     setFournisseurs(fR.data || [])
     setLoading(false)
-  }, [projectId, refDevis?.id])
+  }, [projectId, refDevis?.id, project?.org_id])
 
   useEffect(() => {
     if (projectId && refDevis?.id) load()
@@ -409,7 +409,7 @@ export default function BudgetReelTab() {
     if (!fId && nomNouveau) {
       const { data, error } = await supabase
         .from('fournisseurs')
-        .insert({ nom: nomNouveau })
+        .insert({ nom: nomNouveau, org_id: project.org_id })
         .select()
         .single()
       if (error) {
@@ -443,10 +443,10 @@ export default function BudgetReelTab() {
   async function selectFournisseur(lineId, fournisseurId, nomNouveau) {
     let fId = fournisseurId
     if (!fId && nomNouveau) {
-      // Créer un nouveau fournisseur global
+      // Créer un nouveau fournisseur scopé à l'org
       const { data, error } = await supabase
         .from('fournisseurs')
-        .insert({ nom: nomNouveau })
+        .insert({ nom: nomNouveau, org_id: project.org_id })
         .select()
         .single()
       if (error) {
