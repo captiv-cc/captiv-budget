@@ -1,9 +1,10 @@
+import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  Home, FolderOpen, Users, Database, Package,
-  LogOut, Settings, BarChart3, Receipt,
-  ChevronRight,
+  Home, FolderOpen, Users, Package,
+  LogOut, Settings, BarChart3, Calculator,
+  PanelLeft,
 } from 'lucide-react'
 
 // ─── Sections de la sidebar ───────────────────────────────────────────────────
@@ -19,43 +20,60 @@ const NAV_BDD = [
 ]
 
 const NAV_FINANCE = [
-  { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
-  { to: '/compta',    icon: Receipt,   label: 'Compta' },
+  { to: '/dashboard', icon: BarChart3,  label: 'Dashboard' },
+  { to: '/compta',    icon: Calculator, label: 'Compta' },
 ]
 
+const ROLE_LABELS = {
+  admin:        'Admin',
+  charge_prod:  'Chargé de prod',
+  coordinateur: 'Coordinateur',
+  prestataire:  'Prestataire',
+}
+
+const STORAGE_KEY = 'captiv:sidebar-collapsed'
+
 // ─── Composants ───────────────────────────────────────────────────────────────
-function SidebarSection({ label }) {
+
+function SidebarSection({ label, collapsed }) {
+  // En mode collapsed, on affiche un fin séparateur horizontal à la place du
+  // label (qui n'aurait plus la place de respirer). Garde la respiration entre
+  // groupes sans encombrer.
+  if (collapsed) {
+    return (
+      <div
+        className="mx-3 my-3"
+        style={{ height: '1px', background: 'var(--brd-sub)' }}
+      />
+    )
+  }
   return (
     <p
-      className="px-3 pt-4 pb-1 text-[10px] font-bold uppercase tracking-widest select-none"
-      style={{ color: 'var(--txt-3)' }}
+      className="px-3 pt-5 pb-1.5 text-[10px] font-semibold uppercase select-none"
+      style={{ color: 'var(--txt-3)', letterSpacing: '0.12em' }}
     >
       {label}
     </p>
   )
 }
 
-function SidebarLink({ to, icon: Icon, label }) {
+function SidebarLink({ to, icon: Icon, label, collapsed }) {
   return (
     <NavLink
       to={to}
       end={to === '/accueil'}
-      className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150"
+      title={collapsed ? label : undefined}
+      className={`flex items-center rounded-lg text-sm font-medium transition-all duration-150 ${
+        collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-3 py-2'
+      }`}
       style={({ isActive }) => isActive
+        // Active : pill plein, sans barre latérale, sans bord
         ? { background: 'var(--blue-bg)', color: 'var(--blue)' }
         : { color: 'var(--txt-2)' }
       }
     >
-      {({ isActive }) => (
-        <>
-          <span
-            className="w-0.5 h-4 rounded-full shrink-0 -ml-1 transition-all"
-            style={{ background: isActive ? 'var(--blue)' : 'transparent' }}
-          />
-          <Icon className="w-4 h-4 shrink-0" />
-          <span className="truncate">{label}</span>
-        </>
-      )}
+      <Icon className="w-4 h-4 shrink-0" />
+      {!collapsed && <span className="truncate">{label}</span>}
     </NavLink>
   )
 }
@@ -68,17 +86,19 @@ function Initials({ name }) {
   return letters.toUpperCase()
 }
 
-const ROLE_LABELS = {
-  admin:        'Admin',
-  charge_prod:  'Chargé de prod',
-  coordinateur: 'Coordinateur',
-  prestataire:  'Prestataire',
-}
-
 // ─── Layout principal ─────────────────────────────────────────────────────────
 export default function Layout() {
-  const { profile, org, role, canSeeFinance, isAdmin, isInternal, signOut } = useAuth()
+  const { profile, role, canSeeFinance, isAdmin, isInternal, signOut } = useAuth()
   const navigate = useNavigate()
+
+  // État collapsed persisté en localStorage
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(STORAGE_KEY) === '1'
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0') } catch (_) {}
+  }, [collapsed])
 
   // Les sections BDD et Finance sont réservées aux rôles internes.
   // Un prestataire ne verra que la section principale (Accueil + Projets).
@@ -94,38 +114,56 @@ export default function Layout() {
 
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
       <aside
-        className="w-56 flex flex-col shrink-0 select-none"
+        className={`flex flex-col shrink-0 select-none transition-[width] duration-200 ${
+          collapsed ? 'w-16' : 'w-56'
+        }`}
         style={{
           background: 'var(--bg-side)',
           borderRight: '1px solid var(--brd-sub)',
         }}
       >
-        {/* Logo */}
-        <div className="px-4 py-3.5" style={{ borderBottom: '1px solid var(--brd-sub)' }}>
-          <img
-            src="/captiv-logo.png"
-            alt="CAPTIV"
-            style={{ height: '26px', width: 'auto', display: 'block' }}
-          />
-          <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>
-            {org?.name || 'Budget AV'}
-          </p>
+        {/* Header — logo + bouton collapse */}
+        <div
+          className={`flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-4'} py-3.5`}
+          style={{ borderBottom: '1px solid var(--brd-sub)', minHeight: '57px' }}
+        >
+          {!collapsed && (
+            <img
+              src="/captiv-logo.png"
+              alt="CAPTIV"
+              style={{ height: '24px', width: 'auto', display: 'block' }}
+            />
+          )}
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? 'Développer la sidebar' : 'Réduire la sidebar'}
+            className="flex items-center justify-center rounded-md transition-all"
+            style={{
+              width: '26px', height: '26px',
+              color: 'var(--txt-3)',
+              background: 'transparent',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--txt)'; e.currentTarget.style.background = 'var(--bg-hov)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-2.5 py-2 overflow-y-auto">
+        <nav className={`flex-1 ${collapsed ? 'px-2' : 'px-2.5'} py-2 overflow-y-auto`}>
 
           {/* Principal */}
           <div className="space-y-0.5">
-            {NAV_MAIN.map(item => <SidebarLink key={item.to} {...item} />)}
+            {NAV_MAIN.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
           </div>
 
           {/* Base de données — interne uniquement */}
           {showBddSection && (
             <>
-              <SidebarSection label="Base de données" />
+              <SidebarSection label="Base de données" collapsed={collapsed} />
               <div className="space-y-0.5">
-                {NAV_BDD.map(item => <SidebarLink key={item.to} {...item} />)}
+                {NAV_BDD.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
               </div>
             </>
           )}
@@ -133,9 +171,9 @@ export default function Layout() {
           {/* Finance — admin & charge_prod uniquement */}
           {canSeeFinance && (
             <>
-              <SidebarSection label="Finance" />
+              <SidebarSection label="Finance" collapsed={collapsed} />
               <div className="space-y-0.5">
-                {NAV_FINANCE.map(item => <SidebarLink key={item.to} {...item} />)}
+                {NAV_FINANCE.map(item => <SidebarLink key={item.to} {...item} collapsed={collapsed} />)}
               </div>
             </>
           )}
@@ -143,49 +181,80 @@ export default function Layout() {
           {/* Paramètres — admin uniquement */}
           {isAdmin && (
             <>
-              <SidebarSection label="Admin" />
+              <SidebarSection label="Admin" collapsed={collapsed} />
               <div className="space-y-0.5">
-                <SidebarLink to="/parametres" icon={Settings} label="Paramètres" />
+                <SidebarLink to="/parametres" icon={Settings} label="Paramètres" collapsed={collapsed} />
               </div>
             </>
           )}
         </nav>
 
-        {/* User footer */}
-        <div className="px-2.5 py-3" style={{ borderTop: '1px solid var(--brd-sub)' }}>
-          {/* Avatar + nom */}
+        {/* User footer — carte unique avec bouton logout intégré (style Jane Cooper) */}
+        <div className={`${collapsed ? 'px-2' : 'px-2.5'} py-3`} style={{ borderTop: '1px solid var(--brd-sub)' }}>
           <div
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg mb-1 cursor-default transition-colors"
+            className={`flex items-center rounded-lg transition-colors ${
+              collapsed ? 'justify-center p-1.5' : 'gap-2.5 px-2 py-2'
+            }`}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
+            {/* Avatar */}
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white"
               style={{ background: 'linear-gradient(135deg, var(--blue), var(--purple))' }}
+              title={collapsed ? `${profile?.full_name || 'Utilisateur'} — ${ROLE_LABELS[role] || role}` : undefined}
             >
               <Initials name={profile?.full_name} />
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                {profile?.full_name || 'Utilisateur'}
-              </p>
-              <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
-                {ROLE_LABELS[role] || role}
-              </p>
-            </div>
+
+            {!collapsed && (
+              <>
+                {/* Nom + rôle */}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                    {profile?.full_name || 'Utilisateur'}
+                  </p>
+                  <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
+                    {ROLE_LABELS[role] || role}
+                  </p>
+                </div>
+
+                {/* Bouton logout aligné à droite */}
+                <button
+                  onClick={handleSignOut}
+                  title="Déconnexion"
+                  className="flex items-center justify-center rounded-md shrink-0 transition-all"
+                  style={{
+                    width: '28px', height: '28px',
+                    color: 'var(--txt-3)',
+                    background: 'transparent',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.background = 'var(--bg-elev)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
           </div>
 
-          {/* Déconnexion */}
-          <button
-            onClick={handleSignOut}
-            className="flex items-center gap-2 w-full px-3 py-1.5 rounded-lg text-xs transition-all duration-150"
-            style={{ color: 'var(--txt-3)' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hov)'; e.currentTarget.style.color = 'var(--red)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--txt-3)' }}
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Déconnexion
-          </button>
+          {/* En collapsed, le bouton logout passe sous l'avatar pour rester accessible */}
+          {collapsed && (
+            <button
+              onClick={handleSignOut}
+              title="Déconnexion"
+              className="flex items-center justify-center rounded-md mt-1 mx-auto transition-all"
+              style={{
+                width: '32px', height: '28px',
+                color: 'var(--txt-3)',
+                background: 'transparent',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.background = 'var(--bg-hov)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </aside>
 
