@@ -72,6 +72,50 @@ _(rien pour l'instant)_
 
 ---
 
+### Light mode + toggle de thème
+**Ajouté le** : 2026-04-12
+**Priorité** : basse (pas urgent — confort visuel)
+**Effort estimé** : ~2h pour Claude (1h30 de code + 30 min de ping-pong visuel avec Hugo)
+
+**Objectif** : permettre à l'utilisateur de basculer entre dark mode (par défaut) et light mode via un bouton dans la sidebar. Persistance localStorage.
+
+**État des lieux** (audit du 2026-04-12) :
+- ✅ La base est saine : `src/index.css` définit ~30 variables CSS dans `:root` (`--bg`, `--bg-surf`, `--bg-elev`, `--txt`, `--txt-2`, `--txt-3`, `--brd`, `--brd-sub`, accents colorés…) et la majorité des composants utilisent `style={{ background: 'var(--bg-surf)' }}`.
+- ⚠️ Trois nids de couplage à nettoyer avant que le light mode soit présentable :
+  1. **~220 classes Tailwind grises hardcodées** (`bg-slate-*`, `text-gray-*`, `text-slate-500`…) sur ~13 fichiers. Elles ne suivent pas les variables → resteront sombres en light mode. Liste des fichiers concernés à récupérer via `grep -rl "bg-slate\|text-slate\|bg-gray\|text-gray" src --include="*.jsx"`.
+  2. **~35 occurrences de `rgba(255,255,255,...)`** (overlays blancs pour hover/borders). Blanc sur blanc en light mode → invisible. À remplacer par un token `--overlay-hover` qui s'inverse selon le thème.
+  3. **~23 occurrences de `rgba(0,0,0,...)`** : pareil mais inversé.
+- Plus quelques hex literals dispersés (`#0d0d0d`, `#3a3a3a`, `#111`) dans `index.css` à remplacer par des variables.
+
+**Plan d'attaque (en deux phases)** :
+
+*Phase 1 — infra (15 min, zéro risque) :*
+- Dupliquer le bloc `:root` de `index.css` en `[data-theme="dark"]` (par défaut) et `[data-theme="light"]` (avec les valeurs inversées)
+- Créer un `ThemeContext` (ou un simple hook `useTheme()`) qui set `document.documentElement.dataset.theme` et persiste dans `localStorage`
+- Ajouter le bouton toggle dans la sidebar (icône Sun/Moon de lucide-react)
+- Dark mode reste par défaut, comportement inchangé tant qu'on ne touche pas au toggle
+
+*Phase 2 — nettoyage (~1h30 + ping-pong visuel) :*
+- Introduire des tokens `--overlay-hover`, `--overlay-press`, `--overlay-brd` dans les deux blocs de variables
+- Search/replace les `rgba(255,255,255,...)` et `rgba(0,0,0,...)` par ces tokens
+- Convertir les ~220 classes Tailwind grises : soit vers `style={{ color: 'var(--txt-3)' }}`, soit en créant des classes utilitaires (`.text-muted`, `.bg-surf`) dans `index.css` qui pointent vers les variables
+- Remplacer les hex literals restants
+- Tester chaque page en alternant les deux thèmes (Hugo doit être présent — Claude ne voit pas le rendu)
+
+**Règles à appliquer dès maintenant** (pour ne pas créer de nouvelle dette) :
+- ❌ **Plus jamais** de `bg-slate-*`, `text-gray-*`, `bg-zinc-*` dans le nouveau code
+- ❌ **Plus jamais** de `rgba(255,255,255,...)` ou `rgba(0,0,0,...)` hardcodé pour les overlays — utiliser une variable CSS
+- ❌ **Plus jamais** de hex literal (`#1a1a1a`) dans le JSX — passer par une variable
+- ✅ Toujours utiliser `style={{ background: 'var(--bg-surf)', color: 'var(--txt)' }}` ou les classes utilitaires dédiées
+- ✅ Pour les couleurs accentuées (vert/rouge/bleu/orange), continuer à utiliser les variables (`var(--green)`, etc.) — elles peuvent garder les mêmes valeurs ou être ajustées dans le bloc `[data-theme="light"]`
+
+**Pistes V2** :
+- Détection auto via `prefers-color-scheme` (suivre la préférence OS)
+- Thème custom utilisateur (sliders pour l'accent principal)
+- "Soft dark" alternatif (anthracite/beige) entre dark et light
+
+---
+
 ### Recherche globale + palette Cmd+K
 **Ajouté le** : 2026-04-11
 **Priorité** : moyenne
