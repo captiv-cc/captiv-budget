@@ -1310,9 +1310,9 @@ function PersonCard({
               <span
                 title="Compte app actif — cette personne peut se connecter"
                 className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
-                style={{ background: 'rgba(16,185,129,.12)', color: '#10b981' }}
+                style={{ background: 'rgba(0,200,117,.12)', color: 'var(--green)' }}
               >
-                <span className="w-1 h-1 rounded-full" style={{ background: '#10b981' }} />
+                <span className="w-1 h-1 rounded-full" style={{ background: 'var(--green)' }} />
                 Compte actif
               </span>
             )}
@@ -1576,7 +1576,7 @@ function PosteFinanceRow({
                     Brut
                     <span
                       className="normal-case text-[9px] px-1 py-0.5 rounded font-semibold"
-                      style={{ background: 'rgba(156,95,253,.12)', color: 'var(--purple)' }}
+                      style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
                     >
                       MovinMotion
                     </span>
@@ -1706,7 +1706,7 @@ function PosteFinanceRow({
                 rel="noreferrer"
                 title="Ouvrir MovinMotion"
                 className="p-1 rounded transition-all"
-                style={{ color: 'rgba(156,95,253,.5)' }}
+                style={{ color: 'rgba(156,95,253,.5)' }} /* opacity variant kept */
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--purple)'
                   e.currentTarget.style.background = 'rgba(156,95,253,.1)'

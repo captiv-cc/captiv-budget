@@ -924,7 +924,7 @@ export default function BDD() {
                   Description devis
                   <span
                     className="ml-1.5 text-[11px] font-normal px-1.5 py-0.5 rounded"
-                    style={{ background: 'rgba(0,122,255,.1)', color: 'var(--blue)' }}
+                    style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
                   >
                     pré-remplie dans la ligne
                   </span>

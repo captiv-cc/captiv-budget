@@ -194,7 +194,7 @@ export default function BlocSearchBar({
                   >
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
-                      style={{ background: 'rgba(156,95,253,.12)', color: 'var(--purple)' }}
+                      style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
                     >
                       CC
                     </span>
@@ -204,7 +204,7 @@ export default function BlocSearchBar({
                     {p.is_specialise && (
                       <span
                         className="text-[10px] px-1 py-0.5 rounded shrink-0"
-                        style={{ background: 'rgba(156,95,253,.08)', color: 'var(--purple)' }}
+                        style={{ background: 'rgba(156,95,253,.08)', color: 'var(--purple)' }} /* opacity variant kept */
                       >
                         spécialisé
                       </span>

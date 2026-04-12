@@ -304,7 +304,7 @@ function TemplateCard({
             {tpl.base_template_id && !tpl.is_system && (
               <span
                 className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                style={{ background: 'rgba(139,92,246,.15)', color: 'var(--purple)' }}
+                style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
               >
                 Override
               </span>
@@ -338,9 +338,9 @@ function TemplateCard({
           const level = p.edit ? 'edit' : p.comment ? 'comment' : p.read ? 'read' : null
           if (!level) return null
           const colors = {
-            read: { bg: 'rgba(0,122,255,.12)', color: 'var(--blue)' },
-            comment: { bg: 'rgba(245,158,11,.15)', color: 'var(--orange)' },
-            edit: { bg: 'rgba(0,200,117,.15)', color: 'var(--green)' },
+            read: { bg: 'var(--blue-bg)', color: 'var(--blue)' },
+            comment: { bg: 'var(--orange-bg)', color: 'var(--orange)' },
+            edit: { bg: 'var(--green-bg)', color: 'var(--green)' },
           }
           return (
             <span
@@ -367,7 +367,7 @@ function TemplateCard({
               disabled={busy}
               onClick={onEdit}
               className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md"
-              style={{ background: 'rgba(0,122,255,.1)', color: 'var(--blue)' }}
+              style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
             >
               <Edit3 className="w-3.5 h-3.5" /> Éditer
             </button>
@@ -392,7 +392,7 @@ function TemplateCard({
             disabled={busy}
             onClick={onClone}
             className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md"
-            style={{ background: 'rgba(139,92,246,.12)', color: 'var(--purple)' }}
+            style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
           >
             <Copy className="w-3.5 h-3.5" /> Personnaliser
           </button>

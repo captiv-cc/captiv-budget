@@ -26,7 +26,7 @@ export default function ProductionTab() {
       <div className="flex items-center gap-3 mb-8">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ background: 'rgba(156,95,253,.12)' }}
+          style={{ background: 'var(--purple-bg)' }}
         >
           <Clapperboard className="w-5 h-5" style={{ color: 'var(--purple)' }} />
         </div>
@@ -40,7 +40,7 @@ export default function ProductionTab() {
         </div>
         <span
           className="ml-auto text-xs px-3 py-1 rounded-full font-medium"
-          style={{ background: 'rgba(255,159,10,.15)', color: 'var(--amber)' }}
+          style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
         >
           En développement
         </span>

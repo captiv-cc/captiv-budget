@@ -236,9 +236,9 @@ export default function AcceptInvite() {
           <div className="flex flex-col items-center gap-3 py-8 text-center">
             <div
               className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(16,185,129,.15)' }}
+              style={{ background: 'var(--green-bg)' }}
             >
-              <Check className="w-5 h-5" style={{ color: '#10b981' }} />
+              <Check className="w-5 h-5" style={{ color: 'var(--green)' }} />
             </div>
             <p className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
               Compte activé !

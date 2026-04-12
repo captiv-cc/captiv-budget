@@ -509,7 +509,7 @@ function ContactCard({ contact: c, projCount, pendingInvite, onEdit, onDelete })
         {c.user_id && !pendingInvite && (
           <span
             className="text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap inline-flex items-center gap-1"
-            style={{ background: 'rgba(16,185,129,.12)', color: '#10b981' }}
+            style={{ background: 'rgba(0,200,117,.12)', color: 'var(--green)' }}
             title="Ce contact est lié à un compte app"
           >
             <Link2 className="w-2.5 h-2.5" />
@@ -519,7 +519,7 @@ function ContactCard({ contact: c, projCount, pendingInvite, onEdit, onDelete })
         {c.user_id && pendingInvite && (
           <span
             className="text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap inline-flex items-center gap-1"
-            style={{ background: 'rgba(255,159,10,.12)', color: '#ff9f0a' }}
+            style={{ background: 'rgba(255,159,10,.12)', color: 'var(--orange)' }}
             title={`Invitation envoyée le ${new Date(pendingInvite.invited_at).toLocaleDateString('fr-FR')}${pendingInvite.resend_count > 0 ? ` · ${pendingInvite.resend_count} relance${pendingInvite.resend_count > 1 ? 's' : ''}` : ''}`}
           >
             <Send className="w-2.5 h-2.5" />
@@ -611,7 +611,7 @@ function ContactRow({ contact: c, projCount, pendingInvite, onEdit, onDelete }) 
           <span
             title="Compte app lié"
             className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}
+            style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
           >
             <Link2 className="w-2.5 h-2.5" />
           </span>
@@ -620,7 +620,7 @@ function ContactRow({ contact: c, projCount, pendingInvite, onEdit, onDelete }) 
           <span
             title={`Invitation en attente (envoyée le ${new Date(pendingInvite.invited_at).toLocaleDateString('fr-FR')})`}
             className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(255,159,10,.15)', color: '#ff9f0a' }}
+            style={{ background: 'var(--orange-bg)', color: 'var(--orange)' }}
           >
             <Send className="w-2.5 h-2.5" />
           </span>
@@ -642,7 +642,7 @@ function ContactRow({ contact: c, projCount, pendingInvite, onEdit, onDelete }) 
         {projCount > 0 ? (
           <span
             className="text-[11px] px-2 py-0.5 rounded-full font-medium"
-            style={{ background: 'rgba(59,130,246,.12)', color: 'var(--blue)' }}
+            style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
           >
             {projCount} proj.
           </span>
@@ -806,7 +806,7 @@ function ContactModal({
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-50 p-4"
-      style={{ background: 'rgba(0,0,0,.6)' }}
+      style={{ background: 'rgba(0,0,0,.6)' }} /* shadows/overlays OK */
     >
       <div
         className="w-full max-w-lg flex flex-col max-h-[90vh] rounded-2xl shadow-2xl"
@@ -1050,7 +1050,7 @@ function ContactModal({
               {/* Lien généré (mode link) */}
               {inviteLink && (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] font-medium" style={{ color: '#10b981' }}>
+                  <p className="text-[11px] font-medium" style={{ color: 'var(--green)' }}>
                     ✓ Lien d&apos;invitation généré — copié dans le presse-papier
                   </p>
                   <div className="flex gap-1.5">
@@ -1097,7 +1097,7 @@ function ContactModal({
                   className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
                   style={{ background: 'rgba(255,159,10,.15)' }}
                 >
-                  <Send className="w-3 h-3" style={{ color: '#ff9f0a' }} />
+                  <Send className="w-3 h-3" style={{ color: 'var(--orange)' }} />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
@@ -1134,7 +1134,7 @@ function ContactModal({
                   onClick={() => sendInvite('email', true)}
                   disabled={Boolean(inviting) || !form.email}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-opacity disabled:opacity-50"
-                  style={{ background: '#ff9f0a', color: 'white' }}
+                  style={{ background: 'var(--orange)', color: 'white' }}
                   title="Renvoyer l'invitation par email"
                 >
                   {inviting === 'email' ? (
@@ -1167,7 +1167,7 @@ function ContactModal({
 
               {inviteLink && (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] font-medium" style={{ color: '#10b981' }}>
+                  <p className="text-[11px] font-medium" style={{ color: 'var(--green)' }}>
                     ✓ Nouveau lien généré — copié dans le presse-papier
                   </p>
                   <div className="flex gap-1.5">

@@ -95,7 +95,7 @@ export default function BlocFooter({
       {resteBloc > 0 && (
         <span
           className="ml-auto px-2 py-0.5 rounded-md font-semibold whitespace-nowrap"
-          style={{ background: 'rgba(255,59,48,.1)', color: 'var(--red)', fontSize: 10 }}
+          style={{ background: 'var(--red-bg)', color: 'var(--red)', fontSize: 10 }}
         >
           Reste {fmtEur(resteBloc)}
         </span>
@@ -103,7 +103,7 @@ export default function BlocFooter({
       {resteBloc === 0 && reelBloc > 0 && (
         <span
           className="ml-auto px-2 py-0.5 rounded-md font-semibold flex items-center gap-1 whitespace-nowrap"
-          style={{ background: 'rgba(0,200,117,.1)', color: 'var(--green)', fontSize: 10 }}
+          style={{ background: 'var(--green-bg)', color: 'var(--green)', fontSize: 10 }}
         >
           <Check className="w-2.5 h-2.5" /> Tout réglé
         </span>

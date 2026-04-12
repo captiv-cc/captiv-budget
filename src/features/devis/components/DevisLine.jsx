@@ -223,7 +223,7 @@ export default function DevisLine({
             {line.regime === 'Ext. Intermittent' && c.chargesPat > 0 && (
               <div
                 className="text-[9px] tabular-nums leading-none whitespace-nowrap pr-2"
-                style={{ color: 'var(--purple, #7c3aed)', opacity: 0.7 }}
+                style={{ color: 'var(--purple)', opacity: 0.7 }}
                 title="Cotisations patronales estimées (67% × brut)"
               >
                 +{fmtEur(c.chargesPat)} charg.

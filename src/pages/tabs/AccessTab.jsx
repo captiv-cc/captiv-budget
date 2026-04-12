@@ -858,7 +858,7 @@ function AddAccessModal({
               {tplAutoPicked && (
                 <span
                   className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                  style={{ background: 'rgba(16,185,129,.15)', color: '#10b981' }}
+                  style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
                 >
                   Auto
                 </span>

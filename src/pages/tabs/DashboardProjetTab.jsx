@@ -574,7 +574,7 @@ export default function DashboardProjetTab() {
                           {isRef && (
                             <span
                               className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
-                              style={{ background: 'rgba(0,200,117,.15)', color: 'var(--green)' }}
+                              style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
                             >
                               réf.
                             </span>

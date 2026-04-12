@@ -839,7 +839,7 @@ export default function BudgetReelTab() {
                         <td
                           colSpan={5}
                           className="px-4 py-1.5 text-center text-[10px] italic"
-                          style={{ color: 'var(--txt-3)', background: 'rgba(0,122,255,.04)' }}
+                          style={{ color: 'var(--txt-3)', background: 'rgba(0,122,255,.04)' }} /* light opacity variant kept */
                         >
                           {nbMasquees} ligne{nbMasquees > 1 ? 's' : ''} masquée
                           {nbMasquees > 1 ? 's' : ''} par les filtres actifs

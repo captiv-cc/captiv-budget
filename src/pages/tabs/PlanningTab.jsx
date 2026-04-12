@@ -41,7 +41,7 @@ export default function PlanningTab() {
         </div>
         <span
           className="ml-auto text-xs px-3 py-1 rounded-full font-medium"
-          style={{ background: 'rgba(255,159,10,.15)', color: 'var(--amber)' }}
+          style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
         >
           En développement
         </span>

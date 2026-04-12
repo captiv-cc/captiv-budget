@@ -969,7 +969,7 @@ export default function FacturesTab() {
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: 'rgba(59,130,246,.12)' }}
+            style={{ background: 'var(--blue-bg)' }}
           >
             <Receipt className="w-4.5 h-4.5" style={{ color: 'var(--blue)' }} />
           </div>

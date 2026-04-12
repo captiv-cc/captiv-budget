@@ -290,7 +290,7 @@ export default function AddLineModal({
                   {isSpec && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(156,95,253,.15)', color: 'var(--purple)' }}
+                      style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
                     >
                       spécialisé
                     </span>
@@ -378,7 +378,7 @@ export default function AddLineModal({
                           {p.is_specialise && (
                             <span
                               className="text-[10px] px-1.5 py-0.5 rounded"
-                              style={{ background: 'rgba(156,95,253,.12)', color: 'var(--purple)' }}
+                              style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
                             >
                               spécialisé
                             </span>
