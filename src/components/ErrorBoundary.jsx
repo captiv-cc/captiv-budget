@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
+import { captureError } from '../lib/sentry'
 
 /**
  * ErrorBoundary global — attrape les erreurs JavaScript non gérées
@@ -29,8 +30,8 @@ export default class ErrorBoundary extends Component {
     console.error('[ErrorBoundary] Crash React capturé:', error, errorInfo)
     this.setState({ errorInfo })
 
-    // TODO(chantier 4): brancher Sentry ici
-    // if (window.Sentry) window.Sentry.captureException(error, { contexts: { react: errorInfo }})
+    // Report vers Sentry (no-op si DSN absent)
+    captureError(error, { componentStack: errorInfo?.componentStack })
   }
 
   handleReload = () => {
