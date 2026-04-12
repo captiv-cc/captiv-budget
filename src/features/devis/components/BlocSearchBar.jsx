@@ -17,7 +17,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Search, X, Users, Database } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
-import { normalizeRegime } from '../constants'
+import { regimeFromProduit } from '../constants'
 
 export default function BlocSearchBar({
   bdd,
@@ -97,10 +97,14 @@ export default function BlocSearchBar({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Fermeture au scroll (le dropdown fixe ne suit pas le scroll de la table)
+  // Fermeture au scroll EXTÉRIEUR (le dropdown fixe ne suit pas le scroll de la table)
+  // On ignore les scrolls à l'intérieur du dropdown lui-même pour permettre le défilement des résultats
   useEffect(() => {
     if (!open) return
-    const handler = () => setOpen(false)
+    const handler = (e) => {
+      if (dropdownRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
     window.addEventListener('scroll', handler, true)
     return () => window.removeEventListener('scroll', handler, true)
   }, [open])
@@ -116,10 +120,10 @@ export default function BlocSearchBar({
     onAddDirect({
       produit: p.produit,
       description: p.description || '',
-      regime: normalizeRegime(p.regime) || defaultRegime,
+      regime: regimeFromProduit(p) || defaultRegime,
       unite: p.unite || 'F',
       tarif_ht: Number(p.tarif_defaut) || 0,
-      cout_ht: 0,
+      cout_ht: null,
       quantite: 1,
     })
   }

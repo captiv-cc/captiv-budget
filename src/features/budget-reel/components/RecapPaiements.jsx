@@ -1,16 +1,15 @@
 /**
  * RecapPaiements — section Récap Paiements en bas du Budget Réel.
  *
- * Regroupe les lignes du devis par personne (membres équipe humains) et par
- * fournisseur (lignes liées via devis_lines.fournisseur_id + additifs avec
- * fournisseur texte). Pour chaque groupe, affiche une carte avec :
- *   - PersonGroupCard : Prévu / Réel total éditable, Payé, TVA, détail postes
- *   - FournisseurGroupCard : Budget prévu / Montant facture, Payé, TVA, détail
- *
- * Extrait de BudgetReelTab.jsx — chantier refacto.
+ * v3 — UX compacte, liste unique :
+ *   • Barre résumé en haut (personnes, fournisseurs, total dû, reste)
+ *   • Liste unique : personnes puis fournisseurs, non-payés en premier
+ *   • Header colonnes (Prévu / Facturé / Statut)
+ *   • Lignes dépliables au clic (détail postes, TVA, payé)
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { ChevronDown, ChevronRight, Users, Building2 } from 'lucide-react'
 import { CATS_HUMAINS, fmtEur } from '../../../lib/cotisations'
 import TvaPicker from '../../../components/TvaPicker'
 import { memberName, refCout } from '../utils'
@@ -31,6 +30,7 @@ export default function RecapPaiements({
   onSaveFournisseurGroupTva,
 }) {
   const fournisseurMap = Object.fromEntries((fournisseurs || []).map((f) => [f.id, f]))
+
   // ─── Groupes Personnes ─────────────────────────────────────────────────────
   const personGroups = (() => {
     const groups = new Map()
@@ -51,8 +51,6 @@ export default function RecapPaiements({
   })()
 
   // ─── Groupes Fournisseurs ──────────────────────────────────────────────────
-  // Lignes liées à un fournisseur via devis_lines.fournisseur_id
-  // + additifs avec fournisseur texte (backward compat)
   const fournisseurGroups = (() => {
     const groups = new Map()
     const personLineIds = new Set(personGroups.flatMap((g) => g.lineIds))
@@ -74,7 +72,6 @@ export default function RecapPaiements({
           coutPrevu: cp,
         })
     }
-    // Additifs avec fournisseur texte libre (non lié à la table fournisseurs)
     for (const a of reel.filter((r) => r.is_additif && r.fournisseur?.trim())) {
       const f = a.fournisseur.trim()
       const textKey = `text:${f}`
@@ -88,9 +85,54 @@ export default function RecapPaiements({
 
   if (personGroups.length === 0 && fournisseurGroups.length === 0) return null
 
+  // ─── Helpers pour trier : non-payés d'abord ────────────────────────────────
+  const isPersonPaid = (g) => g.lineIds.length > 0 && g.lineIds.every((id) => reelByLine[id]?.paye)
+  const isFournisseurPaid = (g) => g.items.length > 0 && g.items.every((it) => it.entry?.paye)
+
+  const sortedPersons = [...personGroups].sort((a, b) => {
+    const pa = isPersonPaid(a) ? 1 : 0
+    const pb = isPersonPaid(b) ? 1 : 0
+    return pa - pb
+  })
+  const sortedFournisseurs = [...fournisseurGroups].sort((a, b) => {
+    const pa = isFournisseurPaid(a) ? 1 : 0
+    const pb = isFournisseurPaid(b) ? 1 : 0
+    return pa - pb
+  })
+
+  // ─── Totaux résumé ─────────────────────────────────────────────────────────
+  const totalDuPersonnes = personGroups.reduce((s, g) => {
+    return s + g.lineIds.reduce((ss, id, i) => ss + (reelByLine[id]?.montant_ht ?? g.coutPrevus[i]), 0)
+  }, 0)
+  const totalPayePersonnes = personGroups.reduce((s, g) => {
+    return s + g.lineIds.reduce((ss, id, i) => {
+      return ss + (reelByLine[id]?.paye ? (reelByLine[id]?.montant_ht ?? g.coutPrevus[i]) : 0)
+    }, 0)
+  }, 0)
+  const totalDuFournisseurs = fournisseurGroups.reduce(
+    (s, g) => s + g.items.reduce((ss, it) => ss + (it.entry?.montant_ht || 0), 0),
+    0,
+  )
+  const totalPayeFournisseurs = fournisseurGroups.reduce(
+    (s, g) =>
+      s + g.items.reduce((ss, it) => ss + (it.entry?.paye ? (it.entry?.montant_ht || 0) : 0), 0),
+    0,
+  )
+  const totalDu = totalDuPersonnes + totalDuFournisseurs
+  const totalPaye = totalPayePersonnes + totalPayeFournisseurs
+  const resteRegler = totalDu - totalPaye
+
+  const nbPaid = personGroups.filter(isPersonPaid).length + fournisseurGroups.filter(isFournisseurPaid).length
+  const nbTotal = personGroups.length + fournisseurGroups.length
+
+  // Index de la première ligne payée (pour le séparateur visuel)
+  const firstPaidPersonIdx = sortedPersons.findIndex(isPersonPaid)
+  const firstPaidFournisseurIdx = sortedFournisseurs.findIndex(isFournisseurPaid)
+
   return (
-    <div className="mt-2 space-y-6 pb-6">
-      <div className="flex items-center gap-3 pt-4" style={{ borderTop: '2px solid var(--brd)' }}>
+    <div className="mt-2 pb-6">
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 pt-4 mb-3" style={{ borderTop: '2px solid var(--brd)' }}>
         <span
           className="text-[11px] font-bold uppercase tracking-widest"
           style={{ color: 'var(--txt-3)' }}
@@ -100,55 +142,168 @@ export default function RecapPaiements({
         <span style={{ flex: 1, height: 1, background: 'var(--brd)' }} />
       </div>
 
-      {/* Personnes */}
-      {personGroups.length > 0 && (
-        <div className="space-y-3">
-          <p
-            className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: 'var(--purple)' }}
-          >
-            Personnes
-          </p>
-          {personGroups.map((g) => (
-            <PersonGroupCard
-              key={g.key}
-              group={g}
-              reelByLine={reelByLine}
-              onSaveGroupTotal={onSaveGroupTotal}
-              onSaveGroupPaid={onSaveGroupPaid}
-              onSaveGroupTva={onSaveGroupTva}
-            />
-          ))}
+      {/* ── Barre résumé ──────────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-5 px-4 py-2.5 rounded-lg mb-4"
+        style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)' }}
+      >
+        <SummaryChip
+          icon={<Users className="w-3 h-3" />}
+          label="Personnes"
+          count={personGroups.length}
+          color="var(--purple)"
+        />
+        <SummaryChip
+          icon={<Building2 className="w-3 h-3" />}
+          label="Fournisseurs"
+          count={fournisseurGroups.length}
+          color="var(--amber)"
+        />
+        <span style={{ width: 1, height: 20, background: 'var(--brd)' }} />
+        <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+          Total dû{' '}
+          <span className="font-bold tabular-nums text-xs" style={{ color: 'var(--txt)' }}>
+            {fmtEur(totalDu)}
+          </span>
         </div>
-      )}
+        <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+          Payé{' '}
+          <span className="font-bold tabular-nums text-xs" style={{ color: 'var(--green)' }}>
+            {fmtEur(totalPaye)}
+          </span>
+        </div>
+        {resteRegler > 0.01 && (
+          <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            Reste{' '}
+            <span className="font-bold tabular-nums text-xs" style={{ color: 'var(--amber)' }}>
+              {fmtEur(resteRegler)}
+            </span>
+          </div>
+        )}
+        <span className="ml-auto text-[10px] tabular-nums" style={{ color: 'var(--txt-3)' }}>
+          {nbPaid}/{nbTotal} payés
+        </span>
+      </div>
 
-      {/* Fournisseurs */}
-      {fournisseurGroups.length > 0 && (
-        <div className="space-y-3">
-          <p
-            className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: 'var(--amber)' }}
-          >
-            Fournisseurs
-          </p>
-          {fournisseurGroups.map((g) => (
-            <FournisseurGroupCard
-              key={g.key}
-              group={g}
-              onSaveFournisseurGroupTotal={onSaveFournisseurGroupTotal}
-              onSaveFournisseurGroupPaid={onSaveFournisseurGroupPaid}
-              onSaveFournisseurGroupTva={onSaveFournisseurGroupTva}
-            />
-          ))}
+      {/* ── Tableau unique ─────────────────────────────────────────────── */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}
+      >
+        {/* Header colonnes */}
+        <div
+          className="flex items-center gap-3 px-4 py-1.5"
+          style={{ background: 'var(--bg-elev)', borderBottom: '1px solid var(--brd)' }}
+        >
+          <span style={{ width: 14 }} />
+          <span className="flex-1 text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--txt-3)' }}>
+            Nom
+          </span>
+          <span className="text-[9px] font-bold uppercase tracking-widest tabular-nums" style={{ color: 'var(--txt-3)', minWidth: 80, textAlign: 'right' }}>
+            Prévu
+          </span>
+          <span className="text-[9px] font-bold uppercase tracking-widest tabular-nums" style={{ color: 'var(--txt-3)', minWidth: 80, textAlign: 'right' }}>
+            Facturé
+          </span>
+          <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--txt-3)', minWidth: 55, textAlign: 'center' }}>
+            Statut
+          </span>
         </div>
-      )}
+
+        {/* Section Personnes */}
+        {sortedPersons.length > 0 && (
+          <>
+            <SectionLabel icon={<Users className="w-3 h-3" />} label="Personnes" color="var(--purple)" />
+            {sortedPersons.map((g, i) => (
+              <PersonRow
+                key={g.key}
+                group={g}
+                reelByLine={reelByLine}
+                onSaveGroupTotal={onSaveGroupTotal}
+                onSaveGroupPaid={onSaveGroupPaid}
+                onSaveGroupTva={onSaveGroupTva}
+                isPaid={isPersonPaid(g)}
+                showPaidSeparator={i === firstPaidPersonIdx && i > 0}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Section Fournisseurs */}
+        {sortedFournisseurs.length > 0 && (
+          <>
+            <SectionLabel icon={<Building2 className="w-3 h-3" />} label="Fournisseurs" color="var(--amber)" />
+            {sortedFournisseurs.map((g, i) => (
+              <FournisseurRow
+                key={g.key}
+                group={g}
+                onSaveFournisseurGroupTotal={onSaveFournisseurGroupTotal}
+                onSaveFournisseurGroupPaid={onSaveFournisseurGroupPaid}
+                onSaveFournisseurGroupTva={onSaveFournisseurGroupTva}
+                isPaid={isFournisseurPaid(g)}
+                showPaidSeparator={i === firstPaidFournisseurIdx && i > 0}
+              />
+            ))}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
-// ─── Carte Groupe Personne ──────────────────────────────────────────────────
-function PersonGroupCard({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid, onSaveGroupTva }) {
+// ─── Chip résumé ──────────────────────────────────────────────────────────
+function SummaryChip({ icon, label, count, color }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span style={{ color }}>{icon}</span>
+      <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+        {label}
+      </span>
+      <span
+        className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded"
+        style={{ background: `${color}18`, color }}
+      >
+        {count}
+      </span>
+    </div>
+  )
+}
+
+// ─── Séparateur de section (Personnes / Fournisseurs) ────────────────────
+function SectionLabel({ icon, label, color }) {
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-1.5"
+      style={{ background: 'var(--bg)', borderBottom: '1px solid var(--brd-sub)' }}
+    >
+      <span style={{ color }}>{icon}</span>
+      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color }}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+// ─── Séparateur "Déjà réglés" ────────────────────────────────────────────
+function PaidSeparator() {
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-1"
+      style={{ background: 'rgba(74,222,128,.04)' }}
+    >
+      <span style={{ flex: 1, height: 1, background: 'rgba(74,222,128,.15)' }} />
+      <span className="text-[9px] font-semibold uppercase tracking-widest" style={{ color: 'var(--green)', opacity: 0.5 }}>
+        Déjà réglés
+      </span>
+      <span style={{ flex: 1, height: 1, background: 'rgba(74,222,128,.15)' }} />
+    </div>
+  )
+}
+
+// ─── Ligne compacte Personne (dépliable) ────────────────────────────────────
+function PersonRow({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid, onSaveGroupTva, isPaid, showPaidSeparator }) {
   const { name, lineIds, postes, coutPrevus } = group
+  const [open, setOpen] = useState(false)
   const inputRef = useRef(null)
   const [editing, setEditing] = useState(false)
   const [totalVal, setTotalVal] = useState('')
@@ -156,23 +311,16 @@ function PersonGroupCard({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid,
   const totalPrevu = coutPrevus.reduce((s, c) => s + c, 0)
   const currentReels = lineIds.map((id, i) => reelByLine[id]?.montant_ht ?? coutPrevus[i])
   const totalReel = currentReels.reduce((s, v) => s + v, 0)
-  const allPaid = lineIds.length > 0 && lineIds.every((id) => reelByLine[id]?.paye)
   const ecart = totalReel - totalPrevu
 
-  // TVA commune au groupe : si toutes les entrées partagent le même taux on l'affiche,
-  // sinon on prend la première (l'utilisateur peut la propager via le picker)
   const tvaRates = lineIds.map((id) => reelByLine[id]?.tva_rate).filter((v) => v != null)
   const groupTva = tvaRates.length > 0 ? tvaRates[0] : 0
-  const tvaMixed = tvaRates.length > 1 && tvaRates.some((v) => v !== groupTva)
 
-  // Dédoublonne les postes en comptant les occurrences (même nom de poste = ×N)
-  const posteCounts = postes.reduce((acc, p) => {
-    acc[p] = (acc[p] || 0) + 1
-    return acc
-  }, {})
-  const uniquePostes = Object.entries(posteCounts) // [[name, count], …]
+  const posteCounts = postes.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc }, {})
+  const uniquePostes = Object.entries(posteCounts)
 
-  function startEdit() {
+  function startEdit(e) {
+    e.stopPropagation()
     setTotalVal(String(Math.round(totalReel * 100) / 100))
     setEditing(true)
     setTimeout(() => inputRef.current?.select(), 0)
@@ -184,65 +332,58 @@ function PersonGroupCard({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid,
     setEditing(false)
   }
 
+  const rowOpacity = isPaid ? 0.5 : 1
+
   return (
-    <div
-      className="rounded-xl px-4 py-3"
-      style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}
-    >
-      <div className="flex items-start gap-4">
-        {/* Infos */}
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-            {name || '—'}
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {uniquePostes.map(([p, n]) => (
-              <span
-                key={p}
-                style={{
-                  fontSize: 9,
-                  padding: '1px 6px',
-                  borderRadius: 4,
-                  fontWeight: 600,
-                  background: 'rgba(156,95,253,.1)',
-                  color: 'var(--purple)',
-                }}
-              >
-                {p}
-                {n > 1 && <span style={{ opacity: 0.7, marginLeft: 4 }}>× {n}</span>}
+    <>
+      {showPaidSeparator && <PaidSeparator />}
+      <div style={{ borderBottom: '1px solid var(--brd-sub)', opacity: rowOpacity }}>
+        {/* Ligne compacte */}
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors"
+          onClick={() => setOpen((p) => !p)}
+          onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,.015)' }}
+          onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent' }}
+          style={{ background: open ? 'rgba(255,255,255,.02)' : 'transparent' }}
+        >
+          <span style={{ color: 'var(--txt-3)', width: 14, flexShrink: 0 }}>
+            {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-xs truncate" style={{ color: 'var(--txt)' }}>
+                {name || '—'}
               </span>
-            ))}
+              <span className="text-[9px] truncate" style={{ color: 'var(--purple)', opacity: 0.8 }}>
+                {uniquePostes.map(([p, n]) => n > 1 ? `${p} ×${n}` : p).join(', ')}
+              </span>
+            </div>
           </div>
-        </div>
 
-        {/* Chiffres */}
-        <div className="flex items-center gap-5 shrink-0">
           {/* Prévu */}
-          <div className="text-right">
-            <p
-              className="text-[9px] uppercase tracking-wide mb-0.5"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              Prévu
-            </p>
-            <p className="font-semibold tabular-nums text-sm" style={{ color: 'var(--amber)' }}>
-              {fmtEur(totalPrevu)}
-            </p>
-          </div>
+          <span
+            className="text-xs tabular-nums font-medium shrink-0"
+            style={{ color: 'var(--txt-3)', minWidth: 80, textAlign: 'right' }}
+          >
+            {fmtEur(totalPrevu)}
+          </span>
 
-          {/* Réel total — cliquable pour éditer */}
-          <div className="text-right">
-            <p
-              className="text-[9px] uppercase tracking-wide mb-0.5"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              Réel total {lineIds.length > 1 ? `(${lineIds.length} postes)` : ''}
-            </p>
+          {/* Facturé */}
+          <span
+            className="text-xs tabular-nums font-bold shrink-0"
+            style={{
+              minWidth: 80,
+              textAlign: 'right',
+              color: Math.abs(ecart) < 0.01 ? 'var(--txt)' : ecart > 0 ? 'var(--red)' : 'var(--green)',
+            }}
+          >
             {editing ? (
               <input
                 ref={inputRef}
                 type="number"
                 value={totalVal}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setTotalVal(e.target.value)}
                 onBlur={commitEdit}
                 onKeyDown={(e) => {
@@ -250,168 +391,124 @@ function PersonGroupCard({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid,
                   if (e.key === 'Escape') setEditing(false)
                 }}
                 style={{
-                  width: 100,
+                  width: 80,
                   textAlign: 'right',
                   background: 'var(--bg-elev)',
                   border: '1px solid var(--purple)',
-                  borderRadius: 6,
+                  borderRadius: 4,
                   color: 'var(--txt)',
-                  padding: '2px 6px',
-                  fontSize: 13,
+                  padding: '1px 4px',
+                  fontSize: 12,
                   fontWeight: 700,
                   outline: 'none',
                 }}
                 step="0.01"
-                placeholder="0.00"
               />
             ) : (
-              <p
-                className="font-bold tabular-nums text-sm cursor-text"
-                onClick={startEdit}
-                title="Cliquer pour saisir le total réel — distribué proportionnellement"
-                style={{
-                  color:
-                    Math.abs(ecart) < 0.01
-                      ? 'var(--txt)'
-                      : ecart > 0
-                        ? 'var(--red)'
-                        : 'var(--green)',
-                }}
-              >
+              <span onClick={startEdit} className="cursor-text" title="Modifier le total réel">
                 {fmtEur(totalReel)}
-                {Math.abs(ecart) > 0.01 && (
-                  <span style={{ fontSize: 9, display: 'block', opacity: 0.75 }}>
-                    {ecart > 0 ? '+' : ''}
-                    {fmtEur(ecart)} vs prévu
-                  </span>
-                )}
-              </p>
+              </span>
             )}
-          </div>
+          </span>
 
-          {/* Payé */}
-          <div className="text-center">
-            <p
-              className="text-[9px] uppercase tracking-wide mb-1"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              Payé
-            </p>
-            <Checkbox
-              checked={allPaid}
-              onChange={(v) => onSaveGroupPaid(lineIds, v)}
-              color="green"
-            />
-          </div>
+          {/* Statut */}
+          <span
+            className="text-[10px] font-semibold shrink-0"
+            style={{
+              minWidth: 55,
+              textAlign: 'center',
+              color: isPaid ? 'var(--green)' : totalReel > 0.01 ? 'var(--amber)' : 'var(--txt-3)',
+            }}
+          >
+            {isPaid ? '✓ Payé' : totalReel > 0.01 ? 'À payer' : '—'}
+          </span>
         </div>
-      </div>
 
-      {/* Ligne TVA — propage à toutes les entrées du groupe */}
-      <div
-        className="mt-2 pt-2 flex items-center justify-between gap-3"
-        style={{ borderTop: '1px solid var(--brd-sub)' }}
-      >
-        <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
-          TVA {tvaMixed && <span style={{ color: 'var(--amber)' }}>· mixte</span>}
-        </span>
-        <TvaPicker
-          value={groupTva}
-          onChange={(v) => onSaveGroupTva(lineIds, v)}
-          label={null}
-          compact
-        />
-      </div>
+        {/* Détail déplié */}
+        {open && (
+          <div className="px-4 pb-3 pt-1 ml-5" style={{ borderTop: '1px solid var(--brd-sub)' }}>
+            {lineIds.length > 1 && (() => {
+              const seen = {}
+              return (
+                <div className="space-y-0.5 mb-2">
+                  {lineIds.map((id, i) => {
+                    const r = reelByLine[id]?.montant_ht ?? coutPrevus[i]
+                    const paid = reelByLine[id]?.paye
+                    const n = postes[i]
+                    const total = posteCounts[n]
+                    seen[n] = (seen[n] || 0) + 1
+                    const label = total > 1 ? `${n} #${seen[n]}` : n
+                    return (
+                      <div key={id} className="flex items-center gap-2">
+                        <span style={{ color: paid ? 'var(--green)' : 'var(--txt-3)', fontSize: 10, flex: 1 }}>
+                          {paid ? '✓ ' : ''}{label}
+                        </span>
+                        <span style={{ color: 'var(--txt-3)', fontSize: 10 }}>
+                          {fmtEur(coutPrevus[i])} prévu
+                        </span>
+                        <span style={{ color: 'var(--txt)', fontSize: 10, fontWeight: 600, minWidth: 65, textAlign: 'right' }}>
+                          {fmtEur(r)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
 
-      {/* Détail par poste si plusieurs lignes — index #N quand un même poste se répète */}
-      {lineIds.length > 1 &&
-        (() => {
-          // Indice cumulatif par nom de poste pour distinguer "Directeur de production #1 / #2"
-          const seen = {}
-          return (
-            <div
-              className="mt-2 pt-2 space-y-0.5"
-              style={{ borderTop: '1px solid var(--brd-sub)' }}
-            >
-              {lineIds.map((id, i) => {
-                const r = reelByLine[id]?.montant_ht ?? coutPrevus[i]
-                const paid = reelByLine[id]?.paye
-                const name = postes[i]
-                const total = posteCounts[name]
-                seen[name] = (seen[name] || 0) + 1
-                const label = total > 1 ? `${name} #${seen[name]}` : name
-                return (
-                  <div key={id} className="flex items-center gap-2">
-                    <span
-                      style={{
-                        color: paid ? 'var(--green)' : 'var(--txt-3)',
-                        fontSize: 10,
-                        flex: 1,
-                      }}
-                    >
-                      {paid ? '✓ ' : ''}
-                      {label}
-                    </span>
-                    <span style={{ color: 'var(--txt-3)', fontSize: 10 }}>
-                      {fmtEur(coutPrevus[i])} prévu
-                    </span>
-                    <span
-                      style={{
-                        color: 'var(--txt)',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        minWidth: 65,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {fmtEur(r)}
-                    </span>
-                  </div>
-                )
-              })}
+            <div className="flex items-center justify-between gap-3 pt-2" style={{ borderTop: '1px solid var(--brd-sub)' }}>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>TVA</span>
+                <TvaPicker value={groupTva} onChange={(v) => onSaveGroupTva(lineIds, v)} label={null} compact />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>Payé</span>
+                <Checkbox checked={isPaid} onChange={(v) => onSaveGroupPaid(lineIds, v)} color="green" />
+              </div>
             </div>
-          )
-        })()}
-    </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
-// ─── Carte Groupe Fournisseur ───────────────────────────────────────────────
-function FournisseurGroupCard({
+// ─── Ligne compacte Fournisseur (dépliable) ─────────────────────────────────
+function FournisseurRow({
   group,
   onSaveFournisseurGroupTotal,
   onSaveFournisseurGroupPaid,
   onSaveFournisseurGroupTva,
+  isPaid,
+  showPaidSeparator,
 }) {
-  const { nom: fournisseur, items } = group // ← nom, pas key
+  const { nom: fournisseur, items } = group
+  const [open, setOpen] = useState(false)
   const inputRef = useRef(null)
   const [editing, setEditing] = useState(false)
   const [totalVal, setTotalVal] = useState('')
-  const [pendingTotal, setPendingTotal] = useState(null) // total optimiste local
+  const [pendingTotal, setPendingTotal] = useState(null)
 
   const totalReel = items.reduce((s, it) => s + (it.entry?.montant_ht || 0), 0)
   const totalPrevu = items.reduce((s, it) => s + (it.coutPrevu || 0), 0)
-  const allPaid = items.length > 0 && items.every((it) => it.entry?.paye)
   const isAllAdditif = items.length > 0 && items.every((it) => it.isAdditif)
 
-  // TVA commune au groupe (idem PersonGroupCard)
   const tvaRates = items.map((it) => it.entry?.tva_rate).filter((v) => v != null)
   const groupTva = tvaRates.length > 0 ? tvaRates[0] : 20
-  const tvaMixed = tvaRates.length > 1 && tvaRates.some((v) => v !== groupTva)
 
-  // Uniquement les entrées confirmées par la DB (id réel, pas temporaire)
   const totalConfirme = items.reduce((s, it) => {
     if (!it.entry || String(it.entry.id).startsWith('__tmp_')) return s
     return s + (it.entry.montant_ht || 0)
   }, 0)
 
-  // On abandonne le pendingTotal seulement quand la DB confirme (id réel)
   useEffect(() => {
     if (pendingTotal !== null && totalConfirme > 0) setPendingTotal(null)
   }, [totalConfirme]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const displayTotal = pendingTotal !== null ? pendingTotal : totalReel
 
-  function startEdit() {
+  function startEdit(e) {
+    e.stopPropagation()
     setTotalVal(displayTotal > 0 ? String(Math.round(displayTotal * 100) / 100) : '')
     setEditing(true)
     setTimeout(() => inputRef.current?.focus(), 30)
@@ -420,92 +517,81 @@ function FournisseurGroupCard({
   function commitEdit() {
     const v = parseFloat(totalVal)
     if (!isNaN(v) && v > 0) {
-      setPendingTotal(v) // affiche immédiatement, sans attendre la DB
+      setPendingTotal(v)
       onSaveFournisseurGroupTotal(items, v)
     }
     setEditing(false)
   }
 
+  const rowOpacity = isPaid ? 0.5 : 1
+
   return (
-    <div
-      className="rounded-xl px-4 py-3"
-      style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}
-    >
-      <div className="flex items-start gap-4">
-        {/* Infos */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-              {fournisseur}
-            </p>
-            {isAllAdditif && (
-              <span
-                style={{
-                  fontSize: 9,
-                  padding: '2px 7px',
-                  borderRadius: 4,
-                  fontWeight: 700,
-                  background: 'rgba(255,87,87,.12)',
-                  color: 'var(--red)',
-                  letterSpacing: '.05em',
-                  textTransform: 'uppercase',
-                  border: '1px solid rgba(255,87,87,.3)',
-                }}
-              >
-                Additif
-              </span>
-            )}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {items.map((it, i) => (
-              <span
-                key={i}
-                style={{
-                  fontSize: 9,
-                  padding: '1px 6px',
-                  borderRadius: 4,
-                  fontWeight: 600,
-                  background: it.isAdditif ? 'rgba(255,87,87,.1)' : 'rgba(255,174,0,.1)',
-                  color: it.isAdditif ? 'var(--red)' : 'var(--amber)',
-                }}
-              >
-                {it.isAdditif && <span style={{ opacity: 0.75, marginRight: 3 }}>+</span>}
-                {it.label}
-              </span>
-            ))}
-          </div>
-        </div>
+    <>
+      {showPaidSeparator && <PaidSeparator />}
+      <div style={{ borderBottom: '1px solid var(--brd-sub)', opacity: rowOpacity }}>
+        {/* Ligne compacte */}
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors"
+          onClick={() => setOpen((p) => !p)}
+          onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,.015)' }}
+          onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent' }}
+          style={{ background: open ? 'rgba(255,255,255,.02)' : 'transparent' }}
+        >
+          <span style={{ color: 'var(--txt-3)', width: 14, flexShrink: 0 }}>
+            {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </span>
 
-        {/* Chiffres */}
-        <div className="flex items-center gap-5 shrink-0">
-          {/* Coût prévu */}
-          {totalPrevu > 0 && (
-            <div className="text-right">
-              <p
-                className="text-[9px] uppercase tracking-wide mb-0.5"
-                style={{ color: 'var(--txt-3)' }}
-              >
-                Budget prévu
-              </p>
-              <p className="font-semibold tabular-nums text-sm" style={{ color: 'var(--amber)' }}>
-                {fmtEur(totalPrevu)}
-              </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-xs truncate" style={{ color: 'var(--txt)' }}>
+                {fournisseur}
+              </span>
+              {isAllAdditif && (
+                <span
+                  style={{
+                    fontSize: 8,
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    fontWeight: 700,
+                    background: 'rgba(255,87,87,.12)',
+                    color: 'var(--red)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Additif
+                </span>
+              )}
+              <span className="text-[9px] truncate" style={{ color: 'var(--amber)', opacity: 0.8 }}>
+                {items.length} ligne{items.length > 1 ? 's' : ''}
+              </span>
             </div>
-          )}
+          </div>
 
-          {/* Montant facture — bouton d'édition bien visible */}
-          <div className="text-right">
-            <p
-              className="text-[9px] uppercase tracking-wide mb-1"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              Montant facture {items.length > 1 ? `(${items.length} lignes)` : ''}
-            </p>
+          {/* Prévu */}
+          <span
+            className="text-xs tabular-nums font-medium shrink-0"
+            style={{ color: 'var(--txt-3)', minWidth: 80, textAlign: 'right' }}
+          >
+            {totalPrevu > 0 ? fmtEur(totalPrevu) : '—'}
+          </span>
+
+          {/* Facturé */}
+          <span
+            className="text-xs tabular-nums font-bold shrink-0"
+            style={{
+              minWidth: 80,
+              textAlign: 'right',
+              color: displayTotal > 0.01
+                ? (totalPrevu > 0 && displayTotal > totalPrevu ? 'var(--red)' : 'var(--txt)')
+                : 'var(--txt-3)',
+            }}
+          >
             {editing ? (
               <input
                 ref={inputRef}
                 type="number"
                 value={totalVal}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setTotalVal(e.target.value)}
                 onBlur={commitEdit}
                 onKeyDown={(e) => {
@@ -514,131 +600,88 @@ function FournisseurGroupCard({
                 }}
                 autoFocus
                 style={{
-                  width: 110,
+                  width: 80,
                   textAlign: 'right',
                   background: 'var(--bg-elev)',
                   border: '1px solid var(--amber)',
-                  borderRadius: 6,
+                  borderRadius: 4,
                   color: 'var(--txt)',
-                  padding: '3px 8px',
-                  fontSize: 13,
+                  padding: '1px 4px',
+                  fontSize: 12,
                   fontWeight: 700,
                   outline: 'none',
                 }}
                 step="0.01"
-                placeholder="0.00"
               />
-            ) : displayTotal > 0 ? (
-              <p
-                className="font-bold tabular-nums text-sm cursor-text"
-                onClick={startEdit}
-                style={{
-                  color:
-                    totalPrevu > 0 && Math.abs(displayTotal - totalPrevu) < 0.01
-                      ? 'var(--txt)'
-                      : displayTotal > totalPrevu
-                        ? 'var(--red)'
-                        : 'var(--green)',
-                }}
-              >
+            ) : displayTotal > 0.01 ? (
+              <span onClick={startEdit} className="cursor-text" title="Modifier le montant">
                 {fmtEur(displayTotal)}
-                {totalPrevu > 0 && Math.abs(displayTotal - totalPrevu) > 0.01 && (
-                  <span style={{ fontSize: 9, display: 'block', opacity: 0.75 }}>
-                    {displayTotal > totalPrevu ? '+' : ''}
-                    {fmtEur(displayTotal - totalPrevu)} vs prévu
-                  </span>
-                )}
-              </p>
+              </span>
             ) : (
-              /* Bouton visible quand pas encore saisi */
               <button
                 onClick={startEdit}
                 style={{
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: 600,
                   cursor: 'pointer',
                   color: 'var(--amber)',
                   background: 'rgba(255,174,0,.1)',
                   border: '1px dashed rgba(255,174,0,.4)',
-                  borderRadius: 6,
-                  padding: '3px 10px',
+                  borderRadius: 4,
+                  padding: '2px 8px',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,174,0,.2)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,174,0,.1)')}
               >
-                Saisir montant
+                Saisir
               </button>
             )}
-          </div>
+          </span>
 
-          {/* Payé */}
-          <div className="text-center">
-            <p
-              className="text-[9px] uppercase tracking-wide mb-1"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              Payé
-            </p>
-            <Checkbox
-              checked={allPaid}
-              onChange={(v) => onSaveFournisseurGroupPaid(items, v)}
-              color="green"
-            />
-          </div>
+          {/* Statut */}
+          <span
+            className="text-[10px] font-semibold shrink-0"
+            style={{
+              minWidth: 55,
+              textAlign: 'center',
+              color: isPaid ? 'var(--green)' : displayTotal > 0.01 ? 'var(--amber)' : 'var(--txt-3)',
+            }}
+          >
+            {isPaid ? '✓ Payé' : displayTotal > 0.01 ? 'À payer' : '—'}
+          </span>
         </div>
-      </div>
 
-      {/* Ligne TVA — propage à toutes les entrées du groupe */}
-      <div
-        className="mt-2 pt-2 flex items-center justify-between gap-3"
-        style={{ borderTop: '1px solid var(--brd-sub)' }}
-      >
-        <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
-          TVA {tvaMixed && <span style={{ color: 'var(--amber)' }}>· mixte</span>}
-        </span>
-        <TvaPicker
-          value={groupTva}
-          onChange={(v) => onSaveFournisseurGroupTva(items, v)}
-          label={null}
-          compact
-        />
-      </div>
+        {/* Détail déplié */}
+        {open && (
+          <div className="px-4 pb-3 pt-1 ml-5" style={{ borderTop: '1px solid var(--brd-sub)' }}>
+            {items.length > 1 && (
+              <div className="space-y-0.5 mb-2">
+                {items.map((it, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span style={{ color: it.entry?.paye ? 'var(--green)' : 'var(--txt-3)', fontSize: 10, flex: 1 }}>
+                      {it.entry?.paye ? '✓ ' : ''}
+                      {it.label}
+                      {it.isAdditif && <span style={{ opacity: 0.5 }}> (additif)</span>}
+                    </span>
+                    <span style={{ color: 'var(--txt)', fontSize: 10, fontWeight: 600, minWidth: 70, textAlign: 'right' }}>
+                      {it.entry?.montant_ht ? fmtEur(it.entry.montant_ht) : <span style={{ opacity: 0.3 }}>—</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-      {/* Détail par ligne si plusieurs */}
-      {items.length > 1 && (
-        <div className="mt-2 pt-2 space-y-0.5" style={{ borderTop: '1px solid var(--brd-sub)' }}>
-          {items.map((it, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span
-                style={{
-                  color: it.entry?.paye ? 'var(--green)' : 'var(--txt-3)',
-                  fontSize: 10,
-                  flex: 1,
-                }}
-              >
-                {it.entry?.paye ? '✓ ' : ''}
-                {it.label}
-                {it.isAdditif && <span style={{ opacity: 0.5 }}> (additif)</span>}
-              </span>
-              <span
-                style={{
-                  color: 'var(--txt)',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  minWidth: 70,
-                  textAlign: 'right',
-                }}
-              >
-                {it.entry?.montant_ht ? (
-                  fmtEur(it.entry.montant_ht)
-                ) : (
-                  <span style={{ opacity: 0.3 }}>— en attente</span>
-                )}
-              </span>
+            <div className="flex items-center justify-between gap-3 pt-2" style={{ borderTop: '1px solid var(--brd-sub)' }}>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>TVA</span>
+                <TvaPicker value={groupTva} onChange={(v) => onSaveFournisseurGroupTva(items, v)} label={null} compact />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>Payé</span>
+                <Checkbox checked={isPaid} onChange={(v) => onSaveFournisseurGroupPaid(items, v)} color="green" />
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

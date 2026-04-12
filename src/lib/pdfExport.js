@@ -40,6 +40,10 @@ async function loadImageDataUrl(url) {
 }
 
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
+// fmtEurPdf : remplace les espaces insécables (U+00A0, U+202F) par des espaces
+// normaux pour que jsPDF mesure et aligne correctement les montants.
+const fmtEurPdf = (v) => fmtEur(v).replace(/[\u00A0\u202F]/g, ' ')
+
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('fr-FR') : '')
 
 function addDays(d, n) {
@@ -352,13 +356,23 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   y += RECAP_HDR_H
 
   // Bloc rows (alternating light / white)
+  // Pré-calcul largeur max des montants pour alignement tabulaire
+  const recapAmounts = categories.map((cat) => {
+    const catLines = (cat.lines || []).filter((l) => l.use_line)
+    return fmtEurPdf(catLines.reduce((s, l) => s + calcLine(l, taux).prixVenteHT, 0))
+  })
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(6.5)
+  const maxAmtW = Math.max(...recapAmounts.map((a) => doc.getTextWidth(a)))
+
   for (let i = 0; i < categories.length; i++) {
     const cat = categories[i]
-    const catLines = (cat.lines || []).filter((l) => l.use_line)
-    const catTotal = catLines.reduce((s, l) => s + calcLine(l, taux).prixVenteHT, 0)
+    const amt = recapAmounts[i]
     if (i % 2 === 0) fillRect(M, y, IW, RECAP_ROW_H, C.light)
     txt(getCatLabel(cat), M + 2, y + 3.0, { size: 6.5 })
-    txt(fmtEur(catTotal), PW - M - 2, y + 3.0, { size: 6.5, align: 'right' })
+    // Alignement : tous les montants cadrés à droite sur la même colonne
+    const amtX = PW - M - 2
+    txt(amt, amtX, y + 3.0, { size: 6.5, align: 'right' })
     y += RECAP_ROW_H
   }
 
@@ -376,14 +390,14 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // SOUS-TOTAL PARTIEL
   fillRect(M, y, IW, ST_ROW_H, C.light)
   txt('SOUS-TOTAL PARTIEL (HT)', M + 2, y + 3.5, { size: 7, bold: true })
-  txt(fmtEur(synth.sousTotal), PW - M - 2, y + 3.5, { size: 7, bold: true, align: 'right' })
+  txt(fmtEurPdf(synth.sousTotal), PW - M - 2, y + 3.5, { size: 7, bold: true, align: 'right' })
   y += ST_ROW_H
 
   // Remise globale (en premier)
   if (synth.montantRemiseGlobale > 0) {
     txt('Remise globale', M + 2, y + 3.5, { size: 6.5 })
     txt(`${globalAdj.remise_globale_pct || ''}%`, pctX, y + 3.5, { size: 6.5, align: 'right' })
-    txt(`- ${fmtEur(synth.montantRemiseGlobale)}`, PW - M - 2, y + 3.5, {
+    txt(`- ${fmtEurPdf(synth.montantRemiseGlobale)}`, PW - M - 2, y + 3.5, {
       size: 6.5,
       align: 'right',
     })
@@ -393,20 +407,20 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   if (globalAdj.assurance_pct > 0) {
     txt('Assurances', M + 2, y + 3.5, { size: 6.5 })
     txt(`${globalAdj.assurance_pct}%`, pctX, y + 3.5, { size: 6.5, align: 'right' })
-    txt(fmtEur(synth.montantAssurance), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
+    txt(fmtEurPdf(synth.montantAssurance), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
     y += ST_ROW_H
   }
 
   if (globalAdj.marge_globale_pct > 0) {
     txt(`Marges + Frais généraux${horsMargeNote}`, M + 2, y + 3.5, { size: 6.5 })
     txt(`${globalAdj.marge_globale_pct}%`, pctX, y + 3.5, { size: 6.5, align: 'right' })
-    txt(fmtEur(synth.montantMargeGlobale), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
+    txt(fmtEurPdf(synth.montantMargeGlobale), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
     y += ST_ROW_H
   }
 
   if (synth.totalCharges > 0) {
     txt('Cotisations sociales', M + 2, y + 3.5, { size: 6.5 })
-    txt(fmtEur(synth.totalCharges), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
+    txt(fmtEurPdf(synth.totalCharges), PW - M - 2, y + 3.5, { size: 6.5, align: 'right' })
     y += ST_ROW_H
   }
 
@@ -449,7 +463,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   txt('MODALITÉS DE RÈGLEMENT', M, ny, { size: 6, bold: true })
   ny += 3.5
   ;[
-    `Acompte : ${devis.acompte_pct || 30}% du montant total à la commande (${fmtEur(synth.acompte)} TTC)`,
+    `Acompte : ${devis.acompte_pct || 30}% du montant total à la commande (${fmtEurPdf(synth.acompte)} TTC)`,
     'Solde : sous 30 jours après réception de la facture',
     'Majoration de 10% après 60 jours',
   ].forEach((t) =>
@@ -479,7 +493,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // TOTAL HT — le plus important → fond sombre
   fillRect(totsX, ty, totsW, RH + 1, C.header)
   txt('TOTAL (HT)', totsX + 2, ty + 4.3, { size: 7, bold: true, color: C.white })
-  txt(fmtEur(synth.totalHTFinal), totsX + totsW - 2, ty + 4.3, {
+  txt(fmtEurPdf(synth.totalHTFinal), totsX + totsW - 2, ty + 4.3, {
     size: 8,
     bold: true,
     color: C.white,
@@ -491,13 +505,13 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   fillRect(totsX, ty, totsW, RH, C.light)
   txt('TVA', totsX + 2, ty + 3.8, { size: 6.5, bold: true })
   txt(`${devis.tva_rate || 20}%`, totsX + totsW * 0.5, ty + 3.8, { size: 6.5, align: 'center' })
-  txt(fmtEur(synth.tva), totsX + totsW - 2, ty + 3.8, { size: 6.5, align: 'right' })
+  txt(fmtEurPdf(synth.tva), totsX + totsW - 2, ty + 3.8, { size: 6.5, align: 'right' })
   ty += RH
 
   // TOTAL TTC — fond clair (moins important que HT)
   fillRect(totsX, ty, totsW, RH, C.light)
   txt('TOTAL (TTC)', totsX + 2, ty + 3.8, { size: 6.5, bold: true })
-  txt(fmtEur(synth.totalTTC), totsX + totsW - 2, ty + 3.8, {
+  txt(fmtEurPdf(synth.totalTTC), totsX + totsW - 2, ty + 3.8, {
     size: 6.5,
     bold: true,
     align: 'right',
@@ -507,7 +521,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // Acompte — fond blanc pour le détacher des totaux
   txt('Acompte à la commande', totsX + 2, ty + 3.8, { size: 6 })
   txt(`${devis.acompte_pct || 30}%`, totsX + totsW * 0.5, ty + 3.8, { size: 6, align: 'center' })
-  txt(fmtEur(synth.acompte), totsX + totsW - 2, ty + 3.8, { size: 7, bold: true, align: 'right' })
+  txt(fmtEurPdf(synth.acompte), totsX + totsW - 2, ty + 3.8, { size: 7, bold: true, align: 'right' })
   ty += RH
 
   // Date validité — fond blanc, séparé
@@ -592,13 +606,18 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
       const qtDisp = nb > 1 && qt ? `${nb}×${qt}` : String(qt)
       const remise = line.remise_pct > 0 ? `-${line.remise_pct}%` : ''
 
+      // Pré-texte pour la colonne produit (nom + description éventuelle sur plusieurs lignes)
+      const prodName = line.produit || ''
+      const descr = line.description || ''
+      // On met le nom en content visible pour que autoTable calcule la hauteur minimum
+      // Le dessin custom dans didDrawCell s'occupera du rendu réel
       body.push([
-        // Col 0 : produit — contenu vide, on dessine tout dans didDrawCell
         {
-          content: '',
-          _produit: line.produit || '',
+          content: prodName + (descr ? '\n' + descr : ''),
+          _produit: prodName,
           _ref: line.ref || '',
-          _descr: line.description || '',
+          _descr: descr,
+          styles: { fontSize: 6.5, cellPadding: colPadProd, overflow: 'linebreak' },
         },
         { content: qtDisp, styles: { halign: 'right', fontSize: 6.5, cellPadding: colPad } },
         {
@@ -606,7 +625,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
           styles: { halign: 'center', fontSize: 6.5, cellPadding: colPad },
         },
         {
-          content: line.tarif_ht ? fmtEur(line.tarif_ht) : '',
+          content: line.tarif_ht ? fmtEurPdf(line.tarif_ht) : '',
           styles: { halign: 'right', fontSize: 6.5, cellPadding: colPad },
         },
         {
@@ -614,7 +633,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
           styles: { halign: 'center', fontSize: 6.5, textColor: C.gray, cellPadding: colPad },
         },
         {
-          content: fmtEur(c.prixVenteHT),
+          content: fmtEurPdf(c.prixVenteHT),
           styles: { halign: 'right', fontSize: 6.5, fontStyle: 'bold', cellPadding: colPad },
         },
       ])
@@ -634,7 +653,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
         },
       },
       {
-        content: fmtEur(catTotal),
+        content: fmtEurPdf(catTotal),
         styles: {
           textColor: C.black,
           fontSize: 7.5,
@@ -719,6 +738,10 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
           const dataIdx = cat.notes?.trim() ? data.row.index - 1 : data.row.index
           data.cell.styles.fillColor = dataIdx % 2 === 0 ? C.light : C.white
         }
+        // Col 0 : rendre le texte invisible (on dessine manuellement dans didDrawCell)
+        if (data.column.index === 0 && data.cell.raw?._produit !== undefined) {
+          data.cell.styles.textColor = data.cell.styles.fillColor || C.white
+        }
       },
 
       didDrawCell(data) {
@@ -729,7 +752,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
         const { _produit, _ref, _descr } = raw
         const cx = data.cell.x + 2
         const cw = data.cell.width - 4
-        const midY = data.cell.y + data.cell.height / 2 + 1.2
+        const cellTop = data.cell.y + 2.5
 
         // REF : petit, gris, à gauche
         let nameOffsetX = 0
@@ -737,11 +760,11 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
           doc.setFont('WS', 'normal')
           doc.setFontSize(5)
           doc.setTextColor(...C.gray)
-          doc.text(String(_ref), cx, midY)
+          doc.text(String(_ref), cx, cellTop)
           nameOffsetX = doc.getTextWidth(String(_ref)) + 1.5
         }
 
-        // Description : réservée à droite (40% max)
+        // Description : réservée à droite (40% max), multi-lignes
         const descrMaxW = _descr ? Math.min(cw * 0.42, 60) : 0
         const nameMaxW = cw - nameOffsetX - (descrMaxW > 0 ? descrMaxW + 2 : 0)
 
@@ -749,17 +772,20 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
         doc.setFont('WS', 'bold')
         doc.setFontSize(6.5)
         doc.setTextColor(...C.black)
-        doc.text(_produit || '', cx + nameOffsetX, midY, { maxWidth: nameMaxW })
+        doc.text(_produit || '', cx + nameOffsetX, cellTop, { maxWidth: nameMaxW })
 
-        // Description : normal, gris, alignée droite
+        // Description : normal, gris, alignée droite, multi-lignes
         if (_descr) {
           doc.setFont('WS', 'normal')
           doc.setFontSize(6)
           doc.setTextColor(...C.gray)
-          doc.text(_descr, data.cell.x + data.cell.width - 2, midY, {
-            align: 'right',
-            maxWidth: descrMaxW,
-          })
+          const descrLines = doc.splitTextToSize(_descr, descrMaxW)
+          const lineH = 2.8
+          let dy = cellTop
+          for (const line of descrLines) {
+            doc.text(line, data.cell.x + data.cell.width - 2, dy, { align: 'right' })
+            dy += lineH
+          }
         }
       },
 
@@ -798,9 +824,12 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────────
-  const slug = (project?.ref_projet || project?.title || 'CAPTIV')
-    .replace(/[^a-zA-Z0-9-]/g, '_')
-    .slice(0, 30)
-  const filename = `Devis_${slug}_V${devis.version_number || 1}.pdf`
+  const sanitize = (s) => (s || '').replace(/[^a-zA-Z0-9àâäéèêëïîôùûüçÀÂÄÉÈÊËÏÎÔÙÛÜÇ &+\-_.]/g, '').trim()
+  const ref = sanitize(project?.ref_projet) || 'CAPTIV'
+  const clientName = sanitize(client?.raison_sociale || client?.nom_commercial) || ''
+  const projTitle = sanitize(project?.title) || ''
+  const ver = devis.version_number || 1
+  const parts = [ref, clientName, projTitle, 'DEVIS', `V${ver}`].filter(Boolean)
+  const filename = parts.join('_') + '.pdf'
   doc.save(filename)
 }

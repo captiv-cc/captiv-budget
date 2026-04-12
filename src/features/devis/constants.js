@@ -30,10 +30,30 @@ export const REGIME_COMPAT = {
 
 export const normalizeRegime = (r) => REGIME_COMPAT[r] ?? (CATS.includes(r) ? r : 'Frais')
 
+// ─── Mapping catégorie catalogue → régime devis par défaut ─────────────────
+export const CAT_TO_REGIME = {
+  Humain: 'Externe',
+  Production: 'Frais',
+  'Post-production': 'Frais',
+  'Moyen technique': 'Technique',
+  VHR: 'Frais',
+  Frais: 'Frais',
+  Autre: 'Frais',
+}
+
+/** Détermine le régime d'un produit catalogue : regime explicite > catégorie > fallback.
+ *  "Prestation facturée" est ignoré car c'est le default DB, pas un choix intentionnel. */
+export const regimeFromProduit = (p) => {
+  if (p.regime && p.regime !== 'Prestation facturée') return normalizeRegime(p.regime)
+  if (p.categorie && CAT_TO_REGIME[p.categorie]) return CAT_TO_REGIME[p.categorie]
+  return 'Frais'
+}
+
 // ─── Métadonnées régimes — type + abréviation pour RegimeSelect ────────────
 export const REGIME_META = {
   'Intermittent Technicien': { type: 'humain', abbr: 'Int. Tech.' },
   'Intermittent Artiste': { type: 'humain', abbr: 'Int. Art.' },
+  'Ext. Intermittent': { type: 'humain', abbr: 'Ext. Int.' },
   Externe: { type: 'humain', abbr: 'Externe' },
   Interne: { type: 'humain', abbr: 'Interne' },
   Technique: { type: 'materiel', abbr: 'Tech.' },

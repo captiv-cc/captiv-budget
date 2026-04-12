@@ -11,7 +11,7 @@
 import { GripVertical, Copy, Trash2 } from 'lucide-react'
 import { calcLine, fmtEur, fmtPct, REGIMES_SALARIES, UNITES } from '../../../lib/cotisations'
 import ProduitAutocomplete from '../../../components/ProduitAutocomplete'
-import { normalizeRegime } from '../constants'
+import { regimeFromProduit } from '../constants'
 import RegimeSelect from './RegimeSelect'
 import PriceCell from './cells/PriceCell'
 import CalcCell from './cells/CalcCell'
@@ -41,7 +41,7 @@ export default function DevisLine({
 
   function handleSelectProduit(p) {
     const updates = { produit: p.produit }
-    if (p.regime) updates.regime = normalizeRegime(p.regime)
+    updates.regime = regimeFromProduit(p)
     if (p.tarif_defaut) updates.tarif_ht = Number(p.tarif_defaut)
     if (p.unite) updates.unite = p.unite
     if (p.description) updates.description = p.description
@@ -286,13 +286,13 @@ export default function DevisLine({
                 <>
                   <div
                     className="text-[11px] tabular-nums"
-                    style={{ color: c.margeHT < 0 ? 'var(--red)' : 'var(--txt-3)' }}
+                    style={{ color: c.margeHT <= 0 ? 'var(--red)' : 'var(--txt-3)' }}
                   >
                     {c.margeHT !== 0 ? fmtEur(c.margeHT) : '—'}
                   </div>
                   <div
                     className="text-[10px] tabular-nums leading-tight"
-                    style={{ color: c.pctMarge < 0 ? 'var(--red)' : 'var(--txt-3)' }}
+                    style={{ color: c.pctMarge <= 0 ? 'var(--red)' : 'var(--txt-3)' }}
                   >
                     {fmtPct(c.pctMarge)}
                   </div>

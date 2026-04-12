@@ -2,7 +2,7 @@
  * ProjetLayout — Layout partagé pour toutes les vues d'un projet
  * Banner KPI en haut + navigation par onglets
  */
-import { useState, useEffect, useCallback, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -128,6 +128,19 @@ export default function ProjetLayout() {
     return true
   })
 
+  const bannerRef = useRef(null)
+  const [bannerHeight, setBannerHeight] = useState(0)
+
+  // Mesurer la hauteur du banner pour le sticky des sous-composants
+  useEffect(() => {
+    if (!bannerRef.current) return
+    const ro = new ResizeObserver(([entry]) => {
+      setBannerHeight(entry.contentRect.height + 1) // +1 pour le border-bottom
+    })
+    ro.observe(bannerRef.current)
+    return () => ro.disconnect()
+  }, [])
+
   const [project, setProject] = useState(null)
   const [devisList, setDevisList] = useState([])
   const [devisStats, setDevisStats] = useState({})
@@ -229,6 +242,7 @@ export default function ProjetLayout() {
     refSynth,
     reload: loadAll,
     projectId: id,
+    bannerHeight,
   }
 
   // Déterminer si on est dans l'éditeur de devis (plein écran)
@@ -263,10 +277,14 @@ export default function ProjetLayout() {
   return (
     <ProjetContext.Provider value={ctx}>
       <div className={`flex flex-col ${isDevisEditor ? 'h-screen overflow-hidden' : 'min-h-full'}`}>
-        {/* ── Banner ──────────────────────────────────────────────────────── */}
+        {/* ── Banner (sticky) ─────────────────────────────────────────────── */}
         <div
+          ref={bannerRef}
           className="text-white shrink-0"
           style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 40,
             background: 'linear-gradient(135deg, var(--bg-side) 0%, var(--bg-surf) 100%)',
             borderBottom: '1px solid var(--brd)',
           }}
@@ -309,44 +327,8 @@ export default function ProjetLayout() {
               </div>
             </div>
 
-            {/* Droite : KPIs devis de référence (finance uniquement) */}
-            {/* Masqués sur l'éditeur de devis : la valeur ne se met pas à jour
-                en temps réel et risque de diverger des chiffres en cours d'édition. */}
-            {canSeeFinance && refSynth && !isDevisEditor ? (
-              <div className="flex items-center gap-6 shrink-0 ml-4">
-                <BannerKpi
-                  label={
-                    refDevis?.status === 'accepte'
-                      ? 'Budget accepté HT'
-                      : `Budget V${refDevis?.version_number} HT`
-                  }
-                  value={fmtEur(refSynth.totalHTFinal)}
-                  icon={<Euro className="w-3.5 h-3.5" />}
-                  color="blue"
-                />
-                <BannerKpi
-                  label="Marge estimée"
-                  value={fmtPct(refSynth.pctMargeFinale)}
-                  sub={fmtEur(refSynth.margeFinale)}
-                  icon={<TrendingUp className="w-3.5 h-3.5" />}
-                  color={
-                    refSynth.pctMargeFinale < 0
-                      ? 'red'
-                      : refSynth.pctMargeFinale > 0.25
-                        ? 'green'
-                        : 'amber'
-                  }
-                />
-                <div className="text-right hidden lg:block">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide">Devis</p>
-                  <p className="text-xs font-medium text-slate-300">
-                    {devisList.length} version{devisList.length > 1 ? 's' : ''}
-                  </p>
-                </div>
-              </div>
-            ) : canSeeFinance && !isDevisEditor ? (
-              <div className="text-xs text-slate-500 italic shrink-0 ml-4">Aucun devis</div>
-            ) : null}
+            {/* KPIs header supprimés — les infos budget/marge/versions
+                sont déjà visibles dans les onglets Devis et Budget Réel */}
           </div>
 
           {/* ── Navigation onglets ──────────────────────────────────────── */}
@@ -414,7 +396,7 @@ export default function ProjetLayout() {
 
         {/* ── Contenu de l'onglet ──────────────────────────────────────────── */}
         <div
-          className={`flex-1 ${isDevisEditor ? 'overflow-hidden flex flex-col' : 'overflow-auto'}`}
+          className={`flex-1 ${isDevisEditor ? 'overflow-hidden flex flex-col' : ''}`}
         >
           <Outlet context={ctx} />
         </div>

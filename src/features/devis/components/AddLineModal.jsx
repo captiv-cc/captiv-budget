@@ -189,7 +189,7 @@ export default function AddLineModal({
       quantite: qteSaisie,
       unite: uniteSaisie,
       tarif_ht: tarifSaisie,
-      cout_ht: 0,
+      cout_ht: null,
     })
   }
 

@@ -355,13 +355,13 @@ export default function CategoryBlock({
             >
               <div
                 className="text-[11px] tabular-nums font-semibold"
-                style={{ color: catStats.marge >= 0 ? 'var(--green)' : 'var(--red)' }}
+                style={{ color: catStats.marge > 0 ? 'var(--green)' : 'var(--red)' }}
               >
                 {fmtEur(catStats.marge)}
               </div>
               <div
                 className="text-[10px] tabular-nums"
-                style={{ color: pctMarge >= 0 ? 'var(--green)' : 'var(--red)' }}
+                style={{ color: pctMarge > 0 ? 'var(--green)' : 'var(--red)' }}
               >
                 {(pctMarge * 100).toFixed(1)}%
               </div>

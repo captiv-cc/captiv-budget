@@ -19,7 +19,7 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
   const [open, setOpen] = useState(false)
 
   const margeColor =
-    synth.pctMargeFinale < 0
+    synth.pctMargeFinale <= 0
       ? 'var(--red)'
       : synth.pctMargeFinale > 0.2
         ? 'var(--green)'

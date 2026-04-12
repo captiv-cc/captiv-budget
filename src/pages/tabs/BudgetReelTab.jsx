@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { calcLine, CATS_HUMAINS } from '../../lib/cotisations'
+import { calcLine, calcSynthese, CATS_HUMAINS, TAUX_DEFAUT } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
 import { Check, ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { isIntermittentLike, refCout, memberName } from '../../features/budget-reel/utils'
@@ -28,7 +28,7 @@ import RecapPaiements from '../../features/budget-reel/components/RecapPaiements
 // COMPOSANT PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 export default function BudgetReelTab() {
-  const { project, devisList } = useOutletContext()
+  const { project, devisList, bannerHeight } = useOutletContext()
   const projectId = project?.id
   const refDevis =
     devisList?.find((d) => d.status === 'accepte') || devisList?.[devisList.length - 1]
@@ -472,8 +472,7 @@ export default function BudgetReelTab() {
   // ─── KPIs globaux ──────────────────────────────────────────────────────────
 
   const global = (() => {
-    let venteHT = 0,
-      coutPrevu = 0
+    let coutPrevu = 0
     let coutReelConfirme = 0 // uniquement saisi en DB
     let coutReelProjete = 0 // saisi + prévu pour les non-saisis (vrai forecast)
     let nbLignes = 0,
@@ -482,9 +481,7 @@ export default function BudgetReelTab() {
     let tvaRecuperable = 0 // TVA payée sur dépenses → récupérable
 
     for (const line of lines) {
-      const calc = calcLine(line)
       const cp = refCout(line, membreByLine[line.id])
-      venteHT += calc.prixVenteHT + calc.chargesFacturees
       coutPrevu += cp
       nbLignes += 1
 
@@ -510,6 +507,31 @@ export default function BudgetReelTab() {
       if (!a.paye) resteRegler += a.montant_ht || 0
       tvaRecuperable += ((a.montant_ht || 0) * (Number(a.tva_rate) || 0)) / 100
     }
+
+    // Vente HT = totalHTFinal du devis (sous-total + marges + assurance − remise)
+    // On recalcule via calcSynthese pour inclure les ajustements globaux
+    const activeLines = lines.filter((l) => l.use_line).map((l) => ({ ...l, dans_marge: true }))
+    // Récupérer dans_marge par catégorie
+    const catDansMarge = {}
+    for (const c of cats) catDansMarge[c.id] = c.dans_marge !== false
+    const synthLines = lines.filter((l) => l.use_line).map((l) => ({
+      ...l,
+      dans_marge: catDansMarge[l.category_id] !== false,
+    }))
+    const globalAdj = {
+      marge_globale_pct: Number(refDevis?.marge_globale_pct) || 0,
+      assurance_pct: Number(refDevis?.assurance_pct) || 0,
+      remise_globale_pct: Number(refDevis?.remise_globale_pct) || 0,
+      remise_globale_montant: Number(refDevis?.remise_globale_montant) || 0,
+    }
+    const synth = calcSynthese(
+      synthLines,
+      refDevis?.tva_rate || 20,
+      refDevis?.acompte_pct || 30,
+      TAUX_DEFAUT,
+      globalAdj,
+    )
+    const venteHT = synth.totalHTFinal
 
     // TVA collectée = HT vendu × taux du devis
     const tvaCollectee = (venteHT * (Number(refDevis?.tva_rate) || 0)) / 100
@@ -587,9 +609,22 @@ export default function BudgetReelTab() {
     )
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
-      {/* ── KPIs (barre compacte) ────────────────────────────────────────── */}
-      <KpiBar global={global} refDevis={refDevis} />
+    <div className="max-w-6xl mx-auto">
+      {/* ── KPIs (barre compacte — sticky sous le header projet) ─────────── */}
+      <div
+        style={{
+          position: 'sticky',
+          top: bannerHeight || 0,
+          zIndex: 30,
+          background: 'var(--bg)',
+          padding: '16px 24px 0 24px',
+        }}
+      >
+        <KpiBar global={global} refDevis={refDevis} />
+        <div style={{ height: 16 }} />
+      </div>
+
+      <div className="px-6 pb-6 space-y-5">
 
       {/* ── Filtres rapides + actions blocs ──────────────────────────────── */}
       <FiltersBar
@@ -896,6 +931,7 @@ export default function BudgetReelTab() {
         onSaveFournisseurGroupPaid={saveFournisseurGroupPaid}
         onSaveFournisseurGroupTva={saveFournisseurGroupTva}
       />
+      </div>
     </div>
   )
 }
