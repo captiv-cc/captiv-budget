@@ -190,6 +190,26 @@ _(rien pour l'instant)_
 
 ---
 
+### Import automatisé de la grille CC (minimas convention)
+**Ajouté le** : 2026-04-12
+**Priorité** : basse (mise à jour annuelle — le process SQL manuel suffit pour l'instant)
+**Effort estimé** : ~0.5 jour
+
+**Objectif** : permettre l'import direct d'un fichier Excel de minimas sociaux depuis l'interface, sans passer par le SQL Editor de Supabase.
+
+**Process actuel (manuel)** : upload de l'Excel → script Python génère le SQL d'upsert → exécution dans Supabase SQL Editor. Fonctionne bien pour une mise à jour annuelle.
+
+**Implémentation pressentie** :
+- Bouton "Importer grille" dans l'onglet Grille CC Audiovisuelle (admin uniquement)
+- Upload du fichier Excel → parsing côté client (SheetJS) ou via Edge Function Supabase
+- Preview des changements (X nouveaux postes, Y montants mis à jour) avant validation
+- Upsert via `supabase.from('minimas_convention').upsert(...)` avec `onConflict`
+- Log de l'import (date, nb lignes, utilisateur) pour traçabilité
+
+**Prérequis** : format Excel stable d'une année sur l'autre (structure CCPA relativement constante).
+
+---
+
 ## 🐛 Bugs connus
 
 _(rien de listé pour l'instant)_

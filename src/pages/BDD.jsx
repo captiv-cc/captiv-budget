@@ -108,24 +108,41 @@ export default function BDD() {
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
+  // Fetch paginé pour contourner la limite PostgREST (1000 rows par défaut)
+  const fetchAllMinimas = useCallback(async () => {
+    const PAGE = 1000
+    let all = [], from = 0, done = false
+    while (!done) {
+      const { data, error } = await supabase
+        .from('minimas_convention')
+        .select('*')
+        .order('poste')
+        .range(from, from + PAGE - 1)
+      if (error) { console.error('[BDD] load minimas:', error); break }
+      all = all.concat(data || [])
+      if (!data || data.length < PAGE) done = true
+      else from += PAGE
+    }
+    return all
+  }, [])
+
   const loadAll = useCallback(async () => {
     setLoading(true)
-    const [prodsRes, minimasRes, fournsRes, usageRes] = await Promise.all([
+    const [prodsRes, minimasAll, fournsRes, usageRes] = await Promise.all([
       supabase
         .from('produits_bdd')
         .select('*')
         .eq('org_id', org.id)
         .order('categorie')
         .order('produit'),
-      supabase.from('minimas_convention').select('*').order('poste'),
+      fetchAllMinimas(),
       supabase.from('fournisseurs').select('*').eq('org_id', org.id).order('nom'),
       supabase.from('devis_lines').select('fournisseur_id').not('fournisseur_id', 'is', null),
     ])
     if (prodsRes.error) console.error('[BDD] load produits:', prodsRes.error)
-    if (minimasRes.error) console.error('[BDD] load minimas:', minimasRes.error)
     if (fournsRes.error) console.error('[BDD] load fournisseurs:', fournsRes.error)
     setProduits(prodsRes.data || [])
-    setMinimas(minimasRes.data || [])
+    setMinimas(minimasAll)
     setFournisseurs(fournsRes.data || [])
     const usage = {}
     for (const r of usageRes.data || []) {
@@ -133,7 +150,7 @@ export default function BDD() {
     }
     setFournUsage(usage)
     setLoading(false)
-  }, [org?.id])
+  }, [org?.id, fetchAllMinimas])
 
   useEffect(() => {
     if (org?.id) loadAll()
@@ -807,26 +824,44 @@ export default function BDD() {
           ═══════════════════════════════════════════════════════════════════ */}
       {tab === 'grille' && (
         <>
-          {/* FilterChips type d'oeuvre */}
-          <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1">
-            <FilterChip
-              label="Tous"
-              count={grilleTypeCounts.all}
-              active={grilleFilter === 'all'}
-              onClick={() => setGrilleFilter('all')}
-            />
+          {/* Sous-onglets type d'œuvre */}
+          <div
+            className="flex items-center gap-0 mb-4 overflow-x-auto"
+            style={{
+              borderBottom: '1px solid var(--brd-sub)',
+            }}
+          >
             {[
-              ['Fiction', 'Fiction'],
-              ['Flux', 'Flux / Plateau'],
-              ['Hors_fiction_flux', 'Documentaire / Autres'],
-            ].map(([key, label]) => (
-              <FilterChip
+              ['all', 'Tous', grilleTypeCounts.all],
+              ['Fiction', 'Fiction', grilleTypeCounts.Fiction],
+              ['Flux', 'Flux / Plateau', grilleTypeCounts.Flux],
+              ['Hors_fiction_flux', 'Doc / Autres', grilleTypeCounts.Hors_fiction_flux],
+            ].map(([key, label, count]) => (
+              <button
                 key={key}
-                label={label}
-                count={grilleTypeCounts[key] || 0}
-                active={grilleFilter === key}
                 onClick={() => setGrilleFilter(key)}
-              />
+                className="px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors relative"
+                style={{
+                  color: grilleFilter === key ? 'var(--blue)' : 'var(--txt-3)',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {label}
+                <span
+                  className="ml-1.5 text-xs"
+                  style={{ opacity: 0.7 }}
+                >
+                  {count || 0}
+                </span>
+                {grilleFilter === key && (
+                  <span
+                    className="absolute bottom-0 left-0 right-0"
+                    style={{ height: 2, background: 'var(--blue)', borderRadius: '1px 1px 0 0' }}
+                  />
+                )}
+              </button>
             ))}
           </div>
 
