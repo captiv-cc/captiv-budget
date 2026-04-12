@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Search, FolderOpen, ArrowRight, Trash2, LayoutGrid, List as ListIcon } from 'lucide-react'
+import { Plus, Search, FolderOpen, ArrowRight, Trash2, LayoutGrid, List as ListIcon, Archive, ArchiveRestore, ChevronDown } from 'lucide-react'
 import { STATUS_OPTIONS } from '../features/projets/constants'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 import ProjectAvatar from '../features/projets/components/ProjectAvatar'
@@ -33,6 +33,7 @@ export default function Projets() {
     return window.localStorage.getItem(VIEW_KEY) || 'list'
   })
   const [showModal, setShowModal] = useState(false)
+  const [archivedExpanded, setArchivedExpanded] = useState(false)
 
   useEffect(() => {
     try { window.localStorage.setItem(VIEW_KEY, viewMode) } catch (_) {}
@@ -71,6 +72,35 @@ export default function Projets() {
     setProjects(p => p.filter(x => x.id !== id))
   }
 
+  // Archivage : flag d'affichage uniquement, le contenu du projet est intact.
+  // Optimistic update + rollback en cas d'erreur réseau, pour rester réactif.
+  async function archiveProject(id) {
+    if (!isInternal) return
+    if (!confirm('Archiver ce projet ? Il sera masqué de la liste principale et accessible via "Projets archivés".')) return
+    const previous = projects
+    const now = new Date().toISOString()
+    setProjects(p => p.map(x => x.id === id ? { ...x, archived_at: now } : x))
+    const { error } = await supabase.from('projects').update({ archived_at: now }).eq('id', id)
+    if (error) {
+      console.error('Erreur archivage projet:', error)
+      setProjects(previous)
+      alert('Impossible d\'archiver : ' + error.message)
+    }
+  }
+
+  async function unarchiveProject(id) {
+    if (!isInternal) return
+    if (!confirm('Désarchiver ce projet ? Il réapparaîtra dans la liste principale.')) return
+    const previous = projects
+    setProjects(p => p.map(x => x.id === id ? { ...x, archived_at: null } : x))
+    const { error } = await supabase.from('projects').update({ archived_at: null }).eq('id', id)
+    if (error) {
+      console.error('Erreur désarchivage projet:', error)
+      setProjects(previous)
+      alert('Impossible de désarchiver : ' + error.message)
+    }
+  }
+
   async function updateStatus(projectId, newStatus) {
     // Optimistic UI : on bascule l'affichage avant la confirmation serveur
     const previous = projects
@@ -86,24 +116,21 @@ export default function Projets() {
     }
   }
 
-  // Pipeline : recherche → statut → tri.
-  // useMemo pour éviter de re-trier à chaque render quand seul un autre state change.
-  const filtered = useMemo(() => {
+  // Pipeline : on sépare les projets en deux piles (actifs / archivés) puis on
+  // applique recherche, filtre statut, et tri. Tout passe par un seul useMemo
+  // pour éviter de balayer projects[] plusieurs fois par render.
+  const { activeList, archivedList, statusCounts } = useMemo(() => {
     const q = search.trim().toLowerCase()
-    let list = projects.filter(p => {
-      const matchSearch = !q
-        || p.title.toLowerCase().includes(q)
-        || p.clients?.name?.toLowerCase().includes(q)
-      const matchStatus = statusFilter === 'all' || p.status === statusFilter
-      return matchSearch && matchStatus
-    })
+    const matchSearch = (p) => !q
+      || p.title.toLowerCase().includes(q)
+      || p.clients?.name?.toLowerCase().includes(q)
+
     const cmp = (a, b) => {
       switch (sortBy) {
         case 'oldest':   return new Date(a.updated_at) - new Date(b.updated_at)
         case 'az':       return (a.title || '').localeCompare(b.title || '', 'fr')
         case 'za':       return (b.title || '').localeCompare(a.title || '', 'fr')
         case 'deadline':
-          // Les projets sans date_fin partent en bas
           if (!a.date_fin && !b.date_fin) return 0
           if (!a.date_fin) return 1
           if (!b.date_fin) return -1
@@ -112,24 +139,47 @@ export default function Projets() {
         default:         return new Date(b.updated_at) - new Date(a.updated_at)
       }
     }
-    return [...list].sort(cmp)
+
+    const active = []
+    const archived = []
+    // Compteurs : seuls les projets non archivés alimentent les chips —
+    // l'archivage est un layer indépendant du statut métier.
+    const counts = { all: 0 }
+    for (const opt of STATUS_OPTIONS) counts[opt.value] = 0
+
+    for (const p of projects) {
+      if (p.archived_at) {
+        // Section archivée : on applique uniquement la recherche, pas le
+        // filtre statut (sinon "En cours" cacherait des projets archivés
+        // terminés et l'utilisateur ne saurait pas où ils sont passés).
+        if (matchSearch(p)) archived.push(p)
+        continue
+      }
+      counts.all++
+      if (counts[p.status] !== undefined) counts[p.status]++
+      if (matchSearch(p) && (statusFilter === 'all' || p.status === statusFilter)) {
+        active.push(p)
+      }
+    }
+
+    active.sort(cmp)
+    // Archivés : tri par date d'archivage récente, indépendamment du sortBy global
+    archived.sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at))
+
+    return { activeList: active, archivedList: archived, statusCounts: counts }
   }, [projects, search, statusFilter, sortBy])
 
-  // Compteurs par statut pour les chips (affichés en exposant à droite du label)
-  const statusCounts = useMemo(() => {
-    const base = { all: projects.length }
-    for (const opt of STATUS_OPTIONS) {
-      base[opt.value] = projects.filter(p => p.status === opt.value).length
-    }
-    return base
-  }, [projects])
+  // Auto-expand de la section archivée quand on tape une recherche qui matche
+  // des projets archivés. On ne force pas le repli si l'utilisateur l'a ouverte
+  // manuellement, d'où le OR.
+  const showArchived = archivedExpanded || (search.trim() !== '' && archivedList.length > 0)
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Projets</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{projects.length} projets</p>
+          <h1 className="text-xl font-bold" style={{ color: 'var(--txt)' }}>Projets</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--txt-3)' }}>{statusCounts.all} projets</p>
         </div>
         {isInternal && (
           <button onClick={() => setShowModal(true)} className="btn-primary">
@@ -207,77 +257,82 @@ export default function Projets() {
       {loading && (
         <div className="card p-8 text-center text-sm" style={{ color: 'var(--txt-3)' }}>Chargement…</div>
       )}
-      {!loading && filtered.length === 0 && (
+      {!loading && activeList.length === 0 && (
         <div className="card p-12 text-center">
           <FolderOpen className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
           <p className="text-sm" style={{ color: 'var(--txt-2)' }}>Aucun projet trouvé</p>
         </div>
       )}
 
-      {!loading && filtered.length > 0 && viewMode === 'list' && (
-        <div className="card" style={{ overflow: 'hidden' }}>
-          {filtered.map((p, i) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between px-5 py-3.5 transition-colors group"
-              style={{
-                borderTop: i === 0 ? 'none' : '1px solid var(--brd-sub)',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              <Link to={`/projets/${p.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                <ProjectAvatar project={p} size={40} rounded="lg" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
-                  <p className="text-xs" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
-                </div>
-              </Link>
-              <div className="ml-4 shrink-0">
-                <StatusBadgeMenu project={p} onChange={updateStatus} canEdit={isInternal} />
-              </div>
-              <span className="text-xs shrink-0 ml-3" style={{ color: 'var(--txt-3)' }}>
-                {new Date(p.updated_at).toLocaleDateString('fr-FR')}
-              </span>
-              <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                {isAdmin && (
-                  <button onClick={() => deleteProject(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <Link to={`/projets/${p.id}`} className="btn-ghost btn-sm">
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
+      {!loading && activeList.length > 0 && viewMode === 'list' && (
+        <ProjectListView
+          projects={activeList}
+          isAdmin={isAdmin}
+          isInternal={isInternal}
+          onUpdateStatus={updateStatus}
+          onDelete={deleteProject}
+          onArchive={archiveProject}
+        />
       )}
 
-      {!loading && filtered.length > 0 && viewMode === 'grid' && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filtered.map(p => (
-            <Link
-              key={p.id}
-              to={`/projets/${p.id}`}
-              className="card p-4 transition-all flex flex-col gap-3"
-              style={{ textDecoration: 'none' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brd)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.transform = '' }}
-            >
-              <ProjectAvatar project={p} size={48} rounded="lg" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
-                <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
-              </div>
-              <div className="flex items-center justify-between mt-auto">
-                <StatusBadgeMenu project={p} onChange={updateStatus} canEdit={isInternal} />
-                <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                  {new Date(p.updated_at).toLocaleDateString('fr-FR')}
-                </span>
-              </div>
-            </Link>
-          ))}
+      {!loading && activeList.length > 0 && viewMode === 'grid' && (
+        <ProjectGridView
+          projects={activeList}
+          isAdmin={isAdmin}
+          isInternal={isInternal}
+          onUpdateStatus={updateStatus}
+          onDelete={deleteProject}
+          onArchive={archiveProject}
+        />
+      )}
+
+      {/* ── Section "Projets archivés" ─────────────────────────────────── */}
+      {!loading && (archivedList.length > 0 || archivedExpanded) && (
+        <div className="mt-8">
+          <button
+            onClick={() => setArchivedExpanded(v => !v)}
+            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider px-1 py-1.5 rounded transition-colors"
+            style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--txt-2)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--txt-3)'}
+          >
+            <ChevronDown
+              className="w-3.5 h-3.5 transition-transform"
+              style={{ transform: showArchived ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+            />
+            <Archive className="w-3.5 h-3.5" />
+            <span>Projets archivés ({archivedList.length})</span>
+          </button>
+
+          {showArchived && (
+            <div className="mt-3">
+              {archivedList.length === 0 && (
+                <p className="text-xs px-1" style={{ color: 'var(--txt-3)' }}>Aucun projet archivé pour cette recherche.</p>
+              )}
+              {archivedList.length > 0 && viewMode === 'list' && (
+                <ProjectListView
+                  projects={archivedList}
+                  isAdmin={isAdmin}
+                  isInternal={isInternal}
+                  onUpdateStatus={updateStatus}
+                  onDelete={deleteProject}
+                  onUnarchive={unarchiveProject}
+                  archived
+                />
+              )}
+              {archivedList.length > 0 && viewMode === 'grid' && (
+                <ProjectGridView
+                  projects={archivedList}
+                  isAdmin={isAdmin}
+                  isInternal={isInternal}
+                  onUpdateStatus={updateStatus}
+                  onDelete={deleteProject}
+                  onUnarchive={unarchiveProject}
+                  archived
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -326,6 +381,108 @@ export default function Projets() {
           </form>
         </Modal>
       )}
+    </div>
+  )
+}
+
+// ─── Vues partagées (utilisées par la liste active ET la liste archivée) ──
+
+function ProjectListView({ projects, isAdmin, isInternal, onUpdateStatus, onDelete, onArchive, onUnarchive, archived }) {
+  return (
+    <div className="card" style={{ overflow: 'hidden', opacity: archived ? 0.75 : 1 }}>
+      {projects.map((p, i) => (
+        <div
+          key={p.id}
+          className="flex items-center justify-between px-5 py-3.5 transition-colors group"
+          style={{ borderTop: i === 0 ? 'none' : '1px solid var(--brd-sub)' }}
+          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hov)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        >
+          <Link to={`/projets/${p.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+            <ProjectAvatar project={p} size={40} rounded="lg" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
+              <p className="text-xs" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
+            </div>
+          </Link>
+          <div className="ml-4 shrink-0">
+            <StatusBadgeMenu project={p} onChange={onUpdateStatus} canEdit={isInternal && !archived} />
+          </div>
+          <span className="text-xs shrink-0 ml-3" style={{ color: 'var(--txt-3)' }}>
+            {new Date(p.updated_at).toLocaleDateString('fr-FR')}
+          </span>
+          <div className="flex items-center gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            {isAdmin && (
+              <button onClick={() => onDelete(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Supprimer">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {isInternal && !archived && onArchive && (
+              <button onClick={() => onArchive(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Archiver">
+                <Archive className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {isInternal && archived && onUnarchive && (
+              <button onClick={() => onUnarchive(p.id)} className="btn-ghost btn-sm" style={{ color: 'var(--txt-3)' }} title="Désarchiver">
+                <ArchiveRestore className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <Link to={`/projets/${p.id}`} className="btn-ghost btn-sm">
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ProjectGridView({ projects, isAdmin, isInternal, onUpdateStatus, onDelete, onArchive, onUnarchive, archived }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" style={{ opacity: archived ? 0.75 : 1 }}>
+      {projects.map(p => (
+        <div key={p.id} className="relative group">
+          <Link
+            to={`/projets/${p.id}`}
+            className="card p-4 transition-all flex flex-col gap-3"
+            style={{ textDecoration: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brd)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.transform = '' }}
+          >
+            <ProjectAvatar project={p} size={48} rounded="lg" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>{p.title}</p>
+              <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>{p.clients?.name || '—'}</p>
+            </div>
+            <div className="flex items-center justify-between mt-auto">
+              <StatusBadgeMenu project={p} onChange={onUpdateStatus} canEdit={isInternal && !archived} />
+              <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                {new Date(p.updated_at).toLocaleDateString('fr-FR')}
+              </span>
+            </div>
+          </Link>
+          {/* Bouton archive/unarchive en absolute, top-right, visible au hover */}
+          {isInternal && (
+            <button
+              onClick={archived ? () => onUnarchive(p.id) : () => onArchive(p.id)}
+              className="absolute top-2 right-2 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition-all"
+              style={{
+                width: '26px', height: '26px',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+                color: 'var(--txt-3)',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--txt)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--txt-3)' }}
+              title={archived ? 'Désarchiver' : 'Archiver'}
+            >
+              {archived
+                ? <ArchiveRestore className="w-3.5 h-3.5" />
+                : <Archive className="w-3.5 h-3.5" />}
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
