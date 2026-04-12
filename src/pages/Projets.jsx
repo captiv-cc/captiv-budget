@@ -15,6 +15,9 @@ import {
   ArrowRight,
   FolderOpen,
 } from 'lucide-react'
+import { projectSchema } from '../lib/schemas'
+import { useFormValidation } from '../hooks/useFormValidation'
+import FieldError from '../components/FieldError'
 import { STATUS_OPTIONS } from '../features/projets/constants'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 import ProjectAvatar from '../features/projets/components/ProjectAvatar'
@@ -63,6 +66,8 @@ export default function Projets() {
     date_fin: '',
   })
 
+  const { errors, validate, clearErrors, clearField } = useFormValidation(projectSchema)
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     const [projRes, clsRes] = await Promise.all([
@@ -92,6 +97,8 @@ export default function Projets() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    const validated = validate(form)
+    if (!validated) return
     const { data, error } = await supabase
       .from('projects')
       .insert({ ...form, org_id: org.id, created_by: profile?.id })
@@ -422,17 +429,18 @@ export default function Projets() {
 
       {/* Modal nouveau projet */}
       {showModal && (
-        <Modal title="Nouveau projet" onClose={() => setShowModal(false)}>
+        <Modal title="Nouveau projet" onClose={() => { setShowModal(false); clearErrors() }}>
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
               <label className="label">Titre du projet *</label>
               <input
                 className="input"
                 value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); clearField('title') }}
                 placeholder="Ex: Film institutionnel 2026"
                 required
               />
+              <FieldError error={errors.title} />
             </div>
             <div>
               <label className="label">Client</label>
@@ -493,7 +501,7 @@ export default function Projets() {
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">
+              <button type="button" onClick={() => { setShowModal(false); clearErrors() }} className="btn-secondary">
                 Annuler
               </button>
               <button type="submit" className="btn-primary">

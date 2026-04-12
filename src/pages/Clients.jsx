@@ -3,6 +3,9 @@ import { supabase } from '../lib/supabase'
 import { notify } from '../lib/notify'
 import { useAuth } from '../contexts/AuthContext'
 import { Edit2, X, Check, Plus, Search, Users, Trash2 } from 'lucide-react'
+import { clientSchema } from '../lib/schemas'
+import { useFormValidation } from '../hooks/useFormValidation'
+import FieldError from '../components/FieldError'
 
 const EMPTY = {
   name: '',
@@ -24,6 +27,8 @@ export default function Clients() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
 
+  const { errors, validate, clearErrors, clearField } = useFormValidation(clientSchema)
+
   const load = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase.from('clients').select('*').eq('org_id', org.id).order('name')
@@ -42,6 +47,7 @@ export default function Clients() {
   function openCreate() {
     setForm(EMPTY)
     setModal('create')
+    clearErrors()
   }
   function openEdit(c) {
     setForm({
@@ -55,12 +61,15 @@ export default function Clients() {
       notes: c.notes || '',
     })
     setModal(c)
+    clearErrors()
   }
 
   async function save(e) {
     e.preventDefault()
     setSaving(true)
     try {
+      const validated = validate(form)
+      if (!validated) { setSaving(false); return }
       if (!org?.id) throw new Error('Organisation introuvable — rechargez la page (Cmd+R)')
 
       if (modal === 'create') {
@@ -179,10 +188,11 @@ export default function Clients() {
                 <input
                   className="input"
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); clearField('name') }}
                   required
                   placeholder="Nom de la société ou du client"
                 />
+                <FieldError error={errors.name} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -200,27 +210,30 @@ export default function Clients() {
                     type="email"
                     className="input"
                     value={form.email}
-                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    onChange={(e) => { setForm((f) => ({ ...f, email: e.target.value })); clearField('email') }}
                     placeholder="contact@client.fr"
                   />
+                  <FieldError error={errors.email} />
                 </div>
                 <div>
                   <label className="label">Téléphone</label>
                   <input
                     className="input"
                     value={form.phone}
-                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                    onChange={(e) => { setForm((f) => ({ ...f, phone: e.target.value })); clearField('phone') }}
                     placeholder="+33 6 00 00 00 00"
                   />
+                  <FieldError error={errors.phone} />
                 </div>
                 <div>
                   <label className="label">SIRET</label>
                   <input
                     className="input"
                     value={form.siret}
-                    onChange={(e) => setForm((f) => ({ ...f, siret: e.target.value }))}
+                    onChange={(e) => { setForm((f) => ({ ...f, siret: e.target.value })); clearField('siret') }}
                     placeholder="000 000 000 00000"
                   />
+                  <FieldError error={errors.siret} />
                 </div>
                 <div>
                   <label className="label">N° TVA intracom.</label>

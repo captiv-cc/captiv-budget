@@ -18,6 +18,9 @@ import {
   Phone,
 } from 'lucide-react'
 import TvaPicker from '../components/TvaPicker'
+import { produitSchema, fournisseurSchema } from '../lib/schemas'
+import { useFormValidation } from '../hooks/useFormValidation'
+import FieldError from '../components/FieldError'
 
 // Sous-catégories suggérées (datalist — l'utilisateur peut en saisir d'autres)
 const CAT_SUGGESTIONS = [
@@ -85,6 +88,9 @@ export default function BDD() {
   const [fournForm, setFournForm] = useState(FOURN_EMPTY)
   const [collapsed, setCollapsed] = useState({})
 
+  const { errors: prodErrors, validate: validateProd, clearErrors: clearProdErrors, clearField: clearProdField } = useFormValidation(produitSchema)
+  const { errors: fournErrors, validate: validateFourn, clearErrors: clearFournErrors, clearField: clearFournField } = useFormValidation(fournisseurSchema)
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     const [prodsRes, grilleRes, fournsRes, usageRes] =
@@ -120,6 +126,8 @@ export default function BDD() {
   // ── CRUD ─────────────────────────────────────────────────────────────────
   async function save(e) {
     e.preventDefault()
+    const validated = validateProd(form)
+    if (!validated) return
     const { id: _id, regime: _r, grille_cc_j: _g, ...rest } = form // on écarte les anciens champs
     const payload = {
       ...rest,
@@ -186,6 +194,8 @@ export default function BDD() {
   // ── Fournisseurs CRUD ────────────────────────────────────────────────────
   async function saveFourn(e) {
     e.preventDefault()
+    const validated = validateFourn(fournForm)
+    if (!validated) return
     const { id: _id, ...rest } = fournForm
     const payload = {
       nom: (rest.nom || '').trim(),
@@ -303,6 +313,7 @@ export default function BDD() {
             onClick={() => {
               setForm(EMPTY)
               setModal('create')
+              clearProdErrors()
             }}
             className="btn-primary btn-sm"
           >
@@ -314,6 +325,7 @@ export default function BDD() {
             onClick={() => {
               setFournForm(FOURN_EMPTY)
               setFournModal('create')
+              clearFournErrors()
             }}
             className="btn-primary btn-sm"
           >
@@ -395,6 +407,7 @@ export default function BDD() {
                   onClick={() => {
                     setForm(EMPTY)
                     setModal('create')
+                    clearProdErrors()
                   }}
                   className="btn-primary btn-sm"
                 >
@@ -447,6 +460,7 @@ export default function BDD() {
                       e.stopPropagation()
                       setForm({ ...EMPTY, categorie: cat })
                       setModal('create')
+                      clearProdErrors()
                     }}
                     className="btn-ghost btn-sm"
                     style={{ color: 'var(--txt-3)' }}
@@ -553,6 +567,7 @@ export default function BDD() {
                                     tarif_defaut: line.tarif_defaut ?? '',
                                   })
                                   setModal(line)
+                                  clearProdErrors()
                                 }}
                                 className="btn-ghost btn-sm"
                               >
@@ -638,6 +653,7 @@ export default function BDD() {
                       onClick={() => {
                         setFournForm(FOURN_EMPTY)
                         setFournModal('create')
+                        clearFournErrors()
                       }}
                       className="btn-primary btn-sm"
                     >
@@ -748,6 +764,7 @@ export default function BDD() {
                                     onClick={() => {
                                       setFournForm({ ...FOURN_EMPTY, ...f })
                                       setFournModal(f)
+                                      clearFournErrors()
                                     }}
                                     className="btn-ghost btn-sm"
                                   >
@@ -900,9 +917,10 @@ export default function BDD() {
                   required
                   autoFocus
                   value={form.produit}
-                  onChange={(e) => setForm((f) => ({ ...f, produit: e.target.value }))}
+                  onChange={(e) => { setForm((f) => ({ ...f, produit: e.target.value })); clearProdField('produit') }}
                   placeholder="Ex : Directeur de production, Location caméra…"
                 />
+                <FieldError error={prodErrors.produit} />
               </div>
 
               {/* Sous-catégorie */}
@@ -976,9 +994,10 @@ export default function BDD() {
                     min={0}
                     step={0.01}
                     value={form.tarif_defaut}
-                    onChange={(e) => setForm((f) => ({ ...f, tarif_defaut: e.target.value }))}
+                    onChange={(e) => { setForm((f) => ({ ...f, tarif_defaut: e.target.value })); clearProdField('tarif_defaut') }}
                     placeholder="Point de départ"
                   />
+                  <FieldError error={prodErrors.tarif_defaut} />
                 </div>
               </div>
 
@@ -1047,9 +1066,10 @@ export default function BDD() {
                   required
                   autoFocus
                   value={fournForm.nom}
-                  onChange={(e) => setFournForm((f) => ({ ...f, nom: e.target.value }))}
+                  onChange={(e) => { setFournForm((f) => ({ ...f, nom: e.target.value })); clearFournField('nom') }}
                   placeholder="Ex : CINECOM, Panavision…"
                 />
+                <FieldError error={fournErrors.nom} />
               </div>
 
               <div>
@@ -1080,18 +1100,20 @@ export default function BDD() {
                     type="email"
                     className="input w-full"
                     value={fournForm.email || ''}
-                    onChange={(e) => setFournForm((f) => ({ ...f, email: e.target.value }))}
+                    onChange={(e) => { setFournForm((f) => ({ ...f, email: e.target.value })); clearFournField('email') }}
                     placeholder="contact@…"
                   />
+                  <FieldError error={fournErrors.email} />
                 </div>
                 <div className="flex-1">
                   <label className="label">Téléphone</label>
                   <input
                     className="input w-full"
                     value={fournForm.phone || ''}
-                    onChange={(e) => setFournForm((f) => ({ ...f, phone: e.target.value }))}
+                    onChange={(e) => { setFournForm((f) => ({ ...f, phone: e.target.value })); clearFournField('phone') }}
                     placeholder="06…"
                   />
+                  <FieldError error={fournErrors.phone} />
                 </div>
               </div>
 
@@ -1105,9 +1127,10 @@ export default function BDD() {
                 <input
                   className="input w-full"
                   value={fournForm.siret || ''}
-                  onChange={(e) => setFournForm((f) => ({ ...f, siret: e.target.value }))}
+                  onChange={(e) => { setFournForm((f) => ({ ...f, siret: e.target.value })); clearFournField('siret') }}
                   placeholder="14 chiffres"
                 />
+                <FieldError error={fournErrors.siret} />
               </div>
 
               <TvaPicker

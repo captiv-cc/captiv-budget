@@ -31,6 +31,9 @@ import {
   Copy,
   Loader2,
 } from 'lucide-react'
+import { contactSchema } from '../lib/schemas'
+import { useFormValidation } from '../hooks/useFormValidation'
+import FieldError from '../components/FieldError'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const EMPTY = {
@@ -102,6 +105,8 @@ export default function Contacts() {
   // ch4C.2 : invitations en attente (contact_id → row invitations_log)
   const [pendingInvites, setPendingInvites] = useState({})
 
+  const { errors, validate, clearErrors, clearField } = useFormValidation(contactSchema)
+
   const load = useCallback(async () => {
     if (!org?.id) return
     setLoading(true)
@@ -153,6 +158,7 @@ export default function Contacts() {
   function openCreate() {
     setForm(EMPTY)
     setModal('create')
+    clearErrors()
   }
   function openEdit(c) {
     setForm({
@@ -171,12 +177,15 @@ export default function Contacts() {
       user_id: c.user_id || null,
     })
     setModal(c)
+    clearErrors()
   }
 
   async function save(e) {
     e.preventDefault()
     setSaving(true)
     try {
+      const validated = validate(form)
+      if (!validated) { setSaving(false); return }
       const payload = {
         ...form,
         tarif_jour_ref: form.tarif_jour_ref ? Number(form.tarif_jour_ref) : null,
@@ -460,6 +469,8 @@ export default function Contacts() {
             .map((c) => c.user_id)}
           pendingInvite={typeof modal === 'object' ? pendingInvites[modal.id] : null}
           onInvited={load}
+          errors={errors}
+          clearField={clearField}
         />
       )}
     </div>
@@ -702,6 +713,8 @@ function ContactModal({
   linkedUserIds = [],
   pendingInvite = null,
   onInvited,
+  errors = {},
+  clearField = () => {},
 }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
   const isCreate = modal === 'create'
@@ -853,10 +866,11 @@ function ContactModal({
               <input
                 required
                 value={form.nom}
-                onChange={(e) => set('nom', e.target.value)}
+                onChange={(e) => { set('nom', e.target.value); clearField('nom') }}
                 placeholder="Dupont"
                 style={inputStyle}
               />
+              <FieldError error={errors.nom} />
             </div>
           </div>
 
@@ -894,19 +908,21 @@ function ContactModal({
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) => set('email', e.target.value)}
+                onChange={(e) => { set('email', e.target.value); clearField('email') }}
                 placeholder="jean@exemple.fr"
                 style={inputStyle}
               />
+              <FieldError error={errors.email} />
             </div>
             <div>
               <label style={labelStyle}>Téléphone</label>
               <input
                 value={form.telephone}
-                onChange={(e) => set('telephone', e.target.value)}
+                onChange={(e) => { set('telephone', e.target.value); clearField('telephone') }}
                 placeholder="+33 6 00 00 00 00"
                 style={inputStyle}
               />
+              <FieldError error={errors.telephone} />
             </div>
           </div>
 
@@ -917,21 +933,23 @@ function ContactModal({
               <input
                 type="number"
                 value={form.tarif_jour_ref}
-                onChange={(e) => set('tarif_jour_ref', e.target.value)}
+                onChange={(e) => { set('tarif_jour_ref', e.target.value); clearField('tarif_jour_ref') }}
                 placeholder="350"
                 min={0}
                 step={5}
                 style={inputStyle}
               />
+              <FieldError error={errors.tarif_jour_ref} />
             </div>
             <div>
               <label style={labelStyle}>SIRET</label>
               <input
                 value={form.siret}
-                onChange={(e) => set('siret', e.target.value)}
+                onChange={(e) => { set('siret', e.target.value); clearField('siret') }}
                 placeholder="000 000 000 00000"
                 style={inputStyle}
               />
+              <FieldError error={errors.siret} />
             </div>
           </div>
 
