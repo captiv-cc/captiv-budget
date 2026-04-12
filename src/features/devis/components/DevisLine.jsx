@@ -8,7 +8,7 @@
  * Extrait de DevisEditor.jsx — chantier refacto.
  */
 
-import { GripVertical, Copy, Trash2 } from 'lucide-react'
+import { GripVertical, Copy, Trash2, Equal } from 'lucide-react'
 import {
   calcLine, fmtEur, fmtPct,
   REGIMES_SALARIES, UNITES,
@@ -19,9 +19,11 @@ import RegimeSelect from './RegimeSelect'
 import PriceCell from './cells/PriceCell'
 import CalcCell from './cells/CalcCell'
 
-export default function DevisLine({ line, taux, bdd, accentColor, onChange, onChangeBatch, onDelete, onDuplicate, showAnalyse = false, remiseVisible = false, isDragOver = false, onDragStart, onDragOver, onDrop, onDragEnd }) {
+export default function DevisLine({ line, index = 0, taux, bdd, accentColor, onChange, onChangeBatch, onDelete, onDuplicate, showAnalyse = false, remiseVisible = false, isDragOver = false, onDragStart, onDragOver, onDrop, onDragEnd }) {
   const c = calcLine(line, taux)
   const inactive = !line.use_line
+  // Zebra striping subtil pour aérer le tableau dense
+  const zebraBg = index % 2 === 1 ? 'rgba(255,255,255,.018)' : 'var(--bg-surf)'
 
   function handleSelectProduit(p) {
     const updates = { produit: p.produit }
@@ -34,14 +36,14 @@ export default function DevisLine({ line, taux, bdd, accentColor, onChange, onCh
 
   return (
     <tr
-      className={inactive ? 'opacity-40' : ''}
+      className={`devis-line group${inactive ? ' opacity-40' : ''}`}
       draggable
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver?.() }}
       onDrop={e => { e.preventDefault(); onDrop?.() }}
       onDragEnd={onDragEnd}
       style={{
-        background: isDragOver ? 'rgba(255,255,255,.04)' : 'var(--bg-surf)',
+        background: isDragOver ? 'rgba(255,255,255,.04)' : zebraBg,
         outline: isDragOver ? `2px solid ${accentColor}60` : 'none',
         transition: 'outline 80ms, background 80ms',
       }}
@@ -114,25 +116,28 @@ export default function DevisLine({ line, taux, bdd, accentColor, onChange, onCh
           title="Nombre d'unités (ex : 2 caméras)"
         />
       </td>
-      {/* Qté — jours / périodes */}
+      {/* Qté + Unité — fusionnés en une seule cellule (ex: "2 J") */}
       <td style={{ padding: 0 }}>
-        <input
-          type="number"
-          className="input-cell w-full text-right"
-          value={line.quantite || ''}
-          onChange={e => onChange('quantite', parseFloat(e.target.value) || 0)}
-          min={0} step={0.5}
-          title="Quantité (ex : 2 jours)"
-        />
-      </td>
-      {/* Unité */}
-      <td>
-        <select className="w-full text-xs border-0 cursor-pointer text-center rounded"
-          style={{ background: 'transparent', color: 'var(--txt-2)' }}
-          value={line.unite || 'F'}
-          onChange={e => onChange('unite', e.target.value)}>
-          {UNITES.map(u => <option key={u} value={u}>{u}</option>)}
-        </select>
+        <div className="flex items-center w-full">
+          <input
+            type="number"
+            className="input-cell text-right flex-1 min-w-0"
+            value={line.quantite || ''}
+            onChange={e => onChange('quantite', parseFloat(e.target.value) || 0)}
+            min={0} step={0.5}
+            title="Quantité (ex : 2 jours)"
+            style={{ paddingRight: '2px' }}
+          />
+          <select
+            className="text-xs border-0 cursor-pointer rounded shrink-0"
+            style={{ background: 'transparent', color: 'var(--txt-2)', paddingLeft: '2px', paddingRight: '4px' }}
+            value={line.unite || 'F'}
+            onChange={e => onChange('unite', e.target.value)}
+            title="Unité"
+          >
+            {UNITES.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
       </td>
       {/* Tarif vente HT */}
       <td>
@@ -152,10 +157,14 @@ export default function DevisLine({ line, taux, bdd, accentColor, onChange, onCh
             <PriceCell
               value={line.cout_ht}
               onChange={v => onChange('cout_ht', v)}
-              placeholder={line.regime === 'Ext. Intermittent' ? 'brut' : '= vente'}
+              placeholder={
+                line.regime === 'Ext. Intermittent'
+                  ? 'brut'
+                  : <Equal className="w-3 h-3 inline opacity-60" />
+              }
               nullable
               style={{ color: line.regime === 'Ext. Intermittent' ? 'var(--purple, #7c3aed)' : 'var(--orange)' }}
-              title={line.regime === 'Ext. Intermittent' ? 'Salaire brut intermittent (base cotisations 67%)' : undefined}
+              title={line.regime === 'Ext. Intermittent' ? 'Salaire brut intermittent (base cotisations 67%)' : 'Vide = coût égal au prix de vente'}
             />
             {line.regime === 'Ext. Intermittent' && c.chargesPat > 0 && (
               <div
@@ -217,18 +226,23 @@ export default function DevisLine({ line, taux, bdd, accentColor, onChange, onCh
             {isInterneNonValuee ? (
               <span className="text-[10px] italic" style={{ color: 'var(--purple)', opacity: 0.7 }} title="Ressource interne sans coût renseigné">int.</span>
             ) : (
-              <span className="text-[11px] tabular-nums font-medium" style={{
-                color: c.pctMarge < 0 ? 'var(--red)' : c.pctMarge > 0.15 ? 'var(--green)' : 'var(--txt-3)'
-              }}>
+              <span
+                className="text-[11px] tabular-nums font-medium"
+                style={{
+                  color: c.pctMarge < 0 ? 'var(--red)' : c.pctMarge > 0.15 ? 'var(--green)' : 'var(--txt-3)',
+                  // Marge nulle → grisée : ne capte pas l'œil dans un tableau dense
+                  opacity: c.pctMarge === 0 ? 0.35 : 1,
+                }}
+              >
                 {fmtPct(c.pctMarge)}
               </span>
             )}
           </td>
         )
       })()}
-      {/* Actions */}
+      {/* Actions — apparaissent au hover de la ligne uniquement */}
       <td className="text-center" style={{ borderRight: `1px solid ${accentColor}18` }}>
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-100">
           <button onClick={onDuplicate} className="transition-colors" title="Dupliquer la ligne"
             style={{ color: 'var(--txt-3)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--blue)'}

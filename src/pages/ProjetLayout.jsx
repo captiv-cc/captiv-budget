@@ -232,7 +232,9 @@ export default function ProjetLayout() {
             </div>
 
             {/* Droite : KPIs devis de référence (finance uniquement) */}
-            {canSeeFinance && refSynth ? (
+            {/* Masqués sur l'éditeur de devis : la valeur ne se met pas à jour
+                en temps réel et risque de diverger des chiffres en cours d'édition. */}
+            {canSeeFinance && refSynth && !isDevisEditor ? (
               <div className="flex items-center gap-6 shrink-0 ml-4">
                 <BannerKpi
                   label={refDevis?.status === 'accepte' ? 'Budget accepté HT' : `Budget V${refDevis?.version_number} HT`}
@@ -252,7 +254,7 @@ export default function ProjetLayout() {
                   <p className="text-xs font-medium text-slate-300">{devisList.length} version{devisList.length > 1 ? 's' : ''}</p>
                 </div>
               </div>
-            ) : canSeeFinance ? (
+            ) : canSeeFinance && !isDevisEditor ? (
               <div className="text-xs text-slate-500 italic shrink-0 ml-4">Aucun devis</div>
             ) : null}
           </div>

@@ -49,14 +49,14 @@ export default function CategoryBlock({ cat, info, num, collapsed, taux, bdd, sh
     <>
       {/* ── Séparateur haut — respiration entre blocs ────────────────────── */}
       <tr style={{ height: '40px' }}>
-        <td colSpan={18} style={{ background: 'var(--bg)', padding: 0, border: 'none' }} />
+        <td colSpan={17} style={{ background: 'var(--bg)', padding: 0, border: 'none' }} />
       </tr>
 
       {/* ── En-tête catégorie — card top ─────────────────────────────────── */}
       <tr className="cat-row">
         <td
           className="px-3 py-1.5"
-          colSpan={showAnalyse ? 16 : 13}
+          colSpan={showAnalyse ? 15 : 12}
           style={{
             borderLeft:          `3px solid ${accentColor}`,
             borderTop:           `1px solid ${accentColor}30`,
@@ -146,7 +146,7 @@ export default function CategoryBlock({ cat, info, num, collapsed, taux, bdd, sh
       {!collapsed && showNotes && (
         <tr>
           <td
-            colSpan={showAnalyse ? 17 : 14}
+            colSpan={showAnalyse ? 16 : 13}
             style={{
               background:  'var(--bg-surf)',
               borderLeft:  `3px solid ${accentColor}`,
@@ -181,6 +181,7 @@ export default function CategoryBlock({ cat, info, num, collapsed, taux, bdd, sh
         <DevisLine
           key={line.id || line._tempId}
           line={line}
+          index={idx}
           taux={taux}
           bdd={bdd}
           accentColor={accentColor}
@@ -205,7 +206,7 @@ export default function CategoryBlock({ cat, info, num, collapsed, taux, bdd, sh
       {!collapsed && (
         <tr>
           <td
-            colSpan={showAnalyse ? 17 : 14}
+            colSpan={showAnalyse ? 16 : 13}
             style={{
               background:  'var(--bg-surf)',
               borderLeft:  `3px solid ${accentColor}`,
@@ -228,7 +229,7 @@ export default function CategoryBlock({ cat, info, num, collapsed, taux, bdd, sh
       {/* ── Footer de synthèse catégorie — card bottom ───────────────────── */}
       <tr className="bloc-footer">
         <td
-          colSpan={11}
+          colSpan={10}
           className="px-4 py-1.5 text-[10px]"
           style={{
             color:                  'var(--txt-3)',

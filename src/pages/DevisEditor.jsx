@@ -34,7 +34,7 @@ import {
   Plus, Trash2, Copy, Download, ChevronLeft,
   ChevronDown, ChevronUp, ChevronRight, Save, Eye, RefreshCw,
   Check, GripVertical, Percent, ShieldCheck, Tag,
-  TrendingUp, Users, BarChart3, X, Search, Database, Wrench, StickyNote
+  TrendingUp, Users, BarChart3, X, Search, Database, Wrench, StickyNote, Pencil
 } from 'lucide-react'
 
 // Re-export pour les modules qui importent BLOCS_CANONIQUES depuis DevisEditor
@@ -76,6 +76,7 @@ export default function DevisEditor({ embedded = false }) {
   const [addLineModal, setAddLineModal] = useState(null)  // { catId, defaultRegime } | null
   const [showAnalyse, setShowAnalyse]   = useState(false) // toggle colonnes analyse
   const [showRemise, setShowRemise]     = useState(false) // toggle colonne remise
+  const [editingTitle, setEditingTitle] = useState(false) // toggle édition titre devis
   const isSaving         = useRef(false)   // garde contre saves concurrentes
   const pendingSave      = useRef(null)    // dernier save en attente
   const insertingTempIds = useRef(new Set()) // évite double-INSERT
@@ -93,7 +94,7 @@ export default function DevisEditor({ embedded = false }) {
     const snapDv   = devis
     const timer = setTimeout(() => doSave(snapCats, snapDv, snapAdj), 1500)
     return () => clearTimeout(timer)
-  }, [categories, globalAdj]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categories, globalAdj, devis?.title, devis?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadAll() {
     setLoading(true)
@@ -227,6 +228,7 @@ export default function DevisEditor({ embedded = false }) {
       const { error: devisErr } = await supabase.from('devis').update({
         updated_at:             new Date().toISOString(),
         status:                 dv.status,
+        title:                  dv.title ?? null,
         marge_globale_pct:      adj.marge_globale_pct,
         assurance_pct:          adj.assurance_pct,
         remise_globale_pct:     adj.remise_globale_pct,
@@ -533,7 +535,45 @@ export default function DevisEditor({ embedded = false }) {
               </Link>
             )}
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold" style={{ color: 'var(--blue)' }}>Devis V{devis?.version_number}</span>
+              <span className="text-sm font-bold shrink-0" style={{ color: 'var(--blue)' }}>Devis V{devis?.version_number}</span>
+              {editingTitle ? (
+                <input
+                  type="text"
+                  autoFocus
+                  defaultValue={devis?.title || ''}
+                  placeholder="Nom du devis (optionnel)"
+                  onBlur={e => {
+                    const v = e.target.value.trim()
+                    updateDevisField('title', v || null)
+                    setEditingTitle(false)
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') e.currentTarget.blur()
+                    if (e.key === 'Escape') setEditingTitle(false)
+                  }}
+                  className="text-xs px-1.5 py-0.5 rounded outline-none"
+                  style={{
+                    background: 'rgba(255,255,255,.06)',
+                    border: '1px solid var(--brd)',
+                    color: 'var(--txt)',
+                    minWidth: '220px',
+                  }}
+                />
+              ) : (
+                <button
+                  onClick={() => setEditingTitle(true)}
+                  title={devis?.title ? 'Renommer le devis' : 'Ajouter un nom au devis'}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-all group"
+                  style={{ color: devis?.title ? 'var(--txt-2)' : 'var(--txt-3)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.06)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span className="text-xs italic truncate max-w-[260px]">
+                    {devis?.title || 'Sans nom'}
+                  </span>
+                  <Pencil className="w-3 h-3 opacity-50 group-hover:opacity-100" />
+                </button>
+              )}
               <StatusSelect status={devis?.status} onChange={v => updateDevisField('status', v)} />
             </div>
           </div>
@@ -615,8 +655,7 @@ export default function DevisEditor({ embedded = false }) {
                 <th className="w-56">Description</th>
                 <th className="w-24">Cat.</th>
                 <th className="w-10">Nb</th>
-                <th className="w-12">Qté</th>
-                <th className="w-12">Unité</th>
+                <th className="w-20" title="Quantité × unité">Qté</th>
                 <th className="w-24">Tarif HT</th>
                 <th className="col-cout w-24" title="Coût d'achat unitaire (vide = égal au tarif)">Coût unit.</th>
                 {remiseVisible && (
