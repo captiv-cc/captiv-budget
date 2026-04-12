@@ -400,9 +400,33 @@ export default function DevisTab() {
             </div>
 
             <div className="divide-y divide-gray-50">
-              {[...devisList].reverse().map(dv => {
+              {(() => {
+                // Index : un titre apparaît combien de fois ? → on hint si > 1
+                // pour pousser au rename. Comparaison sur le titre effectif
+                // (avec fallback "Devis V{n}") pour ne pas spammer le hint.
+                const titleCounts = devisList.reduce((acc, d) => {
+                  const t = (d.title || `Devis V${d.version_number}`).trim()
+                  acc[t] = (acc[t] || 0) + 1
+                  return acc
+                }, {})
+                return [...devisList].reverse().map((dv, idx, arr) => {
                 const s      = devisStats[dv.id]
                 const isRef  = dv.status === 'accepte'
+
+                // Diff avec la version PRÉCÉDENTE (= la suivante dans le tableau
+                // reversed, qui affiche les plus récentes en haut). On compare
+                // toujours avec le devis créé juste avant celui-ci.
+                const prevDv    = arr[idx + 1]
+                const prevStats = prevDv ? devisStats[prevDv.id] : null
+                const diffHT    = s && prevStats
+                  ? s.totalHTFinal - prevStats.totalHTFinal
+                  : null
+                const diffMargePts = s && prevStats
+                  ? (s.pctMargeFinale - prevStats.pctMargeFinale) * 100
+                  : null
+
+                const titleKey   = (dv.title || `Devis V${dv.version_number}`).trim()
+                const isDuplicate = titleCounts[titleKey] > 1
 
                 const rowMargeTone =
                   !s                       ? 'text-gray-400'
@@ -444,6 +468,14 @@ export default function DevisTab() {
                             Référence
                           </span>
                         )}
+                        {isDuplicate && !isRef && (
+                          <span
+                            title="Plusieurs versions partagent ce nom — renomme pour les distinguer"
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium border border-amber-100 cursor-help"
+                          >
+                            Nom dupliqué
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
                         Créé le {new Date(dv.created_at).toLocaleDateString('fr-FR')}
@@ -460,12 +492,40 @@ export default function DevisTab() {
                           <p className="text-sm font-bold text-gray-900 tabular-nums">
                             {fmtEur(s.totalHTFinal)}
                           </p>
+                          {diffHT !== null && (
+                            <p
+                              className={`text-[10px] tabular-nums mt-0.5 font-medium ${
+                                Math.abs(diffHT) < 0.01 ? 'text-gray-300'
+                                : diffHT > 0           ? 'text-green-500'
+                                :                        'text-red-500'
+                              }`}
+                              title={`Écart vs V${prevDv.version_number}`}
+                            >
+                              {Math.abs(diffHT) < 0.01
+                                ? '='
+                                : `${diffHT > 0 ? '+' : ''}${fmtEur(diffHT)}`}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Marge</p>
                           <p className={`text-sm font-bold tabular-nums ${rowMargeTone}`}>
                             {fmtPct(s.pctMargeFinale)}
                           </p>
+                          {diffMargePts !== null && (
+                            <p
+                              className={`text-[10px] tabular-nums mt-0.5 font-medium ${
+                                Math.abs(diffMargePts) < 0.05 ? 'text-gray-300'
+                                : diffMargePts > 0            ? 'text-green-500'
+                                :                               'text-red-500'
+                              }`}
+                              title={`Écart vs V${prevDv.version_number}`}
+                            >
+                              {Math.abs(diffMargePts) < 0.05
+                                ? '='
+                                : `${diffMargePts > 0 ? '+' : ''}${diffMargePts.toFixed(1)} pts`}
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -512,7 +572,8 @@ export default function DevisTab() {
                     </div>
                   </Link>
                 )
-              })}
+              })
+              })()}
             </div>
           </div>
 
