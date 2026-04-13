@@ -101,9 +101,11 @@ function dateEcheance(dateEnvoi, delai) {
 // Aujourd'hui en YYYY-MM-DD
 const today = () => new Date().toISOString().split('T')[0]
 
-// Retourne true si la facture est en retard (émise + échéance dépassée)
+// Retourne true si la facture a une échéance dépassée (planifiée ou émise).
+// - planifiée + échéance passée = retard d'émission (oubli d'émettre dans Qonto)
+// - émise + échéance passée    = retard de règlement (le client doit payer)
 function isLate(facture) {
-  if (facture.statut !== 'emise') return false
+  if (facture.statut === 'reglee' || facture.statut === 'annulee') return false
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
   if (!ech) return false
   return new Date(ech) < new Date(today())
@@ -112,11 +114,11 @@ function isLate(facture) {
 // Clé de tri : 0=retard, 1=urgent(<7j), 2=émise normale, 3=planifiée, 9=réglée/annulée
 function sortKey(facture) {
   if (facture.statut === 'reglee' || facture.statut === 'annulee') return 9
+  if (isLate(facture)) return 0
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
   if (facture.statut === 'planifiee') return 3
   if (!ech) return 2
   const diff = (new Date(ech) - new Date(today())) / (1000 * 60 * 60 * 24)
-  if (diff < 0) return 0
   if (diff <= 7) return 1
   return 2
 }
@@ -202,6 +204,7 @@ function StatutDropdown({ statut, onSelect }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
   const btnRef = useRef(null)
+  const menuRef = useRef(null)
 
   function toggle() {
     if (!open && btnRef.current) {
@@ -211,11 +214,14 @@ function StatutDropdown({ statut, onSelect }) {
     setOpen((v) => !v)
   }
 
-  // Fermer si clic extérieur
+  // Fermer si clic extérieur — IMPORTANT : exclure le portal du test
+  // sinon le mousedown ferme le menu AVANT le click sur l'option
   useEffect(() => {
     if (!open) return
     const handler = (e) => {
-      if (btnRef.current && !btnRef.current.contains(e.target)) setOpen(false)
+      if (btnRef.current && btnRef.current.contains(e.target)) return
+      if (menuRef.current && menuRef.current.contains(e.target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -229,6 +235,7 @@ function StatutDropdown({ statut, onSelect }) {
       {open &&
         createPortal(
           <div
+            ref={menuRef}
             style={{
               position: 'fixed',
               top: pos.top,
@@ -271,11 +278,18 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
   const tc = TYPE_COLORS[type.color] || TYPE_COLORS.blue
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
   const retard = isLate(facture)
-  // Jours restants avant échéance
+  // Jours restants avant échéance (pour planifiée + émise ; pas sur réglée/annulée)
   let joursRestants = null
-  if (ech && facture.statut === 'emise') {
+  const actif = facture.statut === 'planifiee' || facture.statut === 'emise'
+  if (ech && actif) {
     joursRestants = Math.round((new Date(ech) - new Date(today())) / (1000 * 60 * 60 * 24))
   }
+  // Libellé du badge retard selon le statut
+  const retardLabel = facture.statut === 'planifiee' ? 'À émettre' : 'Retard'
+  const retardTitle =
+    facture.statut === 'planifiee'
+      ? `Échéance dépassée de ${Math.abs(joursRestants || 0)} j — à émettre dans Qonto`
+      : `${Math.abs(joursRestants || 0)} j de retard de règlement`
 
   return (
     <div
@@ -298,10 +312,10 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
             <span
               className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide inline-flex items-center gap-1"
               style={{ background: 'rgba(239,68,68,.15)', color: 'var(--red)' }}
-              title={`${Math.abs(joursRestants)} j de retard`}
+              title={retardTitle}
             >
               <AlertCircle className="w-3 h-3" />
-              Retard
+              {retardLabel}
             </span>
           )}
         </div>
