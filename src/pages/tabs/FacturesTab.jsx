@@ -1194,6 +1194,38 @@ export default function FacturesTab() {
         />
       </div>
 
+      {/* ── Alerte dépassement 100% du montant à facturer ───────────────── */}
+      {totalDevisHT > 0 && resteAFacturerHT < -0.01 && (
+        <div
+          className="rounded-xl p-3 flex items-start gap-3"
+          style={{
+            background: 'rgba(239,68,68,.08)',
+            border: '1px solid rgba(239,68,68,.3)',
+          }}
+        >
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(239,68,68,.15)' }}
+          >
+            <AlertTriangle className="w-4 h-4" style={{ color: 'var(--red)' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold" style={{ color: 'var(--red)' }}>
+              Montant à facturer dépassé ({(pctFacture * 100).toFixed(1)} %)
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--txt-2)' }}>
+              Le total facturé ({fmtEur(totalFactureHT)} HT) dépasse le montant
+              du devis de référence ({fmtEur(totalDevisHT)} HT) de{' '}
+              <span className="font-semibold" style={{ color: 'var(--red)' }}>
+                {fmtEur(Math.abs(resteAFacturerHT))}
+              </span>
+              . Vérifie les montants de tes factures ou passe une en{' '}
+              <span className="font-medium">Annulée</span>.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Bandeau "Reste à facturer" (si devis de référence) ─────────────── */}
       {totalDevisHT > 0 && (
         <div
