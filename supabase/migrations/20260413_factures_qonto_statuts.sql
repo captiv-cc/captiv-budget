@@ -37,7 +37,7 @@ SELECT
   f.id,
   f.project_id,
   p.title                             AS project_title,
-  c.name                              AS client_name,
+  COALESCE(c.raison_sociale, c.nom_commercial) AS client_name,
   f.type,
   f.numero,
   f.qonto_url,
