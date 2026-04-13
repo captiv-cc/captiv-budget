@@ -32,7 +32,10 @@ ALTER TABLE factures ADD CONSTRAINT factures_statut_check
 ALTER TABLE factures ALTER COLUMN statut SET DEFAULT 'planifiee';
 
 -- 5. Mise à jour de la vue v_compta_factures pour refléter les nouveaux statuts
-CREATE OR REPLACE VIEW v_compta_factures AS
+--    (DROP + CREATE car on insère une nouvelle colonne qonto_url au milieu,
+--     ce que CREATE OR REPLACE VIEW n'autorise pas en Postgres)
+DROP VIEW IF EXISTS v_compta_factures;
+CREATE VIEW v_compta_factures AS
 SELECT
   f.id,
   f.project_id,
