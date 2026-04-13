@@ -15,13 +15,17 @@ import {
   Clock,
   AlertTriangle,
   Send,
-  FileText,
+  CalendarClock,
   Pencil,
   Trash2,
   X,
   Euro,
   TrendingUp,
   AlertCircle,
+  Ban,
+  ExternalLink,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -32,41 +36,36 @@ const TYPES = [
   { key: 'globale', label: 'Facture globale', color: 'purple' },
 ]
 
+// 4 statuts : planifiee → emise → reglee | annulee
+// "en_retard" est DÉRIVÉ (date_echeance < today && statut === 'emise'), non stocké
 const STATUTS = [
   {
-    key: 'brouillon',
-    label: 'Brouillon',
-    icon: FileText,
+    key: 'planifiee',
+    label: 'Planifiée',
+    icon: CalendarClock,
     color: 'var(--txt-3)',
     bg: 'var(--bg-elev)',
   },
   {
-    key: 'envoyee',
-    label: 'Envoyée',
+    key: 'emise',
+    label: 'Émise',
     icon: Send,
     color: 'var(--blue)',
     bg: 'rgba(59,130,246,.12)',
   },
   {
-    key: 'en_attente',
-    label: 'En attente',
-    icon: Clock,
-    color: 'var(--amber)',
-    bg: 'rgba(245,158,11,.12)',
-  },
-  {
     key: 'reglee',
-    label: 'Réglée ✓',
+    label: 'Réglée',
     icon: CheckCircle2,
     color: 'var(--green)',
     bg: 'rgba(0,200,117,.12)',
   },
   {
-    key: 'en_retard',
-    label: 'En retard',
-    icon: AlertTriangle,
-    color: 'var(--red)',
-    bg: 'rgba(239,68,68,.12)',
+    key: 'annulee',
+    label: 'Annulée',
+    icon: Ban,
+    color: 'var(--txt-3)',
+    bg: 'var(--bg-elev)',
   },
 ]
 
@@ -102,6 +101,26 @@ function dateEcheance(dateEnvoi, delai) {
 // Aujourd'hui en YYYY-MM-DD
 const today = () => new Date().toISOString().split('T')[0]
 
+// Retourne true si la facture est en retard (émise + échéance dépassée)
+function isLate(facture) {
+  if (facture.statut !== 'emise') return false
+  const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
+  if (!ech) return false
+  return new Date(ech) < new Date(today())
+}
+
+// Clé de tri : 0=retard, 1=urgent(<7j), 2=émise normale, 3=planifiée, 9=réglée/annulée
+function sortKey(facture) {
+  if (facture.statut === 'reglee' || facture.statut === 'annulee') return 9
+  const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
+  if (facture.statut === 'planifiee') return 3
+  if (!ech) return 2
+  const diff = (new Date(ech) - new Date(today())) / (1000 * 60 * 60 * 24)
+  if (diff < 0) return 0
+  if (diff <= 7) return 1
+  return 2
+}
+
 // ─── KPI Card ────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, icon: Icon, color }) {
   return (
@@ -132,6 +151,34 @@ function KpiCard({ label, value, sub, icon: Icon, color }) {
         )}
       </div>
     </div>
+  )
+}
+
+// ─── Filter Chip ─────────────────────────────────────────────────────────────
+function FilterChip({ label, count, active, onClick, color }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+      style={{
+        background: active ? (color || 'var(--blue)') : 'var(--bg-surf)',
+        color: active ? 'white' : color || 'var(--txt-2)',
+        border: active ? '1px solid transparent' : '1px solid var(--brd-sub)',
+      }}
+    >
+      {label}
+      {count !== undefined && (
+        <span
+          className="text-[10px] px-1.5 py-0 rounded-full font-bold"
+          style={{
+            background: active ? 'rgba(255,255,255,.25)' : 'var(--bg-elev)',
+            color: active ? 'white' : 'var(--txt-3)',
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -219,28 +266,46 @@ function StatutDropdown({ statut, onSelect }) {
 }
 
 // ─── Ligne de facture ─────────────────────────────────────────────────────────
-function FactureLine({ facture, onEdit, onDelete, onChangeStatut }) {
+function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
   const type = typeMeta(facture.type)
   const tc = TYPE_COLORS[type.color] || TYPE_COLORS.blue
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
-  const retard = ech && facture.statut !== 'reglee' && new Date(ech) < new Date()
+  const retard = isLate(facture)
+  // Jours restants avant échéance
+  let joursRestants = null
+  if (ech && facture.statut === 'emise') {
+    joursRestants = Math.round((new Date(ech) - new Date(today())) / (1000 * 60 * 60 * 24))
+  }
 
   return (
     <div
       className="grid items-center gap-3 px-4 py-3 text-sm transition-colors"
       style={{
-        gridTemplateColumns: '1.4fr 100px 110px 110px 110px 110px 80px',
+        gridTemplateColumns: '1.6fr 110px 110px 130px 140px 80px',
         borderTop: '1px solid var(--brd-sub)',
+        opacity: dim ? 0.55 : 1,
       }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = '')}
     >
-      {/* Objet + type */}
+      {/* Objet + type + N° Qonto */}
       <div className="min-w-0">
-        <p className="font-medium truncate text-sm" style={{ color: 'var(--txt)' }}>
-          {facture.objet || `Facture ${type.label}`}
-        </p>
-        <div className="flex items-center gap-1.5 mt-0.5">
+        <div className="flex items-center gap-2">
+          <p className="font-medium truncate text-sm" style={{ color: 'var(--txt)' }}>
+            {facture.objet || `Facture ${type.label}`}
+          </p>
+          {retard && (
+            <span
+              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide inline-flex items-center gap-1"
+              style={{ background: 'rgba(239,68,68,.15)', color: 'var(--red)' }}
+              title={`${Math.abs(joursRestants)} j de retard`}
+            >
+              <AlertCircle className="w-3 h-3" />
+              Retard
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
           <span
             className="text-[11px] px-1.5 py-0.5 rounded font-medium"
             style={{ background: tc.bg, color: tc.txt }}
@@ -251,6 +316,20 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut }) {
             <span className="text-[11px] font-mono" style={{ color: 'var(--txt-3)' }}>
               {facture.numero}
             </span>
+          )}
+          {facture.qonto_url && (
+            <a
+              href={facture.qonto_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[11px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium transition-colors"
+              style={{ background: 'rgba(139,92,246,.12)', color: '#a78bfa' }}
+              title="Ouvrir dans Qonto"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Qonto
+            </a>
           )}
         </div>
       </div>
@@ -275,25 +354,26 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut }) {
         </p>
       </div>
 
-      {/* Émission */}
-      <div className="text-center">
-        <p className="text-xs" style={{ color: 'var(--txt-2)' }}>
-          {fmtDate(facture.date_emission)}
-        </p>
-        <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-          émission
-        </p>
-      </div>
-
-      {/* Échéance */}
+      {/* Échéance + jours restants */}
       <div className="text-center">
         <p className="text-xs" style={{ color: retard ? 'var(--red)' : 'var(--txt-2)' }}>
           {fmtDate(ech)}
-          {retard && <AlertCircle className="w-3 h-3 inline ml-1" />}
         </p>
-        <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-          échéance
-        </p>
+        {joursRestants !== null && !retard && (
+          <p
+            className="text-[10px]"
+            style={{
+              color: joursRestants <= 7 ? 'var(--amber)' : 'var(--txt-3)',
+            }}
+          >
+            {joursRestants === 0 ? "aujourd'hui" : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`}
+          </p>
+        )}
+        {joursRestants === null && (
+          <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            échéance
+          </p>
+        )}
       </div>
 
       {/* Statut */}
@@ -362,9 +442,10 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
     type: 'acompte',
     objet: '',
     numero: '',
+    qonto_url: '',
     montant_ht: '',
     tva_pct: tvaDev,
-    statut: 'brouillon',
+    statut: 'planifiee',
     date_emission: today(),
     date_envoi: '',
     delai_paiement: 30,
@@ -450,6 +531,7 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
         type: form.type,
         objet: form.objet || null,
         numero: form.numero || null,
+        qonto_url: form.qonto_url || null,
         montant_ht: montantHT,
         tva_pct: Number(form.tva_pct) || 20,
         statut: form.statut,
@@ -534,13 +616,13 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
             </label>
             <label className="block">
               <span className="text-[11px] font-medium" style={{ color: 'var(--txt-3)' }}>
-                Numéro
+                N° Qonto
               </span>
               <input
                 type="text"
                 value={form.numero}
                 onChange={(e) => set('numero', e.target.value)}
-                placeholder="FAC-2026-001"
+                placeholder="À remplir après émission"
                 className="mt-1 w-full rounded-lg px-3 py-2 text-sm outline-none"
                 style={{
                   background: 'var(--bg-elev)',
@@ -560,6 +642,29 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
               value={form.objet}
               onChange={(e) => set('objet', e.target.value)}
               placeholder="Ex : Acompte 30% – Production vidéo institutionnelle"
+              className="mt-1 w-full rounded-lg px-3 py-2 text-sm outline-none"
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt)',
+              }}
+            />
+          </label>
+
+          <label className="block">
+            <span
+              className="text-[11px] font-medium inline-flex items-center gap-1"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              <ExternalLink className="w-3 h-3" />
+              Lien Qonto
+              <span className="font-normal lowercase">— optionnel</span>
+            </span>
+            <input
+              type="url"
+              value={form.qonto_url}
+              onChange={(e) => set('qonto_url', e.target.value)}
+              placeholder="https://app.qonto.com/…"
               className="mt-1 w-full rounded-lg px-3 py-2 text-sm outline-none"
               style={{
                 background: 'var(--bg-elev)',
@@ -892,6 +997,9 @@ export default function FacturesTab() {
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  // Filtres : null = tout, sinon clé de STATUTS ou 'retard'
+  const [statutFilter, setStatutFilter] = useState(null)
+  const [showReglees, setShowReglees] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -909,16 +1017,52 @@ export default function FacturesTab() {
   }, [load])
 
   // ── KPIs ─────────────────────────────────────────────────────────────────────
-  const totalFactureHT = factures.reduce((s, f) => s + Number(f.montant_ht), 0)
-  const totalFactureTTC = factures.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const totalRegle = factures
+  // Les factures annulées sont exclues de tous les totaux "sérieux"
+  const facturesActives = factures.filter((f) => f.statut !== 'annulee')
+  const totalFactureHT = facturesActives.reduce((s, f) => s + Number(f.montant_ht), 0)
+  const totalFactureTTC = facturesActives.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
+  const totalRegle = facturesActives
     .filter((f) => f.statut === 'reglee')
     .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const totalEnAttente = factures
-    .filter((f) => ['envoyee', 'en_attente', 'en_retard'].includes(f.statut))
+  const totalEnAttente = facturesActives
+    .filter((f) => f.statut === 'emise')
     .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const nbRetard = factures.filter((f) => f.statut === 'en_retard').length
+  const facturesEnRetard = facturesActives.filter(isLate)
+  const nbRetard = facturesEnRetard.length
   const pctEncaisse = totalFactureTTC > 0 ? totalRegle / totalFactureTTC : 0
+
+  // Reste à facturer (uniquement si un devis de référence existe)
+  const totalDevisHT = Number(refSynth?.totalHTFinal) || 0
+  const resteAFacturerHT = totalDevisHT - totalFactureHT
+  const pctFacture = totalDevisHT > 0 ? totalFactureHT / totalDevisHT : 0
+
+  // ── Tri + filtrage + séparation réglées/en cours ────────────────────────────
+  const matchesStatutFilter = (f) => {
+    if (!statutFilter) return true
+    if (statutFilter === 'retard') return isLate(f)
+    return f.statut === statutFilter
+  }
+  const filtered = factures.filter(matchesStatutFilter)
+  const sorted = [...filtered].sort((a, b) => {
+    const ka = sortKey(a)
+    const kb = sortKey(b)
+    if (ka !== kb) return ka - kb
+    const echA = a.date_echeance || dateEcheance(a.date_envoi, a.delai_paiement) || '9999-12-31'
+    const echB = b.date_echeance || dateEcheance(b.date_envoi, b.delai_paiement) || '9999-12-31'
+    return echA.localeCompare(echB)
+  })
+  const actives = sorted.filter((f) => f.statut !== 'reglee' && f.statut !== 'annulee')
+  const finales = sorted.filter((f) => f.statut === 'reglee' || f.statut === 'annulee')
+
+  // Compteurs par statut pour afficher les badges dans les chips
+  const counts = {
+    all: factures.length,
+    planifiee: factures.filter((f) => f.statut === 'planifiee').length,
+    emise: factures.filter((f) => f.statut === 'emise').length,
+    reglee: factures.filter((f) => f.statut === 'reglee').length,
+    annulee: factures.filter((f) => f.statut === 'annulee').length,
+    retard: nbRetard,
+  }
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
   async function handleSave(payload, id) {
@@ -1023,9 +1167,7 @@ export default function FacturesTab() {
           value={
             nbRetard > 0
               ? fmtEur(
-                  factures
-                    .filter((f) => f.statut === 'en_retard')
-                    .reduce((s, f) => s + Number(f.montant_ttc || 0), 0),
+                  facturesEnRetard.reduce((s, f) => s + Number(f.montant_ttc || 0), 0),
                 )
               : '—'
           }
@@ -1038,8 +1180,103 @@ export default function FacturesTab() {
         />
       </div>
 
-      {/* ── Barre de progression encaissement ──────────────────────────────── */}
-      {totalFactureTTC > 0 && (
+      {/* ── Bandeau "Reste à facturer" (si devis de référence) ─────────────── */}
+      {totalDevisHT > 0 && (
+        <div
+          className="rounded-xl p-4"
+          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+        >
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium" style={{ color: 'var(--txt-2)' }}>
+                Facturation du projet
+              </span>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                style={{
+                  background:
+                    pctFacture >= 0.999
+                      ? 'rgba(0,200,117,.12)'
+                      : pctFacture > 1.001
+                        ? 'rgba(239,68,68,.12)'
+                        : 'rgba(59,130,246,.12)',
+                  color:
+                    pctFacture >= 0.999 && pctFacture <= 1.001
+                      ? 'var(--green)'
+                      : pctFacture > 1.001
+                        ? 'var(--red)'
+                        : 'var(--blue)',
+                }}
+              >
+                {(pctFacture * 100).toFixed(0)} % facturé
+              </span>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span style={{ color: 'var(--txt-3)' }}>
+                Facturé :{' '}
+                <span className="font-semibold" style={{ color: 'var(--txt)' }}>
+                  {fmtEur(totalFactureHT)}
+                </span>{' '}
+                / {fmtEur(totalDevisHT)} HT
+              </span>
+              <span
+                className="font-bold"
+                style={{
+                  color:
+                    resteAFacturerHT > 0.01
+                      ? 'var(--amber)'
+                      : resteAFacturerHT < -0.01
+                        ? 'var(--red)'
+                        : 'var(--green)',
+                }}
+              >
+                Reste : {fmtEur(resteAFacturerHT)}
+              </span>
+            </div>
+          </div>
+          <div
+            className="h-2 rounded-full overflow-hidden"
+            style={{ background: 'var(--bg-elev)' }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.min(100, pctFacture * 100)}%`,
+                background:
+                  pctFacture >= 0.999 && pctFacture <= 1.001
+                    ? 'var(--green)'
+                    : pctFacture > 1.001
+                      ? 'var(--red)'
+                      : 'var(--blue)',
+              }}
+            />
+          </div>
+          {/* Progression encaissement (réglé / facturé) */}
+          {totalFactureTTC > 0 && (
+            <div
+              className="mt-3 pt-3 flex items-center justify-between text-xs"
+              style={{ borderTop: '1px solid var(--brd-sub)' }}
+            >
+              <span style={{ color: 'var(--txt-3)' }}>
+                Encaissement :{' '}
+                <span className="font-semibold" style={{ color: 'var(--txt)' }}>
+                  {fmtEur(totalRegle)}
+                </span>{' '}
+                / {fmtEur(totalFactureTTC)} TTC
+              </span>
+              <span
+                className="font-bold"
+                style={{ color: pctEncaisse >= 1 ? 'var(--green)' : 'var(--blue)' }}
+              >
+                {(pctEncaisse * 100).toFixed(0)} %
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Progression encaissement (si pas de devis de référence) ─────── */}
+      {totalDevisHT === 0 && totalFactureTTC > 0 && (
         <div
           className="rounded-xl p-4"
           style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
@@ -1067,6 +1304,57 @@ export default function FacturesTab() {
         </div>
       )}
 
+      {/* ── Filtres (chips) ─────────────────────────────────────────────────── */}
+      {factures.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <FilterChip
+            label="Toutes"
+            count={counts.all}
+            active={statutFilter === null}
+            onClick={() => setStatutFilter(null)}
+          />
+          <FilterChip
+            label="Planifiées"
+            count={counts.planifiee}
+            active={statutFilter === 'planifiee'}
+            onClick={() => setStatutFilter(statutFilter === 'planifiee' ? null : 'planifiee')}
+            color="var(--txt-3)"
+          />
+          <FilterChip
+            label="Émises"
+            count={counts.emise}
+            active={statutFilter === 'emise'}
+            onClick={() => setStatutFilter(statutFilter === 'emise' ? null : 'emise')}
+            color="var(--blue)"
+          />
+          {counts.retard > 0 && (
+            <FilterChip
+              label="En retard"
+              count={counts.retard}
+              active={statutFilter === 'retard'}
+              onClick={() => setStatutFilter(statutFilter === 'retard' ? null : 'retard')}
+              color="var(--red)"
+            />
+          )}
+          <FilterChip
+            label="Réglées"
+            count={counts.reglee}
+            active={statutFilter === 'reglee'}
+            onClick={() => setStatutFilter(statutFilter === 'reglee' ? null : 'reglee')}
+            color="var(--green)"
+          />
+          {counts.annulee > 0 && (
+            <FilterChip
+              label="Annulées"
+              count={counts.annulee}
+              active={statutFilter === 'annulee'}
+              onClick={() => setStatutFilter(statutFilter === 'annulee' ? null : 'annulee')}
+              color="var(--txt-3)"
+            />
+          )}
+        </div>
+      )}
+
       {/* ── Tableau ─────────────────────────────────────────────────────────── */}
       <div
         className="rounded-xl overflow-hidden"
@@ -1076,7 +1364,7 @@ export default function FacturesTab() {
         <div
           className="grid px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider"
           style={{
-            gridTemplateColumns: '1.4fr 100px 110px 110px 110px 110px 80px',
+            gridTemplateColumns: '1.6fr 110px 110px 130px 140px 80px',
             background: 'var(--bg-elev)',
             color: 'var(--txt-3)',
             borderBottom: '1px solid var(--brd)',
@@ -1085,7 +1373,6 @@ export default function FacturesTab() {
           <span>Facture</span>
           <span className="text-right">Montant HT</span>
           <span className="text-right">Montant TTC</span>
-          <span className="text-center">Émission</span>
           <span className="text-center">Échéance</span>
           <span className="text-center">Statut</span>
           <span />
@@ -1115,8 +1402,7 @@ export default function FacturesTab() {
               Aucune facture
             </p>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Créez votre première facture
-              {refSynth ? ' ou utilisez les raccourcis depuis le devis' : ''}
+              Planifiez une facture ici avant de l&apos;émettre dans Qonto
             </p>
             <button
               onClick={() => {
@@ -1130,19 +1416,78 @@ export default function FacturesTab() {
               Nouvelle facture
             </button>
           </div>
+        ) : sorted.length === 0 ? (
+          <div className="flex items-center justify-center py-10 gap-2">
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Aucune facture ne correspond au filtre
+            </p>
+            <button
+              onClick={() => setStatutFilter(null)}
+              className="text-xs px-2 py-0.5 rounded-md"
+              style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
+            >
+              Réinitialiser
+            </button>
+          </div>
         ) : (
-          factures.map((f) => (
-            <FactureLine
-              key={f.id}
-              facture={f}
-              onEdit={(fac) => {
-                setEditing(fac)
-                setModal(true)
-              }}
-              onDelete={handleDelete}
-              onChangeStatut={handleChangeStatut}
-            />
-          ))
+          <>
+            {/* Factures actives (planifiées + émises) */}
+            {actives.map((f) => (
+              <FactureLine
+                key={f.id}
+                facture={f}
+                onEdit={(fac) => {
+                  setEditing(fac)
+                  setModal(true)
+                }}
+                onDelete={handleDelete}
+                onChangeStatut={handleChangeStatut}
+              />
+            ))}
+
+            {/* Séparateur + factures finales (réglées + annulées) — pliables */}
+            {finales.length > 0 && (
+              <>
+                <button
+                  onClick={() => setShowReglees((v) => !v)}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-[11px] font-medium transition-colors"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--txt-3)',
+                    borderTop: '1px solid var(--brd-sub)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
+                >
+                  {showReglees ? (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  )}
+                  <span className="uppercase tracking-wide">
+                    Factures finalisées · {finales.length}
+                  </span>
+                  <span className="ml-auto" style={{ color: 'var(--txt-3)' }}>
+                    {showReglees ? 'Masquer' : 'Afficher'}
+                  </span>
+                </button>
+                {showReglees &&
+                  finales.map((f) => (
+                    <FactureLine
+                      key={f.id}
+                      facture={f}
+                      dim
+                      onEdit={(fac) => {
+                        setEditing(fac)
+                        setModal(true)
+                      }}
+                      onDelete={handleDelete}
+                      onChangeStatut={handleChangeStatut}
+                    />
+                  ))}
+              </>
+            )}
+          </>
         )}
       </div>
 
