@@ -160,6 +160,65 @@ export function toDateInputValue(d) {
   return `${y}-${m}-${day}`
 }
 
+// ── Vues semaine / jour ─────────────────────────────────────────────────────
+
+/** Retourne les 7 jours de la semaine contenant la date (lundi → dimanche). */
+export function getWeekDays(d) {
+  const start = startOfWeekMonday(d)
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i))
+}
+
+/**
+ * Retourne un tableau des N jours consécutifs à partir de la date (incluse).
+ * Utile pour la vue "jour" (count=1) et pour le rendu en commun avec la semaine.
+ */
+export function getConsecutiveDays(d, count = 1) {
+  const start = startOfDay(d)
+  return Array.from({ length: count }, (_, i) => addDays(start, i))
+}
+
+/** "Semaine du 14 au 20 avril 2026" */
+export function fmtWeekRangeFR(d) {
+  const [first, last] = [startOfWeekMonday(d), addDays(startOfWeekMonday(d), 6)]
+  const sameMonth = isSameMonth(first, last)
+  const sameYear = first.getFullYear() === last.getFullYear()
+  if (sameMonth) {
+    return `Semaine du ${first.getDate()} au ${last.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} ${first.getFullYear()}`
+  }
+  if (sameYear) {
+    return `Semaine du ${first.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} au ${last.getDate()} ${MONTHS_FR[last.getMonth()].toLowerCase()} ${first.getFullYear()}`
+  }
+  return `Semaine du ${first.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} ${first.getFullYear()} au ${last.getDate()} ${MONTHS_FR[last.getMonth()].toLowerCase()} ${last.getFullYear()}`
+}
+
+/**
+ * Donne un intervalle [from, to] ISO couvrant les jours affichés dans une vue.
+ * days : tableau de Date (chacune à 00:00 local).
+ */
+export function daysToIsoRange(days) {
+  if (!days?.length) return { from: null, to: null }
+  const from = startOfDay(days[0])
+  const to = endOfDay(days[days.length - 1])
+  return { from: from.toISOString(), to: to.toISOString() }
+}
+
+/**
+ * Position verticale (px) d'un instant dans une grille horaire.
+ * - day         : Date du jour (00:00 local) de la colonne cible
+ * - date        : Date de l'instant à placer
+ * - hourHeight  : hauteur d'une heure en px
+ * - startHour   : première heure affichée (par défaut 0)
+ * Plafond haut/bas pour événements qui débordent la plage affichée.
+ */
+export function timeToTop(day, date, hourHeight, startHour = 0, endHour = 24) {
+  const dayStart = startOfDay(day)
+  const minutesFromDayStart = (date - dayStart) / 60000
+  const startMin = startHour * 60
+  const endMin = endHour * 60
+  const clamped = Math.max(startMin, Math.min(endMin, minutesFromDayStart))
+  return ((clamped - startMin) / 60) * hourHeight
+}
+
 // ── Regroupement d'événements par jour ──────────────────────────────────────
 
 /**

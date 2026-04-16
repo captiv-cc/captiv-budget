@@ -15,14 +15,16 @@
  *   - onSaved     : fn() — appelé après sauvegarde réussie
  */
 import { useEffect, useMemo, useState } from 'react'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, FileText, Users } from 'lucide-react'
 import { notify } from '../../lib/notify'
 import {
   createEvent,
   updateEvent,
   deleteEvent,
+  getEvent,
 } from '../../lib/planning'
 import { toDatetimeLocalValue, toDateInputValue } from './dateUtils'
+import EventMembersPanel from './EventMembersPanel'
 
 export default function EventEditorModal({
   event,
@@ -60,6 +62,20 @@ export default function EventEditorModal({
   const [description, setDescription] = useState(event?.description || '')
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Onglets Infos / Équipe (les membres ne sont accessibles qu'en édition)
+  const [activeTab, setActiveTab] = useState('info')
+  const [members, setMembers] = useState(event?.members || [])
+
+  async function reloadMembers() {
+    if (!event?.id) return
+    try {
+      const fresh = await getEvent(event.id)
+      setMembers(fresh?.members || [])
+    } catch (e) {
+      console.error('[EventEditor] reload members:', e)
+    }
+  }
 
   // Ajuste automatiquement endsAt si startsAt repasse au-dessus
   useEffect(() => {
@@ -176,8 +192,38 @@ export default function EventEditorModal({
           </button>
         </div>
 
-        {/* Form */}
+        {/* Tabs */}
+        {!isNew && (
+          <div
+            className="flex items-center gap-1 px-5"
+            style={{ borderBottom: '1px solid var(--brd-sub)' }}
+          >
+            <TabBtn
+              active={activeTab === 'info'}
+              onClick={() => setActiveTab('info')}
+              icon={FileText}
+              label="Infos"
+            />
+            <TabBtn
+              active={activeTab === 'members'}
+              onClick={() => setActiveTab('members')}
+              icon={Users}
+              label={`Équipe${members.length ? ` (${members.length})` : ''}`}
+            />
+          </div>
+        )}
+
+        {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+          {activeTab === 'members' && !isNew ? (
+            <EventMembersPanel
+              eventId={event.id}
+              projectId={projectId}
+              members={members}
+              onMutated={reloadMembers}
+            />
+          ) : (
+          <>
           {/* Titre */}
           <Field label="Titre *">
             <input
@@ -218,11 +264,13 @@ export default function EventEditorModal({
                 style={inputStyle}
               >
                 <option value="">— Aucun lot —</option>
-                {lots.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.label || l.nom || `Lot ${l.ordre ?? ''}`}
-                  </option>
-                ))}
+                {lots
+                  .filter((l) => !l.archived)
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.title || 'Lot'}
+                    </option>
+                  ))}
               </select>
             </Field>
           )}
@@ -313,6 +361,8 @@ export default function EventEditorModal({
               placeholder="Notes, brief, informations logistiques…"
             />
           </Field>
+          </>
+          )}
         </div>
 
         {/* Footer */}
@@ -370,6 +420,24 @@ export default function EventEditorModal({
 }
 
 // ─── Helpers internes ────────────────────────────────────────────────────────
+function TabBtn({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition"
+      style={{
+        color: active ? 'var(--blue)' : 'var(--txt-3)',
+        borderBottom: active ? '2px solid var(--blue)' : '2px solid transparent',
+        marginBottom: '-1px',
+      }}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      {label}
+    </button>
+  )
+}
+
 function Field({ label, children }) {
   return (
     <div className="flex flex-col gap-1.5">
