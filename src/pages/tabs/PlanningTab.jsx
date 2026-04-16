@@ -1,132 +1,231 @@
-import { Calendar, Clock, Film, FileText, CheckSquare } from 'lucide-react'
-
-const FEATURES_RETROPLANNING = [
-  'Phases macro configurables : Brief, Pré-prod, Tournage, Montage, Étalonnage, Mixage, Livraison',
-  'Vue Gantt interactive avec glisser-déposer des phases',
-  'Tâches par phase avec responsable et deadline',
-  'Statuts : À faire / En cours / Terminé / Bloqué',
-]
-
-const FEATURES_TOURNAGE = [
-  'Jours de tournage avec lieu, équipe convoquée et plan de travail',
-  'Lien vers les phases du retroplanning',
-]
-
-const FEATURES_CALLSHEET = [
-  'Génération automatique depuis les membres du projet + jours de tournage',
-  'Heure de convocation individuelle par poste',
-  "Lieu de rendez-vous, contacts d'urgence, notes logistiques",
-  'Export PDF formaté aux standards audiovisuels',
-  "Envoi par email directement depuis l'app",
-]
+/**
+ * PlanningTab — Onglet planning d'un projet (PL-2, vue calendrier mensuelle).
+ *
+ * Charge les événements du projet pour une fenêtre 6 semaines (grille affichée)
+ * + les types d'événement et les lieux de l'org pour les listes déroulantes de
+ * la modale d'édition.
+ *
+ * Les vues semaine / jour, drag & drop, récurrence et call sheets arriveront
+ * dans les chantiers PL-3 et suivants.
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus, Calendar as CalendarIcon } from 'lucide-react'
+import { notify } from '../../lib/notify'
+import { useProjet } from '../ProjetLayout'
+import MonthCalendar from '../../features/planning/MonthCalendar'
+import EventEditorModal from '../../features/planning/EventEditorModal'
+import {
+  listEventsByProject,
+  listEventTypes,
+  listLocations,
+} from '../../lib/planning'
+import {
+  addMonths,
+  endOfMonth,
+  startOfMonth,
+  startOfWeekMonday,
+} from '../../features/planning/dateUtils'
 
 export default function PlanningTab() {
-  return (
-    <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-8">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ background: 'var(--blue-bg)' }}
-        >
-          <Calendar className="w-5 h-5" style={{ color: 'var(--blue)' }} />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
-            Planning
-          </h1>
-          <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-            Retroplanning, jours de tournage & call sheets
-          </p>
-        </div>
-        <span
-          className="ml-auto text-xs px-3 py-1 rounded-full font-medium"
-          style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
-        >
-          En développement
-        </span>
-      </div>
+  const { project, projectId, lots = [] } = useProjet() || {}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <FeatureBlock
-          icon={Clock}
-          color="blue"
-          title="Retroplanning"
-          description="Vision macro de toutes les phases du projet sur une timeline."
-          features={FEATURES_RETROPLANNING}
-        />
+  const [currentDate, setCurrentDate] = useState(() => new Date())
+  const [events, setEvents] = useState([])
+  const [eventTypes, setEventTypes] = useState([])
+  const [locations, setLocations] = useState([])
+  const [loading, setLoading] = useState(true)
 
-        <FeatureBlock
-          icon={Film}
-          color="purple"
-          title="Jours de tournage"
-          description="Organisation détaillée de chaque journée de tournage."
-          features={FEATURES_TOURNAGE}
-          comingSoon
-        />
+  // Modale édition
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState(null)
+  const [editorInitialDate, setEditorInitialDate] = useState(null)
 
-        <FeatureBlock
-          icon={FileText}
-          color="green"
-          title="Call Sheet"
-          description="Feuille de service générée automatiquement depuis l'équipe et le planning."
-          features={FEATURES_CALLSHEET}
-          comingSoon
-        />
-      </div>
-    </div>
-  )
-}
+  // ── Fenêtre de chargement : couvre la grille 6 semaines (lun. au dim.) ────
+  const windowRange = useMemo(() => {
+    const gridStart = startOfWeekMonday(startOfMonth(currentDate))
+    const gridEnd = new Date(gridStart)
+    gridEnd.setDate(gridEnd.getDate() + 42) // 6 semaines
+    return {
+      from: gridStart.toISOString(),
+      to: gridEnd.toISOString(),
+    }
+  }, [currentDate])
 
-function FeatureBlock({ icon: Icon, color, title, description, features, comingSoon }) {
-  const colors = {
-    blue: { bg: 'var(--blue-bg)', fg: 'var(--blue)' },
-    purple: { bg: 'rgba(156,95,253,.12)', fg: 'var(--purple)' },
-    green: { bg: 'rgba(0,200,117,.12)', fg: 'var(--green)' },
-    amber: { bg: 'rgba(255,159,10,.12)', fg: 'var(--amber)' },
+  // ── Chargement des types d'événements & lieux (une seule fois) ───────────
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [types, locs] = await Promise.all([
+          listEventTypes({ includeArchived: false }),
+          listLocations({ includeArchived: false }),
+        ])
+        setEventTypes(types)
+        setLocations(locs)
+      } catch (e) {
+        console.error('[Planning] load types/locations:', e)
+        notify.error('Erreur de chargement des types / lieux')
+      }
+    })()
+  }, [])
+
+  // ── Chargement des événements sur la fenêtre courante ─────────────────────
+  const loadEvents = useCallback(async () => {
+    if (!projectId) return
+    setLoading(true)
+    try {
+      const data = await listEventsByProject(projectId, windowRange)
+      setEvents(data)
+    } catch (e) {
+      console.error('[Planning] load events:', e)
+      notify.error('Erreur de chargement des événements')
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, windowRange])
+
+  useEffect(() => { loadEvents() }, [loadEvents])
+
+  // ── Handlers UI ───────────────────────────────────────────────────────────
+  function goPrevMonth() { setCurrentDate((d) => addMonths(d, -1)) }
+  function goNextMonth() { setCurrentDate((d) => addMonths(d, +1)) }
+  function goToday() { setCurrentDate(new Date()) }
+
+  function handleEventClick(ev) {
+    setEditingEvent(ev)
+    setEditorInitialDate(null)
+    setEditorOpen(true)
   }
-  const c = colors[color] || colors.blue
+
+  function handleDayClick(date) {
+    setEditingEvent(null)
+    setEditorInitialDate(date)
+    setEditorOpen(true)
+  }
+
+  function handleNewEvent() {
+    setEditingEvent(null)
+    // Pré-remplit à aujourd'hui si on est sur le mois courant, sinon au 1er du mois affiché.
+    const today = new Date()
+    const onCurrentMonth =
+      today.getMonth() === currentDate.getMonth() &&
+      today.getFullYear() === currentDate.getFullYear()
+    const initDate = onCurrentMonth ? today : startOfMonth(currentDate)
+    setEditorInitialDate(initDate)
+    setEditorOpen(true)
+  }
+
+  function closeEditor() {
+    setEditorOpen(false)
+    setEditingEvent(null)
+    setEditorInitialDate(null)
+  }
+
+  async function handleSaved() {
+    closeEditor()
+    await loadEvents()
+  }
+
+  // ── Rendu ─────────────────────────────────────────────────────────────────
+  if (!project) {
+    return (
+      <div className="p-6 text-sm" style={{ color: 'var(--txt-3)' }}>
+        Projet introuvable.
+      </div>
+    )
+  }
+
+  const noTypes = !loading && eventTypes.length === 0
+  const viewMonthLabel = endOfMonth(currentDate)
 
   return (
-    <div
-      className="rounded-xl p-5"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2.5">
+    <div className="p-4 md:p-6 flex flex-col gap-4 h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: c.bg }}
+            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--blue-bg)' }}
           >
-            <Icon className="w-4 h-4" style={{ color: c.fg }} />
+            <CalendarIcon className="w-4 h-4" style={{ color: 'var(--blue)' }} />
           </div>
-          <h3 className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-            {title}
-          </h3>
+          <div>
+            <h1 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+              Planning
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Vue calendrier des événements du projet
+            </p>
+          </div>
         </div>
-        {comingSoon && (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-full"
-            style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
+
+        <button
+          type="button"
+          onClick={handleNewEvent}
+          disabled={noTypes}
+          className="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+          style={{ background: 'var(--blue)', color: '#fff' }}
+          title={noTypes ? "Ajoute d'abord des types dans Paramètres" : 'Nouvel événement'}
+        >
+          <Plus className="w-4 h-4" />
+          Nouvel événement
+        </button>
+      </div>
+
+      {noTypes && (
+        <div
+          className="rounded-xl px-4 py-3 text-xs"
+          style={{
+            background: 'var(--orange-bg)',
+            color: 'var(--orange)',
+            border: '1px solid var(--orange)',
+          }}
+        >
+          Aucun type d&apos;événement disponible. Rends-toi dans
+          <strong> Paramètres → Types d&apos;événements </strong>
+          pour créer ou réactiver au moins un type.
+        </div>
+      )}
+
+      {/* Calendrier */}
+      <div className="flex-1 min-h-0 relative">
+        <MonthCalendar
+          currentDate={currentDate}
+          events={events}
+          onEventClick={handleEventClick}
+          onDayClick={handleDayClick}
+          onPrev={goPrevMonth}
+          onNext={goNextMonth}
+          onToday={goToday}
+        />
+
+        {loading && (
+          <div
+            className="absolute top-3 right-3 text-[11px] px-2 py-1 rounded"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-3)',
+              border: '1px solid var(--brd)',
+            }}
+            aria-label={`Chargement ${viewMonthLabel.getMonth() + 1}/${viewMonthLabel.getFullYear()}`}
           >
-            Phase 2
-          </span>
+            Chargement…
+          </div>
         )}
       </div>
-      <p className="text-xs mb-4" style={{ color: 'var(--txt-3)' }}>
-        {description}
-      </p>
-      <ul className="space-y-2">
-        {features.map((f, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs" style={{ color: 'var(--txt-2)' }}>
-            <CheckSquare
-              className="w-3.5 h-3.5 shrink-0 mt-0.5"
-              style={{ color: c.fg, opacity: 0.7 }}
-            />
-            {f}
-          </li>
-        ))}
-      </ul>
+
+      {/* Modale édition */}
+      {editorOpen && (
+        <EventEditorModal
+          event={editingEvent}
+          initialDate={editorInitialDate}
+          projectId={projectId}
+          lots={lots}
+          eventTypes={eventTypes}
+          locations={locations}
+          onClose={closeEditor}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   )
 }

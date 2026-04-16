@@ -22,6 +22,11 @@ export default function RecapPaiements({
   reelByLine,
   membreByLine,
   fournisseurs,
+  // Multi-lot (Chantier 5) : permet d'éclater en 1 ligne par (personne × lot)
+  // et (fournisseur × lot). Valeurs par défaut → mono-lot (comportement legacy).
+  lotIdByDevisId = {},
+  lotInfoMap = {}, // { [lotId]: { title, color } } — { title: 'Hors lot', color: '...' } pour clé '__orphan__'
+  isMultiLot = false,
   onSaveGroupTotal,
   onSaveGroupPaid,
   onSaveGroupTva,
@@ -31,16 +36,36 @@ export default function RecapPaiements({
 }) {
   const fournisseurMap = Object.fromEntries((fournisseurs || []).map((f) => [f.id, f]))
 
+  // Retourne le lotId d'une ligne devis (via son devis_id) — '__orphan__' si introuvable
+  function lotKeyForLine(line) {
+    const lotId = lotIdByDevisId[line.devis_id]
+    return lotId || '__orphan__'
+  }
+  // Retourne le lotId d'un additif — '__orphan__' si lot_id IS NULL (legacy)
+  function lotKeyForAdditif(a) {
+    return a.lot_id || '__orphan__'
+  }
+
   // ─── Groupes Personnes ─────────────────────────────────────────────────────
+  // Clé composite : personne × lot → Julien sur 2 lots = 2 groupes distincts
   const personGroups = (() => {
     const groups = new Map()
     for (const line of lines) {
       if (!CATS_HUMAINS.includes(line.regime)) continue
       const m = membreByLine[line.id]
       if (!m) continue
-      const key = m.contact_id ? `c:${m.contact_id}` : `n:${m.prenom}|${m.nom}`
+      const personKey = m.contact_id ? `c:${m.contact_id}` : `n:${m.prenom}|${m.nom}`
+      const lotKey = lotKeyForLine(line)
+      const key = `${personKey}@${lotKey}`
       if (!groups.has(key)) {
-        groups.set(key, { key, name: memberName(m), lineIds: [], postes: [], coutPrevus: [] })
+        groups.set(key, {
+          key,
+          name: memberName(m),
+          lotId: lotKey === '__orphan__' ? null : lotKey,
+          lineIds: [],
+          postes: [],
+          coutPrevus: [],
+        })
       }
       const g = groups.get(key)
       g.lineIds.push(line.id)
@@ -51,6 +76,7 @@ export default function RecapPaiements({
   })()
 
   // ─── Groupes Fournisseurs ──────────────────────────────────────────────────
+  // Clé composite : fournisseur × lot (pour les lignes devis ET les additifs)
   const fournisseurGroups = (() => {
     const groups = new Map()
     const personLineIds = new Set(personGroups.flatMap((g) => g.lineIds))
@@ -61,24 +87,42 @@ export default function RecapPaiements({
       const f = fournisseurMap[fId]
       if (!f) continue
       const cp = refCout(line, membreByLine[line.id])
-      if (!groups.has(fId)) groups.set(fId, { key: fId, nom: f.nom, items: [] })
-      groups
-        .get(fId)
-        .items.push({
-          id: line.id,
-          isAdditif: false,
-          label: line.produit || '—',
-          entry: reelByLine[line.id],
-          coutPrevu: cp,
+      const lotKey = lotKeyForLine(line)
+      const key = `${fId}@${lotKey}`
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          nom: f.nom,
+          lotId: lotKey === '__orphan__' ? null : lotKey,
+          items: [],
         })
+      }
+      groups.get(key).items.push({
+        id: line.id,
+        isAdditif: false,
+        label: line.produit || '—',
+        entry: reelByLine[line.id],
+        coutPrevu: cp,
+      })
     }
     for (const a of reel.filter((r) => r.is_additif && r.fournisseur?.trim())) {
       const f = a.fournisseur.trim()
-      const textKey = `text:${f}`
-      if (!groups.has(textKey)) groups.set(textKey, { key: textKey, nom: f, items: [] })
-      groups
-        .get(textKey)
-        .items.push({ id: a.id, isAdditif: true, label: a.description || f, entry: a })
+      const lotKey = lotKeyForAdditif(a)
+      const key = `text:${f}@${lotKey}`
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          nom: f,
+          lotId: lotKey === '__orphan__' ? null : lotKey,
+          items: [],
+        })
+      }
+      groups.get(key).items.push({
+        id: a.id,
+        isAdditif: true,
+        label: a.description || f,
+        entry: a,
+      })
     }
     return [...groups.values()]
   })()
@@ -219,6 +263,8 @@ export default function RecapPaiements({
                 key={g.key}
                 group={g}
                 reelByLine={reelByLine}
+                lotInfoMap={lotInfoMap}
+                isMultiLot={isMultiLot}
                 onSaveGroupTotal={onSaveGroupTotal}
                 onSaveGroupPaid={onSaveGroupPaid}
                 onSaveGroupTva={onSaveGroupTva}
@@ -237,6 +283,8 @@ export default function RecapPaiements({
               <FournisseurRow
                 key={g.key}
                 group={g}
+                lotInfoMap={lotInfoMap}
+                isMultiLot={isMultiLot}
                 onSaveFournisseurGroupTotal={onSaveFournisseurGroupTotal}
                 onSaveFournisseurGroupPaid={onSaveFournisseurGroupPaid}
                 onSaveFournisseurGroupTva={onSaveFournisseurGroupTva}
@@ -284,6 +332,35 @@ function SectionLabel({ icon, label, color }) {
   )
 }
 
+// ─── Badge lot (affiché à côté du nom en multi-lot) ────────────────────────
+function LotBadge({ lotId, lotInfoMap }) {
+  const info = lotId ? lotInfoMap[lotId] : lotInfoMap.__orphan__
+  if (!info) return null
+  return (
+    <span
+      className="shrink-0 inline-flex items-center gap-1"
+      style={{
+        fontSize: 9,
+        padding: '1px 6px',
+        borderRadius: 3,
+        fontWeight: 600,
+        background: `${info.color}1a`, // ~10% alpha
+        color: info.color,
+        border: `1px solid ${info.color}33`, // ~20% alpha
+        lineHeight: 1.4,
+        maxWidth: 120,
+      }}
+      title={info.title}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ background: info.color }}
+      />
+      <span className="truncate">{info.title}</span>
+    </span>
+  )
+}
+
 // ─── Séparateur "Déjà réglés" ────────────────────────────────────────────
 function PaidSeparator() {
   return (
@@ -301,8 +378,8 @@ function PaidSeparator() {
 }
 
 // ─── Ligne compacte Personne (dépliable) ────────────────────────────────────
-function PersonRow({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid, onSaveGroupTva, isPaid, showPaidSeparator }) {
-  const { name, lineIds, postes, coutPrevus } = group
+function PersonRow({ group, reelByLine, lotInfoMap, isMultiLot, onSaveGroupTotal, onSaveGroupPaid, onSaveGroupTva, isPaid, showPaidSeparator }) {
+  const { name, lineIds, postes, coutPrevus, lotId } = group
   const [open, setOpen] = useState(false)
   const inputRef = useRef(null)
   const [editing, setEditing] = useState(false)
@@ -355,6 +432,7 @@ function PersonRow({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid, onSav
               <span className="font-semibold text-xs truncate" style={{ color: 'var(--txt)' }}>
                 {name || '—'}
               </span>
+              {isMultiLot && <LotBadge lotId={lotId} lotInfoMap={lotInfoMap} />}
               <span className="text-[9px] truncate" style={{ color: 'var(--purple)', opacity: 0.8 }}>
                 {uniquePostes.map(([p, n]) => n > 1 ? `${p} ×${n}` : p).join(', ')}
               </span>
@@ -476,13 +554,15 @@ function PersonRow({ group, reelByLine, onSaveGroupTotal, onSaveGroupPaid, onSav
 // ─── Ligne compacte Fournisseur (dépliable) ─────────────────────────────────
 function FournisseurRow({
   group,
+  lotInfoMap,
+  isMultiLot,
   onSaveFournisseurGroupTotal,
   onSaveFournisseurGroupPaid,
   onSaveFournisseurGroupTva,
   isPaid,
   showPaidSeparator,
 }) {
-  const { nom: fournisseur, items } = group
+  const { nom: fournisseur, items, lotId } = group
   const [open, setOpen] = useState(false)
   const inputRef = useRef(null)
   const [editing, setEditing] = useState(false)
@@ -546,6 +626,7 @@ function FournisseurRow({
               <span className="font-semibold text-xs truncate" style={{ color: 'var(--txt)' }}>
                 {fournisseur}
               </span>
+              {isMultiLot && <LotBadge lotId={lotId} lotInfoMap={lotInfoMap} />}
               {isAllAdditif && (
                 <span
                   style={{

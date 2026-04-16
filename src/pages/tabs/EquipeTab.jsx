@@ -6,14 +6,25 @@
  * - Salaire brut intermittent visible avec label "→ MovinMotion"
  * - Lien direct vers la ligne de devis correspondante
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Link, useOutletContext } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
+import { useProjet } from '../ProjetLayout'
+
+// Palette partagée avec BudgetReelTab / FacturesTab pour les badges de lot
+const LOT_PALETTE = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#f97316', '#14b8a6',
+]
+function lotColor(lotId, orderedLots) {
+  const idx = orderedLots.findIndex((l) => l.id === lotId)
+  return LOT_PALETTE[((idx >= 0 ? idx : 0) + LOT_PALETTE.length) % LOT_PALETTE.length]
+}
 import {
   Users,
   Trash2,
@@ -91,29 +102,83 @@ function regimeStyle(regime) {
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function EquipeTab() {
-  const { project, devisList } = useOutletContext()
+  const { project, projectId, lots, refDevisByLot } = useProjet()
   const { canSeeFinance, canSeeCrewBudget, org } = useAuth()
-  const projectId = project?.id
 
-  const refDevis = devisList.find((d) => d.status === 'accepte') || devisList[devisList.length - 1]
+  // ── Multi-lot (Chantier 6) ────────────────────────────────────────────────
+  const lotsWithRef = useMemo(
+    () => (lots || []).filter((l) => !l.archived && refDevisByLot?.[l.id]),
+    [lots, refDevisByLot],
+  )
+  const isMultiLot = lotsWithRef.length > 1
+  const refDevisIds = useMemo(
+    () => lotsWithRef.map((l) => refDevisByLot[l.id].id),
+    [lotsWithRef, refDevisByLot],
+  )
+  // devisId → lotId
+  const lotIdByDevisId = useMemo(() => {
+    const map = {}
+    for (const lot of lotsWithRef) map[refDevisByLot[lot.id].id] = lot.id
+    return map
+  }, [lotsWithRef, refDevisByLot])
+  // lotId → { title, color } pour les badges
+  const lotInfoMap = useMemo(() => {
+    const map = {}
+    for (const lot of lotsWithRef) {
+      map[lot.id] = { title: lot.title, color: lotColor(lot.id, lotsWithRef) }
+    }
+    return map
+  }, [lotsWithRef])
 
   const [crewLines, setCrewLines] = useState([])
   const [membres, setMembres] = useState([])
   const [catMap, setCatMap] = useState({}) // category_id → blocInfo
+  // Note : le mapping category_id → devis_id n'est plus nécessaire, on passe par lineLotMap
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
   const [activeTab, setActiveTab] = useState('attribution') // 'attribution' | 'equipe'
 
+  // ── Persistance du collapse des lots (localStorage, par projet) ───────────
+  const lotCollapseKey = `equipeTab.collapsedLots.${projectId || 'noproj'}`
+  const [lotCollapsed, setLotCollapsed] = useState(() => {
+    try {
+      const raw =
+        typeof window !== 'undefined' ? window.localStorage.getItem(lotCollapseKey) : null
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(lotCollapseKey, JSON.stringify(lotCollapsed))
+    } catch {
+      /* ignore */
+    }
+  }, [lotCollapsed, lotCollapseKey])
+  const toggleLotCollapsed = (lotId) =>
+    setLotCollapsed((p) => ({ ...p, [lotId]: !p[lotId] }))
+
   const load = useCallback(async () => {
+    if (!projectId || refDevisIds.length === 0) {
+      setCrewLines([])
+      setMembres([])
+      setCatMap({})
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const [linesRes, catsRes, memsRes] = await Promise.all([
-        refDevis?.id
-          ? supabase.from('devis_lines').select('*').eq('devis_id', refDevis.id).order('sort_order')
-          : Promise.resolve({ data: [] }),
-        refDevis?.id
-          ? supabase.from('devis_categories').select('id, name').eq('devis_id', refDevis.id)
-          : Promise.resolve({ data: [] }),
+        supabase
+          .from('devis_lines')
+          .select('*')
+          .in('devis_id', refDevisIds)
+          .order('sort_order'),
+        supabase
+          .from('devis_categories')
+          .select('id, name, devis_id')
+          .in('devis_id', refDevisIds),
         supabase
           .from('projet_membres')
           .select(
@@ -136,11 +201,34 @@ export default function EquipeTab() {
     } finally {
       setLoading(false)
     }
-  }, [projectId, refDevis?.id])
+  }, [projectId, refDevisIds])
 
   useEffect(() => {
     if (projectId) load()
-  }, [projectId, refDevis?.id, load])
+  }, [projectId, load])
+
+  // ── Maps dérivées ─────────────────────────────────────────────────────────
+  // lineId → lotId (via line.devis_id → lotIdByDevisId)
+  const lineLotMap = useMemo(() => {
+    const map = {}
+    for (const l of crewLines) {
+      const lotId = lotIdByDevisId[l.devis_id]
+      if (lotId) map[l.id] = lotId
+    }
+    return map
+  }, [crewLines, lotIdByDevisId])
+
+  // Crew lines groupées par lot
+  const crewLinesByLot = useMemo(() => {
+    const map = {}
+    for (const l of crewLines) {
+      const lotId = lotIdByDevisId[l.devis_id]
+      if (!lotId) continue
+      if (!map[lotId]) map[lotId] = []
+      map[lotId].push(l)
+    }
+    return map
+  }, [crewLines, lotIdByDevisId])
 
   function showToast(text, ok = true) {
     setToast({ text, ok })
@@ -156,12 +244,6 @@ export default function EquipeTab() {
       )
     )
   }
-
-  const orphans = membres.filter(
-    (m) =>
-      !m.devis_line_id &&
-      !crewLines.some((l) => m.specialite?.toLowerCase() === (l.produit || '').toLowerCase()),
-  )
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
   async function addMembre(line, contactOrData) {
@@ -256,7 +338,10 @@ export default function EquipeTab() {
       const step = m ? getStep(m.movinmotion_statut) : STEPS[0]
       const isIntermittent = REGIMES_SALARIES.includes(line.regime)
       const bloc = catMap[line.category_id]?.label || ''
+      const lotId = lineLotMap[line.id]
+      const lotTitle = lotId ? lotInfoMap[lotId]?.title || '' : ''
       return [
+        lotTitle,
         bloc,
         line.produit || '',
         line.regime || '',
@@ -271,6 +356,7 @@ export default function EquipeTab() {
       ]
     })
     const headers = [
+      'Lot',
       'Bloc',
       'Poste',
       'Régime',
@@ -302,7 +388,7 @@ export default function EquipeTab() {
       </div>
     )
 
-  if (!refDevis)
+  if (lotsWithRef.length === 0)
     return (
       <div className="flex items-center justify-center p-16">
         <div className="text-center">
@@ -311,10 +397,10 @@ export default function EquipeTab() {
             style={{ color: 'var(--txt-3)', opacity: 0.4 }}
           />
           <p className="font-semibold text-sm" style={{ color: 'var(--txt-3)' }}>
-            Aucun devis disponible
+            Aucun devis de référence
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--txt-3)', opacity: 0.7 }}>
-            Créez un devis avec des lignes crew pour composer l&apos;équipe
+            Créez au moins un lot avec un devis accepté pour composer l&apos;équipe
           </p>
         </div>
       </div>
@@ -404,112 +490,20 @@ export default function EquipeTab() {
               </p>
             </div>
           ) : (
-            (() => {
-              // Grouper les lignes crew par bloc canonique
-              const groups = {}
-              crewLines.forEach((line) => {
-                const info = catMap[line.category_id] || {
-                  key: '__autre__',
-                  label: 'Autre',
-                  color: '#888',
-                  canonicalIdx: 999,
-                }
-                const k = info.key
-                if (!groups[k]) groups[k] = { info, lines: [] }
-                groups[k].lines.push(line)
-              })
-              // Trier les groupes par ordre canonique
-              const sortedGroups = Object.values(groups).sort(
-                (a, b) => a.info.canonicalIdx - b.info.canonicalIdx,
-              )
-              return (
-                <div className="space-y-6">
-                  {sortedGroups.map(({ info: bloc, lines }) => (
-                    <div key={bloc.key}>
-                      {/* En-tête de bloc */}
-                      <div className="flex items-center gap-2 mb-3 px-1">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ background: bloc.color }}
-                        />
-                        <span
-                          className="text-[11px] font-bold uppercase tracking-widest"
-                          style={{ color: bloc.color }}
-                        >
-                          {bloc.label}
-                        </span>
-                        <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                          — {lines.length} poste{lines.length > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      {/* Cartes du bloc */}
-                      <div className="space-y-3">
-                        {lines.map((line) => (
-                          <PosteCard
-                            key={line.id}
-                            line={line}
-                            bloc={bloc}
-                            membre={getMembre(line)}
-                            projectId={projectId}
-                            devisId={refDevis.id}
-                            onAdd={(c) => addMembre(line, c)}
-                            onUpdate={updateMembre}
-                            onRemove={removeMembre}
-                            onSaveToBDD={saveToBDD}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()
+            <AttributionView
+              lotsWithRef={lotsWithRef}
+              crewLinesByLot={crewLinesByLot}
+              catMap={catMap}
+              isMultiLot={isMultiLot}
+              lotCollapsed={lotCollapsed}
+              onToggleLot={toggleLotCollapsed}
+              getMembre={getMembre}
+              membres={membres}
+              projectId={projectId}
+              handlers={{ addMembre, updateMembre, removeMembre, saveToBDD }}
+            />
           )}
 
-          {/* Membres orphelins */}
-          {orphans.length > 0 && (
-            <div
-              className="rounded-xl p-4"
-              style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-            >
-              <p
-                className="text-[10px] font-bold uppercase tracking-widest mb-3"
-                style={{ color: 'var(--txt-3)' }}
-              >
-                Membres sans poste lié au devis
-              </p>
-              <div className="space-y-2">
-                {orphans.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                    style={{ background: 'var(--bg-elev)' }}
-                  >
-                    <Avatar m={m} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium" style={{ color: 'var(--txt)' }}>
-                        {fullName(m)}
-                      </p>
-                      {m.specialite && (
-                        <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-                          {m.specialite}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => removeMembre(m.id)}
-                      className="p-1.5 rounded"
-                      style={{ color: 'var(--txt-3)' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       ) : (
         /* ── Vue Équipe ────────────────────────────────────────────────── */
@@ -520,7 +514,9 @@ export default function EquipeTab() {
           canSeeFinance={canSeeFinance}
           canSeeCrewBudget={canSeeCrewBudget}
           projectId={projectId}
-          devisId={refDevis?.id}
+          lineLotMap={lineLotMap}
+          lotInfoMap={lotInfoMap}
+          isMultiLot={isMultiLot}
           onUpdate={updateMembre}
           onRemove={removeMembre}
         />
@@ -545,6 +541,260 @@ export default function EquipeTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// BADGE DE LOT (partagé Attribution + Équipe)
+// ══════════════════════════════════════════════════════════════════════════════
+function LotBadge({ lotId, lotInfoMap }) {
+  const info = lotId ? lotInfoMap[lotId] : null
+  if (!info) return null
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        padding: '2px 7px',
+        borderRadius: 3,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        background: `${info.color}1a`,
+        color: info.color,
+        border: `1px solid ${info.color}33`,
+        fontWeight: 600,
+        maxWidth: 140,
+      }}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ background: info.color }}
+      />
+      <span className="truncate">{info.title}</span>
+    </span>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VUE ATTRIBUTION — Accordéon par lot (multi-lot) ou rendu flat (mono-lot)
+// ══════════════════════════════════════════════════════════════════════════════
+function AttributionView({
+  lotsWithRef,
+  crewLinesByLot,
+  catMap,
+  isMultiLot,
+  lotCollapsed,
+  onToggleLot,
+  getMembre,
+  membres,
+  projectId,
+  handlers,
+}) {
+  // Orphelins : membres sans devis_line_id et sans spécialité matchant un poste
+  const allCrewLines = Object.values(crewLinesByLot).flat()
+  const orphans = membres.filter(
+    (m) =>
+      !m.devis_line_id &&
+      !allCrewLines.some(
+        (l) => m.specialite?.toLowerCase() === (l.produit || '').toLowerCase(),
+      ),
+  )
+
+  const renderBlocsForLot = (lines) => {
+    if (!lines || lines.length === 0) return null
+    // Grouper par bloc canonique
+    const groups = {}
+    lines.forEach((line) => {
+      const info = catMap[line.category_id] || {
+        key: '__autre__',
+        label: 'Autre',
+        color: '#888',
+        canonicalIdx: 999,
+      }
+      const k = info.key
+      if (!groups[k]) groups[k] = { info, lines: [] }
+      groups[k].lines.push(line)
+    })
+    const sortedGroups = Object.values(groups).sort(
+      (a, b) => a.info.canonicalIdx - b.info.canonicalIdx,
+    )
+    return (
+      <div className="space-y-6">
+        {sortedGroups.map(({ info: bloc, lines: blocLines }) => (
+          <div key={bloc.key}>
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: bloc.color }}
+              />
+              <span
+                className="text-[11px] font-bold uppercase tracking-widest"
+                style={{ color: bloc.color }}
+              >
+                {bloc.label}
+              </span>
+              <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                — {blocLines.length} poste{blocLines.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {blocLines.map((line) => (
+                <PosteCard
+                  key={line.id}
+                  line={line}
+                  bloc={bloc}
+                  membre={getMembre(line)}
+                  projectId={projectId}
+                  onAdd={(c) => handlers.addMembre(line, c)}
+                  onUpdate={handlers.updateMembre}
+                  onRemove={handlers.removeMembre}
+                  onSaveToBDD={handlers.saveToBDD}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // Mono-lot : rendu flat (aucun accordéon)
+  if (!isMultiLot) {
+    const onlyLot = lotsWithRef[0]
+    const lines = onlyLot ? crewLinesByLot[onlyLot.id] || [] : []
+    return (
+      <>
+        {renderBlocsForLot(lines)}
+        <OrphansBlock orphans={orphans} onRemove={handlers.removeMembre} />
+      </>
+    )
+  }
+
+  // Multi-lot : accordéon par lot avec mini-KPI
+  return (
+    <div className="space-y-5">
+      {lotsWithRef.map((lot) => {
+        const lines = crewLinesByLot[lot.id] || []
+        const color = lotColor(lot.id, lotsWithRef)
+        const collapsed = Boolean(lotCollapsed[lot.id])
+        // Mini-KPI : attribués + validés (sur les postes du lot uniquement)
+        const attrib = lines.filter((l) => getMembre(l)).length
+        const lineIdSet = new Set(lines.map((l) => l.id))
+        const lotMembres = membres.filter((m) => lineIdSet.has(m.devis_line_id))
+        const valides = lotMembres.filter((m) =>
+          ['contrat_signe', 'paie_en_cours', 'paie_terminee'].includes(m.movinmotion_statut),
+        ).length
+        return (
+          <div
+            key={lot.id}
+            className="rounded-xl overflow-hidden"
+            style={{
+              border: `1px solid ${color}33`,
+              background: 'var(--bg-surf)',
+              borderLeft: `3px solid ${color}`,
+            }}
+          >
+            {/* En-tête cliquable */}
+            <button
+              type="button"
+              onClick={() => onToggleLot(lot.id)}
+              className="w-full flex items-center gap-3 px-4 py-3 transition-colors"
+              style={{
+                background: `${color}0a`,
+                borderBottom: collapsed ? 'none' : '1px solid var(--brd-sub)',
+              }}
+            >
+              <ChevronDown
+                className="w-4 h-4 shrink-0 transition-transform"
+                style={{
+                  color,
+                  transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                }}
+              />
+              <span className="text-sm font-semibold" style={{ color }}>
+                {lot.title}
+              </span>
+              <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                — {lines.length} poste{lines.length > 1 ? 's' : ''}
+              </span>
+              {/* Mini-KPI à droite */}
+              <div className="ml-auto flex items-center gap-3 text-[11px]">
+                <span style={{ color: 'var(--txt-3)' }}>
+                  <span style={{ color: attrib === lines.length ? 'var(--green)' : color }}>
+                    {attrib}
+                  </span>
+                  {' / '}
+                  {lines.length} attribués
+                </span>
+                <span style={{ color: 'var(--txt-3)' }}>
+                  <span style={{ color: 'var(--purple)' }}>{valides}</span> validés
+                </span>
+              </div>
+            </button>
+            {/* Contenu */}
+            {!collapsed && (
+              <div className="p-4">
+                {lines.length === 0 ? (
+                  <p className="text-xs text-center py-6" style={{ color: 'var(--txt-3)' }}>
+                    Aucun poste crew dans ce lot
+                  </p>
+                ) : (
+                  renderBlocsForLot(lines)
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <OrphansBlock orphans={orphans} onRemove={handlers.removeMembre} />
+    </div>
+  )
+}
+
+function OrphansBlock({ orphans, onRemove }) {
+  if (!orphans || orphans.length === 0) return null
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    >
+      <p
+        className="text-[10px] font-bold uppercase tracking-widest mb-3"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Membres sans poste lié au devis
+      </p>
+      <div className="space-y-2">
+        {orphans.map((m) => (
+          <div
+            key={m.id}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg"
+            style={{ background: 'var(--bg-elev)' }}
+          >
+            <Avatar m={m} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium" style={{ color: 'var(--txt)' }}>
+                {fullName(m)}
+              </p>
+              {m.specialite && (
+                <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+                  {m.specialite}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => onRemove(m.id)}
+              className="p-1.5 rounded"
+              style={{ color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CARTE POSTE
 // ══════════════════════════════════════════════════════════════════════════════
 function PosteCard({
@@ -552,12 +802,13 @@ function PosteCard({
   bloc,
   membre,
   projectId,
-  devisId,
   onAdd,
   onUpdate,
   onRemove,
   onSaveToBDD,
 }) {
+  // En multi-lot le devisId varie par ligne → on le dérive directement de la ligne
+  const devisId = line.devis_id
   const statut = membre ? membre.movinmotion_statut : 'non_applicable'
   const step = getStep(statut)
 
@@ -1116,26 +1367,35 @@ function StatusBadge({ statut, membreId, onUpdate }) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /** Regroupe les membres par personne (contact_id ou membre.id si saisie libre) */
-function groupByPerson(membres, crewLines) {
+/**
+ * Regroupe les membres par (personne × lot).
+ * Cohérent avec RecapPaiements (Chantier 5) : Julien staffé sur 2 lots
+ * apparaît 2 fois (1 ligne par contrat), avec un lotId propre à chaque groupe.
+ */
+function groupByPerson(membres, crewLines, lineLotMap = {}) {
   const map = {}
   membres.forEach((m) => {
-    const key = m.contact_id ? `c_${m.contact_id}` : `l_${m.id}`
+    const personKey = m.contact_id ? `c_${m.contact_id}` : `l_${m.id}`
+    const lotId = m.devis_line_id ? lineLotMap[m.devis_line_id] || null : null
+    const lotKey = lotId || '__nolot__'
+    const key = `${personKey}@${lotKey}`
     if (!map[key]) {
       map[key] = {
         key,
+        personKey,
         contact_id: m.contact_id,
         nom: m.nom,
         prenom: m.prenom,
         email: m.email,
         telephone: m.telephone,
-        user_id: m.contact?.user_id || null, // ch4C.1 : compte app lié
+        user_id: m.contact?.user_id || null,
+        lotId,
         postes: [],
       }
     }
     const line = crewLines.find((l) => l.id === m.devis_line_id) || null
     map[key].postes.push({ membre: m, line })
   })
-  // Tri : d'abord par nom
   return Object.values(map).sort((a, b) =>
     `${a.nom}${a.prenom}`.localeCompare(`${b.nom}${b.prenom}`),
   )
@@ -1148,11 +1408,13 @@ function EquipeView({
   canSeeFinance,
   canSeeCrewBudget,
   projectId,
-  devisId,
+  lineLotMap = {},
+  lotInfoMap = {},
+  isMultiLot = false,
   onUpdate,
   onRemove,
 }) {
-  const persons = groupByPerson(membres, crewLines)
+  const persons = groupByPerson(membres, crewLines, lineLotMap)
 
   // KPIs financiers globaux
   const totalVente = crewLines.reduce((s, l) => s + (calcLine(l).prixVenteHT || 0), 0)
@@ -1234,7 +1496,8 @@ function EquipeView({
             canSeeFinance={canSeeFinance}
             canSeeCrewBudget={canSeeCrewBudget}
             projectId={projectId}
-            devisId={devisId}
+            lotInfoMap={lotInfoMap}
+            isMultiLot={isMultiLot}
             onUpdate={onUpdate}
             onRemove={onRemove}
           />
@@ -1250,7 +1513,8 @@ function PersonCard({
   canSeeFinance,
   canSeeCrewBudget,
   projectId,
-  devisId,
+  lotInfoMap = {},
+  isMultiLot = false,
   onUpdate,
   onRemove,
 }) {
@@ -1306,6 +1570,9 @@ function PersonCard({
             <p className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
               {fullName(person)}
             </p>
+            {isMultiLot && (
+              <LotBadge lotId={person.lotId} lotInfoMap={lotInfoMap} />
+            )}
             {person.user_id && (
               <span
                 title="Compte app actif — cette personne peut se connecter"
@@ -1433,7 +1700,6 @@ function PersonCard({
               canSeeFinance={canSeeFinance}
               canSeeCrewBudget={canSeeCrewBudget}
               projectId={projectId}
-              devisId={devisId}
               onUpdate={onUpdate}
               onRemove={onRemove}
             />
@@ -1456,10 +1722,11 @@ function PosteFinanceRow({
   canSeeFinance,
   canSeeCrewBudget,
   projectId,
-  devisId,
   onUpdate,
   onRemove,
 }) {
+  // En multi-lot le devisId varie par ligne → dériver depuis la line
+  const devisId = line?.devis_id
   const [editBudget, setEditBudget] = useState(false)
   const [budgetVal, setBudgetVal] = useState(
     m.budget_convenu != null ? String(m.budget_convenu) : String(budgetRef || ''),

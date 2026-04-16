@@ -1,38 +1,67 @@
 /**
- * Budget Réel v2
+ * Budget Réel v2 — multi-lot (Chantier 5)
  * ─ Chaque ligne du devis = une ligne de suivi (pas de re-saisie)
  * ─ Prestataire = membre de l'Équipe (projet_membres.devis_line_id)
  * ─ Coût prévu  = budget_convenu Équipe (tarif négocié) si défini,
  *                 sinon calcLine(devis_line).coutCharge
  * ─ Coût réel   = saisie inline → budget_reel entry (upsert)
- * ─ ADDITIFS par bloc pour dépenses hors-devis
+ * ─ ADDITIFS par bloc pour dépenses hors-devis (lot_id injecté à la création)
  * ─ TVA 0 / 5,5 / 10 / 20 %, Validé, Payé par ligne
- * ─ Totaux par bloc + KPIs globaux
+ * ─ Totaux par bloc + KPIs globaux + KPIs par lot
+ * ─ Multi-lot : un accordéon par lot (refDevis propre à chaque lot).
+ *   Additifs orphelins (lot_id IS NULL, legacy) regroupés dans « Hors lot ».
  */
-import { useState, useEffect, useCallback } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
+import { useProjet } from '../ProjetLayout'
 import { supabase } from '../../lib/supabase'
-import { calcLine, calcSynthese, CATS_HUMAINS, TAUX_DEFAUT } from '../../lib/cotisations'
+import { calcLine, calcSynthese, CATS_HUMAINS, TAUX_DEFAUT, fmtEur } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
-import { Check, ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Plus, Package } from 'lucide-react'
 import { isIntermittentLike, refCout, memberName } from '../../features/budget-reel/utils'
 import { Th } from '../../features/budget-reel/components/atoms'
 import KpiBar from '../../features/budget-reel/components/KpiBar'
+import LotScopeSelector from '../../components/LotScopeSelector'
 import FiltersBar from '../../features/budget-reel/components/FiltersBar'
 import BlocFooter from '../../features/budget-reel/components/BlocFooter'
 import LineRow from '../../features/budget-reel/components/LineRow'
 import AdditifRow from '../../features/budget-reel/components/AdditifRow'
 import RecapPaiements from '../../features/budget-reel/components/RecapPaiements'
 
+// ── Palette déterministe alignée avec FacturesTab/DevisTab ─────────────────
+const LOT_PALETTE = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
+  '#06b6d4', '#ec4899', '#f97316', '#14b8a6',
+]
+function lotColor(lotId, orderedLots) {
+  if (!lotId) return 'var(--txt-3)'
+  const idx = orderedLots.findIndex((l) => l.id === lotId)
+  return LOT_PALETTE[((idx >= 0 ? idx : 0) + LOT_PALETTE.length) % LOT_PALETTE.length]
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 export default function BudgetReelTab() {
-  const { project, devisList, bannerHeight } = useOutletContext()
-  const projectId = project?.id
-  const refDevis =
-    devisList?.find((d) => d.status === 'accepte') || devisList?.[devisList.length - 1]
+  const { project, projectId, lots, refDevisByLot } = useProjet()
 
+  // Lots actifs triés (non archivés) — base de l'affichage multi-lot
+  const activeLots = useMemo(
+    () => (lots || []).filter((l) => !l.archived),
+    [lots],
+  )
+  // Lots avec un refDevis (ceux où on peut charger cats/lines)
+  const lotsWithRef = useMemo(
+    () => activeLots.filter((l) => refDevisByLot?.[l.id]),
+    [activeLots, refDevisByLot],
+  )
+  const isMultiLot = lotsWithRef.length > 1
+  // IDs des devis de référence (un par lot signé)
+  const refDevisIds = useMemo(
+    () => lotsWithRef.map((l) => refDevisByLot[l.id].id),
+    [lotsWithRef, refDevisByLot],
+  )
+
+  // ── State serveur ─────────────────────────────────────────────────────────
   const [cats, setCats] = useState([])
   const [lines, setLines] = useState([])
   const [membres, setMembres] = useState([])
@@ -40,7 +69,8 @@ export default function BudgetReelTab() {
   const [fournisseurs, setFournisseurs] = useState([])
   const [loading, setLoading] = useState(true)
   const [blocTermine, setBlocTermine] = useState({})
-  // Blocs repliés (header + footer visibles, lignes masquées) — persisté par projet
+
+  // ── Persistance des states de pliage (par projet) ─────────────────────────
   const collapseStorageKey = `budgetReel.collapsedBlocs.${projectId || 'noproj'}`
   const [blocCollapsed, setBlocCollapsed] = useState(() => {
     try {
@@ -59,23 +89,70 @@ export default function BudgetReelTab() {
     }
   }, [blocCollapsed, collapseStorageKey])
   const toggleBlocCollapsed = (catId) => setBlocCollapsed((p) => ({ ...p, [catId]: !p[catId] }))
-  // Filtres rapides : chacun actif/inactif indépendamment (combinables en AND)
+
+  // Collapse lots (uniquement en multi-lot, sinon tout ouvert)
+  const lotCollapseStorageKey = `budgetReel.collapsedLots.${projectId || 'noproj'}`
+  const [lotCollapsed, setLotCollapsed] = useState(() => {
+    try {
+      const raw =
+        typeof window !== 'undefined' ? window.localStorage.getItem(lotCollapseStorageKey) : null
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(lotCollapseStorageKey, JSON.stringify(lotCollapsed))
+    } catch {
+      /* ignore */
+    }
+  }, [lotCollapsed, lotCollapseStorageKey])
+  const toggleLotCollapsed = (lotId) =>
+    setLotCollapsed((p) => ({ ...p, [lotId]: !p[lotId] }))
+
+  // ── Scope KpiBar ('__all__' = somme de tous les lots, lotId = lot unique) ──
+  const [kpiScope, setKpiScope] = useState('__all__')
+  useEffect(() => {
+    if (kpiScope === '__all__') return
+    if (!lotsWithRef.some((l) => l.id === kpiScope)) setKpiScope('__all__')
+  }, [kpiScope, lotsWithRef])
+
+  // ── Filtres rapides (globaux à tous les lots) ─────────────────────────────
   const [filters, setFilters] = useState({
-    estimees: false, // lignes non saisies (état #3)
-    nonPayees: false, // lignes saisies non payées
-    ecart: false, // lignes avec |écart| > 10% du prévu
-    additifs: false, // uniquement les additifs hors-devis
+    estimees: false,
+    nonPayees: false,
+    ecart: false,
+    additifs: false,
   })
   const toggleFilter = (k) => setFilters((f) => ({ ...f, [k]: !f[k] }))
   const clearFilters = () =>
     setFilters({ estimees: false, nonPayees: false, ecart: false, additifs: false })
   const anyFilter = filters.estimees || filters.nonPayees || filters.ecart || filters.additifs
 
+  // ── Chargement ────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
+    if (!projectId || refDevisIds.length === 0) {
+      setCats([])
+      setLines([])
+      setMembres([])
+      setReel([])
+      setFournisseurs([])
+      setLoading(false)
+      return
+    }
     setLoading(true)
     const [cR, lR, mR, rR, fR] = await Promise.all([
-      supabase.from('devis_categories').select('*').eq('devis_id', refDevis.id).order('sort_order'),
-      supabase.from('devis_lines').select('*').eq('devis_id', refDevis.id).order('sort_order'),
+      supabase
+        .from('devis_categories')
+        .select('*')
+        .in('devis_id', refDevisIds)
+        .order('sort_order'),
+      supabase
+        .from('devis_lines')
+        .select('*')
+        .in('devis_id', refDevisIds)
+        .order('sort_order'),
       supabase
         .from('projet_membres')
         .select('*, contact:contacts(nom, prenom, default_tva)')
@@ -89,76 +166,120 @@ export default function BudgetReelTab() {
     setReel(rR.data || [])
     setFournisseurs(fR.data || [])
     setLoading(false)
-  }, [projectId, refDevis?.id, project?.org_id])
+  }, [projectId, refDevisIds, project?.org_id])
 
   useEffect(() => {
-    if (projectId && refDevis?.id) load()
-  }, [projectId, refDevis?.id, load])
+    load()
+  }, [load])
 
-  // ─── Maps dérivées ─────────────────────────────────────────────────────────
+  // ── Maps dérivées ─────────────────────────────────────────────────────────
 
-  const reelByLine = Object.fromEntries(
-    reel.filter((r) => r.devis_line_id && !r.is_additif).map((r) => [r.devis_line_id, r]),
+  const reelByLine = useMemo(
+    () =>
+      Object.fromEntries(
+        reel.filter((r) => r.devis_line_id && !r.is_additif).map((r) => [r.devis_line_id, r]),
+      ),
+    [reel],
   )
-  const membreByLine = Object.fromEntries(
-    membres.filter((m) => m.devis_line_id).map((m) => [m.devis_line_id, m]),
+  const membreByLine = useMemo(
+    () =>
+      Object.fromEntries(
+        membres.filter((m) => m.devis_line_id).map((m) => [m.devis_line_id, m]),
+      ),
+    [membres],
   )
+  // devisId → lotId (pour retrouver le lot d'une catégorie/ligne)
+  const lotIdByDevisId = useMemo(() => {
+    const map = {}
+    for (const lot of lotsWithRef) map[refDevisByLot[lot.id].id] = lot.id
+    return map
+  }, [lotsWithRef, refDevisByLot])
 
-  function additifsForCat(catId) {
-    const cat = cats.find((c) => c.id === catId)
-    return reel.filter((r) => r.is_additif && r.bloc_name === cat?.name)
-  }
-
-  function linesForCat(catId) {
-    return lines.filter((l) => l.category_id === catId)
-  }
-
-  // ─── Filtres ───────────────────────────────────────────────────────────────
-  // Retourne true si la ligne passe tous les filtres actifs (AND)
-  function lineMatchesFilters(line) {
-    if (!anyFilter) return true
-    const e = reelByLine[line.id]
-    const cp = refCout(line, membreByLine[line.id])
-    const isEstimee = !e || e.montant_ht == null
-
-    // "Mes additifs" exclut toutes les lignes du devis
-    if (filters.additifs) return false
-
-    if (filters.estimees && !isEstimee) return false
-    if (filters.nonPayees && (isEstimee || e?.paye)) return false
-    if (filters.ecart) {
-      if (isEstimee || cp <= 0) return false
-      const ratio = Math.abs(e.montant_ht - cp) / cp
-      if (ratio <= 0.1) return false
+  // lotId → { title, color } pour les badges de lot (RecapPaiements, etc.)
+  const lotInfoMap = useMemo(() => {
+    const map = {}
+    for (const lot of lotsWithRef) {
+      map[lot.id] = { title: lot.title, color: lotColor(lot.id, lotsWithRef) }
     }
-    return true
-  }
-  // Les additifs ne gardent leur place que si le filtre "Mes additifs" est actif
-  // ou si aucun filtre ligne-spécifique n'est actif
-  function additifMatchesFilters(a) {
-    if (!anyFilter) return true
-    if (filters.additifs) {
-      // Dans ce mode on ne garde que les additifs, et on peut encore filtrer par paiement
-      if (filters.nonPayees && a.paye) return false
+    map.__orphan__ = { title: 'Hors lot', color: '#94a3b8' }
+    return map
+  }, [lotsWithRef])
+
+  // cats/lines regroupées par lot (pour le rendu par accordéon)
+  const catsByLot = useMemo(() => {
+    const map = {}
+    for (const c of cats) {
+      const lotId = lotIdByDevisId[c.devis_id]
+      if (!lotId) continue
+      if (!map[lotId]) map[lotId] = []
+      map[lotId].push(c)
+    }
+    return map
+  }, [cats, lotIdByDevisId])
+
+  const linesByLot = useMemo(() => {
+    const map = {}
+    for (const l of lines) {
+      const lotId = lotIdByDevisId[l.devis_id]
+      if (!lotId) continue
+      if (!map[lotId]) map[lotId] = []
+      map[lotId].push(l)
+    }
+    return map
+  }, [lines, lotIdByDevisId])
+
+  // Additifs : groupés par lot_id direct (colonne DB) ; lot_id IS NULL → orphelins
+  const additifsByLot = useMemo(() => {
+    const map = {}
+    for (const r of reel) {
+      if (!r.is_additif) continue
+      const key = r.lot_id || '__orphan__'
+      if (!map[key]) map[key] = []
+      map[key].push(r)
+    }
+    return map
+  }, [reel])
+  const orphanAdditifs = additifsByLot.__orphan__ || []
+
+  // ── Filtres : une ligne passe si tous les filtres actifs sont satisfaits ─
+  const lineMatchesFilters = useCallback(
+    (line) => {
+      if (!anyFilter) return true
+      const e = reelByLine[line.id]
+      const cp = refCout(line, membreByLine[line.id])
+      const isEstimee = !e || e.montant_ht == null
+      if (filters.additifs) return false // "Additifs" exclut les lignes devis
+      if (filters.estimees && !isEstimee) return false
+      if (filters.nonPayees && (isEstimee || e?.paye)) return false
+      if (filters.ecart) {
+        if (isEstimee || cp <= 0) return false
+        const ratio = Math.abs(e.montant_ht - cp) / cp
+        if (ratio <= 0.1) return false
+      }
       return true
-    }
-    // Un autre filtre ligne est actif → les additifs sont masqués
-    return false
-  }
+    },
+    [anyFilter, filters, reelByLine, membreByLine],
+  )
+  const additifMatchesFilters = useCallback(
+    (a) => {
+      if (!anyFilter) return true
+      if (filters.additifs) {
+        if (filters.nonPayees && a.paye) return false
+        return true
+      }
+      return false
+    },
+    [anyFilter, filters],
+  )
 
-  // ─── Mutations ─────────────────────────────────────────────────────────────
+  // ── Mutations ─────────────────────────────────────────────────────────────
 
-  // Détermine le taux de TVA par défaut pour une ligne devis :
-  //   1. Si un membre est rattaché à la ligne → contacts.default_tva
-  //   2. Sinon si un fournisseur est assigné  → fournisseurs.default_tva
-  //   3. Sinon                                → 0  (sécurité comptable)
   function defaultTvaForLine(line) {
     if (!line) return 0
     const m = membreByLine[line.id]
     if (m && m.contact && Number.isFinite(Number(m.contact?.default_tva))) {
       return Number(m.contact.default_tva)
     }
-    // Le contact peut être chargé sans default_tva (champ non sélectionné) → fallback
     if (line.fournisseur_id) {
       const f = fournisseurs.find((x) => x.id === line.fournisseur_id)
       if (f && Number.isFinite(Number(f?.default_tva))) return Number(f.default_tva)
@@ -166,14 +287,6 @@ export default function BudgetReelTab() {
     return 0
   }
 
-  // Idem pour un additif (pas de devis_line) : seul le fournisseur compte
-  function _defaultTvaForAdditif(fournisseurId) {
-    if (!fournisseurId) return 0
-    const f = fournisseurs.find((x) => x.id === fournisseurId)
-    return Number.isFinite(Number(f?.default_tva)) ? Number(f.default_tva) : 0
-  }
-
-  // Règle d'auto-progression : saisir un coût réel ou marquer payé valide la ligne
   function withAutoValide(fields, existing) {
     const next = { ...fields }
     const alreadyValide = existing?.valide === true
@@ -189,7 +302,6 @@ export default function BudgetReelTab() {
     const existing = reelByLine[lineId]
     const fields = withAutoValide(fieldsRaw, existing)
     if (existing && !String(existing.id).startsWith('__tmp_')) {
-      // ── UPDATE ─────────────────────────────────────────────────────────────
       const upd = { ...existing, ...fields }
       setReel((p) => p.map((r) => (r.id === existing.id ? upd : r)))
       const { error } = await supabase.from('budget_reel').update(fields).eq('id', existing.id)
@@ -198,19 +310,20 @@ export default function BudgetReelTab() {
         setReel((p) => p.map((r) => (r.id === existing.id ? existing : r)))
       }
     } else {
-      // ── INSERT (avec fallback UPDATE si la ligne existe déjà en DB) ────────
       const line = lines.find((l) => l.id === lineId)
       const cat = cats.find((c) => c.id === line?.category_id)
+      const lotId = lotIdByDevisId[line?.devis_id] || null
       const payload = {
         project_id: projectId,
         devis_line_id: lineId,
+        lot_id: lotId, // ← nouveau : synchronise avec le lot du devis parent
         bloc_name: cat?.name ?? '',
         montant_ht: 0,
         tva_rate: defaultTvaForLine(line),
         valide: false,
         paye: false,
         is_additif: false,
-        description: line?.produit || '', // ⚠ NOT NULL en DB
+        description: line?.produit || '',
         ...fields,
       }
       const tempId = `__tmp_${lineId}`
@@ -223,7 +336,6 @@ export default function BudgetReelTab() {
         return
       }
 
-      // INSERT a échoué (contrainte unique ou colonne manquante) → chercher la ligne existante
       console.warn('[BudgetRéel] insert failed, trying fallback:', error?.message)
       const { data: found } = await supabase
         .from('budget_reel')
@@ -234,7 +346,6 @@ export default function BudgetReelTab() {
         .maybeSingle()
 
       if (found) {
-        // Ligne déjà en DB (état désynchronisé) → mettre à jour
         const upd = { ...found, ...fields }
         setReel((p) => p.map((r) => (r.id === tempId ? upd : r)))
         await supabase.from('budget_reel').update(fields).eq('id', found.id)
@@ -246,11 +357,9 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Supprime l'entrée budget_reel d'une ligne devis → retour à l'état "pas saisi"
   async function clearLineReel(lineId) {
     const existing = reelByLine[lineId]
     if (!existing) return
-    // Optimistic remove
     setReel((p) => p.filter((r) => r.id !== existing.id))
     if (String(existing.id).startsWith('__tmp_')) return
     const { error } = await supabase.from('budget_reel').delete().eq('id', existing.id)
@@ -260,7 +369,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Confirme une ligne "estimé" (état #3) → crée une entrée budget_reel au coût prévu (état #2)
   async function confirmLineAtPrevu(lineId) {
     const line = lines.find((l) => l.id === lineId)
     if (!line) return
@@ -268,7 +376,6 @@ export default function BudgetReelTab() {
     await saveLineReel(lineId, { montant_ht: cp })
   }
 
-  // Confirme toutes les lignes "estimé" d'un bloc en une fois
   async function confirmBlocAtPrevu(catId) {
     const targets = lines
       .filter((l) => l.category_id === catId)
@@ -282,12 +389,15 @@ export default function BudgetReelTab() {
     }
   }
 
+  // Un additif est créé depuis un bloc (catId) → on récupère le lot_id via le devis du bloc
   async function addAdditif(catId) {
     const cat = cats.find((c) => c.id === catId)
+    const lotId = lotIdByDevisId[cat?.devis_id] || null
     const { data } = await supabase
       .from('budget_reel')
       .insert({
         project_id: projectId,
+        lot_id: lotId,
         bloc_name: cat?.name || '',
         montant_ht: 0,
         tva_rate: 0,
@@ -316,7 +426,6 @@ export default function BudgetReelTab() {
     setReel((p) => p.filter((r) => r.id !== id))
   }
 
-  // Distribue un total global proportionnellement sur plusieurs lignes devis
   async function saveGroupTotal(lineIds, coutPrevus, totalReel) {
     const totalPrevu = coutPrevus.reduce((s, c) => s + c, 0)
     for (let i = 0; i < lineIds.length; i++) {
@@ -326,7 +435,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Marque toutes les lignes d'un groupe personne comme payées/non-payées
   async function saveGroupPaid(lineIds, paid) {
     for (const id of lineIds) {
       const e = reelByLine[id]
@@ -341,7 +449,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Marque toutes les entrées d'un groupe fournisseur comme payées (lignes + additifs)
   async function saveFournisseurGroupPaid(items, paid) {
     for (const item of items) {
       if (item.isAdditif) {
@@ -353,8 +460,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Propage un taux de TVA à toutes les lignes d'un groupe personne.
-  // Crée l'entrée budget_reel si elle n'existe pas encore (au coût prévu).
   async function saveGroupTva(lineIds, tva) {
     for (const id of lineIds) {
       const e = reelByLine[id]
@@ -369,7 +474,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Idem pour un groupe fournisseur (mix lignes devis + additifs)
   async function saveFournisseurGroupTva(items, tva) {
     for (const item of items) {
       if (item.isAdditif) {
@@ -385,10 +489,9 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Distribue un total sur un groupe fournisseur (lignes + additifs) proportionnellement
   async function saveFournisseurGroupTotal(items, totalReel) {
     const weights = items.map(
-      (item) => (item.isAdditif ? item.entry?.montant_ht || 1 : item.coutPrevu || 1), // coutPrevu pré-calculé dans RecapPaiements
+      (item) => (item.isAdditif ? item.entry?.montant_ht || 1 : item.coutPrevu || 1),
     )
     const totalW = weights.reduce((s, w) => s + w, 0)
     for (let i = 0; i < items.length; i++) {
@@ -402,8 +505,6 @@ export default function BudgetReelTab() {
     }
   }
 
-  // Applique un fournisseur (ou en crée un nouveau) à toutes les lignes vides
-  // d'une catégorie + à la ligne courante
   async function applyFournisseurToBloc(currentLineId, fournisseurId, nomNouveau) {
     let fId = fournisseurId
     if (!fId && nomNouveau) {
@@ -421,7 +522,6 @@ export default function BudgetReelTab() {
     }
     const currentLine = lines.find((l) => l.id === currentLineId)
     if (!currentLine) return
-    // Lignes du même bloc, non humaines, sans fournisseur (ou la ligne courante)
     const targetIds = lines
       .filter((l) => l.category_id === currentLine.category_id)
       .filter((l) => !CATS_HUMAINS.includes(l.regime))
@@ -434,16 +534,13 @@ export default function BudgetReelTab() {
       .in('id', targetIds)
     if (error) {
       console.error('[Fournisseur] bulk assign:', error)
-      // rollback : recharge depuis la DB
       load()
     }
   }
 
-  // Assigne un fournisseur (ou en crée un nouveau) à une ligne devis
   async function selectFournisseur(lineId, fournisseurId, nomNouveau) {
     let fId = fournisseurId
     if (!fId && nomNouveau) {
-      // Créer un nouveau fournisseur scopé à l'org
       const { data, error } = await supabase
         .from('fournisseurs')
         .insert({ nom: nomNouveau, org_id: project.org_id })
@@ -456,7 +553,6 @@ export default function BudgetReelTab() {
       setFournisseurs((p) => [...p, data].sort((a, b) => a.nom.localeCompare(b.nom)))
       fId = data.id
     }
-    // Optimistic update
     setLines((p) => p.map((l) => (l.id === lineId ? { ...l, fournisseur_id: fId } : l)))
     const { error } = await supabase
       .from('devis_lines')
@@ -464,83 +560,128 @@ export default function BudgetReelTab() {
       .eq('id', lineId)
     if (error) {
       console.error('[Fournisseur] assign:', error)
-      // Rollback
       setLines((p) => p.map((l) => (l.id === lineId ? { ...l, fournisseur_id: null } : l)))
     }
   }
 
-  // ─── KPIs globaux ──────────────────────────────────────────────────────────
+  // ── KPIs : fonction paramétrable (projet entier OU lot spécifique) ─────
+  // Passer un scope { lotId } filtre lines/additifs pour ce lot uniquement.
+  // Passer null retourne les KPIs globaux (toutes lignes, tous additifs).
+  function computeKpis(scope) {
+    const scopedLines = scope?.lotId
+      ? (linesByLot[scope.lotId] || [])
+      : lines
+    const scopedAdditifs = scope?.lotId
+      ? (additifsByLot[scope.lotId] || [])
+      : reel.filter((r) => r.is_additif)
+    const scopedRefDevis = scope?.lotId
+      ? refDevisByLot[scope.lotId]
+      : null // résolu plus bas pour le mode global
 
-  const global = (() => {
     let coutPrevu = 0
-    let coutReelConfirme = 0 // uniquement saisi en DB
-    let coutReelProjete = 0 // saisi + prévu pour les non-saisis (vrai forecast)
-    let nbLignes = 0,
-      nbLignesSaisies = 0
+    let coutReelConfirme = 0
+    let coutReelProjete = 0
+    let nbLignes = 0
+    let nbLignesSaisies = 0
     let resteRegler = 0
-    let tvaRecuperable = 0 // TVA payée sur dépenses → récupérable
+    let tvaRecuperable = 0
 
-    for (const line of lines) {
+    for (const line of scopedLines) {
       const cp = refCout(line, membreByLine[line.id])
       coutPrevu += cp
       nbLignes += 1
-
       const e = reelByLine[line.id]
-      // null = pas de ligne en DB → projection au prévu
-      // 0 ou montant > 0 = saisi explicitement
       const isSaisie = Boolean(e) && e.montant_ht != null
       if (isSaisie) {
         nbLignesSaisies += 1
         coutReelConfirme += e.montant_ht
         coutReelProjete += e.montant_ht
         if (!e.paye && e.montant_ht > 0) resteRegler += e.montant_ht
-        // TVA récupérable = HT × taux/100 (uniquement sur lignes saisies)
         tvaRecuperable += ((e.montant_ht || 0) * (Number(e.tva_rate) || 0)) / 100
       } else {
-        // Non saisi → projection au prévu
         coutReelProjete += cp
       }
     }
-    for (const a of reel.filter((r) => r.is_additif)) {
+    for (const a of scopedAdditifs) {
       coutReelConfirme += a.montant_ht || 0
       coutReelProjete += a.montant_ht || 0
       if (!a.paye) resteRegler += a.montant_ht || 0
       tvaRecuperable += ((a.montant_ht || 0) * (Number(a.tva_rate) || 0)) / 100
     }
 
-    // Vente HT = totalHTFinal du devis (sous-total + marges + assurance − remise)
-    // On recalcule via calcSynthese pour inclure les ajustements globaux
-    const activeLines = lines.filter((l) => l.use_line).map((l) => ({ ...l, dans_marge: true }))
-    // Récupérer dans_marge par catégorie
-    const catDansMarge = {}
-    for (const c of cats) catDansMarge[c.id] = c.dans_marge !== false
-    const synthLines = lines.filter((l) => l.use_line).map((l) => ({
-      ...l,
-      dans_marge: catDansMarge[l.category_id] !== false,
-    }))
-    const globalAdj = {
-      marge_globale_pct: Number(refDevis?.marge_globale_pct) || 0,
-      assurance_pct: Number(refDevis?.assurance_pct) || 0,
-      remise_globale_pct: Number(refDevis?.remise_globale_pct) || 0,
-      remise_globale_montant: Number(refDevis?.remise_globale_montant) || 0,
+    // Vente HT :
+    // - Mode lot : via refDevisByLot + cats/lines de ce lot.
+    // - Mode global : somme des ventes de chaque lot (additive).
+    let venteHT = 0
+    let tvaRate = 20
+    let acomptePct = 30
+    let globalAdj = {
+      marge_globale_pct: 0,
+      assurance_pct: 0,
+      remise_globale_pct: 0,
+      remise_globale_montant: 0,
     }
-    const synth = calcSynthese(
-      synthLines,
-      refDevis?.tva_rate || 20,
-      refDevis?.acompte_pct || 30,
-      TAUX_DEFAUT,
-      globalAdj,
-    )
-    const venteHT = synth.totalHTFinal
 
-    // TVA collectée = HT vendu × taux du devis
-    const tvaCollectee = (venteHT * (Number(refDevis?.tva_rate) || 0)) / 100
+    if (scopedRefDevis) {
+      // Lot : calcul direct sur refDevis de ce lot
+      const lotCats = catsByLot[scope.lotId] || []
+      const catDansMarge = {}
+      for (const c of lotCats) catDansMarge[c.id] = c.dans_marge !== false
+      const synthLines = scopedLines
+        .filter((l) => l.use_line)
+        .map((l) => ({
+          ...l,
+          dans_marge: catDansMarge[l.category_id] !== false,
+        }))
+      globalAdj = {
+        marge_globale_pct: Number(scopedRefDevis.marge_globale_pct) || 0,
+        assurance_pct: Number(scopedRefDevis.assurance_pct) || 0,
+        remise_globale_pct: Number(scopedRefDevis.remise_globale_pct) || 0,
+        remise_globale_montant: Number(scopedRefDevis.remise_globale_montant) || 0,
+      }
+      tvaRate = Number(scopedRefDevis.tva_rate) || 20
+      acomptePct = Number(scopedRefDevis.acompte_pct) || 30
+      const synth = calcSynthese(synthLines, tvaRate, acomptePct, TAUX_DEFAUT, globalAdj)
+      venteHT = synth.totalHTFinal
+    } else {
+      // Global : additionne les ventes HT de chaque lot
+      for (const lot of lotsWithRef) {
+        const rd = refDevisByLot[lot.id]
+        const lotCats = catsByLot[lot.id] || []
+        const lotLines = linesByLot[lot.id] || []
+        const catDansMarge = {}
+        for (const c of lotCats) catDansMarge[c.id] = c.dans_marge !== false
+        const synthLines = lotLines
+          .filter((l) => l.use_line)
+          .map((l) => ({
+            ...l,
+            dans_marge: catDansMarge[l.category_id] !== false,
+          }))
+        const adj = {
+          marge_globale_pct: Number(rd.marge_globale_pct) || 0,
+          assurance_pct: Number(rd.assurance_pct) || 0,
+          remise_globale_pct: Number(rd.remise_globale_pct) || 0,
+          remise_globale_montant: Number(rd.remise_globale_montant) || 0,
+        }
+        const synth = calcSynthese(
+          synthLines,
+          Number(rd.tva_rate) || 20,
+          Number(rd.acompte_pct) || 30,
+          TAUX_DEFAUT,
+          adj,
+        )
+        venteHT += synth.totalHTFinal
+      }
+      // TVA : on applique le taux du premier refDevis (tous les lots devraient partager le même taux en pratique)
+      tvaRate = Number(refDevisByLot[lotsWithRef[0]?.id]?.tva_rate) || 20
+    }
+
+    const tvaCollectee = (venteHT * tvaRate) / 100
     const tvaAReverser = Math.max(0, tvaCollectee - tvaRecuperable)
-
-    const ecartCout = coutReelProjete - coutPrevu // signed (+ = dépassement)
+    const ecartCout = coutReelProjete - coutPrevu
     const margePrevue = venteHT - coutPrevu
     const margeReelle = venteHT - coutReelProjete
-    const deltaMarge = margeReelle - margePrevue // signed (+ = mieux)
+    const deltaMarge = margeReelle - margePrevue
     const avancement = coutPrevu > 0 ? (coutReelConfirme / coutPrevu) * 100 : 0
     const resteAEngager = Math.max(0, coutPrevu - coutReelConfirme)
 
@@ -562,13 +703,60 @@ export default function BudgetReelTab() {
       tvaRecuperable,
       tvaAReverser,
     }
-  })()
+  }
 
-  // ─── Compteurs pour les chips de filtres ──────────────────────────────────
-  const filterCounts = (() => {
-    let estimees = 0,
-      nonPayees = 0,
-      ecart = 0
+  // KPIs globaux (projet entier) — on les garde toujours sous la main pour d'autres usages
+  const globalKpis = useMemo(
+    () => computeKpis(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lines, reel, reelByLine, membreByLine, lotsWithRef, refDevisByLot, catsByLot, linesByLot, additifsByLot],
+  )
+
+  // KPIs affichés dans la barre principale — dépendent du scope choisi par l'utilisateur
+  const displayedKpis = useMemo(
+    () => (kpiScope === '__all__' ? globalKpis : computeKpis({ lotId: kpiScope })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kpiScope, globalKpis, lines, reel, reelByLine, membreByLine, lotsWithRef, refDevisByLot, catsByLot, linesByLot, additifsByLot],
+  )
+
+  // refDevis pour le header de la KpiBar :
+  // - scope lot : on prend le refDevis de ce lot (on voit "Devis V{n}" exact)
+  // - scope agrégé : on prend celui du premier lot (indicatif, on sait qu'on somme)
+  const displayedHeaderRefDevis = useMemo(() => {
+    if (kpiScope !== '__all__') {
+      const rd = refDevisByLot[kpiScope]
+      if (rd) return rd
+    }
+    const firstRef = lotsWithRef[0] ? refDevisByLot[lotsWithRef[0].id] : null
+    if (firstRef) return firstRef
+    return { version_number: '?', status: '' }
+  }, [kpiScope, lotsWithRef, refDevisByLot])
+
+  // ── Scope : lots visibles + données RecapPaiements filtrées ───────────────
+  // En mode agrégé, on garde strictement le comportement actuel.
+  // En mode lot, on ne rend que ce lot, et on filtre lines/reel en amont
+  // de RecapPaiements pour qu'il ne groupe que les lignes & additifs du lot.
+  const visibleLots = useMemo(
+    () => (kpiScope === '__all__' ? lotsWithRef : lotsWithRef.filter((l) => l.id === kpiScope)),
+    [kpiScope, lotsWithRef],
+  )
+  const recapData = useMemo(() => {
+    if (kpiScope === '__all__') return { lines, reel }
+    const scopedLineIds = new Set((linesByLot[kpiScope] || []).map((l) => l.id))
+    return {
+      lines: lines.filter((l) => scopedLineIds.has(l.id)),
+      reel: reel.filter((r) => {
+        if (r.is_additif) return r.lot_id === kpiScope
+        return scopedLineIds.has(r.line_id)
+      }),
+    }
+  }, [kpiScope, lines, reel, linesByLot])
+
+  // ── Compteurs filtres (globaux) ───────────────────────────────────────────
+  const filterCounts = useMemo(() => {
+    let estimees = 0
+    let nonPayees = 0
+    let ecart = 0
     for (const line of lines) {
       const e = reelByLine[line.id]
       const cp = refCout(line, membreByLine[line.id])
@@ -585,11 +773,11 @@ export default function BudgetReelTab() {
     }
     const additifs = reel.filter((r) => r.is_additif).length
     return { estimees, nonPayees, ecart, additifs }
-  })()
+  }, [lines, reel, reelByLine, membreByLine])
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
-  if (loading)
+  if (loading) {
     return (
       <div className="flex items-center justify-center p-16">
         <div
@@ -598,35 +786,50 @@ export default function BudgetReelTab() {
         />
       </div>
     )
+  }
 
-  if (!refDevis)
+  if (lotsWithRef.length === 0) {
     return (
       <div className="p-12 text-center">
         <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-          Aucun devis disponible
+          Aucun devis de référence disponible sur ce projet.
+          <br />
+          Sélectionne un devis « envoyé » ou « accepté » dans l&apos;onglet Devis pour activer le suivi budget.
         </p>
       </div>
     )
+  }
+
+  // Handlers factorisés (évite de repasser 15 props à chaque section)
+  const handlers = {
+    saveLineReel,
+    clearLineReel,
+    confirmLineAtPrevu,
+    confirmBlocAtPrevu,
+    selectFournisseur,
+    applyFournisseurToBloc,
+    addAdditif,
+    updateAdditif,
+    deleteAdditif,
+    toggleBlocCollapsed,
+  }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* ── KPIs (barre compacte — sticky sous le header projet) ─────────── */}
-      <div
-        style={{
-          position: 'sticky',
-          top: bannerHeight || 0,
-          zIndex: 30,
-          background: 'var(--bg)',
-          padding: '16px 24px 0 24px',
-        }}
-      >
-        <KpiBar global={global} refDevis={refDevis} />
-        <div style={{ height: 16 }} />
-      </div>
+    <div className="p-6 max-w-6xl mx-auto space-y-5">
+      {/* ── Sélecteur de scope (masqué en mono-lot) ─────────────────────── */}
+      {isMultiLot && (
+        <LotScopeSelector
+          lotsWithRef={lotsWithRef}
+          scope={kpiScope}
+          onChange={setKpiScope}
+          lotColor={lotColor}
+        />
+      )}
 
-      <div className="px-6 pb-6 space-y-5">
+      {/* ── KpiBar — réactive au scope (agrégé par défaut) ────────────── */}
+      <KpiBar global={displayedKpis} refDevis={displayedHeaderRefDevis} />
 
-      {/* ── Filtres rapides + actions blocs ──────────────────────────────── */}
+      {/* ── Filtres rapides ─────────────────────────────────────────────── */}
       <FiltersBar
         filters={filters}
         counts={filterCounts}
@@ -637,40 +840,143 @@ export default function BudgetReelTab() {
           const next = {}
           for (const c of cats) next[c.id] = true
           setBlocCollapsed(next)
+          // En multi-lot, on plie aussi les lots
+          if (isMultiLot) {
+            const nextLots = {}
+            for (const lot of lotsWithRef) nextLots[lot.id] = true
+            setLotCollapsed(nextLots)
+          }
         }}
-        onExpandAll={() => setBlocCollapsed({})}
-        anyCollapsed={Object.values(blocCollapsed).some(Boolean)}
+        onExpandAll={() => {
+          setBlocCollapsed({})
+          setLotCollapsed({})
+        }}
+        anyCollapsed={
+          Object.values(blocCollapsed).some(Boolean) ||
+          Object.values(lotCollapsed).some(Boolean)
+        }
       />
 
-      {/* ── Blocs ────────────────────────────────────────────────────────── */}
+      {/* ── Sections par lot (filtrées selon le scope) ──────────────────── */}
+      {visibleLots.map((lot) => (
+        <LotBlocsSection
+          key={lot.id}
+          lot={lot}
+          orderedLots={lotsWithRef}
+          refDevis={refDevisByLot[lot.id]}
+          cats={catsByLot[lot.id] || []}
+          lines={linesByLot[lot.id] || []}
+          additifs={additifsByLot[lot.id] || []}
+          reelByLine={reelByLine}
+          membreByLine={membreByLine}
+          fournisseurs={fournisseurs}
+          anyFilter={anyFilter}
+          lineMatchesFilters={lineMatchesFilters}
+          additifMatchesFilters={additifMatchesFilters}
+          blocCollapsed={blocCollapsed}
+          blocTermine={blocTermine}
+          setBlocTermine={setBlocTermine}
+          isMultiLot={isMultiLot}
+          isCollapsed={isMultiLot ? Boolean(lotCollapsed[lot.id]) : false}
+          onToggleCollapse={() => toggleLotCollapsed(lot.id)}
+          lotKpis={computeKpis({ lotId: lot.id })}
+          handlers={handlers}
+        />
+      ))}
+
+      {/* ── Additifs orphelins (legacy, lot_id IS NULL) — masqués en scope lot ── */}
+      {kpiScope === '__all__' && orphanAdditifs.length > 0 && (
+        <OrphanAdditifsSection
+          additifs={orphanAdditifs.filter(additifMatchesFilters)}
+          totalOrphans={orphanAdditifs.length}
+          updateAdditif={updateAdditif}
+          deleteAdditif={deleteAdditif}
+        />
+      )}
+
+      {/* ── Récap Paiements (groupé par personne × lot / fournisseur × lot) — scope ── */}
+      <RecapPaiements
+        lines={recapData.lines}
+        membres={membres}
+        reel={recapData.reel}
+        reelByLine={reelByLine}
+        membreByLine={membreByLine}
+        fournisseurs={fournisseurs}
+        lotIdByDevisId={lotIdByDevisId}
+        lotInfoMap={lotInfoMap}
+        isMultiLot={isMultiLot}
+        onSaveGroupTotal={saveGroupTotal}
+        onSaveGroupPaid={saveGroupPaid}
+        onSaveGroupTva={saveGroupTva}
+        onSaveFournisseurGroupTotal={saveFournisseurGroupTotal}
+        onSaveFournisseurGroupPaid={saveFournisseurGroupPaid}
+        onSaveFournisseurGroupTva={saveFournisseurGroupTva}
+      />
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SOUS-COMPOSANT : Section d'un lot (accordéon + blocs + additifs du lot)
+// ══════════════════════════════════════════════════════════════════════════════
+function LotBlocsSection({
+  lot,
+  orderedLots,
+  refDevis,
+  cats,
+  lines,
+  additifs,
+  reelByLine,
+  membreByLine,
+  fournisseurs,
+  anyFilter,
+  lineMatchesFilters,
+  additifMatchesFilters,
+  blocCollapsed,
+  blocTermine,
+  setBlocTermine,
+  isMultiLot,
+  isCollapsed,
+  onToggleCollapse,
+  lotKpis,
+  handlers,
+}) {
+  const color = lotColor(lot.id, orderedLots)
+
+  // Regroupe additifs par catégorie (via bloc_name) — les additifs sont rattachés
+  // à une cat par leur bloc_name, pas par category_id
+  function additifsForCat(cat) {
+    return additifs.filter((a) => a.bloc_name === cat?.name)
+  }
+  function linesForCat(catId) {
+    return lines.filter((l) => l.category_id === catId)
+  }
+
+  // Contenu des blocs (code migré de la version mono-lot, inchangé fonctionnellement)
+  const blocsContent = (
+    <>
       {cats.map((cat) => {
         const allCatLines = linesForCat(cat.id)
-        const allCatAdditifs = additifsForCat(cat.id)
+        const allCatAdditifs = additifsForCat(cat)
         if (allCatLines.length === 0 && allCatAdditifs.length === 0) return null
-        // Filtrage : les totaux et l'en-tête restent calculés sur TOUTES les lignes
-        // (on veut voir le budget complet), seule la liste affichée est réduite.
         const catLines = allCatLines.filter(lineMatchesFilters)
         const catAdditifs = allCatAdditifs.filter(additifMatchesFilters)
-        // Masque complètement le bloc si plus rien à afficher sous un filtre actif
         if (anyFilter && catLines.length === 0 && catAdditifs.length === 0) return null
 
         const blocInfo = getBlocInfo(cat.name)
         const isTermine = Boolean(blocTermine[cat.id])
-        const isCollapsed = Boolean(blocCollapsed[cat.id])
+        const isBlocCollapsed = Boolean(blocCollapsed[cat.id])
 
-        // Les totaux et le compteur d'estimées se calculent TOUJOURS sur l'ensemble du bloc,
-        // indépendamment des filtres (sinon les chiffres deviennent incohérents).
-        let venteBloc = 0,
-          prevuBloc = 0,
-          reelBloc = 0,
-          resteBloc = 0
+        let venteBloc = 0
+        let prevuBloc = 0
+        let reelBloc = 0
+        let resteBloc = 0
         for (const line of allCatLines) {
           const calc = calcLine(line)
           const cp = refCout(line, membreByLine[line.id])
           venteBloc += calc.prixVenteHT + calc.chargesFacturees
           prevuBloc += cp
           const e = reelByLine[line.id]
-          // null = pas de saisie → projette au prévu ; sinon (y compris 0) = valeur saisie
           const lineReel = e?.montant_ht != null ? e.montant_ht : cp
           reelBloc += lineReel
           if (!e?.paye && lineReel > 0) resteBloc += lineReel
@@ -685,7 +991,6 @@ export default function BudgetReelTab() {
           const e = reelByLine[l.id]
           return !e || e.montant_ht == null
         }).length
-        // Nombre de lignes masquées par les filtres
         const nbMasquees =
           allCatLines.length - catLines.length + (allCatAdditifs.length - catAdditifs.length)
 
@@ -698,15 +1003,15 @@ export default function BudgetReelTab() {
             {/* En-tête bloc (cliquable pour replier/déplier) */}
             <div
               className="flex items-center gap-3 px-4 py-2.5"
-              onClick={() => toggleBlocCollapsed(cat.id)}
+              onClick={() => handlers.toggleBlocCollapsed(cat.id)}
               style={{
                 background: 'var(--bg-elev)',
-                borderBottom: isCollapsed ? 'none' : '1px solid var(--brd-sub)',
+                borderBottom: isBlocCollapsed ? 'none' : '1px solid var(--brd-sub)',
                 cursor: 'pointer',
                 userSelect: 'none',
               }}
             >
-              {isCollapsed ? (
+              {isBlocCollapsed ? (
                 <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
               ) : (
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
@@ -720,7 +1025,7 @@ export default function BudgetReelTab() {
                 style={{ color: blocInfo.color }}
               >
                 {blocInfo.label}
-                {isCollapsed && (
+                {isBlocCollapsed && (
                   <span
                     className="ml-2 normal-case tracking-normal"
                     style={{ color: 'var(--txt-3)', fontWeight: 500, fontSize: 10 }}
@@ -739,7 +1044,7 @@ export default function BudgetReelTab() {
                         `Confirmer ${nbEstimes} ligne${nbEstimes > 1 ? 's' : ''} au coût prévu ?`,
                       )
                     )
-                      confirmBlocAtPrevu(cat.id)
+                      handlers.confirmBlocAtPrevu(cat.id)
                   }}
                   className="flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full transition-all"
                   style={{
@@ -772,8 +1077,7 @@ export default function BudgetReelTab() {
               </button>
             </div>
 
-            {/* Table (masquée si bloc replié) */}
-            {!isCollapsed && (
+            {!isBlocCollapsed && (
               <div className="overflow-x-auto">
                 <table className="w-full" style={{ fontSize: 12 }}>
                   <thead>
@@ -797,7 +1101,6 @@ export default function BudgetReelTab() {
                   </thead>
                   <tbody>
                     {(() => {
-                      // Lignes du bloc éligibles à un fournisseur (non humaines) — sur le bloc complet
                       const blocFournLines = allCatLines.filter(
                         (l) => !CATS_HUMAINS.includes(l.regime),
                       )
@@ -809,11 +1112,8 @@ export default function BudgetReelTab() {
                         const cp = refCout(line, memb)
                         const hasConvenu = memb?.budget_convenu != null
                         const ecart = entry?.montant_ht != null ? entry.montant_ht - cp : null
-                        // Vendu HT réel = tarif + charges facturées au client (pass-through intermittents)
                         const venduHT = calc.prixVenteHT + calc.chargesFacturees
-
                         const isHuman = CATS_HUMAINS.includes(line.regime)
-                        // Nombre d'AUTRES lignes vides du bloc (hors ligne courante)
                         const otherEmptyInBloc = isHuman
                           ? 0
                           : Math.max(0, emptyInBloc - (line.fournisseur_id ? 0 : 1))
@@ -833,19 +1133,20 @@ export default function BudgetReelTab() {
                             fournisseurId={line.fournisseur_id}
                             fournisseurs={fournisseurs}
                             otherEmptyInBloc={otherEmptyInBloc}
-                            onSave={(fields) => saveLineReel(line.id, fields)}
-                            onClear={() => clearLineReel(line.id)}
-                            onConfirmAtPrevu={() => confirmLineAtPrevu(line.id)}
-                            onSelectFournisseur={(fId, nom) => selectFournisseur(line.id, fId, nom)}
+                            onSave={(fields) => handlers.saveLineReel(line.id, fields)}
+                            onClear={() => handlers.clearLineReel(line.id)}
+                            onConfirmAtPrevu={() => handlers.confirmLineAtPrevu(line.id)}
+                            onSelectFournisseur={(fId, nom) =>
+                              handlers.selectFournisseur(line.id, fId, nom)
+                            }
                             onApplyFournisseurToBloc={(fId, nom) =>
-                              applyFournisseurToBloc(line.id, fId, nom)
+                              handlers.applyFournisseurToBloc(line.id, fId, nom)
                             }
                           />
                         )
                       })
                     })()}
 
-                    {/* ADDITIFS */}
                     {catAdditifs.length > 0 && (
                       <tr>
                         <td colSpan={5} className="px-4 pt-3 pb-1">
@@ -863,8 +1164,8 @@ export default function BudgetReelTab() {
                         key={a.id}
                         entry={a}
                         odd={idx % 2 === 1}
-                        onChange={(f) => updateAdditif(a.id, f)}
-                        onDelete={() => deleteAdditif(a.id)}
+                        onChange={(f) => handlers.updateAdditif(a.id, f)}
+                        onDelete={() => handlers.deleteAdditif(a.id)}
                       />
                     ))}
 
@@ -873,7 +1174,7 @@ export default function BudgetReelTab() {
                         <td
                           colSpan={5}
                           className="px-4 py-1.5 text-center text-[10px] italic"
-                          style={{ color: 'var(--txt-3)', background: 'rgba(0,122,255,.04)' }} /* light opacity variant kept */
+                          style={{ color: 'var(--txt-3)', background: 'rgba(0,122,255,.04)' }}
                         >
                           {nbMasquees} ligne{nbMasquees > 1 ? 's' : ''} masquée
                           {nbMasquees > 1 ? 's' : ''} par les filtres actifs
@@ -883,7 +1184,7 @@ export default function BudgetReelTab() {
                     <tr>
                       <td colSpan={5} className="px-4 py-2">
                         <button
-                          onClick={() => addAdditif(cat.id)}
+                          onClick={() => handlers.addAdditif(cat.id)}
                           className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
                           style={{ color: 'var(--txt-3)', border: '1px dashed var(--brd)' }}
                           onMouseEnter={(e) => {
@@ -904,7 +1205,6 @@ export default function BudgetReelTab() {
               </div>
             )}
 
-            {/* Totaux bloc — mêmes 3 colonnes que la KpiBar globale */}
             <BlocFooter
               venteBloc={venteBloc}
               prevuBloc={prevuBloc}
@@ -916,22 +1216,213 @@ export default function BudgetReelTab() {
           </div>
         )
       })}
-      {/* ── Récap Paiements ──────────────────────────────────────────────── */}
-      <RecapPaiements
-        lines={lines}
-        membres={membres}
-        reel={reel}
-        reelByLine={reelByLine}
-        membreByLine={membreByLine}
-        fournisseurs={fournisseurs}
-        onSaveGroupTotal={saveGroupTotal}
-        onSaveGroupPaid={saveGroupPaid}
-        onSaveGroupTva={saveGroupTva}
-        onSaveFournisseurGroupTotal={saveFournisseurGroupTotal}
-        onSaveFournisseurGroupPaid={saveFournisseurGroupPaid}
-        onSaveFournisseurGroupTva={saveFournisseurGroupTva}
-      />
+    </>
+  )
+
+  // Mono-lot : pas d'accordéon, on renvoie directement les blocs en flux
+  if (!isMultiLot) {
+    return <div className="space-y-5">{blocsContent}</div>
+  }
+
+  // Multi-lot : accordéon avec header coloré + mini-KPI lot
+  const margeColor =
+    lotKpis.margeReelle < 0
+      ? 'var(--red)'
+      : lotKpis.deltaMarge < -0.01
+        ? 'var(--amber)'
+        : 'var(--green)'
+  const ecartColor =
+    lotKpis.ecartCout > 0.01
+      ? 'var(--red)'
+      : lotKpis.ecartCout < -0.01
+        ? 'var(--green)'
+        : 'var(--txt-3)'
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ border: '1px solid var(--brd)', background: 'var(--bg-surf)' }}
+    >
+      {/* Header accordéon lot */}
+      <div
+        className="flex items-center gap-3 px-4 py-3"
+        onClick={onToggleCollapse}
+        style={{
+          background: 'var(--bg-elev)',
+          borderBottom: isCollapsed ? 'none' : '1px solid var(--brd-sub)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {isCollapsed ? (
+          <ChevronRight className="w-4 h-4 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        ) : (
+          <ChevronDown className="w-4 h-4 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        )}
+        <span
+          className="w-3 h-3 rounded-full shrink-0"
+          style={{ background: color }}
+        />
+        <Package className="w-3.5 h-3.5 shrink-0" style={{ color }} />
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-[12px] font-bold tracking-wide truncate"
+            style={{ color: 'var(--txt)' }}
+          >
+            {lot.title}
+          </p>
+          <p className="text-[10px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
+            Devis V{refDevis.version_number}
+            {refDevis.status === 'accepte' ? ' · accepté' : ''}
+            {' · '}
+            {lotKpis.nbLignes} ligne{lotKpis.nbLignes > 1 ? 's' : ''}
+            {' · '}
+            {lotKpis.nbLignesSaisies}/{lotKpis.nbLignes} saisies
+          </p>
+        </div>
+        {/* Mini-KPI : vente · prévu→réel · marge */}
+        <div className="flex items-center gap-5 shrink-0" style={{ fontSize: 11 }}>
+          <KpiChip label="Vente HT" value={fmtEur(lotKpis.venteHT)} color="var(--blue)" />
+          <KpiChip
+            label="Prévu → Réel"
+            value={
+              <span>
+                <span style={{ color: 'var(--amber)' }}>{fmtEur(lotKpis.coutPrevu)}</span>
+                <span style={{ color: 'var(--txt-3)' }}> → </span>
+                <span style={{ color: ecartColor, fontWeight: 700 }}>
+                  {fmtEur(lotKpis.coutReelProjete)}
+                </span>
+              </span>
+            }
+          />
+          <KpiChip
+            label="Marge"
+            value={fmtEur(lotKpis.margeReelle)}
+            color={margeColor}
+          />
+        </div>
       </div>
+
+      {/* Contenu accordéon */}
+      {!isCollapsed && <div className="p-4 space-y-4">{blocsContent}</div>}
+    </div>
+  )
+}
+
+// Chip compact pour les mini-KPI dans le header lot
+function KpiChip({ label, value, color }) {
+  return (
+    <div className="flex flex-col items-end">
+      <span
+        className="text-[9px] font-semibold uppercase tracking-widest"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        {label}
+      </span>
+      <span className="tabular-nums font-semibold" style={{ color: color || 'var(--txt)' }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SOUS-COMPOSANT : Additifs orphelins (legacy, lot_id IS NULL)
+// ══════════════════════════════════════════════════════════════════════════════
+function OrphanAdditifsSection({ additifs, totalOrphans, updateAdditif, deleteAdditif }) {
+  const [collapsed, setCollapsed] = useState(false)
+  if (totalOrphans === 0) return null
+  // Regroupés par bloc_name pour garder un minimum de structure
+  const byBloc = {}
+  for (const a of additifs) {
+    const key = a.bloc_name || '—'
+    if (!byBloc[key]) byBloc[key] = []
+    byBloc[key].push(a)
+  }
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ border: '1px dashed var(--brd)', background: 'var(--bg-surf)' }}
+    >
+      <div
+        className="flex items-center gap-3 px-4 py-2.5"
+        onClick={() => setCollapsed((c) => !c)}
+        style={{
+          background: 'var(--bg-elev)',
+          borderBottom: collapsed ? 'none' : '1px solid var(--brd-sub)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {collapsed ? (
+          <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        )}
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: 'var(--txt-3)' }} />
+        <span
+          className="text-[11px] font-bold uppercase tracking-widest flex-1"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Hors lot · additifs non rattachés
+          <span
+            className="ml-2 normal-case tracking-normal"
+            style={{ color: 'var(--txt-3)', fontWeight: 500, fontSize: 10 }}
+          >
+            · {totalOrphans} additif{totalOrphans > 1 ? 's' : ''}
+          </span>
+        </span>
+      </div>
+      {!collapsed && (
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+                <Th left style={{ minWidth: 150 }}>
+                  Produit
+                </Th>
+                <Th left style={{ minWidth: 110 }}>
+                  Prestataire
+                </Th>
+                <Th right style={{ minWidth: 90 }}>
+                  Vendu HT
+                </Th>
+                <Th right style={{ minWidth: 170 }}>
+                  Coût réel
+                </Th>
+                <Th center style={{ width: 56 }}>
+                  Statut
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(byBloc).map(([blocName, arr]) => (
+                <Fragment key={blocName}>
+                  <tr>
+                    <td colSpan={5} className="px-4 pt-3 pb-1">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-widest"
+                        style={{ color: 'var(--txt-3)' }}
+                      >
+                        {blocName}
+                      </span>
+                    </td>
+                  </tr>
+                  {arr.map((a, idx) => (
+                    <AdditifRow
+                      key={a.id}
+                      entry={a}
+                      odd={idx % 2 === 1}
+                      onChange={(f) => updateAdditif(a.id, f)}
+                      onDelete={() => deleteAdditif(a.id)}
+                    />
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

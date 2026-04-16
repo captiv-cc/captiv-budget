@@ -57,14 +57,20 @@ export default function Projets() {
       // Ignore localStorage errors
     }
   }, [viewMode])
+  const PROJECT_TYPES = [
+    'Corporate', 'Fiction', 'Publicité', 'Clip', 'Documentaire',
+    'Événement', 'Captation', 'Autre',
+  ]
+
   const [form, setForm] = useState({
     title: '',
     client_id: '',
+    types_projet: [],
     status: 'prospect',
-    description: '',
-    date_debut: '',
-    date_fin: '',
   })
+  const [clientSearch, setClientSearch] = useState('')
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
+  const [creatingClient, setCreatingClient] = useState(false)
 
   const { errors, validate, clearErrors, clearField } = useFormValidation(projectSchema)
 
@@ -95,13 +101,49 @@ export default function Projets() {
     if (org?.id) loadAll()
   }, [org?.id, loadAll])
 
+  async function handleCreateClient(name) {
+    if (!name.trim()) return
+    setCreatingClient(true)
+    const { data, error } = await supabase
+      .from('clients')
+      .insert({ nom_commercial: name.trim(), org_id: org.id })
+      .select()
+      .single()
+    setCreatingClient(false)
+    if (error) {
+      notify.error('Impossible de créer le client')
+      return
+    }
+    setClients((prev) => [...prev, data].sort((a, b) => a.nom_commercial.localeCompare(b.nom_commercial, 'fr')))
+    setForm((f) => ({ ...f, client_id: data.id }))
+    setClientSearch(data.nom_commercial)
+    setClientDropdownOpen(false)
+  }
+
+  function toggleType(type) {
+    setForm((f) => ({
+      ...f,
+      types_projet: f.types_projet.includes(type)
+        ? f.types_projet.filter((t) => t !== type)
+        : [...f.types_projet, type],
+    }))
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     const validated = validate(form)
     if (!validated) return
+    const payload = {
+      title: form.title,
+      client_id: form.client_id || null,
+      status: form.status,
+      types_projet: form.types_projet.length > 0 ? form.types_projet : null,
+      org_id: org.id,
+      created_by: profile?.id,
+    }
     const { data, error } = await supabase
       .from('projects')
-      .insert({ ...form, org_id: org.id, created_by: profile?.id })
+      .insert(payload)
       .select()
       .single()
     if (error) {
@@ -111,14 +153,8 @@ export default function Projets() {
     }
     if (data) {
       setShowModal(false)
-      setForm({
-        title: '',
-        client_id: '',
-        status: 'prospect',
-        description: '',
-        date_debut: '',
-        date_fin: '',
-      })
+      setForm({ title: '', client_id: '', types_projet: [], status: 'prospect' })
+      setClientSearch('')
       navigate(`/projets/${data.id}`)
     }
   }
@@ -430,7 +466,8 @@ export default function Projets() {
       {/* Modal nouveau projet */}
       {showModal && (
         <Modal title="Nouveau projet" onClose={() => { setShowModal(false); clearErrors() }}>
-          <form onSubmit={handleCreate} className="space-y-4">
+          <form onSubmit={handleCreate} className="space-y-5">
+            {/* Titre */}
             <div>
               <label className="label">Titre du projet *</label>
               <input
@@ -438,45 +475,111 @@ export default function Projets() {
                 value={form.title}
                 onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); clearField('title') }}
                 placeholder="Ex: Film institutionnel 2026"
+                autoFocus
                 required
               />
               <FieldError error={errors.title} />
             </div>
-            <div>
+
+            {/* Client — autocomplete searchable */}
+            <div className="relative">
               <label className="label">Client</label>
-              <select
-                className="input"
-                value={form.client_id}
-                onChange={(e) => setForm((f) => ({ ...f, client_id: e.target.value }))}
-              >
-                <option value="">— Sélectionner un client —</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nom_commercial}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Date début</label>
+              <div className="relative">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                  style={{ color: 'var(--txt-3)' }}
+                />
                 <input
-                  type="date"
-                  className="input"
-                  value={form.date_debut}
-                  onChange={(e) => setForm((f) => ({ ...f, date_debut: e.target.value }))}
+                  className="input pl-9"
+                  value={clientSearch}
+                  onChange={(e) => {
+                    setClientSearch(e.target.value)
+                    setClientDropdownOpen(true)
+                    if (!e.target.value.trim()) setForm((f) => ({ ...f, client_id: '' }))
+                  }}
+                  onFocus={() => setClientDropdownOpen(true)}
+                  placeholder="Rechercher ou créer un client…"
                 />
               </div>
-              <div>
-                <label className="label">Date fin</label>
-                <input
-                  type="date"
-                  className="input"
-                  value={form.date_fin}
-                  onChange={(e) => setForm((f) => ({ ...f, date_fin: e.target.value }))}
-                />
+              {clientDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setClientDropdownOpen(false)} />
+                  <div
+                    className="absolute left-0 right-0 mt-1 rounded-lg shadow-xl z-50 overflow-hidden max-h-48 overflow-y-auto"
+                    style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
+                  >
+                    {clients
+                      .filter((c) => !clientSearch.trim() || c.nom_commercial.toLowerCase().includes(clientSearch.toLowerCase()))
+                      .map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm transition-colors"
+                          style={{
+                            color: form.client_id === c.id ? 'var(--blue)' : 'var(--txt)',
+                            background: form.client_id === c.id ? 'var(--blue-bg)' : 'transparent',
+                          }}
+                          onMouseEnter={(e) => { if (form.client_id !== c.id) e.currentTarget.style.background = 'var(--bg-hov)' }}
+                          onMouseLeave={(e) => { if (form.client_id !== c.id) e.currentTarget.style.background = 'transparent' }}
+                          onClick={() => {
+                            setForm((f) => ({ ...f, client_id: c.id }))
+                            setClientSearch(c.nom_commercial)
+                            setClientDropdownOpen(false)
+                          }}
+                        >
+                          {c.nom_commercial}
+                        </button>
+                      ))}
+                    {clientSearch.trim() && !clients.some((c) => c.nom_commercial.toLowerCase() === clientSearch.toLowerCase()) && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm flex items-center gap-1.5 transition-colors"
+                        style={{ color: 'var(--blue)', borderTop: '1px solid var(--brd-sub)' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                        onClick={() => handleCreateClient(clientSearch)}
+                        disabled={creatingClient}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        {creatingClient ? 'Création…' : `Créer "${clientSearch.trim()}"`}
+                      </button>
+                    )}
+                    {!clientSearch.trim() && clients.length === 0 && (
+                      <div className="px-3 py-3 text-sm" style={{ color: 'var(--txt-3)' }}>
+                        Aucun client
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Types de projet — tags multi-sélection */}
+            <div>
+              <label className="label">Type de projet</label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {PROJECT_TYPES.map((type) => {
+                  const selected = form.types_projet.includes(type)
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleType(type)}
+                      className="text-xs font-medium rounded-full px-3 py-1.5 transition-all"
+                      style={
+                        selected
+                          ? { background: 'var(--blue-bg)', color: 'var(--blue)', border: '1px solid var(--blue)', borderOpacity: 0.3 }
+                          : { background: 'transparent', color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }
+                      }
+                    >
+                      {selected && '✓ '}{type}
+                    </button>
+                  )
+                })}
               </div>
             </div>
+
+            {/* Statut */}
             <div>
               <label className="label">Statut</label>
               <select
@@ -491,16 +594,8 @@ export default function Projets() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="label">Description</label>
-              <textarea
-                className="input resize-none h-20"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Brève description du projet…"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
+
+            <div className="flex justify-end gap-2 pt-3" style={{ borderTop: '1px solid var(--brd-sub)', marginTop: '8px' }}>
               <button type="button" onClick={() => { setShowModal(false); clearErrors() }} className="btn-secondary">
                 Annuler
               </button>
@@ -540,9 +635,24 @@ function ProjectListView({
           <Link to={`/projets/${p.id}`} className="flex items-center gap-3 flex-1 min-w-0">
             <ProjectAvatar project={p} size={40} rounded="lg" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                {p.title}
-              </p>
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                  {p.title}
+                </p>
+                {p.types_projet?.length > 0 && (
+                  <div className="hidden sm:flex items-center gap-1 shrink-0">
+                    {p.types_projet.map((t) => (
+                      <span
+                        key={t}
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                        style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
                 {p.clients?.nom_commercial || '—'}
               </p>
@@ -637,6 +747,19 @@ function ProjectGridView({
               <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
                 {p.clients?.nom_commercial || '—'}
               </p>
+              {p.types_projet?.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {p.types_projet.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between mt-auto">
               <StatusBadgeMenu
@@ -727,28 +850,45 @@ function ViewToggleButton({ active, onClick, icon: Icon, title }) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3 sm:p-4">
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-3 sm:p-4"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
       <div
-        className="rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--brd-sub)' }}
+        className="rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in"
+        style={{
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd-sub)',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+          animation: 'modalIn 0.2s ease-out',
+        }}
       >
-        <div
-          className="flex items-center justify-between px-4 sm:px-6 py-4"
-          style={{ borderBottom: '1px solid var(--brd-sub)' }}
-        >
-          <h3 className="font-semibold" style={{ color: 'var(--txt)' }}>{title}</h3>
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4">
+          <h3 className="text-lg font-semibold" style={{ color: 'var(--txt)' }}>{title}</h3>
           <button
             onClick={onClose}
-            className="text-xl leading-none"
-            style={{ color: 'var(--txt-3)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+            className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
+            style={{ color: 'var(--txt-3)', background: 'transparent' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--txt)'; e.currentTarget.style.background = 'var(--bg-hov)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--txt-3)'; e.currentTarget.style.background = 'transparent' }}
           >
-            ×
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
         </div>
-        <div className="p-4 sm:p-6">{children}</div>
+        <div
+          className="px-5 sm:px-6 pb-5 sm:pb-6"
+          style={{ borderTop: '1px solid var(--brd-sub)', paddingTop: '20px' }}
+        >
+          {children}
+        </div>
       </div>
+      <style>{`
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.95) translateY(10px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+      `}</style>
     </div>
   )
 }

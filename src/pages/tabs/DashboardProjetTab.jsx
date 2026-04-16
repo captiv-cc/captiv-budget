@@ -1,12 +1,19 @@
 /**
  * DashboardProjetTab — Vue synthétique d'un projet
  * Données réelles : devis · budget réel · factures · équipe
+ *
+ * Multi-lots : un sélecteur de scope en haut de page pilote toutes les
+ * sections (KPI, Budget vs Réel, Décompo HT, Versions devis).
+ * - scope = '__all__' (défaut) → agrégé projet entier
+ * - scope = lotId              → vue filtrée pour ce lot
+ * Mono-lot : le sélecteur est masqué, comportement identique à avant.
  */
-import { useState, useEffect } from 'react'
-import { Link, useOutletContext } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useProjet } from '../ProjetLayout'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
+import LotScopeSelector from '../../components/LotScopeSelector'
 import {
   TrendingUp,
   TrendingDown,
@@ -21,6 +28,22 @@ import {
   Activity,
   Percent,
 } from 'lucide-react'
+
+// Palette partagée avec les autres onglets pour les badges de lot
+const LOT_PALETTE = [
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#ef4444', // red
+  '#06b6d4', // cyan
+  '#ec4899', // pink
+  '#84cc16', // lime
+]
+function lotColor(lotId, orderedLots) {
+  const idx = orderedLots.findIndex((l) => l.id === lotId)
+  return idx >= 0 ? LOT_PALETTE[idx % LOT_PALETTE.length] : '#94a3b8'
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(d) {
@@ -171,8 +194,30 @@ function FacStatutBadge({ statut }) {
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function DashboardProjetTab() {
-  const { projectId, refDevis, refSynth, devisList, devisStats } = useProjet()
-  const _ctx = useOutletContext()
+  const {
+    projectId,
+    lots,
+    refDevisByLot,
+    refSynthByLot,
+    devisByLot,
+    devisStats,
+  } = useProjet()
+
+  // Lots ayant effectivement un devis de référence (sinon pas d'info à afficher)
+  const lotsWithRef = useMemo(
+    () => (lots || []).filter((l) => !l.archived && refDevisByLot?.[l.id]),
+    [lots, refDevisByLot],
+  )
+  const isMultiLot = lotsWithRef.length >= 2
+
+  // Scope actif : '__all__' (agrégé) ou lotId
+  const [scope, setScope] = useState('__all__')
+
+  // Si on passe de multi-lot à mono-lot (ou si le lot sélectionné disparaît), on revient à agrégé
+  useEffect(() => {
+    if (scope === '__all__') return
+    if (!lotsWithRef.some((l) => l.id === scope)) setScope('__all__')
+  }, [scope, lotsWithRef])
 
   const [budgetReel, setBudgetReel] = useState([])
   const [factures, setFactures] = useState([])
@@ -196,7 +241,70 @@ export default function DashboardProjetTab() {
     })
   }, [projectId])
 
-  if (!refSynth) {
+  // ── Données filtrées selon le scope ────────────────────────────────────────
+  // En mode agrégé : on utilise tout. En mode lot : on filtre par lot_id.
+  const scopedBudgetReel = useMemo(() => {
+    if (scope === '__all__') return budgetReel
+    return budgetReel.filter((e) => e.lot_id === scope)
+  }, [budgetReel, scope])
+
+  const scopedFactures = useMemo(() => {
+    if (scope === '__all__') return factures
+    return factures.filter((f) => f.lot_id === scope)
+  }, [factures, scope])
+
+  // Synthèse scopée : soit somme des refSynth des lots, soit celui du lot sélectionné
+  const scopedSynth = useMemo(() => {
+    if (scope !== '__all__') {
+      return refSynthByLot?.[scope] || null
+    }
+    // Agrégé : sommer tous les champs numériques de refSynthByLot
+    const all = Object.values(refSynthByLot || {})
+    if (all.length === 0) return null
+    const sum = {
+      sousTotal: 0,
+      totalHTFinal: 0,
+      totalTTC: 0,
+      totalCoutCharge: 0,
+      totalCharges: 0,
+      margeFinale: 0,
+      montantMargeGlobale: 0,
+      montantAssurance: 0,
+      montantRemiseGlobale: 0,
+    }
+    for (const s of all) {
+      sum.sousTotal += s.sousTotal || 0
+      sum.totalHTFinal += s.totalHTFinal || 0
+      sum.totalTTC += s.totalTTC || 0
+      sum.totalCoutCharge += s.totalCoutCharge || 0
+      sum.totalCharges += s.totalCharges || 0
+      sum.margeFinale += s.margeFinale || 0
+      sum.montantMargeGlobale += s.montantMargeGlobale || 0
+      sum.montantAssurance += s.montantAssurance || 0
+      sum.montantRemiseGlobale += s.montantRemiseGlobale || 0
+    }
+    // % marge recalculé sur les totaux sommés
+    sum.pctMargeFinale = sum.totalHTFinal > 0 ? sum.margeFinale / sum.totalHTFinal : 0
+    return sum
+  }, [scope, refSynthByLot])
+
+  // Devis de référence scopé (pour afficher %marge_globale / %assurance dans la Décompo)
+  const scopedRefDevis = useMemo(() => {
+    if (scope !== '__all__') return refDevisByLot?.[scope] || null
+    // En agrégé : si tous les lots ont les mêmes % on peut les afficher,
+    // sinon on masque (passe à null pour label générique)
+    const all = Object.values(refDevisByLot || {})
+    if (all.length === 0) return null
+    const first = all[0]
+    const same = all.every(
+      (d) =>
+        (d.marge_globale_pct || 0) === (first.marge_globale_pct || 0) &&
+        (d.assurance_pct || 0) === (first.assurance_pct || 0),
+    )
+    return same ? first : null
+  }, [scope, refDevisByLot])
+
+  if (lotsWithRef.length === 0 || !scopedSynth) {
     return (
       <div
         className="flex flex-col items-center justify-center h-64 gap-3"
@@ -216,51 +324,62 @@ export default function DashboardProjetTab() {
     )
   }
 
-  // ── Calculs ────────────────────────────────────────────────────────────────
-  const totalReel = budgetReel.reduce((s, e) => s + Number(e.montant_ht || 0), 0)
-  const ecartBudget = refSynth.totalHTFinal - totalReel
-  const _totalFacHT = factures.reduce((s, f) => s + Number(f.montant_ht || 0), 0)
-  const totalFacTTC = factures.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const totalRegle = factures
+  // ── Calculs (basés sur les données scopées) ───────────────────────────────
+  const totalReel = scopedBudgetReel.reduce((s, e) => s + Number(e.montant_ht || 0), 0)
+  const ecartBudget = scopedSynth.totalHTFinal - totalReel
+  const totalFacTTC = scopedFactures.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
+  const totalRegle = scopedFactures
     .filter((f) => f.statut === 'reglee')
     .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
   const pctEncaisse = totalFacTTC > 0 ? totalRegle / totalFacTTC : 0
-  const facEnRetard = factures.filter((f) => f.statut === 'en_retard')
-  const _facAttente = factures.filter((f) => ['envoyee', 'en_attente'].includes(f.statut))
+  const facEnRetard = scopedFactures.filter((f) => f.statut === 'en_retard')
 
   // Marge couleur
   const margeColor =
-    refSynth.pctMargeFinale < 0
+    scopedSynth.pctMargeFinale < 0
       ? 'var(--red)'
-      : refSynth.pctMargeFinale > 0.2
+      : scopedSynth.pctMargeFinale > 0.2
         ? 'var(--green)'
         : 'var(--amber)'
 
-  // Prochaines factures (non réglées, avec échéance)
-  const prochainesFac = factures
+  // Prochaines factures (non réglées, avec échéance) — respecte le scope
+  const prochainesFac = scopedFactures
     .filter((f) => f.statut !== 'reglee' && f.statut !== 'brouillon')
     .sort((a, b) => (a.date_echeance || '9999').localeCompare(b.date_echeance || '9999'))
     .slice(0, 4)
 
+  const scopeLot = scope !== '__all__' ? lotsWithRef.find((l) => l.id === scope) : null
+  const scopeColor = scopeLot ? lotColor(scopeLot.id, lotsWithRef) : 'var(--blue)'
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      {/* ── Sélecteur de scope (masqué en mono-lot) ─────────────────────── */}
+      {isMultiLot && (
+        <LotScopeSelector
+          lotsWithRef={lotsWithRef}
+          scope={scope}
+          onChange={setScope}
+          lotColor={lotColor}
+        />
+      )}
+
       {/* ── KPIs principaux ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           label="Budget devisé HT"
-          value={fmtEur(refSynth.totalHTFinal)}
-          sub={`${fmtEur(refSynth.totalTTC)} TTC`}
+          value={fmtEur(scopedSynth.totalHTFinal)}
+          sub={`${fmtEur(scopedSynth.totalTTC)} TTC`}
           icon={Euro}
           color={{ bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' }}
           to={`/projets/${projectId}/devis`}
         />
         <KpiCard
           label="Marge estimée"
-          value={fmtPct(refSynth.pctMargeFinale)}
-          sub={fmtEur(refSynth.margeFinale)}
+          value={fmtPct(scopedSynth.pctMargeFinale)}
+          sub={fmtEur(scopedSynth.margeFinale)}
           icon={TrendingUp}
           color={{
-            bg: refSynth.pctMargeFinale < 0 ? 'rgba(239,68,68,.12)' : 'rgba(0,200,117,.12)',
+            bg: scopedSynth.pctMargeFinale < 0 ? 'rgba(239,68,68,.12)' : 'rgba(0,200,117,.12)',
             txt: margeColor,
           }}
         />
@@ -309,7 +428,7 @@ export default function DashboardProjetTab() {
             }
           />
 
-          {budgetReel.length === 0 ? (
+          {scopedBudgetReel.length === 0 ? (
             <div
               className="flex flex-col items-center py-8 gap-2"
               style={{ color: 'var(--txt-3)' }}
@@ -320,16 +439,16 @@ export default function DashboardProjetTab() {
           ) : (
             <div className="space-y-4">
               <BudgetJauge
-                label="Total global"
+                label={scope === '__all__' ? 'Total global' : `Total — ${scopeLot?.title || 'Lot'}`}
                 reel={totalReel}
-                devis={refSynth.totalHTFinal}
-                color="var(--blue)"
+                devis={scopedSynth.totalHTFinal}
+                color={scopeColor}
               />
 
               {/* Répartition par catégorie budget_reel */}
               {(() => {
                 const byCat = {}
-                budgetReel.forEach((e) => {
+                scopedBudgetReel.forEach((e) => {
                   const cat = e.categorie || e.regime || 'Autre'
                   byCat[cat] = (byCat[cat] || 0) + Number(e.montant_ht || 0)
                 })
@@ -341,8 +460,8 @@ export default function DashboardProjetTab() {
                       key={cat}
                       label={cat}
                       reel={montant}
-                      devis={refSynth.totalHTFinal}
-                      color="var(--blue)"
+                      devis={scopedSynth.totalHTFinal}
+                      color={scopeColor}
                     />
                   ))
               })()}
@@ -391,13 +510,17 @@ export default function DashboardProjetTab() {
             }
           />
 
-          {factures.length === 0 ? (
+          {scopedFactures.length === 0 ? (
             <div
               className="flex flex-col items-center py-8 gap-2"
               style={{ color: 'var(--txt-3)' }}
             >
               <Receipt className="w-8 h-8 opacity-30" />
-              <p className="text-xs">Aucune facture enregistrée</p>
+              <p className="text-xs">
+                {scope === '__all__'
+                  ? 'Aucune facture enregistrée'
+                  : 'Aucune facture sur ce lot'}
+              </p>
               <Link
                 to={`/projets/${projectId}/factures`}
                 className="text-xs px-3 py-1.5 rounded-lg text-white mt-1"
@@ -537,73 +660,123 @@ export default function DashboardProjetTab() {
                 </tr>
               </thead>
               <tbody>
-                {devisList.map((dv) => {
-                  const s = devisStats[dv.id]
-                  const isRef = dv.id === refDevis?.id
-                  const mc = !s
-                    ? ''
-                    : s.pctMargeFinale < 0
-                      ? 'var(--red)'
-                      : s.pctMargeFinale > 0.2
-                        ? 'var(--green)'
-                        : 'var(--amber)'
-                  const statusMap = {
-                    accepte: { label: 'Accepté', bg: 'rgba(0,200,117,.12)', txt: 'var(--green)' },
-                    envoye: { label: 'Envoyé', bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' },
-                    refuse: { label: 'Refusé', bg: 'rgba(239,68,68,.12)', txt: 'var(--red)' },
-                    brouillon: { label: 'Brouillon', bg: 'var(--bg-elev)', txt: 'var(--txt-3)' },
-                  }
-                  const sm = statusMap[dv.status] || statusMap.brouillon
-                  return (
-                    <tr
-                      key={dv.id}
-                      style={{
-                        borderBottom: '1px solid var(--brd-sub)',
-                        background: isRef ? 'rgba(0,200,117,.04)' : '',
-                      }}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            to={`/projets/${projectId}/devis/${dv.id}`}
-                            className="font-bold hover:underline"
-                            style={{ color: 'var(--txt)' }}
+                {(() => {
+                  // En mode scope = lot : on n'affiche que les versions de CE lot.
+                  // En agrégé : on regroupe par lot avec un header par lot (si multi-lot).
+                  const lotsToRender =
+                    scope !== '__all__'
+                      ? lotsWithRef.filter((l) => l.id === scope)
+                      : lotsWithRef
+
+                  return lotsToRender.flatMap((lot) => {
+                    const lotDevis = (devisByLot?.[lot.id] || [])
+                      .slice()
+                      .sort((a, b) => (b.version_number || 0) - (a.version_number || 0))
+                    const refId = refDevisByLot?.[lot.id]?.id
+                    const color = lotColor(lot.id, lotsWithRef)
+                    const rows = []
+
+                    // Header de lot (uniquement en multi-lot)
+                    if (isMultiLot) {
+                      rows.push(
+                        <tr key={`h-${lot.id}`} style={{ background: 'var(--bg-elev)' }}>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider"
+                            style={{
+                              borderTop: '1px solid var(--brd-sub)',
+                              borderBottom: '1px solid var(--brd-sub)',
+                              color: 'var(--txt-2)',
+                            }}
                           >
-                            V{dv.version_number}
-                          </Link>
-                          {isRef && (
-                            <span
-                              className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
-                              style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
-                            >
-                              réf.
+                            <span className="inline-flex items-center gap-2">
+                              <span
+                                className="w-2 h-2 rounded-full"
+                                style={{ background: color }}
+                              />
+                              {lot.title}
+                              <span className="font-normal" style={{ color: 'var(--txt-3)' }}>
+                                · {lotDevis.length} version{lotDevis.length > 1 ? 's' : ''}
+                              </span>
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-semibold" style={{ color: 'var(--txt)' }}>
-                        {s ? fmtEur(s.totalHTFinal) : '—'}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--txt-2)' }}>
-                        {s ? fmtEur(s.totalCoutCharge) : '—'}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--txt-2)' }}>
-                        {s ? fmtEur(s.margeFinale) : '—'}
-                      </td>
-                      <td className="px-4 py-3 font-bold" style={{ color: mc }}>
-                        {s ? fmtPct(s.pctMargeFinale) : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: sm.bg, color: sm.txt }}
+                          </td>
+                        </tr>,
+                      )
+                    }
+
+                    for (const dv of lotDevis) {
+                      const s = devisStats[dv.id]
+                      const isRef = dv.id === refId
+                      const mc = !s
+                        ? ''
+                        : s.pctMargeFinale < 0
+                          ? 'var(--red)'
+                          : s.pctMargeFinale > 0.2
+                            ? 'var(--green)'
+                            : 'var(--amber)'
+                      const statusMap = {
+                        accepte: { label: 'Accepté', bg: 'rgba(0,200,117,.12)', txt: 'var(--green)' },
+                        envoye: { label: 'Envoyé', bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' },
+                        refuse: { label: 'Refusé', bg: 'rgba(239,68,68,.12)', txt: 'var(--red)' },
+                        brouillon: { label: 'Brouillon', bg: 'var(--bg-elev)', txt: 'var(--txt-3)' },
+                      }
+                      const sm = statusMap[dv.status] || statusMap.brouillon
+                      rows.push(
+                        <tr
+                          key={dv.id}
+                          style={{
+                            borderBottom: '1px solid var(--brd-sub)',
+                            background: isRef ? 'rgba(0,200,117,.04)' : '',
+                          }}
                         >
-                          {sm.label}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                to={`/projets/${projectId}/devis/${dv.id}`}
+                                className="font-bold hover:underline"
+                                style={{ color: 'var(--txt)' }}
+                              >
+                                V{dv.version_number}
+                              </Link>
+                              {isRef && (
+                                <span
+                                  className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                                  style={{
+                                    background: 'var(--green-bg)',
+                                    color: 'var(--green)',
+                                  }}
+                                >
+                                  réf.
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-semibold" style={{ color: 'var(--txt)' }}>
+                            {s ? fmtEur(s.totalHTFinal) : '—'}
+                          </td>
+                          <td className="px-4 py-3" style={{ color: 'var(--txt-2)' }}>
+                            {s ? fmtEur(s.totalCoutCharge) : '—'}
+                          </td>
+                          <td className="px-4 py-3" style={{ color: 'var(--txt-2)' }}>
+                            {s ? fmtEur(s.margeFinale) : '—'}
+                          </td>
+                          <td className="px-4 py-3 font-bold" style={{ color: mc }}>
+                            {s ? fmtPct(s.pctMargeFinale) : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: sm.bg, color: sm.txt }}
+                            >
+                              {sm.label}
+                            </span>
+                          </td>
+                        </tr>,
+                      )
+                    }
+                    return rows
+                  })
+                })()}
               </tbody>
             </table>
           </div>
@@ -687,33 +860,46 @@ export default function DashboardProjetTab() {
             className="rounded-xl p-5"
             style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
           >
-            <SectionHeader icon={Percent} title="Décomposition HT" />
+            <SectionHeader
+              icon={Percent}
+              title={
+                scope === '__all__'
+                  ? isMultiLot
+                    ? 'Décomposition HT (agrégée)'
+                    : 'Décomposition HT'
+                  : `Décomposition — ${scopeLot?.title || 'Lot'}`
+              }
+            />
             <div className="space-y-2">
               {[
-                { label: 'Sous-total lignes', val: refSynth.sousTotal, color: 'var(--txt-2)' },
-                refSynth.montantMargeGlobale
+                { label: 'Sous-total lignes', val: scopedSynth.sousTotal, color: 'var(--txt-2)' },
+                scopedSynth.montantMargeGlobale
                   ? {
-                      label: `Mg+Fg ${refDevis?.marge_globale_pct || 0}%`,
-                      val: refSynth.montantMargeGlobale,
+                      label: scopedRefDevis
+                        ? `Mg+Fg ${scopedRefDevis.marge_globale_pct || 0}%`
+                        : 'Mg+Fg (multi-lots)',
+                      val: scopedSynth.montantMargeGlobale,
                       color: 'var(--blue)',
                     }
                   : null,
-                refSynth.montantAssurance
+                scopedSynth.montantAssurance
                   ? {
-                      label: `Assurance ${refDevis?.assurance_pct || 0}%`,
-                      val: refSynth.montantAssurance,
+                      label: scopedRefDevis
+                        ? `Assurance ${scopedRefDevis.assurance_pct || 0}%`
+                        : 'Assurance (multi-lots)',
+                      val: scopedSynth.montantAssurance,
                       color: '#a78bfa',
                     }
                   : null,
-                refSynth.totalCharges
-                  ? { label: 'Charges soc. pat.', val: refSynth.totalCharges, color: 'var(--red)' }
+                scopedSynth.totalCharges
+                  ? { label: 'Charges soc. pat.', val: scopedSynth.totalCharges, color: 'var(--red)' }
                   : null,
-                refSynth.montantRemiseGlobale
-                  ? { label: 'Remise', val: -refSynth.montantRemiseGlobale, color: 'var(--orange)' }
+                scopedSynth.montantRemiseGlobale
+                  ? { label: 'Remise', val: -scopedSynth.montantRemiseGlobale, color: 'var(--orange)' }
                   : null,
                 {
                   label: 'Total HT final',
-                  val: refSynth.totalHTFinal,
+                  val: scopedSynth.totalHTFinal,
                   color: 'var(--txt)',
                   bold: true,
                 },
@@ -741,7 +927,7 @@ export default function DashboardProjetTab() {
                   Marge nette
                 </span>
                 <span className="text-sm font-bold" style={{ color: margeColor }}>
-                  {fmtPct(refSynth.pctMargeFinale)}
+                  {fmtPct(scopedSynth.pctMargeFinale)}
                 </span>
               </div>
             </div>

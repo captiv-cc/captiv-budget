@@ -9,8 +9,9 @@
  */
 
 import { useState } from 'react'
-import { Shield, Wrench, Building2 } from 'lucide-react'
+import { Shield, Wrench, Building2, CalendarClock } from 'lucide-react'
 import TemplatesMetiersTab from './TemplatesMetiersTab'
+import EventTypesTab from './EventTypesTab'
 
 function Placeholder({ title }) {
   return (
@@ -28,6 +29,7 @@ function Placeholder({ title }) {
 
 const TABS = [
   { key: 'metiers', label: 'Templates métiers', icon: Shield, component: TemplatesMetiersTab },
+  { key: 'event_types', label: "Types d'événements", icon: CalendarClock, component: EventTypesTab },
   // placeholders pour plus tard
   {
     key: 'outils',

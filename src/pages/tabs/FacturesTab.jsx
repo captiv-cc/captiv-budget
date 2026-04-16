@@ -1,13 +1,21 @@
 /**
- * FacturesTab — Gestion des factures d'un projet
- * Création / édition / suivi du statut de paiement
+ * FacturesTab — Gestion des factures d'un projet (multi-lots)
+ *
+ * Chaque facture est rattachée à un lot (contrat commercial indépendant)
+ * via factures.lot_id. Quand il existe un devis de référence pour le lot,
+ * on pré-remplit % et TVA à partir de lui.
+ *
+ * Vue :
+ *   - Mono-lot : tableau plat comme avant, pas de colonne lot, 1 jauge
+ *   - Multi-lot : colonne Lot + chip couleur, filtre par lot, N jauges
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../../lib/supabase'
 import { useProjet } from '../ProjetLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { fmtEur } from '../../lib/cotisations'
+import LotScopeSelector from '../../components/LotScopeSelector'
 import {
   Receipt,
   Plus,
@@ -26,6 +34,7 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
+  Package,
 } from 'lucide-react'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -75,6 +84,24 @@ const TYPE_COLORS = {
   purple: { bg: 'rgba(139,92,246,.12)', txt: '#a78bfa' },
 }
 
+// Palette déterministe par lot (indexé par l'ordre d'apparition dans lots[])
+const LOT_PALETTE = [
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#06b6d4', // cyan
+  '#ec4899', // pink
+  '#f97316', // orange
+  '#14b8a6', // teal
+]
+
+function lotColor(lot, lots) {
+  if (!lot) return 'var(--txt-3)'
+  const idx = lots.findIndex((l) => l.id === lot.id)
+  return LOT_PALETTE[((idx >= 0 ? idx : 0) + LOT_PALETTE.length) % LOT_PALETTE.length]
+}
+
 function statutMeta(key) {
   return STATUTS.find((s) => s.key === key) || STATUTS[0]
 }
@@ -102,8 +129,6 @@ function dateEcheance(dateEnvoi, delai) {
 const today = () => new Date().toISOString().split('T')[0]
 
 // Retourne true si la facture a une échéance dépassée (planifiée ou émise).
-// - planifiée + échéance passée = retard d'émission (oubli d'émettre dans Qonto)
-// - émise + échéance passée    = retard de règlement (le client doit payer)
 function isLate(facture) {
   if (facture.statut === 'reglee' || facture.statut === 'annulee') return false
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
@@ -184,6 +209,40 @@ function FilterChip({ label, count, active, onClick, color }) {
   )
 }
 
+// ─── Lot chip (coloré) ───────────────────────────────────────────────────────
+function LotChip({ lot, lots, compact = false }) {
+  if (!lot) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
+        style={{
+          background: 'var(--bg-elev)',
+          color: 'var(--txt-3)',
+          border: '1px dashed var(--brd)',
+        }}
+        title="Facture non rattachée à un lot"
+      >
+        <Package className="w-2.5 h-2.5" />
+        Hors lot
+      </span>
+    )
+  }
+  const color = lotColor(lot, lots)
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
+      style={{ background: `${color}1f`, color }}
+      title={`Lot : ${lot.title}`}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ background: color }}
+      />
+      {compact ? lot.title.slice(0, 12) : lot.title}
+    </span>
+  )
+}
+
 // ─── Statut Badge ─────────────────────────────────────────────────────────────
 function StatutBadge({ statut }) {
   const meta = statutMeta(statut)
@@ -214,8 +273,6 @@ function StatutDropdown({ statut, onSelect }) {
     setOpen((v) => !v)
   }
 
-  // Fermer si clic extérieur — IMPORTANT : exclure le portal du test
-  // sinon le mousedown ferme le menu AVANT le click sur l'option
   useEffect(() => {
     if (!open) return
     const handler = (e) => {
@@ -273,18 +330,26 @@ function StatutDropdown({ statut, onSelect }) {
 }
 
 // ─── Ligne de facture ─────────────────────────────────────────────────────────
-function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
+function FactureLine({
+  facture,
+  lot,
+  lots,
+  showLotCol,
+  gridCols,
+  onEdit,
+  onDelete,
+  onChangeStatut,
+  dim,
+}) {
   const type = typeMeta(facture.type)
   const tc = TYPE_COLORS[type.color] || TYPE_COLORS.blue
   const ech = facture.date_echeance || dateEcheance(facture.date_envoi, facture.delai_paiement)
   const retard = isLate(facture)
-  // Jours restants avant échéance (pour planifiée + émise ; pas sur réglée/annulée)
   let joursRestants = null
   const actif = facture.statut === 'planifiee' || facture.statut === 'emise'
   if (ech && actif) {
     joursRestants = Math.round((new Date(ech) - new Date(today())) / (1000 * 60 * 60 * 24))
   }
-  // Libellé du badge retard selon le statut
   const retardLabel = facture.statut === 'planifiee' ? 'À émettre' : 'Retard'
   const retardTitle =
     facture.statut === 'planifiee'
@@ -295,7 +360,7 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
     <div
       className="grid items-center gap-3 px-4 py-3 text-sm transition-colors"
       style={{
-        gridTemplateColumns: '1.6fr 110px 110px 130px 140px 80px',
+        gridTemplateColumns: gridCols,
         borderTop: '1px solid var(--brd-sub)',
         opacity: dim ? 0.55 : 1,
       }}
@@ -348,6 +413,13 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
         </div>
       </div>
 
+      {/* Colonne Lot (multi-lot uniquement) */}
+      {showLotCol && (
+        <div className="flex items-center">
+          <LotChip lot={lot} lots={lots} />
+        </div>
+      )}
+
       {/* Montant HT */}
       <div className="text-right">
         <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
@@ -380,7 +452,9 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
               color: joursRestants <= 7 ? 'var(--amber)' : 'var(--txt-3)',
             }}
           >
-            {joursRestants === 0 ? "aujourd'hui" : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`}
+            {joursRestants === 0
+              ? "aujourd'hui"
+              : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`}
           </p>
         )}
         {joursRestants === null && (
@@ -438,15 +512,33 @@ function FactureLine({ facture, onEdit, onDelete, onChangeStatut, dim }) {
 }
 
 // ─── Modal création / édition ─────────────────────────────────────────────────
-// Pourcentages suggérés par type
 function defaultPctForType(type, acomptePct) {
   if (type === 'acompte') return acomptePct
   if (type === 'solde') return 100 - acomptePct
   if (type === 'globale') return 100
-  return acomptePct // acompte_intermediaire : garder la valeur courante
+  return acomptePct
 }
 
-function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, refDevis }) {
+function FactureModal({
+  open,
+  onClose,
+  onSave,
+  facture,
+  projectId,
+  lots,
+  activeLots,
+  refDevisByLot,
+  refSynthByLot,
+}) {
+  const [selectedLotId, setSelectedLotId] = useState(null)
+
+  // Déduit le refDevis/refSynth du lot sélectionné
+  const selectedLot = useMemo(
+    () => lots.find((l) => l.id === selectedLotId) || null,
+    [lots, selectedLotId],
+  )
+  const refDevis = selectedLotId ? refDevisByLot[selectedLotId] : null
+  const refSynth = selectedLotId ? refSynthByLot[selectedLotId] : null
   const devisHT = refSynth?.totalHTFinal || 0
   const devisTTC = refSynth?.totalTTC || 0
   const acomptePctDevis = Number(refDevis?.acompte_pct) || 30
@@ -469,21 +561,32 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
   }
 
   const [form, setForm] = useState(emptyForm)
-  const [pct, setPct] = useState(acomptePctDevis) // % du total devis HT
+  const [pct, setPct] = useState(acomptePctDevis)
   const [saving, setSaving] = useState(false)
-  // Indique si la dernière modif vient du champ % ou du champ €
   const lastEdited = useRef('pct')
 
   // Réinitialiser à l'ouverture
   useEffect(() => {
     if (!open) return
+    // Détermination du lot par défaut :
+    //  - édition : le lot de la facture (même archivé)
+    //  - création : premier lot non archivé, sinon premier lot, sinon null
+    let defaultLot = null
+    if (facture?.lot_id) {
+      defaultLot = facture.lot_id
+    } else if (activeLots.length > 0) {
+      defaultLot = activeLots[0].id
+    } else if (lots.length > 0) {
+      defaultLot = lots[0].id
+    }
+    setSelectedLotId(defaultLot)
+
     if (facture) {
       setForm({ ...emptyForm, ...facture })
-      // Recalculer le % depuis le montant existant
+      // Recalcul du % depuis le montant existant (devis de CE lot)
+      const dHT = defaultLot ? refSynthByLot[defaultLot]?.totalHTFinal || 0 : 0
       const existingPct =
-        devisHT > 0
-          ? Math.round((Number(facture.montant_ht) / devisHT) * 1000) / 10
-          : acomptePctDevis
+        dHT > 0 ? Math.round((Number(facture.montant_ht) / dHT) * 1000) / 10 : acomptePctDevis
       setPct(existingPct)
     } else {
       const initPct = defaultPctForType('acompte', acomptePctDevis)
@@ -494,7 +597,24 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
     lastEdited.current = 'pct'
   }, [open, facture]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Quand le type change → suggérer le bon %
+  // Changement de lot en cours d'édition → réinitialiser % / HT / TVA si création
+  function handleLotChange(newLotId) {
+    setSelectedLotId(newLotId)
+    if (facture) return // édition : on ne touche pas aux montants
+    const newRefDevis = refDevisByLot[newLotId]
+    const newRefSynth = refSynthByLot[newLotId]
+    const newHT = newRefSynth?.totalHTFinal || 0
+    const newAcpt = Number(newRefDevis?.acompte_pct) || 30
+    const newTva = Number(newRefDevis?.tva_rate) || 20
+    const suggested = defaultPctForType(form.type, newAcpt)
+    setPct(suggested)
+    setForm((f) => ({
+      ...f,
+      tva_pct: newTva,
+      montant_ht: newHT > 0 ? Number(((newHT * suggested) / 100).toFixed(2)) : '',
+    }))
+  }
+
   function handleTypeChange(newType) {
     const suggested = defaultPctForType(newType, acomptePctDevis)
     setPct(suggested)
@@ -502,7 +622,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
     setForm((f) => ({ ...f, type: newType, montant_ht: newHT }))
   }
 
-  // Champ % modifié → recalcule HT
   function handlePctChange(val) {
     lastEdited.current = 'pct'
     const p = val === '' ? '' : Math.max(0, Math.min(100, Number(val)))
@@ -512,7 +631,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
     }
   }
 
-  // Champ HT modifié → recalcule %
   function handleHTChange(val) {
     lastEdited.current = 'ht'
     setForm((f) => ({ ...f, montant_ht: val }))
@@ -529,19 +647,22 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
   const montantHT = Number(form.montant_ht) || 0
   const montantTTC = montantHT * (1 + Number(form.tva_pct) / 100)
 
-  // Boutons de % rapides
   const quickPcts = [
     { label: `${acomptePctDevis}%`, val: acomptePctDevis, hint: 'acompte devis' },
     { label: `${100 - acomptePctDevis}%`, val: 100 - acomptePctDevis, hint: 'solde' },
     { label: '50%', val: 50 },
     { label: '100%', val: 100 },
-  ].filter((p, i, arr) => arr.findIndex((x) => x.val === p.val) === i) // dédoublons
+  ].filter((p, i, arr) => arr.findIndex((x) => x.val === p.val) === i)
 
   async function handleSave() {
     setSaving(true)
     try {
+      // devis_id déduit du refDevis du lot sélectionné (null si aucun devis)
+      const devisIdForLot = selectedLotId ? refDevisByLot[selectedLotId]?.id || null : null
       const payload = {
         project_id: projectId,
+        lot_id: selectedLotId || null,
+        devis_id: devisIdForLot,
         type: form.type,
         objet: form.objet || null,
         numero: form.numero || null,
@@ -579,23 +700,28 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
           className="flex items-center justify-between px-5 py-4"
           style={{ borderBottom: '1px solid var(--brd)' }}
         >
-          <div>
+          <div className="min-w-0">
             <h2 className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
               {facture ? 'Modifier la facture' : 'Nouvelle facture'}
             </h2>
             {devisHT > 0 && (
               <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
-                Devis de référence :{' '}
+                Devis de référence{selectedLot ? ` (${selectedLot.title})` : ''} :{' '}
                 <span className="font-medium" style={{ color: 'var(--txt-2)' }}>
                   {fmtEur(devisHT)} HT
                 </span>{' '}
                 · <span style={{ color: 'var(--txt-2)' }}>{fmtEur(devisTTC)} TTC</span>
               </p>
             )}
+            {!devisHT && selectedLot && (
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--amber)' }}>
+                Aucun devis de référence pour « {selectedLot.title} » — saisie libre
+              </p>
+            )}
           </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0"
             style={{ color: 'var(--txt-3)' }}
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = '')}
@@ -605,6 +731,42 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          {/* ── Sélecteur de LOT (toujours visible : permet « Hors lot ») ──── */}
+          <label className="block">
+            <span className="text-[11px] font-medium inline-flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
+              <Package className="w-3 h-3" />
+              Lot
+            </span>
+            <select
+              value={selectedLotId || ''}
+              onChange={(e) => handleLotChange(e.target.value || null)}
+              className="mt-1 w-full rounded-lg px-3 py-2 text-sm outline-none"
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt)',
+              }}
+            >
+              {/* Option « Hors lot » — facture sans contrat signé (acompte initial, à-valoir, ...) */}
+              <option value="">— Hors lot —</option>
+              {/* Lots actifs */}
+              {activeLots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title}
+                </option>
+              ))}
+              {/* Lots archivés (seulement si édition d'une facture archivée) */}
+              {facture?.lot_id &&
+                lots
+                  .filter((l) => l.archived && l.id === facture.lot_id)
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.title} (archivé)
+                    </option>
+                  ))}
+            </select>
+          </label>
+
           {/* Type + Numéro */}
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
@@ -700,7 +862,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
               Montant
             </p>
 
-            {/* % du devis + boutons rapides */}
             {devisHT > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -730,7 +891,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
                   </div>
                 </div>
 
-                {/* Input % et input HT côte à côte + flèche lien */}
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <input
@@ -784,7 +944,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
               </div>
             )}
 
-            {/* Sans devis de référence : saisie directe */}
             {devisHT === 0 && (
               <div className="relative">
                 <input
@@ -810,7 +969,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
               </div>
             )}
 
-            {/* TVA + Total TTC */}
             <div
               className="flex items-center gap-3 pt-1"
               style={{ borderTop: '1px solid var(--brd-sub)' }}
@@ -973,7 +1131,6 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
           </label>
         </div>
 
-        {/* Footer */}
         <div
           className="flex items-center justify-end gap-2 px-5 py-4"
           style={{ borderTop: '1px solid var(--brd)' }}
@@ -1001,9 +1158,99 @@ function FactureModal({ open, onClose, onSave, facture, projectId, refSynth, ref
   )
 }
 
+// ─── Mini-jauge "reste à facturer" par lot ──────────────────────────────────
+function LotFacturationGauge({ lot, lots, totalDevisHT, totalFactureHT, totalFactureTTC, totalRegle }) {
+  const reste = totalDevisHT - totalFactureHT
+  const pctFacture = totalDevisHT > 0 ? totalFactureHT / totalDevisHT : 0
+  const pctEncaisse = totalFactureTTC > 0 ? totalRegle / totalFactureTTC : 0
+  const color = lotColor(lot, lots)
+
+  const badgeBg =
+    pctFacture >= 0.999 && pctFacture <= 1.001
+      ? 'rgba(0,200,117,.12)'
+      : pctFacture > 1.001
+        ? 'rgba(239,68,68,.12)'
+        : 'rgba(59,130,246,.12)'
+  const badgeCol =
+    pctFacture >= 0.999 && pctFacture <= 1.001
+      ? 'var(--green)'
+      : pctFacture > 1.001
+        ? 'var(--red)'
+        : 'var(--blue)'
+  const barCol =
+    pctFacture >= 0.999 && pctFacture <= 1.001
+      ? 'var(--green)'
+      : pctFacture > 1.001
+        ? 'var(--red)'
+        : color
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    >
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <LotChip lot={lot} lots={lots} />
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+            style={{ background: badgeBg, color: badgeCol }}
+          >
+            {(pctFacture * 100).toFixed(0)} % facturé
+          </span>
+        </div>
+        <div className="flex items-center gap-4 text-xs">
+          <span style={{ color: 'var(--txt-3)' }}>
+            Facturé :{' '}
+            <span className="font-semibold" style={{ color: 'var(--txt)' }}>
+              {fmtEur(totalFactureHT)}
+            </span>{' '}
+            / {fmtEur(totalDevisHT)} HT
+          </span>
+          <span
+            className="font-bold"
+            style={{
+              color:
+                reste > 0.01 ? 'var(--amber)' : reste < -0.01 ? 'var(--red)' : 'var(--green)',
+            }}
+          >
+            Reste : {fmtEur(reste)}
+          </span>
+        </div>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-elev)' }}>
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${Math.min(100, pctFacture * 100)}%`, background: barCol }}
+        />
+      </div>
+      {totalFactureTTC > 0 && (
+        <div
+          className="mt-3 pt-3 flex items-center justify-between text-xs"
+          style={{ borderTop: '1px solid var(--brd-sub)' }}
+        >
+          <span style={{ color: 'var(--txt-3)' }}>
+            Encaissement :{' '}
+            <span className="font-semibold" style={{ color: 'var(--txt)' }}>
+              {fmtEur(totalRegle)}
+            </span>{' '}
+            / {fmtEur(totalFactureTTC)} TTC
+          </span>
+          <span
+            className="font-bold"
+            style={{ color: pctEncaisse >= 1 ? 'var(--green)' : 'var(--blue)' }}
+          >
+            {(pctEncaisse * 100).toFixed(0)} %
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function FacturesTab() {
-  const { projectId, refSynth, refDevis } = useProjet()
+  const { projectId, lots, refDevisByLot, refSynthByLot } = useProjet()
   const { canSeeFinance } = useAuth()
 
   const [factures, setFactures] = useState([])
@@ -1011,8 +1258,12 @@ export default function FacturesTab() {
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [deleting, setDeleting] = useState(null)
-  // Filtres : null = tout, sinon clé de STATUTS ou 'retard'
   const [statutFilter, setStatutFilter] = useState(null)
+  // Scope unifié (identique au Dashboard / Budget Réel) :
+  //   '__all__' = Agrégé (tous lots + orphelins)
+  //   lotId     = un lot précis
+  //   'orphans' = factures legacy sans lot_id (bucket "Hors lot")
+  const [kpiScope, setKpiScope] = useState('__all__')
   const [showReglees, setShowReglees] = useState(false)
 
   const load = useCallback(async () => {
@@ -1030,33 +1281,80 @@ export default function FacturesTab() {
     load()
   }, [load])
 
-  // ── KPIs ─────────────────────────────────────────────────────────────────────
-  // Les factures annulées sont exclues de tous les totaux "sérieux"
+  // ── Lots actifs / archivés ─────────────────────────────────────────────────
+  const activeLots = useMemo(() => lots.filter((l) => !l.archived), [lots])
+  const isMultiLot = activeLots.length > 1
+
+  // ── Auto-reset du scope si le lot sélectionné disparaît ────────────────────
+  useEffect(() => {
+    if (kpiScope === '__all__' || kpiScope === 'orphans') return
+    if (!activeLots.some((l) => l.id === kpiScope)) setKpiScope('__all__')
+  }, [activeLots, kpiScope])
+
+  // ── Index lot par id (inclut les archivés pour affichage des factures anciennes) ─
+  const lotById = useMemo(() => {
+    const m = {}
+    for (const l of lots) m[l.id] = l
+    return m
+  }, [lots])
+
+  // ── Factures actives (non annulées) ────────────────────────────────────────
   const facturesActives = factures.filter((f) => f.statut !== 'annulee')
-  const totalFactureHT = facturesActives.reduce((s, f) => s + Number(f.montant_ht), 0)
-  const totalFactureTTC = facturesActives.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const totalRegle = facturesActives
+
+  // ── Factures dans le scope (agrégé / lot / orphelins) ──────────────────────
+  // Mode agrégé = strictement identique au comportement historique (tous lots + orphelins).
+  const scopedFactures = useMemo(() => {
+    if (kpiScope === '__all__') return facturesActives
+    if (kpiScope === 'orphans') return facturesActives.filter((f) => !f.lot_id)
+    return facturesActives.filter((f) => f.lot_id === kpiScope)
+  }, [kpiScope, facturesActives])
+
+  // ── KPIs — calculés sur le scope courant ──────────────────────────────────
+  const totalFactureHT = scopedFactures.reduce((s, f) => s + Number(f.montant_ht), 0)
+  const totalFactureTTC = scopedFactures.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
+  const totalRegle = scopedFactures
     .filter((f) => f.statut === 'reglee')
     .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const totalEnAttente = facturesActives
+  const totalEnAttente = scopedFactures
     .filter((f) => f.statut === 'emise')
     .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
-  const facturesEnRetard = facturesActives.filter(isLate)
+  const facturesEnRetard = scopedFactures.filter(isLate)
   const nbRetard = facturesEnRetard.length
   const pctEncaisse = totalFactureTTC > 0 ? totalRegle / totalFactureTTC : 0
 
-  // Reste à facturer (uniquement si un devis de référence existe)
-  const totalDevisHT = Number(refSynth?.totalHTFinal) || 0
-  const resteAFacturerHT = totalDevisHT - totalFactureHT
-  const pctFacture = totalDevisHT > 0 ? totalFactureHT / totalDevisHT : 0
+  // ── Stats par lot (pour les jauges) ────────────────────────────────────────
+  const statsByLot = useMemo(() => {
+    const map = {}
+    for (const lot of activeLots) {
+      const lotFacts = facturesActives.filter((f) => f.lot_id === lot.id)
+      const fHT = lotFacts.reduce((s, f) => s + Number(f.montant_ht), 0)
+      const fTTC = lotFacts.reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
+      const reg = lotFacts
+        .filter((f) => f.statut === 'reglee')
+        .reduce((s, f) => s + Number(f.montant_ttc || 0), 0)
+      map[lot.id] = {
+        totalDevisHT: refSynthByLot[lot.id]?.totalHTFinal || 0,
+        totalFactureHT: fHT,
+        totalFactureTTC: fTTC,
+        totalRegle: reg,
+      }
+    }
+    return map
+  }, [activeLots, facturesActives, refSynthByLot])
 
-  // ── Tri + filtrage + séparation réglées/en cours ────────────────────────────
+  // ── Tri + filtrage ─────────────────────────────────────────────────────────
   const matchesStatutFilter = (f) => {
     if (!statutFilter) return true
     if (statutFilter === 'retard') return isLate(f)
     return f.statut === statutFilter
   }
-  const filtered = factures.filter(matchesStatutFilter)
+  // Le scope pilote le filtrage lot (agrégé = pas de filtre, sinon lot précis ou orphelins)
+  const matchesScope = (f) => {
+    if (kpiScope === '__all__') return true
+    if (kpiScope === 'orphans') return !f.lot_id
+    return f.lot_id === kpiScope
+  }
+  const filtered = factures.filter((f) => matchesStatutFilter(f) && matchesScope(f))
   const sorted = [...filtered].sort((a, b) => {
     const ka = sortKey(a)
     const kb = sortKey(b)
@@ -1068,7 +1366,6 @@ export default function FacturesTab() {
   const actives = sorted.filter((f) => f.statut !== 'reglee' && f.statut !== 'annulee')
   const finales = sorted.filter((f) => f.statut === 'reglee' || f.statut === 'annulee')
 
-  // Compteurs par statut pour afficher les badges dans les chips
   const counts = {
     all: factures.length,
     planifiee: factures.filter((f) => f.statut === 'planifiee').length,
@@ -1077,8 +1374,25 @@ export default function FacturesTab() {
     annulee: factures.filter((f) => f.statut === 'annulee').length,
     retard: nbRetard,
   }
+  const countByLot = useMemo(() => {
+    const m = { none: 0 }
+    for (const f of factures) {
+      const k = f.lot_id || 'none'
+      m[k] = (m[k] || 0) + 1
+    }
+    return m
+  }, [factures])
 
-  // ── Handlers ──────────────────────────────────────────────────────────────────
+  // ── Détection des lots-orphelins (factures avec lot_id inconnu) ───────────
+  const hasOrphans = factures.some((f) => !f.lot_id)
+
+  // ── Grid template : une colonne de plus en multi-lot ─────────────────────
+  const GRID_SINGLE = '1.6fr 110px 110px 130px 140px 80px'
+  const GRID_MULTI = '1.6fr 120px 100px 100px 120px 130px 70px'
+  const showLotCol = isMultiLot || hasOrphans
+  const gridCols = showLotCol ? GRID_MULTI : GRID_SINGLE
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   async function handleSave(payload, id) {
     if (id) {
       await supabase.from('factures').update(payload).eq('id', id)
@@ -1136,8 +1450,8 @@ export default function FacturesTab() {
               Factures
             </h1>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              {factures.length} facture{factures.length !== 1 ? 's' : ''} · suivi comptable du
-              projet
+              {factures.length} facture{factures.length !== 1 ? 's' : ''}
+              {isMultiLot && ` · ${activeLots.length} lots`} · suivi comptable du projet
             </p>
           </div>
         </div>
@@ -1146,13 +1460,67 @@ export default function FacturesTab() {
             setEditing(null)
             setModal(true)
           }}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
+          disabled={activeLots.length === 0}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: 'var(--blue)' }}
+          title={
+            activeLots.length === 0
+              ? 'Créez d\'abord un lot dans l\'onglet Devis'
+              : 'Nouvelle facture'
+          }
         >
           <Plus className="w-4 h-4" />
           Nouvelle facture
         </button>
       </div>
+
+      {/* ── Sélecteur de scope unifié (en tête, comme Dashboard / Budget Réel) ── */}
+      {isMultiLot && factures.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <LotScopeSelector
+            lotsWithRef={activeLots}
+            scope={kpiScope === 'orphans' ? '__all__' : kpiScope}
+            onChange={setKpiScope}
+            lotColor={(lotId, ordered) => {
+              const lot = ordered.find((l) => l.id === lotId)
+              return lot ? lotColor(lot, lots) : 'var(--txt-3)'
+            }}
+          />
+          {hasOrphans && (
+            <FilterChip
+              label="Hors lot"
+              count={countByLot.none}
+              active={kpiScope === 'orphans'}
+              onClick={() => setKpiScope(kpiScope === 'orphans' ? '__all__' : 'orphans')}
+              color="var(--txt-3)"
+            />
+          )}
+        </div>
+      )}
+      {/* Mono-lot : si des orphelins existent, on laisse un chip isolé */}
+      {!isMultiLot && hasOrphans && factures.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider mr-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Lot
+          </span>
+          <FilterChip
+            label="Tous"
+            count={factures.length}
+            active={kpiScope === '__all__'}
+            onClick={() => setKpiScope('__all__')}
+          />
+          <FilterChip
+            label="Hors lot"
+            count={countByLot.none}
+            active={kpiScope === 'orphans'}
+            onClick={() => setKpiScope(kpiScope === 'orphans' ? '__all__' : 'orphans')}
+            color="var(--txt-3)"
+          />
+        </div>
+      )}
 
       {/* ── KPIs ───────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1180,9 +1548,7 @@ export default function FacturesTab() {
           label={nbRetard > 0 ? `${nbRetard} en retard` : 'Aucun retard'}
           value={
             nbRetard > 0
-              ? fmtEur(
-                  facturesEnRetard.reduce((s, f) => s + Number(f.montant_ttc || 0), 0),
-                )
+              ? fmtEur(facturesEnRetard.reduce((s, f) => s + Number(f.montant_ttc || 0), 0))
               : '—'
           }
           icon={nbRetard > 0 ? AlertTriangle : TrendingUp}
@@ -1194,163 +1560,37 @@ export default function FacturesTab() {
         />
       </div>
 
-      {/* ── Alerte dépassement 100% du montant à facturer ───────────────── */}
-      {totalDevisHT > 0 && resteAFacturerHT < -0.01 && (
-        <div
-          className="rounded-xl p-3 flex items-start gap-3"
-          style={{
-            background: 'rgba(239,68,68,.08)',
-            border: '1px solid rgba(239,68,68,.3)',
-          }}
-        >
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(239,68,68,.15)' }}
-          >
-            <AlertTriangle className="w-4 h-4" style={{ color: 'var(--red)' }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold" style={{ color: 'var(--red)' }}>
-              Montant à facturer dépassé ({(pctFacture * 100).toFixed(1)} %)
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--txt-2)' }}>
-              Le total facturé ({fmtEur(totalFactureHT)} HT) dépasse le montant
-              du devis de référence ({fmtEur(totalDevisHT)} HT) de{' '}
-              <span className="font-semibold" style={{ color: 'var(--red)' }}>
-                {fmtEur(Math.abs(resteAFacturerHT))}
-              </span>
-              . Vérifie les montants de tes factures ou passe une en{' '}
-              <span className="font-medium">Annulée</span>.
-            </p>
-          </div>
+      {/* ── Jauges "reste à facturer" : filtrées selon le scope ─────────────── */}
+      {activeLots.length > 0 && kpiScope !== 'orphans' && (
+        <div className="space-y-3">
+          {(kpiScope === '__all__'
+            ? activeLots
+            : activeLots.filter((l) => l.id === kpiScope)
+          ).map((lot) => {
+            const s = statsByLot[lot.id] || {
+              totalDevisHT: 0,
+              totalFactureHT: 0,
+              totalFactureTTC: 0,
+              totalRegle: 0,
+            }
+            // Si ce lot n'a ni devis ni factures, on masque sa jauge (rien à afficher)
+            if (s.totalDevisHT === 0 && s.totalFactureHT === 0) return null
+            return (
+              <LotFacturationGauge
+                key={lot.id}
+                lot={lot}
+                lots={lots}
+                totalDevisHT={s.totalDevisHT}
+                totalFactureHT={s.totalFactureHT}
+                totalFactureTTC={s.totalFactureTTC}
+                totalRegle={s.totalRegle}
+              />
+            )
+          })}
         </div>
       )}
 
-      {/* ── Bandeau "Reste à facturer" (si devis de référence) ─────────────── */}
-      {totalDevisHT > 0 && (
-        <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-        >
-          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium" style={{ color: 'var(--txt-2)' }}>
-                Facturation du projet
-              </span>
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                style={{
-                  background:
-                    pctFacture >= 0.999
-                      ? 'rgba(0,200,117,.12)'
-                      : pctFacture > 1.001
-                        ? 'rgba(239,68,68,.12)'
-                        : 'rgba(59,130,246,.12)',
-                  color:
-                    pctFacture >= 0.999 && pctFacture <= 1.001
-                      ? 'var(--green)'
-                      : pctFacture > 1.001
-                        ? 'var(--red)'
-                        : 'var(--blue)',
-                }}
-              >
-                {(pctFacture * 100).toFixed(0)} % facturé
-              </span>
-            </div>
-            <div className="flex items-center gap-4 text-xs">
-              <span style={{ color: 'var(--txt-3)' }}>
-                Facturé :{' '}
-                <span className="font-semibold" style={{ color: 'var(--txt)' }}>
-                  {fmtEur(totalFactureHT)}
-                </span>{' '}
-                / {fmtEur(totalDevisHT)} HT
-              </span>
-              <span
-                className="font-bold"
-                style={{
-                  color:
-                    resteAFacturerHT > 0.01
-                      ? 'var(--amber)'
-                      : resteAFacturerHT < -0.01
-                        ? 'var(--red)'
-                        : 'var(--green)',
-                }}
-              >
-                Reste : {fmtEur(resteAFacturerHT)}
-              </span>
-            </div>
-          </div>
-          <div
-            className="h-2 rounded-full overflow-hidden"
-            style={{ background: 'var(--bg-elev)' }}
-          >
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${Math.min(100, pctFacture * 100)}%`,
-                background:
-                  pctFacture >= 0.999 && pctFacture <= 1.001
-                    ? 'var(--green)'
-                    : pctFacture > 1.001
-                      ? 'var(--red)'
-                      : 'var(--blue)',
-              }}
-            />
-          </div>
-          {/* Progression encaissement (réglé / facturé) */}
-          {totalFactureTTC > 0 && (
-            <div
-              className="mt-3 pt-3 flex items-center justify-between text-xs"
-              style={{ borderTop: '1px solid var(--brd-sub)' }}
-            >
-              <span style={{ color: 'var(--txt-3)' }}>
-                Encaissement :{' '}
-                <span className="font-semibold" style={{ color: 'var(--txt)' }}>
-                  {fmtEur(totalRegle)}
-                </span>{' '}
-                / {fmtEur(totalFactureTTC)} TTC
-              </span>
-              <span
-                className="font-bold"
-                style={{ color: pctEncaisse >= 1 ? 'var(--green)' : 'var(--blue)' }}
-              >
-                {(pctEncaisse * 100).toFixed(0)} %
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Progression encaissement (si pas de devis de référence) ─────── */}
-      {totalDevisHT === 0 && totalFactureTTC > 0 && (
-        <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium" style={{ color: 'var(--txt-2)' }}>
-              Progression encaissement
-            </span>
-            <span className="text-xs font-bold" style={{ color: 'var(--txt)' }}>
-              {fmtEur(totalRegle)} / {fmtEur(totalFactureTTC)}
-            </span>
-          </div>
-          <div
-            className="h-2 rounded-full overflow-hidden"
-            style={{ background: 'var(--bg-elev)' }}
-          >
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${Math.min(100, pctEncaisse * 100)}%`,
-                background: pctEncaisse >= 1 ? 'var(--green)' : 'var(--blue)',
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── Filtres (chips) ─────────────────────────────────────────────────── */}
+      {/* ── Filtres par statut ─────────────────────────────────────────────── */}
       {factures.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
           <FilterChip
@@ -1406,17 +1646,17 @@ export default function FacturesTab() {
         className="rounded-xl overflow-hidden"
         style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
       >
-        {/* En-tête */}
         <div
           className="grid px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider"
           style={{
-            gridTemplateColumns: '1.6fr 110px 110px 130px 140px 80px',
+            gridTemplateColumns: gridCols,
             background: 'var(--bg-elev)',
             color: 'var(--txt-3)',
             borderBottom: '1px solid var(--brd)',
           }}
         >
           <span>Facture</span>
+          {showLotCol && <span>Lot</span>}
           <span className="text-right">Montant HT</span>
           <span className="text-right">Montant TTC</span>
           <span className="text-center">Échéance</span>
@@ -1424,7 +1664,6 @@ export default function FacturesTab() {
           <span />
         </div>
 
-        {/* Lignes */}
         {loading ? (
           <div
             className="flex items-center justify-center py-16 gap-2"
@@ -1448,27 +1687,34 @@ export default function FacturesTab() {
               Aucune facture
             </p>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Planifiez une facture ici avant de l&apos;émettre dans Qonto
+              {activeLots.length === 0
+                ? "Créez d'abord un lot dans l'onglet Devis"
+                : 'Planifiez une facture ici avant de l\'émettre dans Qonto'}
             </p>
-            <button
-              onClick={() => {
-                setEditing(null)
-                setModal(true)
-              }}
-              className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-              style={{ background: 'var(--blue)' }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Nouvelle facture
-            </button>
+            {activeLots.length > 0 && (
+              <button
+                onClick={() => {
+                  setEditing(null)
+                  setModal(true)
+                }}
+                className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+                style={{ background: 'var(--blue)' }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Nouvelle facture
+              </button>
+            )}
           </div>
         ) : sorted.length === 0 ? (
           <div className="flex items-center justify-center py-10 gap-2">
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Aucune facture ne correspond au filtre
+              Aucune facture ne correspond aux filtres
             </p>
             <button
-              onClick={() => setStatutFilter(null)}
+              onClick={() => {
+                setStatutFilter(null)
+                setKpiScope('__all__')
+              }}
               className="text-xs px-2 py-0.5 rounded-md"
               style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
             >
@@ -1477,11 +1723,14 @@ export default function FacturesTab() {
           </div>
         ) : (
           <>
-            {/* Factures actives (planifiées + émises) */}
             {actives.map((f) => (
               <FactureLine
                 key={f.id}
                 facture={f}
+                lot={f.lot_id ? lotById[f.lot_id] : null}
+                lots={lots}
+                showLotCol={showLotCol}
+                gridCols={gridCols}
                 onEdit={(fac) => {
                   setEditing(fac)
                   setModal(true)
@@ -1491,7 +1740,6 @@ export default function FacturesTab() {
               />
             ))}
 
-            {/* Séparateur + factures finales (réglées + annulées) — pliables */}
             {finales.length > 0 && (
               <>
                 <button
@@ -1522,6 +1770,10 @@ export default function FacturesTab() {
                     <FactureLine
                       key={f.id}
                       facture={f}
+                      lot={f.lot_id ? lotById[f.lot_id] : null}
+                      lots={lots}
+                      showLotCol={showLotCol}
+                      gridCols={gridCols}
                       dim
                       onEdit={(fac) => {
                         setEditing(fac)
@@ -1583,8 +1835,10 @@ export default function FacturesTab() {
         onSave={handleSave}
         facture={editing}
         projectId={projectId}
-        refSynth={refSynth}
-        refDevis={refDevis}
+        lots={lots}
+        activeLots={activeLots}
+        refDevisByLot={refDevisByLot}
+        refSynthByLot={refSynthByLot}
       />
     </div>
   )

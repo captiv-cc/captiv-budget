@@ -2,18 +2,26 @@
  * ProjetLayout — Layout partagé pour toutes les vues d'un projet
  * Banner KPI en haut + navigation par onglets
  */
-import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  createContext,
+  useContext,
+} from 'react'
 import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { notify } from '../lib/notify'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
-import { calcSynthese, fmtEur, fmtPct, TAUX_DEFAUT } from '../lib/cotisations'
+import { calcSynthese, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
+import { pickRefDevis, groupDevisByLot, computeLotStatus } from '../lib/lots'
+import { healOrphanMembres } from '../lib/healOrphanMembres'
 import {
   ChevronLeft,
-  TrendingUp,
-  Euro,
   FileText,
   LayoutDashboard,
   BarChart3,
@@ -142,6 +150,7 @@ export default function ProjetLayout() {
   }, [])
 
   const [project, setProject] = useState(null)
+  const [lots, setLots] = useState([])
   const [devisList, setDevisList] = useState([])
   const [devisStats, setDevisStats] = useState({})
   const [loading, setLoading] = useState(true)
@@ -156,11 +165,21 @@ export default function ProjetLayout() {
         .single()
       setProject(proj)
 
-      const { data: dvs } = await supabase
-        .from('devis')
-        .select('*')
-        .eq('project_id', id)
-        .order('version_number')
+      // Chargement parallèle lots + devis
+      const [{ data: lts }, { data: dvs }] = await Promise.all([
+        supabase
+          .from('devis_lots')
+          .select('*')
+          .eq('project_id', id)
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('devis')
+          .select('*')
+          .eq('project_id', id)
+          .order('version_number', { ascending: true }),
+      ])
+      setLots(lts || [])
       setDevisList(dvs || [])
 
       if (dvs?.length) {
@@ -192,6 +211,19 @@ export default function ProjetLayout() {
           )
         }
         setDevisStats(stats)
+      } else {
+        setDevisStats({})
+      }
+
+      // Auto-heal : rebind les projet_membres orphelins vers les lignes du
+      // refDevis courant. Idempotent (no-op si tout est d\u00e9j\u00e0 propre).
+      // Couvre tous les cas de changement de version (V1\u2192V2, V2\u2192V1, etc.)
+      // et b\u00e9n\u00e9ficie \u00e0 TOUS les onglets enfants (Budget r\u00e9el, \u00c9quipe, Dashboard...)
+      try {
+        await healOrphanMembres(id)
+      } catch (e) {
+        // Ne pas bloquer le chargement du projet si le heal \u00e9choue
+        console.error('[ProjetLayout] healOrphanMembres failed', e)
       }
     } finally {
       setLoading(false)
@@ -221,9 +253,37 @@ export default function ProjetLayout() {
     }
   }
 
-  // Dévis de référence : accepté en priorité, sinon le plus récent
-  const refDevis = devisList.find((d) => d.status === 'accepte') || devisList[devisList.length - 1]
-  const refSynth = refDevis ? devisStats[refDevis.id] : null
+  // ── Calculs dérivés multi-lots ────────────────────────────────────────────
+  // devisByLot : { [lotId]: devis[] trié par version_number ASC }
+  const devisByLot = useMemo(() => groupDevisByLot(lots, devisList), [lots, devisList])
+
+  // refDevisByLot : { [lotId]: devis } — devis de référence de chaque lot
+  const refDevisByLot = useMemo(() => {
+    const map = {}
+    for (const lot of lots) {
+      const ref = pickRefDevis(devisByLot[lot.id])
+      if (ref) map[lot.id] = ref
+    }
+    return map
+  }, [lots, devisByLot])
+
+  // refSynthByLot : { [lotId]: synth } — synthèse calculée pour chaque refDevis
+  const refSynthByLot = useMemo(() => {
+    const map = {}
+    for (const [lotId, dv] of Object.entries(refDevisByLot)) {
+      if (devisStats[dv.id]) map[lotId] = devisStats[dv.id]
+    }
+    return map
+  }, [refDevisByLot, devisStats])
+
+  // lotStatusMap : { [lotId]: statut dérivé } — voir lots.js
+  const lotStatusMap = useMemo(() => {
+    const map = {}
+    for (const lot of lots) {
+      map[lot.id] = computeLotStatus(lot, devisByLot[lot.id] || [])
+    }
+    return map
+  }, [lots, devisByLot])
 
   // Onglet actif depuis l'URL
   const pathSegments = location.pathname.split('/')
@@ -234,12 +294,19 @@ export default function ProjetLayout() {
   const ctx = {
     project,
     setProject,
+    // Multi-lots (nouveau)
+    lots,
+    setLots,
+    devisByLot,
+    refDevisByLot,
+    refSynthByLot,
+    lotStatusMap,
+    // Devis "à plat" (conservé — certains écrans l'utilisent encore)
     devisList,
     setDevisList,
     devisStats,
     setDevisStats,
-    refDevis,
-    refSynth,
+    // Utilitaires
     reload: loadAll,
     projectId: id,
     bannerHeight,
@@ -339,13 +406,14 @@ export default function ProjetLayout() {
             {TABS.map((tab) => {
               const Icon = tab.icon
               const isActive = tab.key === activeTab
-              // Onglet Devis : raccourci direct vers l'éditeur de la dernière
-              // version (devisList est trié par version_number asc). Évite un
-              // clic supplémentaire dans le workflow le plus fréquent.
-              // S'il n'y a aucun devis, on tombe sur la liste pour en créer un.
-              const latestDevis = tab.key === 'devis' ? devisList[devisList.length - 1] : null
-              const tabHref = latestDevis
-                ? `/projets/${id}/devis/${latestDevis.id}`
+              // Onglet Devis : raccourci direct vers l'éditeur uniquement s'il
+              // n'existe qu'un seul devis dans tout le projet (cas mono-lot
+              // mono-version). Sinon on tombe sur la liste (accordéon par lot)
+              // pour laisser l'utilisateur choisir.
+              const singleDevis =
+                tab.key === 'devis' && devisList.length === 1 ? devisList[0] : null
+              const tabHref = singleDevis
+                ? `/projets/${id}/devis/${singleDevis.id}`
                 : `/projets/${id}/${tab.path}`
               return (
                 <Link
@@ -405,22 +473,3 @@ export default function ProjetLayout() {
   )
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function BannerKpi({ label, value, sub, icon, color }) {
-  const colors = {
-    blue: 'text-blue-300',
-    green: 'text-green-300',
-    amber: 'text-amber-300',
-    red: 'text-red-300',
-  }
-  return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-1 mb-0.5">
-        <span className={`${colors[color]} opacity-70`}>{icon}</span>
-        <span className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</span>
-      </div>
-      <p className={`text-sm font-bold ${colors[color]}`}>{value}</p>
-      {sub && <p className="text-[10px] text-slate-500">{sub}</p>}
-    </div>
-  )
-}

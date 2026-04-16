@@ -141,6 +141,7 @@ function buildDraftFromProject(project) {
     date_devis: project.date_devis || '',
     client_id: project.client_id || '',
     cover_url: project.cover_url || '',
+    types_projet: project.types_projet || [],
     fields,
     visible,
     livrables,
@@ -158,7 +159,7 @@ function buildPayloadFromDraft(draft) {
     bon_commande: draft.bon_commande,
     date_devis: draft.date_devis || null,
     cover_url: draft.cover_url || null,
-    type_projet: draft.fields.type_projet || null,
+    types_projet: draft.types_projet?.length ? draft.types_projet : null,
     agence: draft.fields.agence || null,
     realisateur: draft.fields.realisateur || null,
     note_prod: draft.noteProd,
@@ -461,9 +462,22 @@ function ReadView({
         className="lg:col-span-2"
       >
         <div className="space-y-5">
+          {/* Tags type de projet */}
+          {project.types_projet?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {project.types_projet.map((t) => (
+                <span
+                  key={t}
+                  className="text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={{ background: 'var(--blue-bg, #1d4ed810)', color: 'var(--blue, #3b82f6)' }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
           <InfoGrid
             items={[
-              { label: 'Type', value: get('type_projet') },
               { label: 'Titre', value: get('titre_projet') },
               { label: 'Agence', value: get('agence') },
               { label: 'Production', value: get('production') },
@@ -723,14 +737,29 @@ function ProjectCoverUploader({ projectId, project, currentUrl, onChange }) {
   )
 }
 
-function SubLine({ get, _project }) {
-  const parts = [
-    get('type_projet'),
+function SubLine({ get, project }) {
+  const types = project?.types_projet || []
+  const textParts = [
     get('realisateur') && `Réalisé par ${get('realisateur')}`,
     get('agence') && `Agence ${get('agence')}`,
   ].filter(Boolean)
-  if (!parts.length) return null
-  return <p className="text-sm text-gray-500">{parts.join(' · ')}</p>
+  if (!types.length && !textParts.length) return null
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {types.map((t) => (
+        <span
+          key={t}
+          className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+          style={{ background: 'var(--blue-bg, #1d4ed810)', color: 'var(--blue, #3b82f6)' }}
+        >
+          {t}
+        </span>
+      ))}
+      {textParts.length > 0 && (
+        <span className="text-sm text-gray-500">{textParts.join(' · ')}</span>
+      )}
+    </div>
+  )
 }
 
 function ClientLine({ project }) {
@@ -1005,8 +1034,36 @@ function EditView({
             </select>
           </div>
           <FieldSubSection label="Général">
+            {/* Tags type de projet — multi-sélection */}
+            <div className="mb-3">
+              <FieldLabel>Type de projet</FieldLabel>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {['Corporate', 'Fiction', 'Publicité', 'Clip', 'Documentaire', 'Événement', 'Captation', 'Autre'].map((type) => {
+                  const selected = (draft.types_projet || []).includes(type)
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        const cur = draft.types_projet || []
+                        const next = cur.includes(type) ? cur.filter((t) => t !== type) : [...cur, type]
+                        setA('types_projet', next)
+                      }}
+                      className="text-xs font-medium rounded-full px-3 py-1.5 transition-all"
+                      style={
+                        selected
+                          ? { background: 'var(--blue-bg, #1d4ed810)', color: 'var(--blue, #3b82f6)', border: '1px solid var(--blue, #3b82f6)', opacity: 1 }
+                          : { background: 'transparent', color: 'var(--txt-2, #6b7280)', border: '1px solid var(--brd-sub, #e5e7eb)' }
+                      }
+                    >
+                      {selected && '✓ '}{type}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {['type_projet', 'titre_projet'].map(renderDynField)}
+              {['titre_projet'].map(renderDynField)}
             </div>
           </FieldSubSection>
           <FieldSubSection label="Production">
@@ -1126,7 +1183,13 @@ function EditView({
       {/* ── BLOC NOTE DE PROD ────────────────────────────────────────────── */}
       <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
         <textarea
-          className="w-full text-sm text-gray-700 bg-amber-50/60 border border-amber-100 rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-amber-300 focus:border-amber-300 placeholder-amber-300"
+          className="w-full text-sm rounded-lg p-3 resize-none focus:outline-none focus:ring-1"
+          style={{
+            color: 'var(--txt)',
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd-sub)',
+            '--tw-ring-color': 'var(--blue)',
+          }}
           rows={6}
           placeholder="Informations hors devis, contraintes techniques, budget hors-champ, remarques de production…"
           value={draft.noteProd}
