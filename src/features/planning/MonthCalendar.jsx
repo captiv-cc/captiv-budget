@@ -4,43 +4,165 @@
  * Sans dépendance externe : rendu custom pour coller au design system (couleurs
  * issues des types d'événements, hauteur uniforme, overflow "+N autres").
  *
+ * PL-5 : drag & drop d'une chip d'un jour vers un autre (heure préservée).
+ * PL-5 (polish) : les événements multi-jours sont rendus comme UNE barre
+ * continue par semaine traversée, plutôt que 3 pastilles distinctes.
+ *
  * Props :
  *   - currentDate : Date de référence (n'importe quel jour du mois à afficher)
- *   - events       : tableau d'événements (shape EVENT_SELECT de lib/planning)
- *   - onEventClick : fn(event) → ouvre la modale détail
- *   - onDayClick   : fn(date)  → pré-remplit le jour dans le créateur
+ *   - events      : tableau d'événements (shape EVENT_SELECT de lib/planning)
+ *   - conflicts   : Map<eventKey, Array<conflict>> (PL-3, optionnel)
+ *   - onEventClick: fn(event) → ouvre la modale détail
+ *   - onDayClick  : fn(date)  → pré-remplit le jour dans le créateur
+ *   - onEventMove : fn(event, newStart, newEnd) → drop après drag
  *   - onPrev / onNext / onToday : navigation
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   WEEKDAYS_SHORT_FR,
   fmtMonthYear,
   fmtDateKey,
   getMonthGrid,
-  groupEventsByDay,
   isSameDay,
   isSameMonth,
 } from './dateUtils'
-import { resolveEventColor } from '../../lib/planning'
+import { resolveEventColor, layoutMonthBars } from '../../lib/planning'
+import { useBreakpoint } from '../../hooks/useBreakpoint'
 
-const MAX_EVENTS_PER_CELL = 3
+const DRAG_THRESHOLD_PX = 4
+
+// Dimensions adaptatives par breakpoint. Sur mobile la grille 6×7 reste visible
+// mais on serre les lanes et on affiche une seule barre par cellule.
+const DIMENSIONS = {
+  mobile:  { maxLanes: 1, minH: 62, laneH: 16, laneTop: 22 },
+  tablet:  { maxLanes: 2, minH: 90, laneH: 18, laneTop: 26 },
+  desktop: { maxLanes: 3, minH: 110, laneH: 20, laneTop: 28 },
+}
+
+// Initiales des jours pour la variante mobile compacte (1 caractère).
+const WEEKDAYS_INITIAL_FR = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
 export default function MonthCalendar({
   currentDate,
   events,
+  conflicts,
   onEventClick,
   onDayClick,
+  onEventMove,
   onPrev,
   onNext,
   onToday,
 }) {
+  const bp = useBreakpoint()
+  const dims = DIMENSIONS[bp.is]
+  const MAX_LANES_PER_ROW = dims.maxLanes
+  const LANE_HEIGHT_PX = dims.laneH
+  const LANES_TOP_OFFSET_PX = dims.laneTop
+
   const cells = useMemo(
     () => getMonthGrid(currentDate.getFullYear(), currentDate.getMonth()),
     [currentDate],
   )
-  const byDay = useMemo(() => groupEventsByDay(events), [events])
+  const rows = useMemo(
+    () => layoutMonthBars(cells, events, MAX_LANES_PER_ROW),
+    [cells, events, MAX_LANES_PER_ROW],
+  )
   const today = useMemo(() => new Date(), [])
+
+  // ─── Drag state ────────────────────────────────────────────────────────────
+  // drag = null | {
+  //   event, originX, originY, committed, hoverDay (Date|null)
+  // }
+  const gridRef = useRef(null)
+  const [drag, setDrag] = useState(null)
+  const dragRef = useRef(null)
+  const suppressClickRef = useRef(false)
+
+  // Helper qui maintient la ref ET le state synchronisés.
+  function writeDrag(next) {
+    dragRef.current = next
+    setDrag(next)
+  }
+
+  useEffect(() => {
+    if (!drag) return undefined
+
+    function findDayFromPoint(clientX, clientY) {
+      // On cherche la cellule jour sous le pointeur (data-day = YYYY-MM-DD)
+      const el = document.elementFromPoint(clientX, clientY)
+      if (!el) return null
+      const cell = el.closest('[data-day]')
+      if (!cell) return null
+      const key = cell.getAttribute('data-day')
+      if (!key) return null
+      const [y, m, d] = key.split('-').map(Number)
+      return new Date(y, m - 1, d)
+    }
+
+    function onPointerMove(e) {
+      const cur = dragRef.current
+      if (!cur) return
+      const dx = e.clientX - cur.originX
+      const dy = e.clientY - cur.originY
+      const committed = cur.committed || Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX
+      const hoverDay = committed ? findDayFromPoint(e.clientX, e.clientY) : null
+      writeDrag({ ...cur, dx, dy, committed, hoverDay })
+    }
+
+    function onPointerUp() {
+      const cur = dragRef.current
+      if (!cur) {
+        writeDrag(null)
+        return
+      }
+      if (!cur.committed || !cur.hoverDay) {
+        writeDrag(null)
+        return
+      }
+      const ev = cur.event
+      const start = new Date(ev.starts_at)
+      const end = new Date(ev.ends_at)
+      // Différence de jours entre start courant et hoverDay (ancré sur 00:00 local)
+      const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+      const dropDay = new Date(cur.hoverDay.getFullYear(), cur.hoverDay.getMonth(), cur.hoverDay.getDate())
+      const dayDelta = Math.round((dropDay.getTime() - startDay.getTime()) / (24 * 3600 * 1000))
+      if (dayDelta === 0) {
+        writeDrag(null)
+        return
+      }
+      // Drag effectif : on bloque le click qui va suivre
+      suppressClickRef.current = true
+      const newStart = addDays(start, dayDelta)
+      const newEnd = addDays(end, dayDelta)
+      onEventMove && onEventMove(ev, newStart, newEnd)
+      writeDrag(null)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag !== null, onEventMove])
+
+  function startDrag(e, ev) {
+    writeDrag({
+      event: ev,
+      originX: e.clientX,
+      originY: e.clientY,
+      dx: 0,
+      dy: 0,
+      committed: false,
+      hoverDay: null,
+    })
+  }
+
+  const isCommittedDrag = Boolean(drag && drag.committed)
 
   return (
     <div
@@ -49,25 +171,30 @@ export default function MonthCalendar({
     >
       {/* ── Header navigation ─────────────────────────────────────────────── */}
       <div
-        className="flex items-center justify-between px-4 py-3"
+        className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 gap-2"
         style={{ borderBottom: '1px solid var(--brd-sub)' }}
       >
-        <h2 className="text-base font-semibold capitalize" style={{ color: 'var(--txt)' }}>
+        <h2
+          className="text-sm sm:text-base font-semibold capitalize truncate"
+          style={{ color: 'var(--txt)' }}
+        >
           {fmtMonthYear(currentDate)}
         </h2>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={onToday}
-            className="px-3 py-1.5 text-xs rounded-lg font-medium transition"
+            className="px-2 sm:px-3 py-1.5 text-xs rounded-lg font-medium transition"
             style={{
               color: 'var(--txt-2)',
               border: '1px solid var(--brd)',
               background: 'var(--bg-elev)',
             }}
+            title="Aujourd'hui"
+            aria-label="Aujourd'hui"
           >
-            Aujourd&apos;hui
+            {bp.isMobile ? 'Auj.' : 'Aujourd\u2019hui'}
           </button>
           <button
             type="button"
@@ -100,13 +227,13 @@ export default function MonthCalendar({
 
       {/* ── Bandeau jours de la semaine ───────────────────────────────────── */}
       <div
-        className="grid grid-cols-7 text-[11px] font-medium uppercase tracking-wide"
+        className="grid grid-cols-7 text-[10px] sm:text-[11px] font-medium uppercase tracking-wide"
         style={{ borderBottom: '1px solid var(--brd-sub)' }}
       >
-        {WEEKDAYS_SHORT_FR.map((w) => (
+        {(bp.isMobile ? WEEKDAYS_INITIAL_FR : WEEKDAYS_SHORT_FR).map((w, i) => (
           <div
-            key={w}
-            className="px-2 py-2 text-center"
+            key={`wd-${i}`}
+            className="px-1 sm:px-2 py-1.5 sm:py-2 text-center"
             style={{ color: 'var(--txt-3)' }}
           >
             {w}
@@ -114,91 +241,188 @@ export default function MonthCalendar({
         ))}
       </div>
 
-      {/* ── Grille 6×7 ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-7 grid-rows-6 flex-1">
-        {cells.map((day, idx) => {
-          const key = fmtDateKey(day)
-          const dayEvents = byDay.get(key) || []
-          const inMonth = isSameMonth(day, currentDate)
-          const isToday = isSameDay(day, today)
-          const isWeekend = day.getDay() === 0 || day.getDay() === 6
-          const isLastCol = (idx + 1) % 7 === 0
-          const isLastRow = idx >= 35
-
-          const visible = dayEvents.slice(0, MAX_EVENTS_PER_CELL)
-          const overflow = Math.max(0, dayEvents.length - MAX_EVENTS_PER_CELL)
-
+      {/* ── 6 lignes semaine (chaque ligne = background cells + overlay bars) ── */}
+      <div
+        ref={gridRef}
+        className="flex-1 flex flex-col"
+        style={{ userSelect: isCommittedDrag ? 'none' : 'auto' }}
+      >
+        {rows.map((row) => {
+          const isLastRow = row.rowIdx === 5
+          const rowCells = cells.slice(row.rowIdx * 7, row.rowIdx * 7 + 7)
           return (
             <div
-              key={key + idx}
-              onClick={() => onDayClick && onDayClick(day)}
-              className="min-h-[110px] p-1.5 flex flex-col gap-1 cursor-pointer transition"
-              style={{
-                background: inMonth
-                  ? isWeekend ? 'var(--bg-elev)' : 'var(--bg-surf)'
-                  : 'var(--bg-elev)',
-                opacity: inMonth ? 1 : 0.55,
-                borderRight: isLastCol ? 'none' : '1px solid var(--brd-sub)',
-                borderBottom: isLastRow ? 'none' : '1px solid var(--brd-sub)',
-              }}
+              key={`row-${row.rowIdx}`}
+              className="relative grid grid-cols-7"
+              style={{ minHeight: `${dims.minH}px` }}
             >
-              {/* N° du jour */}
-              <div className="flex items-center justify-between">
-                <span
-                  className="inline-flex items-center justify-center text-xs font-medium"
-                  style={{
-                    color: isToday ? '#fff' : inMonth ? 'var(--txt-2)' : 'var(--txt-3)',
-                    background: isToday ? 'var(--blue)' : 'transparent',
-                    minWidth: '22px',
-                    height: '22px',
-                    borderRadius: '999px',
-                    padding: isToday ? '0 6px' : '0',
-                  }}
-                >
-                  {day.getDate()}
-                </span>
-              </div>
+              {/* ── Background : 7 cases du jour ───────────────────────── */}
+              {rowCells.map((day, colIdx) => {
+                const key = fmtDateKey(day)
+                const inMonth = isSameMonth(day, currentDate)
+                const isToday = isSameDay(day, today)
+                const isWeekend = day.getDay() === 0 || day.getDay() === 6
+                const isLastCol = colIdx === 6
+                const isHoverTarget = isCommittedDrag && drag.hoverDay && isSameDay(drag.hoverDay, day)
+                const overflow = row.overflowByCol[colIdx] || 0
 
-              {/* Événements */}
-              <div className="flex flex-col gap-[2px] overflow-hidden">
-                {visible.map((ev) => {
-                  const color = resolveEventColor(ev, 'var(--blue)')
+                return (
+                  <div
+                    key={key}
+                    data-day={key}
+                    onClick={() => {
+                      if (isCommittedDrag) return
+                      onDayClick && onDayClick(day)
+                    }}
+                    className="p-1 sm:p-1.5 flex flex-col cursor-pointer transition"
+                    style={{
+                      background: isHoverTarget
+                        ? 'var(--blue-bg)'
+                        : inMonth
+                          ? isWeekend ? 'var(--bg-elev)' : 'var(--bg-surf)'
+                          : 'var(--bg-elev)',
+                      opacity: inMonth ? 1 : 0.55,
+                      borderRight: isLastCol ? 'none' : '1px solid var(--brd-sub)',
+                      borderBottom: isLastRow ? 'none' : '1px solid var(--brd-sub)',
+                      outline: isHoverTarget ? '2px solid var(--blue)' : 'none',
+                      outlineOffset: isHoverTarget ? '-2px' : '0',
+                    }}
+                  >
+                    {/* N° du jour */}
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="inline-flex items-center justify-center text-xs font-medium"
+                        style={{
+                          color: isToday ? '#fff' : inMonth ? 'var(--txt-2)' : 'var(--txt-3)',
+                          background: isToday ? 'var(--blue)' : 'transparent',
+                          minWidth: '22px',
+                          height: '22px',
+                          borderRadius: '999px',
+                          padding: isToday ? '0 6px' : '0',
+                        }}
+                      >
+                        {day.getDate()}
+                      </span>
+                    </div>
+
+                    {/* Spacer : réserve l'espace pour les barres de la lane */}
+                    <div
+                      className="flex-1"
+                      style={{ minHeight: `${LANE_HEIGHT_PX * MAX_LANES_PER_ROW}px` }}
+                    />
+
+                    {/* Overflow — sur mobile : simple point discret en bas à
+                        droite (l'utilisateur ouvrira la vue jour/semaine pour
+                        détail). Sur tablette+ : "+N autres" complet. */}
+                    {overflow > 0 && (
+                      bp.isMobile ? (
+                        <span
+                          aria-label={`${overflow} événement${overflow > 1 ? 's' : ''} de plus`}
+                          title={`+${overflow}`}
+                          className="self-end w-1 h-1 rounded-full mt-auto mr-0.5"
+                          style={{ background: 'var(--txt-3)' }}
+                        />
+                      ) : (
+                        <span
+                          className="text-[10px] px-1 sm:px-1.5"
+                          style={{ color: 'var(--txt-3)' }}
+                        >
+                          +{overflow} autre{overflow > 1 ? 's' : ''}
+                        </span>
+                      )
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* ── Overlay : barres multi-jours ───────────────────────── */}
+              {/* Le conteneur reste pointer-events:none en permanence pour ne
+                  PAS intercepter les clics dans les zones vides (→ onDayClick).
+                  Les <button> de barre activent individuellement pointer-events
+                  (sauf pendant un drag committed : on laisse passer pour que
+                  elementFromPoint atteigne les cellules cible). */}
+              <div
+                className="absolute inset-0"
+                style={{ pointerEvents: 'none' }}
+              >
+                {row.bars.map((bar) => {
+                  const color = resolveEventColor(bar.event, 'var(--blue)')
+                  const leftPct = (bar.startCol / 7) * 100
+                  const widthPct = ((bar.endCol - bar.startCol + 1) / 7) * 100
+                  const topPx = LANES_TOP_OFFSET_PX + bar.laneIndex * LANE_HEIGHT_PX
+                  const ev = bar.event
                   const startD = new Date(ev.starts_at)
-                  const timeLabel =
-                    !ev.all_day && isSameDay(startD, day)
-                      ? `${String(startD.getHours()).padStart(2, '0')}:${String(
-                          startD.getMinutes(),
-                        ).padStart(2, '0')} `
-                      : ''
+                  // Heure affichée seulement au début réel de l'événement
+                  // (segment qui ne continue pas à gauche)
+                  const showTime = !ev.all_day && !bar.continuesLeft
+                  const timeLabel = showTime
+                    ? `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')} `
+                    : ''
+                  const isDragging = drag && drag.event && eventKey(drag.event) === eventKey(ev) && drag.committed
+                  const evConflicts = conflicts?.get(eventKey(ev)) || null
+                  const hasConflict = Array.isArray(evConflicts) && evConflicts.length > 0
+                  const title = bar.continuesLeft
+                    ? `… ${ev.title}`
+                    : ev.title
+
+                  // Rayons : pas d'arrondis côté coupure, sinon 4px
+                  const radiusLeft = bar.continuesLeft ? '0' : '4px'
+                  const radiusRight = bar.continuesRight ? '0' : '4px'
+
                   return (
                     <button
-                      key={ev.id + key}
+                      key={`${eventKey(ev)}-r${row.rowIdx}-c${bar.startCol}`}
                       type="button"
+                      onPointerDown={(e) => {
+                        if (e.button !== 0) return
+                        e.stopPropagation()
+                        startDrag(e, ev)
+                      }}
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (isCommittedDrag) return
                         onEventClick && onEventClick(ev)
                       }}
-                      className="text-left text-[11px] px-1.5 py-[2px] rounded truncate transition"
+                      className="absolute text-left text-[11px] px-1.5 py-[2px] truncate transition"
                       style={{
+                        left: `calc(${leftPct}% + 4px)`,
+                        width: `calc(${widthPct}% - 8px)`,
+                        top: `${topPx}px`,
+                        height: `${LANE_HEIGHT_PX - 2}px`,
                         background: `${color}22`,
                         color,
-                        borderLeft: `3px solid ${color}`,
+                        borderLeft: bar.continuesLeft ? `0 solid ${color}` : `3px solid ${color}`,
+                        borderTopLeftRadius: radiusLeft,
+                        borderBottomLeftRadius: radiusLeft,
+                        borderTopRightRadius: radiusRight,
+                        borderBottomRightRadius: radiusRight,
+                        opacity: isDragging ? 0.4 : 1,
+                        cursor: isDragging ? 'grabbing' : 'grab',
+                        // Ré-active le clic sur la barre elle-même (le conteneur est none).
+                        // Désactivé pendant un drag committed pour que
+                        // elementFromPoint trouve la cellule dessous.
+                        pointerEvents: isCommittedDrag ? 'none' : 'auto',
                       }}
-                      title={ev.title}
+                      title={
+                        hasConflict
+                          ? `${title}\n⚠ ${evConflicts.length} conflit${evConflicts.length > 1 ? 's' : ''} équipe`
+                          : title
+                      }
                     >
-                      <span className="font-medium opacity-80">{timeLabel}</span>
-                      <span>{ev.title}</span>
+                      {showTime && (
+                        <span className="font-medium opacity-80 pointer-events-none">{timeLabel}</span>
+                      )}
+                      <span className="pointer-events-none">{title}</span>
+                      {hasConflict && !bar.continuesLeft && (
+                        <span
+                          aria-label="Conflit équipe"
+                          className="absolute top-[2px] right-[3px] w-1.5 h-1.5 rounded-full pointer-events-none"
+                          style={{ background: 'var(--red)', boxShadow: '0 0 0 1.5px var(--bg-surf)' }}
+                        />
+                      )}
                     </button>
                   )
                 })}
-                {overflow > 0 && (
-                  <span
-                    className="text-[10px] px-1.5"
-                    style={{ color: 'var(--txt-3)' }}
-                  >
-                    +{overflow} autre{overflow > 1 ? 's' : ''}
-                  </span>
-                )}
               </div>
             </div>
           )
@@ -206,4 +430,17 @@ export default function MonthCalendar({
       </div>
     </div>
   )
+}
+
+/** Ajoute `n` jours à une date sans muter l'originale. */
+function addDays(date, n) {
+  const d = new Date(date)
+  d.setDate(d.getDate() + n)
+  return d
+}
+
+/** Identifiant compound pour distinguer les occurrences d'une même série récurrente. */
+function eventKey(ev) {
+  if (!ev) return ''
+  return ev._occurrence_key ? `${ev.id}|${ev._occurrence_key}` : String(ev.id)
 }

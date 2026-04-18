@@ -8,7 +8,7 @@
  * Statut : pending | confirmed | declined | tentative (voir lib/planning).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { UserPlus, Minus } from 'lucide-react'
+import { UserPlus, Minus, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
 import {
@@ -25,7 +25,13 @@ const STATUS_META = {
   tentative: { label: 'Incertain', color: 'var(--orange)' },
 }
 
-export default function EventMembersPanel({ eventId, projectId, members, onMutated }) {
+export default function EventMembersPanel({
+  eventId,
+  projectId,
+  members,
+  conflictingIdentities,
+  onMutated,
+}) {
   const [adding, setAdding] = useState(false)
   const [profiles, setProfiles] = useState([])
   const [crew, setCrew] = useState([])
@@ -153,14 +159,25 @@ export default function EventMembersPanel({ eventId, projectId, members, onMutat
       {/* Liste des membres */}
       {list.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          {list.map((m) => (
-            <MemberRow
-              key={m.id}
-              member={m}
-              onStatusChange={(next) => handleStatusChange(m.id, next)}
-              onRemove={() => handleRemove(m.id)}
-            />
-          ))}
+          {list.map((m) => {
+            const identity = m.profile_id
+              ? `p:${m.profile_id}`
+              : m.crew_member_id
+                ? `c:${m.crew_member_id}`
+                : null
+            const inConflict = Boolean(
+              identity && conflictingIdentities && conflictingIdentities.has(identity),
+            )
+            return (
+              <MemberRow
+                key={m.id}
+                member={m}
+                inConflict={inConflict}
+                onStatusChange={(next) => handleStatusChange(m.id, next)}
+                onRemove={() => handleRemove(m.id)}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -180,7 +197,7 @@ export default function EventMembersPanel({ eventId, projectId, members, onMutat
 }
 
 /* ─── Row d'un membre ─────────────────────────────────────────────────────── */
-function MemberRow({ member, onStatusChange, onRemove }) {
+function MemberRow({ member, inConflict, onStatusChange, onRemove }) {
   const { profile, crew } = member
   const name = profile?.full_name || crew?.person_name || 'Sans nom'
   const email = crew?.email || null
@@ -191,7 +208,11 @@ function MemberRow({ member, onStatusChange, onRemove }) {
   return (
     <div
       className="flex items-center gap-2 px-2.5 py-2 rounded-lg"
-      style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
+      style={{
+        background: inConflict ? 'var(--red-bg, rgba(239,68,68,0.10))' : 'var(--bg-elev)',
+        border: `1px solid ${inConflict ? 'var(--red)' : 'var(--brd-sub)'}`,
+      }}
+      title={inConflict ? 'Déjà convoqué·e sur un autre événement qui chevauche' : undefined}
     >
       {/* Avatar initiales */}
       <div
@@ -206,8 +227,18 @@ function MemberRow({ member, onStatusChange, onRemove }) {
 
       {/* Nom + sous-titre */}
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium truncate" style={{ color: 'var(--txt)' }}>
-          {name}
+        <div
+          className="text-xs font-medium truncate flex items-center gap-1"
+          style={{ color: 'var(--txt)' }}
+        >
+          {inConflict && (
+            <AlertTriangle
+              className="w-3 h-3 shrink-0"
+              style={{ color: 'var(--red)' }}
+              aria-label="Conflit"
+            />
+          )}
+          <span className="truncate">{name}</span>
           {!profile && (
             <span
               className="ml-1.5 text-[9px] px-1 py-0.5 rounded uppercase"
@@ -217,10 +248,16 @@ function MemberRow({ member, onStatusChange, onRemove }) {
             </span>
           )}
         </div>
-        {(subtitle || email) && (
-          <div className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
-            {subtitle}{subtitle && email ? ' · ' : ''}{email}
+        {inConflict ? (
+          <div className="text-[11px] truncate" style={{ color: 'var(--red)' }}>
+            Déjà convoqué·e sur un événement qui chevauche
           </div>
+        ) : (
+          (subtitle || email) && (
+            <div className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
+              {subtitle}{subtitle && email ? ' · ' : ''}{email}
+            </div>
+          )
         )}
       </div>
 
