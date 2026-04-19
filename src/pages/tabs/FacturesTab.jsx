@@ -13,7 +13,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../../lib/supabase'
 import { useProjet } from '../ProjetLayout'
-import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { fmtEur } from '../../lib/cotisations'
@@ -1265,10 +1264,12 @@ function LotFacturationGauge({ lot, lots, totalDevisHT, totalFactureHT, totalFac
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function FacturesTab() {
   const { projectId, lots, refDevisByLot, refSynthByLot } = useProjet()
-  const { canSeeFinance } = useAuth()
   // BUDGET-PERM (2026-04-20) — gating granulaire : l'onglet Factures est rattaché
   // à l'outil 'budget' (avec Budget réel + Dashboard). `canRead` ouvre la page,
   // `canEdit` conditionne création/édition/suppression/changement de statut.
+  // NB : l'ancienne garde `canSeeFinance` (admin OR chargé_prod) a été retirée —
+  // elle bloquait les coordinateurs/prestataires attachés avant même que la
+  // nouvelle permission soit évaluée.
   const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
   const canRead = canDo(OUTILS.BUDGET, ACTIONS.READ)
   const canEdit = canDo(OUTILS.BUDGET, ACTIONS.EDIT)
@@ -1442,17 +1443,6 @@ export default function FacturesTab() {
     setDeleting(null)
     setFactures((prev) => prev.filter((f) => f.id !== id))
   }
-
-  if (!canSeeFinance)
-    return (
-      <div
-        className="flex items-center justify-center h-64 gap-2"
-        style={{ color: 'var(--txt-3)' }}
-      >
-        <Receipt className="w-5 h-5" />
-        <p className="text-sm">Accès réservé à l&apos;équipe de production</p>
-      </div>
-    )
 
   // BUDGET-PERM — attente de la résolution des permissions projet
   if (permLoading)
