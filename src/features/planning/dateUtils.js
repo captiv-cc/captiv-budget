@@ -177,6 +177,38 @@ export function getConsecutiveDays(d, count = 1) {
   return Array.from({ length: count }, (_, i) => addDays(start, i))
 }
 
+/**
+ * Format court d'une plage de jours consécutifs, utilisé pour le header
+ * de la vue Semaine sur mobile/tablet où il y a moins de place.
+ *
+ * Exemples :
+ *   - 1 jour       : "Mer. 15 avril 2026"
+ *   - même mois    : "13 — 15 avril 2026"
+ *   - même année   : "28 avr. — 2 mai 2026"
+ *   - multi-années : "30 déc. 2025 — 2 janv. 2026"
+ *
+ * @param {Date[]} days tableau de Date à 00:00 local
+ */
+export function fmtShortRangeFR(days) {
+  if (!Array.isArray(days) || days.length === 0) return ''
+  if (days.length === 1) {
+    const d = days[0]
+    const wd = WEEKDAYS_SHORT_FR[(d.getDay() + 6) % 7]
+    return `${wd}. ${d.getDate()} ${MONTHS_FR[d.getMonth()].toLowerCase()} ${d.getFullYear()}`
+  }
+  const first = days[0]
+  const last = days[days.length - 1]
+  const sameMonth = isSameMonth(first, last)
+  const sameYear = first.getFullYear() === last.getFullYear()
+  if (sameMonth) {
+    return `${first.getDate()} — ${last.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} ${first.getFullYear()}`
+  }
+  if (sameYear) {
+    return `${first.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} — ${last.getDate()} ${MONTHS_FR[last.getMonth()].toLowerCase()} ${first.getFullYear()}`
+  }
+  return `${first.getDate()} ${MONTHS_FR[first.getMonth()].toLowerCase()} ${first.getFullYear()} — ${last.getDate()} ${MONTHS_FR[last.getMonth()].toLowerCase()} ${last.getFullYear()}`
+}
+
 /** "Semaine du 14 au 20 avril 2026" */
 export function fmtWeekRangeFR(d) {
   const [first, last] = [startOfWeekMonday(d), addDays(startOfWeekMonday(d), 6)]

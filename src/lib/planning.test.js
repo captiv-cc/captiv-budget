@@ -35,6 +35,8 @@ import {
   isMilestone,
   PLANNING_VIEW_PRESETS,
   PLANNING_VIEW_PRESETS_BY_KEY,
+  PLANNING_VIEW_PRESETS_GLOBAL,
+  PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY,
   layoutMonthBars,
 } from './planning'
 
@@ -342,8 +344,16 @@ describe('defaultViewConfig', () => {
   it('expose la shape attendue (filters, groupBy, sortBy, hiddenFields, showWeekends)', () => {
     const cfg = defaultViewConfig('calendar_month')
     expect(cfg).toHaveProperty('filters')
+    // Shape étendue après PL-5 (typeCategories/typeSlugs) et PG-3 (projectIds).
     expect(cfg.filters).toEqual({
-      typeIds: [], lotIds: [], memberIds: [], statusMember: [], search: '',
+      typeIds: [],
+      typeCategories: [],
+      typeSlugs: [],
+      lotIds: [],
+      memberIds: [],
+      statusMember: [],
+      projectIds: [],
+      search: '',
     })
     expect(cfg.groupBy).toBeNull()
     expect(cfg.sortBy).toEqual({ field: 'starts_at', direction: 'asc' })
@@ -569,6 +579,75 @@ describe('filterEventsByConfig', () => {
     })
     expect(out.map((e) => e.id)).toEqual(['tp', 'tx', 'pm', 'd'])
   })
+
+  // ─── PG-3 : filtre projectIds (cross-project) ─────────────────────────────
+  // Utilisé uniquement par PlanningGlobal : sur un PlanningTab projet, tous les
+  // events ont le même project_id donc le filtre est neutre.
+  const evP1 = mkEvent({ id: 'p1a', project_id: 'PROJ_1', title: 'Event P1 A' })
+  const evP1b = mkEvent({ id: 'p1b', project_id: 'PROJ_1', title: 'Event P1 B' })
+  const evP2 = mkEvent({ id: 'p2a', project_id: 'PROJ_2', title: 'Event P2 A' })
+  const evP3 = mkEvent({ id: 'p3a', project_id: 'PROJ_3', title: 'Event P3 A' })
+  const multiProjects = [evP1, evP1b, evP2, evP3]
+
+  it('filtre par projectIds (lit ev.project_id)', () => {
+    const out = filterEventsByConfig(multiProjects, { filters: { projectIds: ['PROJ_1'] } })
+    expect(out.map((e) => e.id)).toEqual(['p1a', 'p1b'])
+  })
+
+  it('filtre par projectIds (plusieurs projets = OR)', () => {
+    const out = filterEventsByConfig(multiProjects, {
+      filters: { projectIds: ['PROJ_1', 'PROJ_3'] },
+    })
+    expect(out.map((e) => e.id)).toEqual(['p1a', 'p1b', 'p3a'])
+  })
+
+  it('filtre projectIds vide = no-op', () => {
+    const out = filterEventsByConfig(multiProjects, { filters: { projectIds: [] } })
+    expect(out).toBe(multiProjects) // même référence : aucun filtre actif
+  })
+
+  it('filtre projectIds lit aussi ev.project?.id si la relation est expansée', () => {
+    const evEmbedded = mkEvent({
+      id: 'pe',
+      project_id: undefined,
+      project: { id: 'PROJ_EMBEDDED', title: 'Embedded' },
+    })
+    const out = filterEventsByConfig([evEmbedded, evP1], {
+      filters: { projectIds: ['PROJ_EMBEDDED'] },
+    })
+    expect(out.map((e) => e.id)).toEqual(['pe'])
+  })
+
+  it('projectIds exclut les events sans project_id et hors liste', () => {
+    const orphan = mkEvent({ id: 'o', project_id: null })
+    const out = filterEventsByConfig([...multiProjects, orphan], {
+      filters: { projectIds: ['PROJ_1'] },
+    })
+    expect(out.map((e) => e.id)).toEqual(['p1a', 'p1b'])
+  })
+
+  it('combine projectIds AND typeIds', () => {
+    const evMixed = [
+      mkEvent({ id: 'm1', project_id: 'PROJ_1', type_id: 'TYPE_T' }),
+      mkEvent({ id: 'm2', project_id: 'PROJ_1', type_id: 'TYPE_M' }),
+      mkEvent({ id: 'm3', project_id: 'PROJ_2', type_id: 'TYPE_T' }),
+    ]
+    const out = filterEventsByConfig(evMixed, {
+      filters: { projectIds: ['PROJ_1'], typeIds: ['TYPE_T'] },
+    })
+    expect(out.map((e) => e.id)).toEqual(['m1'])
+  })
+})
+
+describe('defaultViewConfig — projectIds (PG-3)', () => {
+  it('expose filters.projectIds=[] dans la config par défaut (tous kinds)', () => {
+    for (const kind of ['calendar_month', 'calendar_week', 'calendar_day',
+                        'table', 'kanban', 'timeline', 'swimlanes']) {
+      const cfg = defaultViewConfig(kind)
+      expect(Array.isArray(cfg.filters.projectIds)).toBe(true)
+      expect(cfg.filters.projectIds).toEqual([])
+    }
+  })
 })
 
 describe('PLANNING_VIEW_PRESETS (PL-5)', () => {
@@ -629,6 +708,93 @@ describe('PLANNING_VIEW_PRESETS (PL-5)', () => {
   it('PLANNING_VIEW_PRESETS_BY_KEY est un lookup O(1) cohérent', () => {
     for (const p of PLANNING_VIEW_PRESETS) {
       expect(PLANNING_VIEW_PRESETS_BY_KEY[p.key]).toBe(p)
+    }
+  })
+})
+
+// ─── PG-4b : presets globaux (scope=global, project_id=NULL) ─────────────────
+// Consommés par PlanningGlobal → PlanningViewSelector. Doivent avoir la même
+// shape que les presets projet pour permettre un traitement uniforme côté UI.
+describe('PLANNING_VIEW_PRESETS_GLOBAL (PG-4)', () => {
+  it('expose exactement 4 presets globaux', () => {
+    expect(PLANNING_VIEW_PRESETS_GLOBAL).toHaveLength(4)
+  })
+
+  it('a les 4 clés stables attendues', () => {
+    const keys = PLANNING_VIEW_PRESETS_GLOBAL.map((p) => p.key).sort()
+    expect(keys).toEqual([
+      'global_gantt_3m',
+      'global_kanban_type',
+      'global_mois',
+      'global_tournages',
+    ])
+  })
+
+  it('toutes les clés globales sont préfixées "global_" (évite collision avec les presets projet)', () => {
+    for (const p of PLANNING_VIEW_PRESETS_GLOBAL) {
+      expect(p.key.startsWith('global_')).toBe(true)
+    }
+  })
+
+  it('tous les presets globaux pointent vers un kind implémenté', () => {
+    for (const p of PLANNING_VIEW_PRESETS_GLOBAL) {
+      expect(PLANNING_VIEW_KINDS[p.kind]?.implemented).toBe(true)
+    }
+  })
+
+  it('tous les presets globaux ont une shape filters complète', () => {
+    for (const p of PLANNING_VIEW_PRESETS_GLOBAL) {
+      const f = p.config?.filters || {}
+      expect(Array.isArray(f.typeIds)).toBe(true)
+      expect(Array.isArray(f.typeCategories)).toBe(true)
+      expect(Array.isArray(f.typeSlugs)).toBe(true)
+      expect(Array.isArray(f.lotIds)).toBe(true)
+      expect(Array.isArray(f.memberIds)).toBe(true)
+      expect(Array.isArray(f.statusMember)).toBe(true)
+      expect(Array.isArray(f.projectIds)).toBe(true)
+      expect(typeof f.search).toBe('string')
+    }
+  })
+
+  it('global_mois = calendar_month sans filtre', () => {
+    const p = PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY.global_mois
+    expect(p.kind).toBe('calendar_month')
+    expect(p.config.filters.projectIds).toEqual([])
+    expect(p.config.filters.typeCategories).toEqual([])
+  })
+
+  it('global_gantt_3m = timeline 90j groupé par lot, zoom week', () => {
+    const p = PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY.global_gantt_3m
+    expect(p.kind).toBe('timeline')
+    expect(p.config.groupBy).toBe('lot')
+    expect(p.config.windowDays).toBe(90)
+    expect(p.config.zoomLevel).toBe('week')
+  })
+
+  it('global_tournages = timeline 60j filtré sur catégorie tournage, groupé member', () => {
+    const p = PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY.global_tournages
+    expect(p.kind).toBe('timeline')
+    expect(p.config.groupBy).toBe('member')
+    expect(p.config.windowDays).toBe(60)
+    expect(p.config.filters.typeCategories).toEqual(['tournage'])
+  })
+
+  it('global_kanban_type = kanban groupé par type', () => {
+    const p = PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY.global_kanban_type
+    expect(p.kind).toBe('kanban')
+    expect(p.config.groupBy).toBe('type')
+  })
+
+  it('PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY est un lookup O(1) cohérent', () => {
+    for (const p of PLANNING_VIEW_PRESETS_GLOBAL) {
+      expect(PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY[p.key]).toBe(p)
+    }
+  })
+
+  it('clés globales ne collisionnent pas avec les clés projet', () => {
+    const projectKeys = new Set(PLANNING_VIEW_PRESETS.map((p) => p.key))
+    for (const p of PLANNING_VIEW_PRESETS_GLOBAL) {
+      expect(projectKeys.has(p.key)).toBe(false)
     }
   })
 })

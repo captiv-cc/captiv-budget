@@ -3,7 +3,7 @@
  * planning (PL-3.5 étape 2).
  *
  * Expose :
- *   - Filtres (types, lots, recherche)
+ *   - Filtres (projets [PG-3], types, lots, membres, statuts, recherche)
  *   - Groupement (aucun / type / lot / statut / lieu / membre)
  *   - Options d'affichage (showWeekends — uniquement pour les vues calendar)
  *
@@ -15,6 +15,9 @@
  *   - view        : PlanningView | null
  *   - eventTypes  : Array<EventType>
  *   - lots        : Array<Lot>
+ *   - projects    : Array<{ id, title }>  (optionnel — PG-3, utilisé dans
+ *                                          PlanningGlobal pour filtrer les
+ *                                          events cross-projets)
  *   - onClose     : () => void
  *   - onSave      : (nextConfig) => Promise<void> | void
  *   - onDuplicate : () => void           (CTA principal pour vues built-in,
@@ -25,7 +28,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   X, Copy, Lock, Filter, Layers as LayersIcon, Search, Check,
-  Pencil, Trash2,
+  Pencil, Trash2, FolderOpen,
 } from 'lucide-react'
 import {
   defaultViewConfig,
@@ -43,6 +46,7 @@ export default function PlanningViewConfigDrawer({
   view,
   eventTypes = [],
   lots = [],
+  projects = [],
   onClose,
   onSave,
   onDuplicate,
@@ -108,7 +112,13 @@ export default function PlanningViewConfigDrawer({
   const typeSlugs      = filters.typeSlugs      || []
   const lotIds         = filters.lotIds         || []
   const statusMember   = filters.statusMember   || []
+  const projectIds     = filters.projectIds     || []
   const search         = filters.search         || ''
+
+  // Projets non archivés — utilisé uniquement si `projects.length > 0`.
+  // Le drawer reste rétro-compatible : sans projets fournis, la section ne
+  // s'affiche pas et les écrans projet (PlanningTab) n'ont rien à changer.
+  const hasProjectsList = Array.isArray(projects) && projects.length > 0
 
   return (
     <div
@@ -235,6 +245,38 @@ export default function PlanningViewConfigDrawer({
               }}
             />
           </Section>
+
+          {/* Filtres Projets (PG-3) ─ uniquement si la prop `projects` est fournie
+              (typiquement : PlanningGlobal). Masqué dans le PlanningTab d'un
+              projet puisque tous les events partagent le même project_id. */}
+          {hasProjectsList && (
+            <Section
+              icon={<FolderOpen className="w-3.5 h-3.5" />}
+              title="Projets"
+            >
+              <ChipGrid>
+                {projects.map((p) => {
+                  const active = projectIds.includes(p.id)
+                  return (
+                    <Chip
+                      key={p.id}
+                      active={active}
+                      disabled={builtin}
+                      onClick={() => updateFilter('projectIds', toggleInArray(projectIds, p.id))}
+                    >
+                      {p.title || 'Projet'}
+                    </Chip>
+                  )
+                })}
+              </ChipGrid>
+              <HintRow
+                hint={projectIds.length
+                  ? `${projectIds.length} projet(s) sélectionné(s)`
+                  : 'Tous les projets'}
+                onClear={projectIds.length && !builtin ? () => updateFilter('projectIds', []) : null}
+              />
+            </Section>
+          )}
 
           {/* Filtres Types d'événement */}
           <Section icon={<Filter className="w-3.5 h-3.5" />} title="Types d'événement">

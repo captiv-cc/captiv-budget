@@ -36,6 +36,11 @@
  *   - onChange    : (view) => void
  *   - onAddView   : (kind) => void        (optionnel — si absent, bouton caché)
  *   - onAddPreset : (presetKey) => void   (optionnel — PL-5 presets spécialisés)
+ *   - presets     : Array<Preset>         (optionnel — override la liste des
+ *                                          presets proposés ; défaut =
+ *                                          PLANNING_VIEW_PRESETS, PG-4 permet
+ *                                          de passer PLANNING_VIEW_PRESETS_GLOBAL
+ *                                          dans PlanningGlobal.)
  *   - onDuplicate : (view) => void        (optionnel)
  *   - onRename    : (view) => void        (optionnel)
  *   - onDelete    : (view) => void        (optionnel)
@@ -96,6 +101,7 @@ function hasActiveFilter(config) {
     || nonEmpty(f.lotIds)
     || nonEmpty(f.memberIds)
     || nonEmpty(f.statusMember)
+    || nonEmpty(f.projectIds)
     || nonEmpty(f.search)
     || Boolean(config?.groupBy)
 }
@@ -106,6 +112,7 @@ export default function PlanningViewSelector({
   onChange,
   onAddView,
   onAddPreset,
+  presets = PLANNING_VIEW_PRESETS,
   onDuplicate,
   onRename,
   onDelete,
@@ -422,7 +429,7 @@ export default function PlanningViewSelector({
                           </div>
                         )))}
 
-                      {onAddPreset && PLANNING_VIEW_PRESETS.length > 0 && (
+                      {onAddPreset && presets.length > 0 && (
                         <>
                           <div
                             className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wide"
@@ -430,7 +437,7 @@ export default function PlanningViewSelector({
                           >
                             Presets
                           </div>
-                          {PLANNING_VIEW_PRESETS.map((p) => (
+                          {presets.map((p) => (
                             <button
                               key={p.key}
                               type="button"
@@ -672,7 +679,7 @@ export default function PlanningViewSelector({
                   Tournage / Post-production). Réutilisent les composants
                   existants avec des configs pré-câblées. Cachée si onAddPreset
                   n'est pas fourni (compat avec consommateurs sans presets). */}
-              {onAddPreset && PLANNING_VIEW_PRESETS.length > 0 && (
+              {onAddPreset && presets.length > 0 && (
                 <>
                   <div
                     className="px-3 py-1 mt-1 text-[10px] uppercase tracking-wide"
@@ -680,7 +687,7 @@ export default function PlanningViewSelector({
                   >
                     Presets
                   </div>
-                  {PLANNING_VIEW_PRESETS.map((p) => (
+                  {presets.map((p) => (
                     <button
                       key={p.key}
                       type="button"

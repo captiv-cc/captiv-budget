@@ -14,6 +14,9 @@
  *   - headerLabel  : string affiché à gauche du header (ex. "Semaine du …")
  *   - onEventClick : fn(event)
  *   - onSlotClick  : fn(date)                          — clic sur case vide
+ *   - onDayClick   : fn(date)                          — clic sur en-tête jour
+ *                    (vue Semaine). Si fourni, l'en-tête devient un bouton
+ *                    (typique : bascule vers la vue Jour — cf. PlanningTab).
  *   - onEventMove  : fn(event, newStart, newEnd)       — drop après move
  *   - onEventResize: fn(event, newEnd)                 — drop après resize
  *   - onPrev / onNext / onToday : navigation
@@ -54,6 +57,7 @@ export default function TimelineCalendar({
   headerLabel,
   onEventClick,
   onSlotClick,
+  onDayClick,
   onEventMove,
   onEventResize,
   onPrev,
@@ -291,6 +295,21 @@ export default function TimelineCalendar({
           const dowLabel = bp.isMobile
             ? WEEKDAYS_SHORT_FR[dow].charAt(0)
             : WEEKDAYS_SHORT_FR[dow]
+          // Si onDayClick est fourni (vue Semaine), on rend l'en-tête de jour
+          // cliquable (pattern zoom → Jour, typique mobile). L'élément devient
+          // un button accessible avec cursor-pointer et affordance hover.
+          const DayHeader = onDayClick ? 'button' : 'div'
+          const dayHeaderProps = onDayClick
+            ? {
+                type: 'button',
+                onClick: () => onDayClick(col.day),
+                title: `Ouvrir le jour ${col.day.getDate()} en vue Jour`,
+                className:
+                  'w-full flex items-center justify-center gap-1 sm:gap-1.5 rounded-md py-0.5 transition hover:bg-[var(--bg-hov)]',
+              }
+            : {
+                className: 'flex items-center justify-center gap-1 sm:gap-1.5',
+              }
           return (
             <div
               key={col.key}
@@ -300,7 +319,7 @@ export default function TimelineCalendar({
                 background: isToday ? 'var(--blue-bg)' : 'transparent',
               }}
             >
-              <div className="flex items-center justify-center gap-1 sm:gap-1.5">
+              <DayHeader {...dayHeaderProps}>
                 <span
                   className="text-[10px] uppercase font-medium tracking-wide"
                   style={{ color: isToday ? 'var(--blue)' : 'var(--txt-3)' }}
@@ -313,7 +332,7 @@ export default function TimelineCalendar({
                 >
                   {col.day.getDate()}
                 </span>
-              </div>
+              </DayHeader>
 
               {/* All-day events pour ce jour */}
               {maxAllDay > 0 && (

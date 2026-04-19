@@ -717,6 +717,109 @@ export const PLANNING_VIEW_PRESETS_BY_KEY = Object.fromEntries(
 )
 
 /**
+ * Presets pour PlanningGlobal (vue cross-projets à /planning).
+ * Contrairement aux PLANNING_VIEW_PRESETS par projet, ces presets sont pensés
+ * pour un usage multi-projets : agrégation, comparaison, plan macro org-wide.
+ *
+ * Notes de design :
+ *   - `projectIds: []` = tous les projets visibles (par RLS). Les filtres
+ *     sont laissés ouverts pour que chaque utilisateur puisse les préciser.
+ *   - `groupBy: 'project'` n'est pas implémenté dans la v1 ; on utilise
+ *     'lot' / 'type' / 'member' en attendant. Les vues globales se
+ *     différencient surtout par windowDays/zoomLevel.
+ *   - Ces presets sont cohérents avec PLANNING_VIEW_PRESETS_BY_KEY pour
+ *     permettre à terme une unification (shape identique, scope différent).
+ */
+export const PLANNING_VIEW_PRESETS_GLOBAL = [
+  {
+    key:         'global_mois',
+    label:       'Mois — tous projets',
+    description: 'Calendrier mois avec tous les projets agrégés',
+    icon:        'Calendar',
+    kind:        'calendar_month',
+    config: {
+      filters: {
+        typeIds: [], typeCategories: [], typeSlugs: [],
+        lotIds: [], memberIds: [], statusMember: [],
+        projectIds: [], search: '',
+      },
+      groupBy: null,
+      sortBy:  { field: 'starts_at', direction: 'asc' },
+      hiddenFields: [],
+      showWeekends: true,
+    },
+  },
+  {
+    key:         'global_gantt_3m',
+    label:       'Gantt 3 mois',
+    description: 'Timeline par lot sur 90 jours, tous projets confondus',
+    icon:        'GanttChart',
+    kind:        'timeline',
+    config: {
+      filters: {
+        typeIds: [], typeCategories: [], typeSlugs: [],
+        lotIds: [], memberIds: [], statusMember: [],
+        projectIds: [], search: '',
+      },
+      groupBy: 'lot',
+      sortBy:  { field: 'starts_at', direction: 'asc' },
+      hiddenFields: [],
+      showWeekends: true,
+      windowDays:  90,
+      zoomLevel:   'week',
+      density:     'compact',
+      showTodayLine: true,
+    },
+  },
+  {
+    key:         'global_tournages',
+    label:       'Tournages à venir',
+    description: 'Timeline des tournages sur 60 jours (tous projets)',
+    icon:        'GanttChart',
+    kind:        'timeline',
+    config: {
+      filters: {
+        typeIds: [], typeSlugs: [],
+        typeCategories: ['tournage'],
+        lotIds: [], memberIds: [], statusMember: [],
+        projectIds: [], search: '',
+      },
+      groupBy: 'member',
+      sortBy:  { field: 'starts_at', direction: 'asc' },
+      hiddenFields: [],
+      showWeekends: true,
+      windowDays:  60,
+      zoomLevel:   'day',
+      density:     'comfortable',
+      showTodayLine: true,
+    },
+  },
+  {
+    key:         'global_kanban_type',
+    label:       'Kanban par type',
+    description: 'Kanban multi-projets groupé par type d\u2019événement',
+    icon:        'Kanban',
+    kind:        'kanban',
+    config: {
+      filters: {
+        typeIds: [], typeCategories: [], typeSlugs: [],
+        lotIds: [], memberIds: [], statusMember: [],
+        projectIds: [], search: '',
+      },
+      groupBy: 'type',
+      sortBy:  { field: 'starts_at', direction: 'asc' },
+      hiddenFields: [],
+      showWeekends: true,
+    },
+  },
+]
+
+/** Lookup O(1) par clé de preset global. */
+export const PLANNING_VIEW_PRESETS_GLOBAL_BY_KEY = Object.fromEntries(
+  PLANNING_VIEW_PRESETS_GLOBAL.map((p) => [p.key, p]),
+)
+
+/**
  * Retourne la config par défaut pour un kind donné.
  * Shape non strict — les champs inconnus sont conservés tels quels.
  */
@@ -729,6 +832,11 @@ export function defaultViewConfig(kind) {
       lotIds: [],
       memberIds: [],
       statusMember: [],
+      // Filtre par projet (PG-3). N'a d'effet que pour les vues où les events
+      // peuvent venir de plusieurs projets (typiquement PlanningGlobal). Au
+      // niveau d'un PlanningTab de projet, tous les events ont le même
+      // project_id donc ce filtre est neutre.
+      projectIds: [],
       search: '',
     },
     groupBy: null,
@@ -796,9 +904,15 @@ export const BUILTIN_PLANNING_VIEWS = [
 
 /**
  * Liste les vues planning accessibles pour un projet donné.
- * - Inclut les vues de l'org globales (project_id NULL) et celles du projet.
+ * - Scope strictement **projet** : on ne remonte QUE les vues de `project_id`.
+ *   Les vues globales (project_id NULL) vivent sur `/planning` depuis PG-4 et
+ *   ne doivent pas polluer la liste des vues projet (sinon : doublons
+ *   « Mois + Mois », « Jour + Jour », etc. quand l'utilisateur a déjà créé
+ *   des vues globales de même nom via /planning — régression 2026-04-19).
  * - Le RLS filtre déjà les vues privées (seul le créateur les voit).
- * - Si aucune vue DB n'existe pour le projet, renvoie les BUILTIN_PLANNING_VIEWS.
+ * - Si aucune vue DB n'existe pour le projet, renvoie les BUILTIN_PLANNING_VIEWS
+ *   (Mois / Semaine / Jour non persistés ; la première personnalisation
+ *   déclenche une création DB côté appelant via createPlanningView).
  *
  * @param {string} projectId
  * @returns {Promise<Array<Object>>}
@@ -808,26 +922,46 @@ export async function listPlanningViews(projectId) {
   const { data, error } = await supabase
     .from('planning_views')
     .select('*')
-    .or(`project_id.eq.${projectId},project_id.is.null`)
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true })
     .order('name', { ascending: true })
   if (error) throw error
   const list = data || []
-  // Aucune vue DB → fallback builtin (non persisté ; la première personnalisation
-  // crée la vue en DB côté appelant).
-  if (!list.some((v) => v.project_id === projectId)) {
-    return [...BUILTIN_PLANNING_VIEWS, ...list]
-  }
+  // Aucune vue DB pour ce projet → fallback builtin (non persisté).
+  if (list.length === 0) return [...BUILTIN_PLANNING_VIEWS]
   return list
 }
 
 /**
- * Crée une nouvelle vue pour un projet.
- * `is_shared` par défaut à true (visible par toute l'org).
- * `config` fusionné avec la config par défaut du kind pour éviter les trous.
+ * Liste les vues planning globales de l'org (scope=global, project_id NULL).
+ * Utilisé par PlanningGlobal (vue cross-projets à /planning).
+ * Si aucune vue globale DB n'existe, renvoie les BUILTIN_PLANNING_VIEWS.
+ *
+ * @returns {Promise<Array<Object>>}
+ */
+export async function listGlobalPlanningViews() {
+  const { data, error } = await supabase
+    .from('planning_views')
+    .select('*')
+    .is('project_id', null)
+    .order('sort_order', { ascending: true })
+    .order('name', { ascending: true })
+  if (error) throw error
+  const list = data || []
+  // Aucune vue globale en DB → fallback builtin (non persisté ; la première
+  // personnalisation crée la vue en DB côté appelant).
+  if (list.length === 0) return [...BUILTIN_PLANNING_VIEWS]
+  return list
+}
+
+/**
+ * Crée une nouvelle vue pour un projet ou globale.
+ * - `project_id` peut être `null` pour une vue globale (scope org).
+ * - `is_shared` par défaut à true (visible par toute l'org).
+ * - `config` fusionné avec la config par défaut du kind pour éviter les trous.
  *
  * @param {Object} payload
- * @param {string} payload.project_id
+ * @param {string|null} payload.project_id  null = vue globale
  * @param {string} payload.org_id
  * @param {string} payload.name
  * @param {string} payload.kind
@@ -839,14 +973,16 @@ export async function listPlanningViews(projectId) {
  * @param {number}  [payload.sort_order]
  */
 export async function createPlanningView(payload) {
-  if (!payload?.project_id) throw new Error('project_id requis')
+  // project_id est nullable (scope global), mais doit être présent dans le payload
+  // pour distinguer "vue globale" (null explicite) d'"oubli" (undefined).
+  if (!('project_id' in (payload || {}))) throw new Error('project_id requis (null pour vue globale)')
   if (!payload?.org_id)     throw new Error('org_id requis')
   if (!payload?.kind || !PLANNING_VIEW_KINDS[payload.kind]) {
     throw new Error(`kind invalide: ${payload?.kind}`)
   }
   const row = {
     org_id:     payload.org_id,
-    project_id: payload.project_id,
+    project_id: payload.project_id ?? null,
     name:       payload.name || PLANNING_VIEW_KINDS[payload.kind].label,
     kind:       payload.kind,
     config:     { ...defaultViewConfig(payload.kind), ...(payload.config || {}) },
@@ -927,8 +1063,10 @@ export async function deletePlanningView(id) {
  */
 export async function duplicatePlanningView(source, overrides = {}) {
   if (!source) throw new Error('source requise')
+  // Utiliser 'in' plutôt que ?? pour permettre un override explicite à null
+  // (ex. duplicate builtin vers global : { project_id: null }).
   const payload = {
-    project_id: overrides.project_id ?? source.project_id,
+    project_id: 'project_id' in overrides ? overrides.project_id : (source.project_id ?? null),
     org_id:     overrides.org_id     ?? source.org_id,
     name:       overrides.name       ?? `${source.name || PLANNING_VIEW_KINDS[source.kind]?.label || 'Vue'} (copie)`,
     kind:       source.kind,
@@ -1016,6 +1154,7 @@ export function filterEventsByConfig(events, config) {
   const lotIds         = Array.isArray(filters.lotIds) ? filters.lotIds : []
   const memberIds      = Array.isArray(filters.memberIds) ? filters.memberIds : []
   const statuses       = Array.isArray(filters.statusMember) ? filters.statusMember : []
+  const projectIds     = Array.isArray(filters.projectIds) ? filters.projectIds : []
   const search         = normalizeSearch(filters.search || '')
 
   // Tous les filtres sont "no-op" si leur liste est vide (ou search vide).
@@ -1027,9 +1166,17 @@ export function filterEventsByConfig(events, config) {
   const hasLotFilter    = lotIds.length > 0
   const hasMemberFilter = memberIds.length > 0
   const hasStatusFilter = statuses.length > 0
+  const hasProjectFilter = projectIds.length > 0
   const hasSearch       = search.length > 0
 
-  if (!hasAnyTypeFilter && !hasLotFilter && !hasMemberFilter && !hasStatusFilter && !hasSearch) {
+  if (
+    !hasAnyTypeFilter &&
+    !hasLotFilter &&
+    !hasMemberFilter &&
+    !hasStatusFilter &&
+    !hasProjectFilter &&
+    !hasSearch
+  ) {
     return list
   }
 
@@ -1039,10 +1186,19 @@ export function filterEventsByConfig(events, config) {
   const lotSet     = new Set(lotIds)
   const memberSet  = new Set(memberIds)
   const statusSet  = new Set(statuses)
+  const projectSet = new Set(projectIds)
   // Convention : '__none__' dans lotIds = événements sans lot (lot_id null).
   const includeNullLot = lotSet.has('__none__')
 
   return list.filter((ev) => {
+    if (hasProjectFilter) {
+      // project_id est toujours défini (NOT NULL en base). On cherche soit sur
+      // ev.project_id, soit sur ev.project?.id si la relation a été expansée
+      // (listEventsAcrossOrg fait l'un OU l'autre selon la colonne DB).
+      const projectId = ev.project_id ?? ev.project?.id ?? null
+      if (!projectId || !projectSet.has(projectId)) return false
+    }
+
     if (hasAnyTypeFilter) {
       // OR entre les 3 sous-filtres type : un match sur n'importe lequel suffit.
       const matchId   = hasTypeIdFilter   && typeIdSet.has(ev.type_id)
@@ -1187,11 +1343,11 @@ export function groupEventsByConfig(events, config) {
  * `eventSortValue` ci-dessous pour éviter de dupliquer la logique.
  */
 export const SORTABLE_EVENT_FIELDS = [
+  { key: 'title',        label: 'Titre' },
+  { key: 'type',         label: 'Type' },
   { key: 'starts_at',    label: 'Début' },
   { key: 'ends_at',      label: 'Fin' },
-  { key: 'title',        label: 'Titre' },
   { key: 'duration',     label: 'Durée' },
-  { key: 'type',         label: 'Type' },
   { key: 'lot',          label: 'Lot' },
   { key: 'location',     label: 'Lieu' },
   { key: 'member_count', label: 'Nb équipe' },

@@ -6,7 +6,7 @@
  *        filtre par lot.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Calendar as CalendarIcon } from 'lucide-react'
+import { Plus, Calendar as CalendarIcon, Share2 } from 'lucide-react'
 import { notify } from '../../lib/notify'
 import { useProjet } from '../ProjetLayout'
 import MonthCalendar from '../../features/planning/MonthCalendar'
@@ -19,6 +19,7 @@ import PlanningViewActionModal from '../../features/planning/PlanningViewActionM
 import PlanningTableView from '../../features/planning/PlanningTableView'
 import PlanningKanbanView from '../../features/planning/PlanningKanbanView'
 import PlanningTimelineView from '../../features/planning/PlanningTimelineView'
+import ICalExportDrawer from '../../features/planning/ICalExportDrawer'
 import LotScopeSelector from '../../components/LotScopeSelector'
 import { useBreakpoint } from '../../hooks/useBreakpoint'
 import {
@@ -48,6 +49,7 @@ import {
   addMonths,
   daysToIsoRange,
   fmtDateLongFR,
+  fmtShortRangeFR,
   fmtWeekRangeFR,
   getConsecutiveDays,
   getWeekDays,
@@ -69,9 +71,14 @@ function viewModeFromKind(kind) {
   return KIND_TO_VIEWMODE[kind] || 'month'
 }
 
-function storageKeyForProject(projectId) {
-  return projectId ? `captiv:planning:activeView:${projectId}` : null
-}
+// NB: l'ancien stockage localStorage (`captiv:planning:activeView:{projectId}`)
+// restaurait la dernière vue consultée par projet. On l'a retiré (avril 2026)
+// pour que l'onglet Planning ouvre toujours sur la vue marquée `is_default`
+// (par défaut : Mois). Rationale : les utilisateurs perçoivent Planning comme
+// une "page" et attendent un point d'entrée stable — pas une vue contextuelle
+// qui dépend de leur dernière interaction. Si un jour on veut réactiver la
+// persistance, la conserver via sessionStorage (pas localStorage) serait moins
+// intrusif : elle se reset au prochain onglet/session.
 
 /**
  * Retourne `baseName`, ou `baseName 2`, `baseName 3`, … si le nom est déjà
@@ -109,6 +116,10 @@ export default function PlanningTab() {
   // Forme : { mode: 'rename' | 'delete', view: PlanningView, busy: boolean }
   const [viewActionModal, setViewActionModal] = useState(null)
 
+  // Drawer "Exporter en iCal" — PL-8 v1. Ouverture via le bouton Share2 dans
+  // la toolbar. Les tokens sont scopés au projet courant.
+  const [icalDrawerOpen, setIcalDrawerOpen] = useState(false)
+
   const activeView = useMemo(
     () => views.find((v) => v.id === activeViewId) || views[0] || BUILTIN_PLANNING_VIEWS[0],
     [views, activeViewId],
@@ -138,6 +149,28 @@ export default function PlanningTab() {
     ? (Number.isFinite(activeView?.config?.windowDays) ? activeView.config.windowDays : 30)
     : 0
 
+  // Vue Semaine responsive : 3 jours sur mobile, 5 sur tablet (Mon–Ven),
+  // 7 jours classiques sur desktop. Objectif : événements lisibles sur les
+  // petits écrans sans chips tronqués à 4 caractères (cf. UI review avril
+  // 2026). Nav prev/next shifte d'autant de jours que la taille de vue.
+  const weekDaysCount = bp.isMobile ? 3 : bp.isTablet ? 5 : 7
+
+  // Jours effectivement affichés dans la vue timeline (week/day).
+  // - Week mobile : 3 jours consécutifs à partir de `currentDate`
+  //   (fenêtre glissante, pas d'ancrage lundi sur mobile)
+  // - Week tablet : 5 jours à partir du lundi (Mon–Ven)
+  // - Week desktop : 7 jours Mon–Sun (comportement historique)
+  // - Day : 1 jour
+  const timelineDays = useMemo(() => {
+    if (viewMode === 'week') {
+      if (weekDaysCount === 3) return getConsecutiveDays(currentDate, 3)
+      if (weekDaysCount === 5) return getWeekDays(currentDate).slice(0, 5)
+      return getWeekDays(currentDate)
+    }
+    if (viewMode === 'day') return getConsecutiveDays(currentDate, 1)
+    return []
+  }, [viewMode, currentDate, weekDaysCount])
+
   const windowRange = useMemo(() => {
     // Table view : plage large ±6 mois autour de `currentDate` pour donner
     // une vue d'ensemble sans charger toute la base.
@@ -161,14 +194,14 @@ export default function PlanningTab() {
       gridEnd.setDate(gridEnd.getDate() + 42)
       return { from: gridStart.toISOString(), to: gridEnd.toISOString() }
     }
-    if (viewMode === 'week') {
-      const days = getWeekDays(currentDate)
-      return daysToIsoRange(days)
+    if (viewMode === 'week' || viewMode === 'day') {
+      // La plage de fetch suit exactement les jours affichés — sur mobile
+      // semaine (3 jours) on ne fetch donc pas la semaine entière ; en
+      // contrepartie chaque nav prev/next re-fetch, ce qui reste marginal.
+      return daysToIsoRange(timelineDays)
     }
-    // day
-    const days = getConsecutiveDays(currentDate, 1)
-    return daysToIsoRange(days)
-  }, [currentDate, viewMode, activeView?.kind])
+    return { from: null, to: null }
+  }, [currentDate, viewMode, activeView?.kind, timelineDays])
 
   // ── Chargement des types d'événements & lieux (une fois) ─────────────────
   useEffect(() => {
@@ -198,16 +231,24 @@ export default function PlanningTab() {
       const next = (list && list.length) ? list : [...BUILTIN_PLANNING_VIEWS]
       setViews(next)
 
-      // Sélection initiale : localStorage → vue par défaut → première vue
-      const storageKey = storageKeyForProject(projectId)
-      const saved = storageKey ? localStorage.getItem(storageKey) : null
-      const savedExists = saved && next.some((v) => v.id === saved)
-      if (savedExists) {
-        setActiveViewId(saved)
-      } else {
-        const defaultView = next.find((v) => v.is_default) || next[0]
-        setActiveViewId(defaultView?.id || null)
-      }
+      // Sélection initiale (avril 2026) : on priorise toujours une vue de kind
+      // `calendar_month` (= "Mois"). Rationale produit : les utilisateurs
+      // attendent un point d'entrée stable et "calendaire" sur Planning, pas
+      // une vue Kanban ou Table qui dépend du dernier `is_default` sauvegardé.
+      // Ordre de priorité :
+      //   1. Une vue kind=calendar_month (généralement "Mois" seedée ou créée
+      //      manuellement). S'il y en a plusieurs, on prend celle is_default,
+      //      sinon la première dans l'ordre de sort_order.
+      //   2. La vue marquée is_default=true (cas où Mois a été supprimé).
+      //   3. La première vue du tableau (fallback ultime).
+      // localStorage a été retiré (cf. commentaire devant storageKeyForProject).
+      const monthViews = next.filter((v) => v.kind === 'calendar_month')
+      const defaultView =
+        monthViews.find((v) => v.is_default) ||
+        monthViews[0] ||
+        next.find((v) => v.is_default) ||
+        next[0]
+      setActiveViewId(defaultView?.id || null)
     } catch (e) {
       console.error('[Planning] load views:', e)
       // En cas d'erreur (RLS, offline, …) on tombe sur les built-ins pour
@@ -219,13 +260,9 @@ export default function PlanningTab() {
 
   useEffect(() => { loadViews() }, [loadViews])
 
-  // Persiste la sélection en local (par projet) pour retrouver la vue après
-  // un reload ou un aller-retour entre onglets.
-  useEffect(() => {
-    const storageKey = storageKeyForProject(projectId)
-    if (!storageKey || !activeViewId) return
-    try { localStorage.setItem(storageKey, activeViewId) } catch { /* ignore */ }
-  }, [projectId, activeViewId])
+  // La persistance localStorage de la vue active a été supprimée (avril 2026).
+  // L'onglet Planning ouvre toujours sur la vue `is_default` — voir loadViews
+  // ci-dessus et le commentaire devant storageKeyForProject pour le rationale.
 
   function handleSelectView(view) {
     if (!view?.id) return
@@ -608,11 +645,13 @@ export default function PlanningTab() {
   )
 
   // ── Navigation adaptée à la vue courante ─────────────────────────────────
+  // Pour la vue Semaine, on shift du nombre de jours affichés (3/5/7 selon bp).
+  // Ainsi sur mobile on avance/recule par fenêtre de 3 jours, sans saut brutal.
   function goPrev() {
     setCurrentDate((d) => {
       if (isGanttKind) return addDays(d, -timelineWindowDays)
       if (viewMode === 'month') return addMonths(d, -1)
-      if (viewMode === 'week')  return addDays(d, -7)
+      if (viewMode === 'week') return addDays(d, -weekDaysCount)
       return addDays(d, -1)
     })
   }
@@ -620,8 +659,8 @@ export default function PlanningTab() {
     setCurrentDate((d) => {
       if (isGanttKind) return addDays(d, timelineWindowDays)
       if (viewMode === 'month') return addMonths(d, +1)
-      if (viewMode === 'week')  return addDays(d, +7)
-      return addDays(d, +1)
+      if (viewMode === 'week') return addDays(d, weekDaysCount)
+      return addDays(d, 1)
     })
   }
   function goToday() { setCurrentDate(new Date()) }
@@ -647,6 +686,44 @@ export default function PlanningTab() {
     setEditorInitialDate(date)
     setEditorOpen(true)
   }
+
+  // Handler dédié clic sur un jour dans la vue Mois (avril 2026).
+  // Ancien comportement : ouvrir l'éditeur pour créer un event sur ce jour.
+  // Nouveau : basculer vers la vue "Jour" (kind=calendar_day) ciblée sur la
+  // date cliquée. Pattern mobile : la Mois sert de vue d'ensemble, la Jour
+  // sert de vue détail — tap sur un jour = zoom.
+  // La création d'un event reste accessible via le bouton "+" en header, ou
+  // en tapant un créneau horaire une fois dans la vue Jour.
+  // Fallback : si l'utilisateur a supprimé toutes les vues de kind
+  // calendar_day, on retombe sur l'ancien comportement (ouvre l'éditeur).
+  function handleMonthDayClick(date) {
+    if (!date) return
+    const d = startOfDay(date instanceof Date ? date : new Date(date))
+    if (!Number.isFinite(d.getTime())) return
+    const dayView = views.find((v) => v.kind === 'calendar_day')
+    if (dayView) {
+      setCurrentDate(d)
+      setActiveViewId(dayView.id)
+    } else {
+      handleDayOrSlotClick(d)
+    }
+  }
+
+  // Handler clic sur un en-tête de jour dans la vue Semaine.
+  // Même pattern que handleMonthDayClick : on zoome vers la vue Jour centrée
+  // sur la date cliquée. Utile surtout sur mobile où seuls 3 jours sont
+  // visibles ; permet d'accéder au détail d'un jour en un tap.
+  function handleWeekDayClick(date) {
+    if (!date) return
+    const d = startOfDay(date instanceof Date ? date : new Date(date))
+    if (!Number.isFinite(d.getTime())) return
+    const dayView = views.find((v) => v.kind === 'calendar_day')
+    if (dayView) {
+      setCurrentDate(d)
+      setActiveViewId(dayView.id)
+    }
+    // Fallback : pas de vue Jour disponible → on reste sur Semaine.
+  }
   function handleNewEvent() {
     setEditingEvent(null)
     const today = new Date()
@@ -666,6 +743,26 @@ export default function PlanningTab() {
       initDate.setHours(9, 0, 0, 0)
     }
     setEditorInitialDate(initDate)
+    setEditorOpen(true)
+  }
+
+  // Handler "+" d'une colonne Kanban : crée un event pré-rempli avec le champ
+  // correspondant au groupement (type_id / lot_id / location_id) pour éviter
+  // à l'utilisateur de re-choisir la colonne dans l'éditeur.
+  // On passe l'info via un "event synthétique" (sans id/_master_id) → le modal
+  // détecte isNew=true mais lit typeId/lotId/locationId depuis nos valeurs.
+  function handleAddEventInColumn(groupBy, colKey) {
+    if (!groupBy) return
+    const field = GROUP_BY_FIELD_MAP[groupBy]
+    if (!field) return
+    // 'Sans type' refusé côté DB (type_id NOT NULL).
+    if (groupBy === 'type' && colKey === '__null__') return
+    const value = colKey === '__null__' ? null : colKey
+    const synthetic = { [field]: value }
+    setEditingEvent(synthetic)
+    // On garde initDate sur today-dans-la-fenêtre — cohérent avec handleNewEvent.
+    const today = new Date()
+    setEditorInitialDate(today)
     setEditorOpen(true)
   }
 
@@ -780,26 +877,27 @@ export default function PlanningTab() {
   }
 
   const noTypes = !loading && eventTypes.length === 0
-  const timelineDays = viewMode === 'week'
-    ? getWeekDays(currentDate)
-    : viewMode === 'day'
-      ? getConsecutiveDays(currentDate, 1)
-      : []
-  const timelineLabel = viewMode === 'week'
-    ? fmtWeekRangeFR(currentDate)
-    : viewMode === 'day'
-      ? fmtDateLongFR(currentDate)
-      : ''
+  // timelineDays est déjà calculé en useMemo plus haut (responsive 3/5/7).
+  // Le label suit la même logique : format court sur mobile/tablet (moins
+  // de place dans le header), format complet sur desktop.
+  const timelineLabel =
+    viewMode === 'week'
+      ? (weekDaysCount < 7 ? fmtShortRangeFR(timelineDays) : fmtWeekRangeFR(currentDate))
+      : viewMode === 'day'
+        ? fmtDateLongFR(currentDate)
+        : ''
 
   // Adapte le sélecteur de scope au contrat attendu par LotScopeSelector
   const lotsForSelector = activeLots.map((l) => ({ id: l.id, title: l.title || 'Lot' }))
 
   return (
     <div className="p-3 sm:p-4 md:p-6 flex flex-col gap-3 md:gap-4 h-full">
-      {/* Header — sur mobile : stack vertical (title + controls), plus de sous-titre.
-          Sur tablette+ : row avec titre à gauche, controls à droite. */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+      {/* Header — toujours en row (mobile & desktop) : titre + icône à gauche,
+          controls (sélecteur de vue + "+") serrés à droite.
+          Le sous-titre est masqué en mobile pour éviter de pousser les controls
+          à la ligne — cf. UI review avril 2026. */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
             style={{ background: 'var(--blue-bg)' }}
@@ -807,7 +905,7 @@ export default function PlanningTab() {
             <CalendarIcon className="w-4 h-4" style={{ color: 'var(--blue)' }} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+            <h1 className="text-base font-bold truncate" style={{ color: 'var(--txt)' }}>
               Planning
             </h1>
             {/* Sous-titre caché sur mobile pour gagner de la place verticale */}
@@ -817,7 +915,7 @@ export default function PlanningTab() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 shrink-0">
           {/* View switcher (PL-3.5 : sélecteur de vues multi-lentilles) */}
           <PlanningViewSelector
             views={views}
@@ -831,6 +929,21 @@ export default function PlanningTab() {
             onOpenConfig={handleOpenConfig}
             compact={bp.isMobile}
           />
+
+          {/* Exporter en iCal (PL-8 v1) — icon-only, ouvre le drawer. Masqué
+              tant que le projet n'est pas chargé (pas d'org_id). */}
+          {project?.org_id && (
+            <button
+              type="button"
+              onClick={() => setIcalDrawerOpen(true)}
+              aria-label="Exporter en iCal"
+              title="Exporter en iCal"
+              className="p-2 rounded-lg shrink-0 hover:bg-[var(--bg-elev)]"
+              style={{ color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Nouveau event : icon-only sur mobile, full label sur sm+ */}
           <button
@@ -880,7 +993,8 @@ export default function PlanningTab() {
             events={visibleEvents}
             conflicts={conflicts}
             onEventClick={handleEventClick}
-            onDayClick={handleDayOrSlotClick}
+            /* Clic sur un jour → bascule vers la vue Jour (cf. handler). */
+            onDayClick={handleMonthDayClick}
             onEventMove={handleEventMove}
             onPrev={goPrev}
             onNext={goNext}
@@ -898,6 +1012,10 @@ export default function PlanningTab() {
             onSlotClick={handleDayOrSlotClick}
             onEventMove={handleEventMove}
             onEventResize={handleEventResize}
+            /* Tap sur un en-tête de jour (vue Semaine uniquement) →
+               bascule vers la vue Jour. Pas de handler en vue Jour :
+               on y est déjà. */
+            onDayClick={viewMode === 'week' ? handleWeekDayClick : undefined}
             onPrev={goPrev}
             onNext={goNext}
             onToday={goToday}
@@ -929,6 +1047,7 @@ export default function PlanningTab() {
             onEventClick={handleEventClick}
             onMoveCard={handleMoveCard}
             onOpenConfig={() => setConfigDrawerOpen(true)}
+            onAddEventInColumn={handleAddEventInColumn}
           />
         )}
 
@@ -998,6 +1117,16 @@ export default function PlanningTab() {
           </div>
         )}
       </div>
+
+      {/* Drawer "Exporter en iCal" (PL-8 v1) */}
+      <ICalExportDrawer
+        open={icalDrawerOpen}
+        onClose={() => setIcalDrawerOpen(false)}
+        scope="project"
+        projectId={projectId}
+        projectTitle={project?.title}
+        orgId={project?.org_id}
+      />
 
       {/* Modale édition */}
       {editorOpen && (

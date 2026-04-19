@@ -32,11 +32,15 @@ import { useBreakpoint } from '../../hooks/useBreakpoint'
 
 const DRAG_THRESHOLD_PX = 4
 
-// Dimensions adaptatives par breakpoint. Sur mobile la grille 6×7 reste visible
-// mais on serre les lanes et on affiche une seule barre par cellule.
+// Dimensions adaptatives par breakpoint.
+// Mobile (UI review v2, avril 2026) : on est passé 1 → 3 lanes (trop tassé,
+// texte à 10px illisible) puis on recule à 2 lanes plus confortables. Chaque
+// chip fait 20px de haut au lieu de 15 → on gagne ~33% d'espace texte et on
+// peut passer à text-[11px] avec padding décent. Le "+N" pill absorbe le 3e
+// event et au-delà → l'info n'est jamais perdue, juste d'un tap de distance.
 const DIMENSIONS = {
-  mobile:  { maxLanes: 1, minH: 62, laneH: 16, laneTop: 22 },
-  tablet:  { maxLanes: 2, minH: 90, laneH: 18, laneTop: 26 },
+  mobile:  { maxLanes: 2, minH: 80,  laneH: 20, laneTop: 24 },
+  tablet:  { maxLanes: 2, minH: 90,  laneH: 18, laneTop: 26 },
   desktop: { maxLanes: 3, minH: 110, laneH: 20, laneTop: 28 },
 }
 
@@ -166,7 +170,7 @@ export default function MonthCalendar({
 
   return (
     <div
-      className="flex flex-col rounded-2xl overflow-hidden"
+      className="flex flex-col rounded-2xl overflow-hidden h-full"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
     >
       {/* ── Header navigation ─────────────────────────────────────────────── */}
@@ -253,7 +257,7 @@ export default function MonthCalendar({
           return (
             <div
               key={`row-${row.rowIdx}`}
-              className="relative grid grid-cols-7"
+              className="relative grid grid-cols-7 flex-1"
               style={{ minHeight: `${dims.minH}px` }}
             >
               {/* ── Background : 7 cases du jour ───────────────────────── */}
@@ -311,25 +315,27 @@ export default function MonthCalendar({
                       style={{ minHeight: `${LANE_HEIGHT_PX * MAX_LANES_PER_ROW}px` }}
                     />
 
-                    {/* Overflow — sur mobile : simple point discret en bas à
-                        droite (l'utilisateur ouvrira la vue jour/semaine pour
-                        détail). Sur tablette+ : "+N autres" complet. */}
+                    {/* Overflow — pastille "+N" contrastée en bas-droite de
+                        la cellule. Clic sur la cellule (onDayClick) ouvre le
+                        créateur/la modale jour → l'utilisateur peut voir les
+                        events cachés dans une vue dédiée. Pattern Google
+                        Calendar : le "+N more" est toujours visible et sert
+                        d'ancre de survol/clic. */}
                     {overflow > 0 && (
-                      bp.isMobile ? (
-                        <span
-                          aria-label={`${overflow} événement${overflow > 1 ? 's' : ''} de plus`}
-                          title={`+${overflow}`}
-                          className="self-end w-1 h-1 rounded-full mt-auto mr-0.5"
-                          style={{ background: 'var(--txt-3)' }}
-                        />
-                      ) : (
-                        <span
-                          className="text-[10px] px-1 sm:px-1.5"
-                          style={{ color: 'var(--txt-3)' }}
-                        >
-                          +{overflow} autre{overflow > 1 ? 's' : ''}
-                        </span>
-                      )
+                      <span
+                        aria-label={`${overflow} événement${overflow > 1 ? 's' : ''} de plus`}
+                        title={`+${overflow} événement${overflow > 1 ? 's' : ''} masqué${overflow > 1 ? 's' : ''}`}
+                        className="self-end mt-auto inline-flex items-center justify-center text-[9px] sm:text-[10px] font-semibold rounded-full px-1.5 leading-none"
+                        style={{
+                          background: 'var(--bg-elev)',
+                          color: 'var(--txt-2)',
+                          border: '1px solid var(--brd-sub)',
+                          height: '16px',
+                          minWidth: '20px',
+                        }}
+                      >
+                        +{overflow}
+                      </span>
                     )}
                   </div>
                 )
@@ -353,8 +359,11 @@ export default function MonthCalendar({
                   const ev = bar.event
                   const startD = new Date(ev.starts_at)
                   // Heure affichée seulement au début réel de l'événement
-                  // (segment qui ne continue pas à gauche)
-                  const showTime = !ev.all_day && !bar.continuesLeft
+                  // (segment qui ne continue pas à gauche) ET en desktop/tablet.
+                  // Sur mobile, on masque l'heure pour libérer la place du
+                  // titre (pattern Google Calendar mobile — l'heure reste
+                  // accessible dans la modale de détail au tap).
+                  const showTime = !ev.all_day && !bar.continuesLeft && !bp.isMobile
                   const timeLabel = showTime
                     ? `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')} `
                     : ''
@@ -383,15 +392,26 @@ export default function MonthCalendar({
                         if (isCommittedDrag) return
                         onEventClick && onEventClick(ev)
                       }}
-                      className="absolute text-left text-[11px] px-1.5 py-[2px] truncate transition"
+                      className="absolute text-left text-[11px] font-semibold px-1.5 py-[1px] truncate transition"
                       style={{
-                        left: `calc(${leftPct}% + 4px)`,
-                        width: `calc(${widthPct}% - 8px)`,
+                        left: `calc(${leftPct}% + 3px)`,
+                        width: `calc(${widthPct}% - 6px)`,
                         top: `${topPx}px`,
                         height: `${LANE_HEIGHT_PX - 2}px`,
-                        background: `${color}22`,
+                        lineHeight: `${LANE_HEIGHT_PX - 4}px`,
+                        // Chip "Google-style" contrasté : fond teinté ~33%
+                        // opacité (hex `55`) pour bien sortir du fond sombre.
+                        // Mobile : pas de bordure gauche → +2px de titre.
+                        // Desktop/tablet : bordure 2px conservée pour marquer
+                        // le début d'un event (sauf s'il vient de la semaine
+                        // précédente via bar.continuesLeft).
+                        background: `${color}55`,
                         color,
-                        borderLeft: bar.continuesLeft ? `0 solid ${color}` : `3px solid ${color}`,
+                        borderLeft: bp.isMobile
+                          ? 'none'
+                          : bar.continuesLeft
+                            ? `0 solid ${color}`
+                            : `2px solid ${color}`,
                         borderTopLeftRadius: radiusLeft,
                         borderBottomLeftRadius: radiusLeft,
                         borderTopRightRadius: radiusRight,

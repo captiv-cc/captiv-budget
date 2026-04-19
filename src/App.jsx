@@ -19,6 +19,7 @@ import DevisPublic from './pages/DevisPublic'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
+import PlanningGlobal from './pages/PlanningGlobal'
 
 // ─── Groupes de rôles (alias lisibles pour les gardes) ──────────────────────
 const ROLES_FINANCE = ['admin', 'charge_prod'] // /compta, /dashboard global, /parametres admin
@@ -97,6 +98,11 @@ function AppRoutes() {
 
         {/* Projets — accessible à tous (prestataire voit uniquement les siens, RLS côté ch3B) */}
         <Route path="projets" element={<Projets />} />
+
+        {/* Planning global (PG-1) — vue cross-projets. RLS côté events
+            filtre les accès : chacun voit les events des projets où il est
+            membre. Pas de garde de rôle : accessible à tous les users. */}
+        <Route path="planning" element={<PlanningGlobal />} />
 
         {/* Base de données — réservé interne (pas prestataire) */}
         <Route

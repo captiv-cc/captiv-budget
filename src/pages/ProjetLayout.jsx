@@ -1,6 +1,20 @@
 /**
  * ProjetLayout — Layout partagé pour toutes les vues d'un projet
- * Banner KPI en haut + navigation par onglets
+ *
+ * Structure (refonte UI-1, avril 2026) :
+ *
+ *   ┌──────────────┬────────────────────────────────────────┐
+ *   │ ProjectSide- │  Banner (breadcrumb + titre + status) │
+ *   │ Nav          │  ─────────────────────────────────────│
+ *   │ (onglets     │                                        │
+ *   │  verticaux   │  Outlet — contenu de l'onglet         │
+ *   │  groupés)    │                                        │
+ *   └──────────────┴────────────────────────────────────────┘
+ *
+ * La sidebar projet remplace l'ancienne tab bar horizontale : les 10 onglets
+ * sont groupés en 5 sections thématiques (voir ProjectSideNav.jsx). Sur
+ * mobile (<640px) elle bascule en drawer, déclenché par l'icône hamburger du
+ * banner.
  */
 import {
   useState,
@@ -16,6 +30,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { notify } from '../lib/notify'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
+import useBreakpoint from '../hooks/useBreakpoint'
 import { calcSynthese, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
 import { pickRefDevis, groupDevisByLot, computeLotStatus } from '../lib/lots'
@@ -32,8 +47,11 @@ import {
   Clapperboard,
   CheckSquare,
   Shield,
+  Menu,
 } from 'lucide-react'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
+import ProjectSideNav from '../components/ProjectSideNav'
+import { buildGlobalNavSections } from '../lib/globalNav'
 
 // ─── Contexte projet partagé entre les onglets ────────────────────────────────
 const ProjetContext = createContext(null)
@@ -117,7 +135,7 @@ const ALL_TABS = [
 export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
-  const { _org, canSeeFinance, isPrestataire, isAdmin, isChargeProd } = useAuth()
+  const { _org, canSeeFinance, isPrestataire, isAdmin, isChargeProd, isInternal } = useAuth()
 
   // Permissions par projet (chantier 3B) : chargées depuis project_access +
   // project_access_permissions via Supabase
@@ -316,6 +334,32 @@ export default function ProjetLayout() {
   const isDevisEditor =
     location.pathname.includes('/devis/') && pathSegments[pathSegments.length - 1] !== 'devis'
 
+  // Raccourci vers l'éditeur si un seul devis sur le projet (mono-lot mono-version).
+  // Sinon on tombe sur la liste (accordéon par lot).
+  const singleDevisHref =
+    devisList.length === 1 ? `/projets/${id}/devis/${devisList[0].id}` : null
+
+  // Breakpoint : drawer mobile (<640px), sidebar inline au-delà
+  const bp = useBreakpoint()
+  const isMobile = bp.isMobile
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Sections de nav globale à afficher dans le drawer mobile uniquement
+  // (Accueil, Projets, BDD, Finance, Admin). En desktop la sidebar globale
+  // 64px à gauche remplit ce rôle → on passe null au composant non-mobile.
+  // useMemo car buildGlobalNavSections renvoie un nouveau tableau à chaque
+  // appel, et on ne veut pas recréer la référence à chaque render.
+  const globalNavSections = useMemo(
+    () => buildGlobalNavSections({ isInternal, canSeeFinance, isAdmin }),
+    [isInternal, canSeeFinance, isAdmin],
+  )
+
+  // Referme le drawer au changement d'onglet (sécurité si ProjectSideNav n'a pas
+  // intercepté le clic — ex: navigation programmatique ou history back).
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [location.pathname])
+
   if (loading || permLoading)
     return (
       <div className="flex items-center justify-center h-full">
@@ -343,131 +387,151 @@ export default function ProjetLayout() {
 
   return (
     <ProjetContext.Provider value={ctx}>
-      <div className={`flex flex-col ${isDevisEditor ? 'h-screen overflow-hidden' : 'min-h-full'}`}>
-        {/* ── Banner (sticky) ─────────────────────────────────────────────── */}
+      <div className={`flex ${isDevisEditor ? 'h-screen overflow-hidden' : 'min-h-full'}`}>
+        {/* ── Sidebar latérale projet (desktop/tablet inline) ─────────────── */}
+        {!isMobile && (
+          <ProjectSideNav
+            projectId={id}
+            tabs={TABS}
+            activeTab={activeTab}
+            devisCount={devisList.length}
+            singleDevisHref={singleDevisHref}
+          />
+        )}
+
+        {/* ── Colonne droite : banner + contenu ───────────────────────────── */}
         <div
-          ref={bannerRef}
-          className="text-white shrink-0"
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 40,
-            background: 'linear-gradient(135deg, var(--bg-side) 0%, var(--bg-surf) 100%)',
-            borderBottom: '1px solid var(--brd)',
-          }}
+          className={`flex flex-col flex-1 min-w-0 ${
+            isDevisEditor ? 'overflow-hidden' : ''
+          }`}
         >
-          <div className="px-5 py-3 flex items-center justify-between">
-            {/* Gauche : breadcrumb + identité projet */}
-            <div className="flex items-center gap-4 min-w-0">
-              <Link
-                to="/projets"
-                className="flex items-center gap-1 text-slate-400 hover:text-white text-xs transition-colors shrink-0"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                Projets
-              </Link>
+          {/* Banner sticky (breadcrumb + titre + status) */}
+          <div
+            ref={bannerRef}
+            className="text-white shrink-0"
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 40,
+              background: 'linear-gradient(135deg, var(--bg-side) 0%, var(--bg-surf) 100%)',
+              borderBottom: '1px solid var(--brd)',
+            }}
+          >
+            <div className="px-5 py-3 flex items-center justify-between gap-3">
+              {/* Gauche : hamburger (mobile) + breadcrumb + identité projet */}
+              <div className="flex items-center gap-3 min-w-0">
+                {isMobile && (
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(true)}
+                    aria-label="Ouvrir le menu du projet"
+                    className="flex items-center justify-center rounded-md shrink-0"
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      color: 'var(--txt-2)',
+                      background: 'var(--bg-hov)',
+                      border: '1px solid var(--brd-sub)',
+                    }}
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+                )}
 
-              <div className="w-px h-8 bg-slate-600 shrink-0" />
+                {/* Logo captiv. mobile — cohérence cross-pages : le top bar de
+                    Layout.jsx (pages hors projet) affiche aussi [burger + logo].
+                    En projet on empile ensuite le titre + status badge à droite,
+                    ce qui donne : [☰] captiv. <titre> [statut]. Caché en ≥sm
+                    car la sidebar globale 64px porte déjà le logo. */}
+                <img
+                  src="/captiv-logo.png"
+                  alt="CAPTIV DESK"
+                  className="sm:hidden shrink-0"
+                  style={{
+                    maxHeight: '20px',
+                    width: 'auto',
+                    height: 'auto',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
 
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {project?.clients?.nom_commercial && (
-                    <span className="text-slate-400 text-xs truncate">{project.clients.nom_commercial}</span>
-                  )}
-                  {project?.clients?.nom_commercial && <span className="text-slate-600 text-xs">·</span>}
-                  <h1 className="text-sm font-bold text-white truncate">{project?.title || '—'}</h1>
-                  {project?.ref_projet && (
-                    <span className="text-xs text-slate-400 font-mono">{project.ref_projet}</span>
-                  )}
-                  {project && (
-                    <StatusBadgeMenu
-                      project={project}
-                      onChange={updateStatus}
-                      canEdit={isAdmin || isChargeProd}
-                      align="left"
-                    />
+                {/* Retour Projets + separator + meta (client/ref) → cachés sous sm :
+                    sur mobile l'espace est précieux et le drawer contient déjà
+                    un lien direct vers /projets. On garde juste hamburger + logo
+                    + titre + status badge sur une seule ligne. */}
+                <Link
+                  to="/projets"
+                  className="hidden sm:flex items-center gap-1 text-slate-400 hover:text-white text-xs transition-colors shrink-0"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Projets
+                </Link>
+
+                <div className="hidden sm:block w-px h-8 bg-slate-600 shrink-0" />
+
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {project?.clients?.nom_commercial && (
+                      <span className="hidden sm:inline text-slate-400 text-xs truncate">
+                        {project.clients.nom_commercial}
+                      </span>
+                    )}
+                    {project?.clients?.nom_commercial && (
+                      <span className="hidden sm:inline text-slate-600 text-xs">·</span>
+                    )}
+                    <h1 className="text-sm font-bold text-white truncate">{project?.title || '—'}</h1>
+                    {project?.ref_projet && (
+                      <span className="hidden sm:inline text-xs text-slate-400 font-mono">
+                        {project.ref_projet}
+                      </span>
+                    )}
+                    {project && (
+                      <StatusBadgeMenu
+                        project={project}
+                        onChange={updateStatus}
+                        canEdit={isAdmin || isChargeProd}
+                        align="left"
+                      />
+                    )}
+                  </div>
+                  {project?.type_projet && (
+                    <p className="hidden sm:block text-xs text-slate-500 mt-0.5">
+                      {project.type_projet}
+                    </p>
                   )}
                 </div>
-                {project?.type_projet && (
-                  <p className="text-xs text-slate-500 mt-0.5">{project.type_projet}</p>
-                )}
               </div>
+
+              {/* KPIs header supprimés — les infos budget/marge/versions
+                  sont déjà visibles dans les onglets Devis et Budget Réel.
+                  Les onglets ont migré vers la sidebar latérale (chantier UI-1). */}
             </div>
-
-            {/* KPIs header supprimés — les infos budget/marge/versions
-                sont déjà visibles dans les onglets Devis et Budget Réel */}
           </div>
 
-          {/* ── Navigation onglets ──────────────────────────────────────── */}
-          <div
-            className="flex items-end px-5 gap-0.5"
-            style={{ borderTop: '1px solid var(--brd-sub)' }}
-          >
-            {TABS.map((tab) => {
-              const Icon = tab.icon
-              const isActive = tab.key === activeTab
-              // Onglet Devis : raccourci direct vers l'éditeur uniquement s'il
-              // n'existe qu'un seul devis dans tout le projet (cas mono-lot
-              // mono-version). Sinon on tombe sur la liste (accordéon par lot)
-              // pour laisser l'utilisateur choisir.
-              const singleDevis =
-                tab.key === 'devis' && devisList.length === 1 ? devisList[0] : null
-              const tabHref = singleDevis
-                ? `/projets/${id}/devis/${singleDevis.id}`
-                : `/projets/${id}/${tab.path}`
-              return (
-                <Link
-                  key={tab.key}
-                  to={tabHref}
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all duration-150 whitespace-nowrap border-b-2"
-                  style={
-                    isActive
-                      ? {
-                          borderColor: 'var(--blue)',
-                          color: 'var(--blue)',
-                          background: 'var(--blue-bg)',
-                        }
-                      : { borderColor: 'transparent', color: 'var(--txt-3)' }
-                  }
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.color = 'var(--txt-2)'
-                      e.currentTarget.style.borderColor = 'var(--brd)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.color = 'var(--txt-3)'
-                      e.currentTarget.style.borderColor = 'transparent'
-                    }
-                  }}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {tab.label}
-                  {tab.key === 'devis' && devisList.length > 0 && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-                      style={
-                        isActive
-                          ? { background: 'var(--blue)', color: 'white' }
-                          : { background: 'var(--bg-elev)', color: 'var(--txt-2)' }
-                      }
-                    >
-                      {devisList.length}
-                    </span>
-                  )}
-                </Link>
-              )
-            })}
+          {/* ── Contenu de l'onglet ──────────────────────────────────────── */}
+          <div className={`flex-1 min-w-0 ${isDevisEditor ? 'overflow-hidden flex flex-col' : ''}`}>
+            <Outlet context={ctx} />
           </div>
         </div>
 
-        {/* ── Contenu de l'onglet ──────────────────────────────────────────── */}
-        <div
-          className={`flex-1 ${isDevisEditor ? 'overflow-hidden flex flex-col' : ''}`}
-        >
-          <Outlet context={ctx} />
-        </div>
+        {/* ── Drawer mobile (overlay) ─────────────────────────────────────── */}
+        {/* On injecte globalNavSections : en mobile la sidebar globale 64px
+            est cachée (cf. Layout.jsx), donc le drawer est le seul endroit où
+            l'utilisateur peut rejoindre Accueil / Projets / BDD / Finance. */}
+        {isMobile && (
+          <ProjectSideNav
+            projectId={id}
+            tabs={TABS}
+            activeTab={activeTab}
+            devisCount={devisList.length}
+            singleDevisHref={singleDevisHref}
+            isMobile
+            drawerOpen={drawerOpen}
+            onCloseDrawer={() => setDrawerOpen(false)}
+            globalNavSections={globalNavSections}
+          />
+        )}
       </div>
     </ProjetContext.Provider>
   )

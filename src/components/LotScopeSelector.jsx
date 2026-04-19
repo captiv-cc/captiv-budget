@@ -45,13 +45,17 @@ export default function LotScopeSelector({
     })),
   )
 
+  // Mobile : scroll horizontal (avec barre cachée, pattern "swipe chips") pour
+  // que les lots longs (ex: "Réseaux Sociaux") ne tronquent pas et ne poussent
+  // pas en flex-wrap. Desktop : on garde flex-wrap classique car l'espace
+  // horizontal est suffisant.
   return (
     <div
-      className={`flex items-center gap-1 rounded-xl p-1 flex-wrap ${className}`}
+      className={`flex items-center gap-1 rounded-xl p-1 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible ${className} captiv-no-scrollbar`}
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
     >
       <span
-        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wider shrink-0"
         style={{ color: 'var(--txt-3)' }}
       >
         <Layers className="w-3 h-3" />
@@ -65,7 +69,7 @@ export default function LotScopeSelector({
             key={it.id}
             type="button"
             onClick={() => onChange(it.id)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 whitespace-nowrap"
             style={{
               background: active ? 'var(--bg-elev)' : 'transparent',
               color: active ? 'var(--txt)' : 'var(--txt-3)',

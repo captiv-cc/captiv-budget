@@ -97,6 +97,17 @@
     background: var(--bg-elev);
     color: var(--txt);
   }
+
+  /* Masque visuellement la scrollbar (utilisé sur les rangées de chips
+     scrollables horizontalement en mobile, ex: LotScopeSelector). Le scroll
+     reste fonctionnel — c'est juste la barre qui disparaît. */
+  .captiv-no-scrollbar {
+    scrollbar-width: none;       /* Firefox */
+    -ms-overflow-style: none;    /* IE / legacy Edge */
+  }
+  .captiv-no-scrollbar::-webkit-scrollbar {
+    display: none;               /* Chrome / Safari / WebKit */
+  }
 }
 
 /* ─── Components ─────────────────────────────────────────────────────────── */

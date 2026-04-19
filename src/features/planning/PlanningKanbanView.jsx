@@ -15,18 +15,29 @@
  * champ scalaire simple à muter : ils passent par event_members). Un
  * fallback explicatif est affiché à la place du board.
  *
+ * Responsive (2026-04) :
+ *   - Desktop/tablet : scroll horizontal classique, drag & drop HTML5.
+ *   - Mobile (<640px) : barre de tabs sticky en haut (une colonne à la fois),
+ *     les cartes exposent un menu "⋯ Déplacer vers…" qui remplace le drag
+ *     (HTML5 drag ne marche pas en tactile).
+ *   - Le menu Déplacer est aussi disponible sur desktop (utile clavier/souris
+ *     sans drag).
+ *   - Chaque header de colonne expose un "+" qui crée un event pré-rempli
+ *     avec le groupBy de la colonne (via onAddEventInColumn).
+ *
  * Props :
- *   - events       : Array<Event>  (déjà filtrés par le parent)
- *   - groupBy      : string | null
- *   - eventTypes   : Array<EventType>
- *   - lots         : Array<Lot>
- *   - locations    : Array<Location>
- *   - conflicts    : Map<eventKey, conflicts>
- *   - onEventClick : (event) => void
- *   - onMoveCard   : (event, groupBy, nextKey) => void|Promise
- *   - onOpenConfig : () => void  (optionnel, CTA vers le drawer)
+ *   - events              : Array<Event>  (déjà filtrés par le parent)
+ *   - groupBy             : string | null
+ *   - eventTypes          : Array<EventType>
+ *   - lots                : Array<Lot>
+ *   - locations           : Array<Location>
+ *   - conflicts           : Map<eventKey, conflicts>
+ *   - onEventClick        : (event) => void
+ *   - onMoveCard          : (event, groupBy, nextKey) => void|Promise
+ *   - onOpenConfig        : () => void  (optionnel, CTA vers le drawer)
+ *   - onAddEventInColumn  : (groupBy, colKey) => void  (optionnel, "+" colonne)
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Users as UsersIcon,
@@ -34,6 +45,9 @@ import {
   MapPin,
   LayoutGrid,
   Settings as SettingsIcon,
+  MoreHorizontal,
+  Plus as PlusIcon,
+  ArrowRightLeft,
 } from 'lucide-react'
 import {
   groupEventsByConfig,
@@ -44,9 +58,9 @@ import {
 } from '../../lib/planning'
 import { useBreakpoint } from '../../hooks/useBreakpoint'
 
-// Largeur de colonne Kanban par breakpoint. Les valeurs intermédiaires (tablet)
-// cherchent le compromis lisibilité/densité ; le scroll horizontal est le mode
-// principal de navigation sur mobile (avec scroll-snap sur les colonnes).
+// Largeur de colonne Kanban par breakpoint (utilisé pour le scroll horizontal
+// desktop/tablet uniquement — sur mobile les colonnes sont plein largeur via
+// les tabs).
 const COLUMN_WIDTH = { mobile: 260, tablet: 280, desktop: 300 }
 
 // ── Helpers de formatage ────────────────────────────────────────────────────
@@ -119,6 +133,7 @@ export default function PlanningKanbanView({
   onEventClick,
   onMoveCard,
   onOpenConfig,
+  onAddEventInColumn,
 }) {
   const [dragKey, setDragKey] = useState(null)          // eventKey de la carte en cours de drag
   const [dragOverCol, setDragOverCol] = useState(null)  // groupKey de la colonne survolée
@@ -143,6 +158,7 @@ export default function PlanningKanbanView({
   }, [locations])
 
   const droppable = Boolean(groupBy && GROUP_BY_FIELD_MAP[groupBy])
+  const canAddInColumn = Boolean(droppable && onAddEventInColumn)
 
   // Colonnes triées : libellé alpha, avec les "Sans valeur" en fin
   const columns = useMemo(() => {
@@ -164,6 +180,18 @@ export default function PlanningKanbanView({
     })
     return out
   }, [events, groupBy, typeMap, lotMap, locationMap])
+
+  // Tab actif en mode mobile — doit rester valide si les colonnes changent.
+  const [activeColKey, setActiveColKey] = useState(null)
+  useEffect(() => {
+    if (columns.length === 0) {
+      if (activeColKey !== null) setActiveColKey(null)
+      return
+    }
+    if (!columns.some((c) => c.key === activeColKey)) {
+      setActiveColKey(columns[0].key)
+    }
+  }, [columns, activeColKey])
 
   // ── Empty states ──────────────────────────────────────────────────────────
   if (!groupBy) {
@@ -193,7 +221,7 @@ export default function PlanningKanbanView({
     )
   }
 
-  // ── Drag & drop handlers ──────────────────────────────────────────────────
+  // ── Drag & drop handlers (desktop) ────────────────────────────────────────
   function handleDragStart(e, ev, fromColKey) {
     const key = eventKey(ev)
     setDragKey(key)
@@ -242,108 +270,342 @@ export default function PlanningKanbanView({
     onMoveCard(moved, groupBy, toColKey)
   }
 
-  // ── Rendu ─────────────────────────────────────────────────────────────────
-  return (
-    <div
-      className="h-full overflow-x-auto overflow-y-hidden rounded-xl"
-      style={{
-        background: 'var(--bg-surf)',
-        border: '1px solid var(--brd)',
-        // Scroll-snap mobile : les colonnes se caleront sur le début du scroller
-        // pour retrouver le "flick → colonne suivante" familier.
-        scrollSnapType: bp.isMobile ? 'x mandatory' : 'none',
-        WebkitOverflowScrolling: 'touch',
-      }}
-    >
-      <div className="h-full flex items-stretch gap-2 sm:gap-3 p-2 sm:p-3 min-w-max">
-        {columns.length === 0 ? (
+  // Handler commun utilisé par le menu "⋯ Déplacer vers" (hors DnD)
+  function handleMoveViaMenu(ev, toColKey) {
+    if (!onMoveCard || !ev) return
+    if (groupBy === 'type' && toColKey === '__null__') return
+    onMoveCard(ev, groupBy, toColKey)
+  }
+
+  function handleAddInCol(colKey) {
+    if (!canAddInColumn) return
+    // Le type_id est obligatoire → on n'ouvre pas l'éditeur avec "Sans type"
+    if (groupBy === 'type' && colKey === '__null__') return
+    onAddEventInColumn(groupBy, colKey)
+  }
+
+  const isEmpty = columns.length === 0
+
+  // ── Rendu mobile : tabs + une colonne à la fois ─────────────────────────
+  if (bp.isMobile) {
+    const activeCol = columns.find((c) => c.key === activeColKey) || columns[0]
+    return (
+      <div
+        className="h-full flex flex-col rounded-xl overflow-hidden"
+        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      >
+        {isEmpty ? (
           <div
             className="flex-1 flex items-center justify-center text-sm"
             style={{ color: 'var(--txt-3)' }}
           >
             Aucun événement ne correspond aux filtres de cette vue.
           </div>
-        ) : columns.map((col) => {
-          const isOver = dragOverCol === col.key && dragKey
-          const rejectsDrop = groupBy === 'type' && col.key === '__null__'
-          return (
-            <div
-              key={col.key}
-              className="flex flex-col rounded-lg shrink-0 transition"
-              style={{
-                width: columnWidth,
-                maxHeight: '100%',
-                background: isOver ? 'var(--bg-elev)' : 'transparent',
-                border: `1px dashed ${isOver ? 'var(--blue)' : 'transparent'}`,
-                scrollSnapAlign: bp.isMobile ? 'start' : 'none',
-              }}
-              onDragOver={(e) => !rejectsDrop && handleDragOver(e, col.key)}
-              onDragLeave={() => handleDragLeave(col.key)}
-              onDrop={(e) => !rejectsDrop && handleDrop(e, col.key)}
-            >
-              {/* Header */}
-              <div
-                className="flex items-center gap-2 px-2 py-1.5 rounded-t-lg"
-                style={{
-                  background: 'var(--bg-elev)',
-                  borderBottom: '1px solid var(--brd)',
-                }}
-              >
-                {col.color && (
-                  <span
-                    className="inline-block w-2 h-2 rounded-full shrink-0"
-                    style={{ background: col.color }}
-                    aria-hidden
-                  />
-                )}
-                <span
-                  className="text-xs font-medium truncate"
-                  style={{ color: 'var(--txt)' }}
-                  title={col.label}
-                >
-                  {col.label}
-                </span>
-                <span
-                  className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ background: 'var(--bg-surf)', color: 'var(--txt-3)' }}
-                >
-                  {col.events.length}
-                </span>
-              </div>
-
-              {/* Cartes */}
-              <div
-                className="flex-1 overflow-y-auto p-2 flex flex-col gap-2"
-                style={{ minHeight: 60 }}
-              >
-                {col.events.length === 0 ? (
-                  <div
-                    className="text-[11px] italic text-center py-4"
-                    style={{ color: 'var(--txt-3)' }}
-                  >
-                    {rejectsDrop
-                      ? 'Le type est obligatoire'
-                      : 'Déposer une carte ici'}
-                  </div>
-                ) : col.events.map((ev) => (
-                  <KanbanCard
-                    key={eventKey(ev)}
-                    event={ev}
-                    colKey={col.key}
-                    dragging={dragKey === eventKey(ev)}
-                    typeMap={typeMap}
-                    lotMap={lotMap}
-                    locationMap={locationMap}
-                    conflicts={conflicts}
-                    onEventClick={onEventClick}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                  />
-                ))}
-              </div>
+        ) : (
+          <>
+            <MobileTabsBar
+              columns={columns}
+              activeKey={activeCol?.key}
+              onChange={setActiveColKey}
+            />
+            <div className="flex-1 min-h-0 flex flex-col">
+              {activeCol && (
+                <KanbanColumn
+                  column={activeCol}
+                  groupBy={groupBy}
+                  allColumns={columns}
+                  bp={bp}
+                  isMobile
+                  columnWidth={null}
+                  typeMap={typeMap}
+                  lotMap={lotMap}
+                  locationMap={locationMap}
+                  conflicts={conflicts}
+                  dragKey={dragKey}
+                  dragOverCol={dragOverCol}
+                  onEventClick={onEventClick}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onMoveViaMenu={handleMoveViaMenu}
+                  onAddInCol={canAddInColumn ? handleAddInCol : null}
+                />
+              )}
             </div>
-          )
-        })}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Rendu desktop/tablet : scroll horizontal ────────────────────────────
+  return (
+    <div
+      className="h-full overflow-x-auto overflow-y-hidden rounded-xl"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      <div className="h-full flex items-stretch gap-2 sm:gap-3 p-2 sm:p-3 min-w-max">
+        {isEmpty ? (
+          <div
+            className="flex-1 flex items-center justify-center text-sm"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Aucun événement ne correspond aux filtres de cette vue.
+          </div>
+        ) : columns.map((col) => (
+          <KanbanColumn
+            key={col.key}
+            column={col}
+            groupBy={groupBy}
+            allColumns={columns}
+            bp={bp}
+            isMobile={false}
+            columnWidth={columnWidth}
+            typeMap={typeMap}
+            lotMap={lotMap}
+            locationMap={locationMap}
+            conflicts={conflicts}
+            dragKey={dragKey}
+            dragOverCol={dragOverCol}
+            onEventClick={onEventClick}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onMoveViaMenu={handleMoveViaMenu}
+            onAddInCol={canAddInColumn ? handleAddInCol : null}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Mobile : barre de tabs scrollable ───────────────────────────────────────
+
+function MobileTabsBar({ columns, activeKey, onChange }) {
+  const scrollerRef = useRef(null)
+  const activeTabRef = useRef(null)
+
+  // Auto-scroll pour garder le tab actif visible quand on change de colonne.
+  useEffect(() => {
+    if (!activeTabRef.current || !scrollerRef.current) return
+    const tab = activeTabRef.current
+    const scroller = scrollerRef.current
+    const tabLeft = tab.offsetLeft
+    const tabRight = tabLeft + tab.offsetWidth
+    const viewLeft = scroller.scrollLeft
+    const viewRight = viewLeft + scroller.clientWidth
+    if (tabLeft < viewLeft) {
+      scroller.scrollTo({ left: Math.max(0, tabLeft - 12), behavior: 'smooth' })
+    } else if (tabRight > viewRight) {
+      scroller.scrollTo({ left: tabRight - scroller.clientWidth + 12, behavior: 'smooth' })
+    }
+  }, [activeKey])
+
+  return (
+    <div
+      ref={scrollerRef}
+      className="shrink-0 flex items-center gap-1 overflow-x-auto px-2 py-2"
+      style={{
+        background: 'var(--bg-elev)',
+        borderBottom: '1px solid var(--brd)',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'none', // firefox
+      }}
+    >
+      {columns.map((col) => {
+        const isActive = col.key === activeKey
+        return (
+          <button
+            key={col.key}
+            ref={isActive ? activeTabRef : null}
+            type="button"
+            onClick={() => onChange(col.key)}
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition"
+            style={{
+              background: isActive ? 'var(--bg-surf)' : 'transparent',
+              color: isActive ? 'var(--txt)' : 'var(--txt-2)',
+              border: `1px solid ${isActive ? 'var(--brd)' : 'transparent'}`,
+            }}
+            aria-pressed={isActive}
+          >
+            {col.color && (
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ background: col.color }}
+                aria-hidden
+              />
+            )}
+            <span className="whitespace-nowrap">{col.label}</span>
+            <span
+              className="text-[10px] px-1 rounded"
+              style={{
+                background: isActive ? 'var(--bg-elev)' : 'var(--bg-surf)',
+                color: 'var(--txt-3)',
+              }}
+            >
+              {col.events.length}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Colonne Kanban (réutilisée mobile + desktop) ───────────────────────────
+
+function KanbanColumn({
+  column,
+  groupBy,
+  allColumns,
+  bp,
+  isMobile,
+  columnWidth,
+  typeMap,
+  lotMap,
+  locationMap,
+  conflicts,
+  dragKey,
+  dragOverCol,
+  onEventClick,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onMoveViaMenu,
+  onAddInCol,
+}) {
+  const col = column
+  const isOver = dragOverCol === col.key && dragKey
+  const rejectsDrop = groupBy === 'type' && col.key === '__null__'
+  const canAdd = onAddInCol && !rejectsDrop
+
+  return (
+    <div
+      className="flex flex-col rounded-lg transition"
+      style={{
+        width: isMobile ? '100%' : columnWidth,
+        flex: isMobile ? '1 1 auto' : '0 0 auto',
+        minHeight: 0,
+        maxHeight: '100%',
+        background: isOver ? 'var(--bg-elev)' : 'transparent',
+        border: `1px dashed ${isOver ? 'var(--blue)' : 'transparent'}`,
+        scrollSnapAlign: !isMobile && bp.isMobile ? 'start' : 'none',
+      }}
+      onDragOver={(e) => !rejectsDrop && onDragOver(e, col.key)}
+      onDragLeave={() => onDragLeave(col.key)}
+      onDrop={(e) => !rejectsDrop && onDrop(e, col.key)}
+    >
+      {/* Header — caché sur mobile (la tab bar le remplace), gardé desktop */}
+      {!isMobile && (
+        <div
+          className="flex items-center gap-2 px-2 py-1.5 rounded-t-lg"
+          style={{
+            background: 'var(--bg-elev)',
+            borderBottom: '1px solid var(--brd)',
+          }}
+        >
+          {col.color && (
+            <span
+              className="inline-block w-2 h-2 rounded-full shrink-0"
+              style={{ background: col.color }}
+              aria-hidden
+            />
+          )}
+          <span
+            className="text-xs font-medium truncate"
+            style={{ color: 'var(--txt)' }}
+            title={col.label}
+          >
+            {col.label}
+          </span>
+          <span
+            className="ml-auto text-[10px] px-1.5 py-0.5 rounded"
+            style={{ background: 'var(--bg-surf)', color: 'var(--txt-3)' }}
+          >
+            {col.events.length}
+          </span>
+          {canAdd && (
+            <button
+              type="button"
+              onClick={() => onAddInCol(col.key)}
+              className="shrink-0 p-1 rounded transition hover:bg-[var(--bg-surf)]"
+              style={{ color: 'var(--txt-2)' }}
+              title={`Ajouter un événement dans "${col.label}"`}
+              aria-label={`Ajouter un événement dans ${col.label}`}
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Barre d'action mobile (le titre est déjà dans la tab) */}
+      {isMobile && canAdd && (
+        <div
+          className="flex items-center justify-end px-2 py-1.5"
+          style={{ borderBottom: '1px solid var(--brd)' }}
+        >
+          <button
+            type="button"
+            onClick={() => onAddInCol(col.key)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            <PlusIcon className="w-3 h-3" />
+            <span>Ajouter dans « {col.label} »</span>
+          </button>
+        </div>
+      )}
+
+      {/* Cartes */}
+      <div
+        className="flex-1 overflow-y-auto p-2 flex flex-col gap-2"
+        style={{ minHeight: 60 }}
+      >
+        {col.events.length === 0 ? (
+          <div
+            className="text-[11px] italic text-center py-4"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            {rejectsDrop
+              ? 'Le type est obligatoire'
+              : isMobile
+                ? 'Aucune carte dans cette colonne'
+                : 'Déposer une carte ici'}
+          </div>
+        ) : col.events.map((ev) => (
+          <KanbanCard
+            key={eventKey(ev)}
+            event={ev}
+            colKey={col.key}
+            groupBy={groupBy}
+            allColumns={allColumns}
+            dragging={dragKey === eventKey(ev)}
+            typeMap={typeMap}
+            lotMap={lotMap}
+            locationMap={locationMap}
+            conflicts={conflicts}
+            onEventClick={onEventClick}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            onMoveViaMenu={onMoveViaMenu}
+          />
+        ))}
       </div>
     </div>
   )
@@ -354,6 +616,8 @@ export default function PlanningKanbanView({
 function KanbanCard({
   event,
   colKey,
+  groupBy,
+  allColumns,
   dragging,
   typeMap,
   lotMap,
@@ -362,6 +626,7 @@ function KanbanCard({
   onEventClick,
   onDragStart,
   onDragEnd,
+  onMoveViaMenu,
 }) {
   const type = event.type_id ? typeMap[event.type_id] : null
   const lot = event.lot_id ? lotMap[event.lot_id] : null
@@ -372,6 +637,57 @@ function KanbanCard({
   const hasConflict = conflicts && conflicts.get(eventKey(event))?.length > 0
   const color = event.color_override || type?.color || 'var(--txt-3)'
 
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuAnchorRef = useRef(null)
+  const menuPanelRef = useRef(null)
+
+  // Fermeture du menu au click outside (mousedown) ou ESC
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    function onDown(e) {
+      if (menuAnchorRef.current?.contains(e.target)) return
+      if (menuPanelRef.current?.contains(e.target)) return
+      setMenuOpen(false)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('touchstart', onDown, { passive: true })
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('touchstart', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  // Autres colonnes (cibles du déplacement) — on exclut la colonne actuelle
+  // et 'Sans type' si le groupBy = type (champ NOT NULL en DB).
+  const moveTargets = useMemo(() => {
+    return (allColumns || []).filter((c) => {
+      if (c.key === colKey) return false
+      if (groupBy === 'type' && c.key === '__null__') return false
+      return true
+    })
+  }, [allColumns, colKey, groupBy])
+
+  const canMove = Boolean(onMoveViaMenu && moveTargets.length > 0)
+
+  function handleCardClick(e) {
+    // Si on clique sur le menu "⋯" ou son panneau, on n'ouvre pas l'event.
+    if (menuAnchorRef.current?.contains(e.target)) return
+    if (menuPanelRef.current?.contains(e.target)) return
+    onEventClick?.(event)
+  }
+
+  function handleCardKey(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onEventClick?.(event)
+    }
+  }
+
   return (
     <div
       role="button"
@@ -379,15 +695,11 @@ function KanbanCard({
       draggable
       onDragStart={(e) => onDragStart(e, event, colKey)}
       onDragEnd={onDragEnd}
-      onClick={() => onEventClick?.(event)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onEventClick?.(event)
-        }
-      }}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKey}
       className="rounded-md p-2 cursor-grab active:cursor-grabbing transition hover:shadow-sm"
       style={{
+        position: 'relative',
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
         borderLeft: `3px solid ${color}`,
@@ -407,6 +719,24 @@ function KanbanCard({
             style={{ color: 'var(--red)' }}
             aria-label="Conflit équipe"
           />
+        )}
+        {canMove && (
+          <button
+            ref={menuAnchorRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen((v) => !v)
+            }}
+            className="shrink-0 -mr-1 -mt-0.5 p-0.5 rounded hover:bg-[var(--bg-elev)] transition"
+            style={{ color: 'var(--txt-3)' }}
+            title="Plus d'actions"
+            aria-label="Plus d'actions"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </button>
         )}
       </div>
 
@@ -464,6 +794,55 @@ function KanbanCard({
           </span>
         )}
       </div>
+
+      {/* Menu "Déplacer vers…" */}
+      {menuOpen && canMove && (
+        <div
+          ref={menuPanelRef}
+          role="menu"
+          className="absolute z-30 right-1 top-7 min-w-[160px] max-w-[220px] rounded-md py-1 shadow-lg"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="px-2 py-1 text-[10px] uppercase tracking-wide inline-flex items-center gap-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            <ArrowRightLeft className="w-3 h-3" />
+            Déplacer vers
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {moveTargets.map((target) => (
+              <button
+                key={target.key}
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMenuOpen(false)
+                  onMoveViaMenu(event, target.key)
+                }}
+                className="w-full text-left inline-flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-[var(--bg-surf)] transition"
+                style={{ color: 'var(--txt)' }}
+              >
+                {target.color ? (
+                  <span
+                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                    style={{ background: target.color }}
+                    aria-hidden
+                  />
+                ) : (
+                  <span className="inline-block w-2 h-2 shrink-0" aria-hidden />
+                )}
+                <span className="truncate flex-1">{target.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

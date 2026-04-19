@@ -13,9 +13,15 @@
  *   - locations   : tableau des lieux (optionnel — fallback texte libre)
  *   - onClose     : fn()
  *   - onSaved     : fn() — appelé après sauvegarde réussie
+ *   - projectLink : { label: string, to: string } — optionnel. Affiche un
+ *                   lien "Voir dans le projet →" sous le titre du modal.
+ *                   Utilisé depuis le Planning global (PG-1) où l'user a
+ *                   cliqué sur un event depuis une vue cross-projets et
+ *                   veut pouvoir atterrir sur le planning du projet parent.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { X, Trash2, FileText, Users, AlertTriangle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { X, Trash2, FileText, Users, AlertTriangle, Pencil, ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { notify } from '../../lib/notify'
 import {
   createEvent,
@@ -41,6 +47,7 @@ export default function EventEditorModal({
   locations = [],
   onClose,
   onSaved,
+  projectLink = null,
 }) {
   // Un "event" venant du planning peut être une occurrence virtuelle (métadonnées
   // _master_id / _occurrence_key / _is_occurrence / _recurring). On doit utiliser
@@ -83,6 +90,70 @@ export default function EventEditorModal({
   // Onglets Infos / Équipe (les membres ne sont accessibles qu'en édition)
   const [activeTab, setActiveTab] = useState('info')
   const [members, setMembers] = useState(event?.members || [])
+
+  // Mode vue/édition. On ouvre en "vue" pour un événement existant (lecture
+  // rapide au tap), et directement en "édition" pour une création. Un bouton
+  // "Modifier" bascule en édition ; "Annuler" en édition restaure les valeurs
+  // initiales et revient en vue.
+  const [mode, setMode] = useState(isNew ? 'edit' : 'view')
+
+  // Snapshot des valeurs initiales — utilisé pour restaurer le formulaire
+  // quand on annule l'édition sans enregistrer.
+  const initialValuesRef = useRef({
+    title: event?.title || '',
+    typeId: event?.type_id || availableTypes[0]?.id || '',
+    lotId: event?.lot_id || '',
+    allDay: Boolean(event?.all_day),
+    startsAt: initStarts,
+    endsAt: initEnds,
+    locationId: event?.location_id || '',
+    description: event?.description || '',
+    rrule: event?.rrule || null,
+  })
+
+  function enterEditMode() {
+    setConfirmDelete(false)
+    setMode('edit')
+  }
+
+  function cancelEdit() {
+    // Sur une création, pas de mode vue à regagner → on ferme.
+    if (isNew) {
+      onClose()
+      return
+    }
+    const iv = initialValuesRef.current
+    setTitle(iv.title)
+    setTypeId(iv.typeId)
+    setLotId(iv.lotId)
+    setAllDay(iv.allDay)
+    setStartsAt(iv.startsAt)
+    setEndsAt(iv.endsAt)
+    setLocationId(iv.locationId)
+    setDescription(iv.description)
+    setRrule(iv.rrule)
+    setScope(isVirtualOccurrence ? 'this' : 'all')
+    setConfirmDelete(false)
+    setMode('view')
+  }
+
+  // Lookups pour l'affichage read-only
+  const selectedType = useMemo(
+    () =>
+      eventTypes.find((t) => t.id === typeId) ||
+      availableTypes.find((t) => t.id === typeId) ||
+      null,
+    [eventTypes, availableTypes, typeId],
+  )
+  const selectedLot = useMemo(
+    () => lots.find((l) => l.id === lotId) || null,
+    [lots, lotId],
+  )
+  const selectedLocation = useMemo(
+    () => locations.find((l) => l.id === locationId) || null,
+    [locations, locationId],
+  )
+  const rruleSummary = rrule ? describeRrule(rrule) : null
 
   // ── Détection de conflits équipe (PL-3) ──────────────────────────────────
   // On charge les autres événements du projet autour de la plage éditée pour
@@ -309,12 +380,36 @@ export default function EventEditorModal({
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-3 sm:px-5 py-3 sm:py-4"
+          className="flex items-center justify-between px-3 sm:px-5 py-3 sm:py-4 gap-2"
           style={{ borderBottom: '1px solid var(--brd-sub)' }}
         >
-          <h3 className="text-base font-semibold truncate pr-2" style={{ color: 'var(--txt)' }}>
-            {isNew ? 'Nouvel événement' : "Modifier l'événement"}
-          </h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold truncate pr-2" style={{ color: 'var(--txt)' }}>
+              {isNew
+                ? 'Nouvel événement'
+                : mode === 'view'
+                  ? "Détails de l'événement"
+                  : "Modifier l'événement"}
+            </h3>
+            {/* Lien vers le planning du projet parent — rendu uniquement si la
+                page appelante l'a fourni (typiquement PlanningGlobal). onClick
+                ferme d'abord le modal pour éviter un double overlay si on
+                navigue vers la même page. */}
+            {projectLink?.to && (
+              <Link
+                to={projectLink.to}
+                onClick={onClose}
+                className="inline-flex items-center gap-1 text-[11px] mt-0.5 truncate hover:underline"
+                style={{ color: 'var(--blue)' }}
+              >
+                <ExternalLink className="w-3 h-3 shrink-0" />
+                <span className="truncate">
+                  Voir dans&nbsp;
+                  {projectLink.label ? `« ${projectLink.label} »` : 'le projet'}
+                </span>
+              </Link>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -361,6 +456,20 @@ export default function EventEditorModal({
               members={members}
               conflictingIdentities={conflictingIdentities}
               onMutated={reloadMembers}
+            />
+          ) : mode === 'view' ? (
+            <ViewInfo
+              title={title}
+              type={selectedType}
+              lot={selectedLot}
+              allDay={allDay}
+              startsAt={startsAt}
+              endsAt={endsAt}
+              location={selectedLocation}
+              description={description}
+              rruleSummary={rruleSummary}
+              isRecurring={isRecurring}
+              isVirtualOccurrence={isVirtualOccurrence}
             />
           ) : (
           <>
@@ -583,27 +692,55 @@ export default function EventEditorModal({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium"
-              style={{
-                color: 'var(--txt-2)',
-                border: '1px solid var(--brd)',
-                background: 'var(--bg-elev)',
-              }}
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'var(--blue)', color: '#fff' }}
-            >
-              {saving ? 'Enregistrement…' : isNew ? 'Créer' : 'Enregistrer'}
-            </button>
+            {mode === 'view' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                    background: 'var(--bg-elev)',
+                  }}
+                >
+                  Fermer
+                </button>
+                <button
+                  type="button"
+                  onClick={enterEditMode}
+                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                  style={{ background: 'var(--blue)', color: '#fff' }}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Modifier
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                    background: 'var(--bg-elev)',
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={saving}
+                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ background: 'var(--blue)', color: '#fff' }}
+                >
+                  {saving ? 'Enregistrement…' : isNew ? 'Créer' : 'Enregistrer'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -662,6 +799,145 @@ function ConflictBanner({ conflicts }) {
   )
 }
 
+/**
+ * ViewInfo — Rendu read-only des champs "Infos" quand le modal est ouvert en
+ * mode vue (tap sur un événement existant). Affiche titre, type (chip
+ * colorée), lot, plage de dates formatée, lieu, description et résumé de
+ * récurrence — rien à éditer, bascule vers le mode édition via "Modifier".
+ */
+function ViewInfo({
+  title,
+  type,
+  lot,
+  allDay,
+  startsAt,
+  endsAt,
+  location,
+  description,
+  rruleSummary,
+  isRecurring,
+  isVirtualOccurrence,
+}) {
+  return (
+    <>
+      {/* Titre */}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium" style={{ color: 'var(--txt-3)' }}>
+          Titre
+        </label>
+        <div className="text-base font-semibold" style={{ color: 'var(--txt)' }}>
+          {title || <span style={{ color: 'var(--txt-3)' }}>Sans titre</span>}
+        </div>
+      </div>
+
+      {/* Type + Lot */}
+      <div className="grid grid-cols-2 gap-3">
+        <ReadOnlyField label="Type">
+          {type ? (
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium self-start"
+              style={{
+                background: type.color ? `${type.color}22` : 'var(--bg-elev)',
+                color: type.color || 'var(--txt)',
+                border: `1px solid ${type.color || 'var(--brd)'}`,
+              }}
+            >
+              {type.color && (
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: type.color }}
+                />
+              )}
+              {type.label}
+            </span>
+          ) : (
+            <span className="text-sm" style={{ color: 'var(--txt-3)' }}>—</span>
+          )}
+        </ReadOnlyField>
+        <ReadOnlyField label="Lot" value={lot?.title || '—'} />
+      </div>
+
+      {/* Plage de dates */}
+      <ReadOnlyField label={allDay ? 'Journée entière' : 'Période'}>
+        <div className="text-sm" style={{ color: 'var(--txt)' }}>
+          {formatDateRange(startsAt, endsAt, allDay)}
+        </div>
+      </ReadOnlyField>
+
+      {/* Lieu */}
+      {location && <ReadOnlyField label="Lieu" value={location.name} />}
+
+      {/* Description */}
+      {description && (
+        <ReadOnlyField label="Description">
+          <div
+            className="text-sm whitespace-pre-wrap"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            {description}
+          </div>
+        </ReadOnlyField>
+      )}
+
+      {/* Récurrence */}
+      {rruleSummary && (
+        <ReadOnlyField label={isVirtualOccurrence ? 'Série récurrente' : 'Récurrence'}>
+          <div className="text-sm" style={{ color: 'var(--txt)' }}>
+            {rruleSummary}
+          </div>
+        </ReadOnlyField>
+      )}
+
+      {/* Badge "Occurrence" si on consulte une occurrence virtuelle */}
+      {isVirtualOccurrence && (
+        <div
+          className="text-[11px] rounded-lg px-3 py-2"
+          style={{
+            background: 'var(--orange-bg)',
+            color: 'var(--orange)',
+            border: '1px solid var(--orange)',
+          }}
+        >
+          Vous consultez une occurrence de série. Cliquez sur « Modifier » pour
+          choisir la portée des modifications (cette occurrence ou toute la série).
+        </div>
+      )}
+
+      {/* Indicateur récurrence simple (non occurrence virtuelle) */}
+      {isRecurring && !isVirtualOccurrence && !rruleSummary && (
+        <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+          Événement récurrent
+        </div>
+      )}
+    </>
+  )
+}
+
+/**
+ * ReadOnlyField — wrapper léger pour l'affichage read-only d'une valeur.
+ * Si `children` est fourni, on l'affiche tel quel ; sinon on retombe sur
+ * `value` avec un placeholder "—" stylé quand la valeur est vide.
+ */
+function ReadOnlyField({ label, value, children }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium" style={{ color: 'var(--txt-3)' }}>
+        {label}
+      </label>
+      {children != null ? (
+        children
+      ) : (
+        <div
+          className="text-sm"
+          style={{ color: value && value !== '—' ? 'var(--txt)' : 'var(--txt-3)' }}
+        >
+          {value || '—'}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabBtn({ active, onClick, icon: Icon, label }) {
   return (
     <button
@@ -712,6 +988,39 @@ const inputStyle = {
   background: 'var(--bg-elev)',
   border: '1px solid var(--brd)',
   color: 'var(--txt)',
+}
+
+/**
+ * Formate une plage de dates pour le mode vue.
+ * - all-day même jour   : "mer. 18 juin 2026"
+ * - all-day multi-jours : "mer. 18 juin 2026 → ven. 20 juin 2026"
+ * - horaire même jour   : "mer. 18 juin 2026 · 09:00 → 12:00"
+ * - horaire multi-jours : "mer. 18 juin 2026 09:00 → ven. 20 juin 2026 12:00"
+ */
+function formatDateRange(start, end, allDay) {
+  const s = start instanceof Date ? start : new Date(start)
+  const e = end instanceof Date ? end : new Date(end)
+  const sameDay =
+    s.getFullYear() === e.getFullYear() &&
+    s.getMonth() === e.getMonth() &&
+    s.getDate() === e.getDate()
+  const dateFmt = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  const timeFmt = new Intl.DateTimeFormat('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  if (allDay) {
+    return sameDay ? dateFmt.format(s) : `${dateFmt.format(s)} → ${dateFmt.format(e)}`
+  }
+  if (sameDay) {
+    return `${dateFmt.format(s)} · ${timeFmt.format(s)} → ${timeFmt.format(e)}`
+  }
+  return `${dateFmt.format(s)} ${timeFmt.format(s)} → ${dateFmt.format(e)} ${timeFmt.format(e)}`
 }
 
 function withDefaultTime(d, hour, minute) {

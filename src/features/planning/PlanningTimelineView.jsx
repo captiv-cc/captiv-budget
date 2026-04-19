@@ -59,6 +59,8 @@ import {
   MapPin,
   Rows3,
   AlignJustify,
+  Home as HomeIcon,
+  Map as MapMiniIcon,
 } from 'lucide-react'
 import {
   layoutTimelineLanes,
@@ -238,7 +240,11 @@ export default function PlanningTimelineView({
   const dayWidth = zoomDef.dayWidth
   const rowHeight = densityDef.rowHeight
   const bp = useBreakpoint()
+  // Sur mobile les lanes s'affichent en stacked : l'étiquette devient une
+  // bande full-width au-dessus de la grille, on supprime donc la colonne
+  // sticky-left pour récupérer 100% de la largeur pour la timeline.
   const laneLabelWidth = LANE_LABEL_WIDTH_BY_BP[bp.is]
+  const effectiveLaneLabelWidth = bp.isMobile ? 0 : laneLabelWidth
 
   // Auto-fit horizontal : on mesure la largeur du scroller pour bumper
   // `windowDays` à ce qui tient à l'écran. Évite d'avoir un grand fond vide
@@ -248,9 +254,16 @@ export default function PlanningTimelineView({
   const [containerWidth, setContainerWidth] = useState(0)
   const fitWindowDays = useMemo(() => {
     if (containerWidth <= 0) return windowDays
-    const capacity = Math.floor((containerWidth - laneLabelWidth) / dayWidth)
+    const capacity = Math.floor((containerWidth - effectiveLaneLabelWidth) / dayWidth)
     return Math.max(windowDays, capacity)
-  }, [containerWidth, windowDays, dayWidth, laneLabelWidth])
+  }, [containerWidth, windowDays, dayWidth, effectiveLaneLabelWidth])
+
+  // Scrubber masquable (Piste D) : ouvert par défaut sur ≥ tablet, replié sur
+  // mobile. L'utilisateur peut toggler ; la préférence override le défaut
+  // jusqu'à fin de vie du composant (non persisté intentionnellement —
+  // chaque ouverture de la vue repart du défaut selon le breakpoint).
+  const [scrubberUserPref, setScrubberUserPref] = useState(null)
+  const scrubberOpen = scrubberUserPref ?? !bp.isMobile
 
   // Fallback défensif : si pas de fenêtre, on se cale sur aujourd'hui
   const winStart = useMemo(() => startOfDay(windowStart || new Date()), [windowStart])
@@ -481,9 +494,11 @@ export default function PlanningTimelineView({
       className="h-full flex flex-col rounded-xl overflow-hidden"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
     >
-      {/* Barre de nav */}
+      {/* Barre de nav — compacte sur mobile (Piste C) : 1 ligne, "Aujourd'hui"
+          devient une icône Home, label de période compact, groupe d'actions
+          resserré (zoom + densité + toggle scrubber). */}
       <div
-        className="flex items-center gap-2 px-3 py-2 shrink-0 flex-wrap"
+        className={`flex items-center gap-1.5 px-3 py-2 shrink-0 ${bp.isMobile ? '' : 'flex-wrap gap-2'}`}
         style={{ borderBottom: '1px solid var(--brd)' }}
       >
         {onPrev && (
@@ -491,38 +506,75 @@ export default function PlanningTimelineView({
             type="button"
             onClick={onPrev}
             aria-label="Période précédente"
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-elev)]"
+            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-elev)] shrink-0"
             style={{ color: 'var(--txt-2)' }}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
         {onToday && (
-          <button
-            type="button"
-            onClick={onToday}
-            className="px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-[var(--bg-elev)]"
-            style={{ color: 'var(--txt-2)' }}
-          >
-            Aujourd&apos;hui
-          </button>
+          bp.isMobile ? (
+            <button
+              type="button"
+              onClick={onToday}
+              aria-label="Aujourd'hui"
+              title="Aujourd'hui"
+              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-elev)] shrink-0"
+              style={{ color: 'var(--txt-2)' }}
+            >
+              <HomeIcon className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onToday}
+              className="px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-[var(--bg-elev)]"
+              style={{ color: 'var(--txt-2)' }}
+            >
+              Aujourd&apos;hui
+            </button>
+          )
         )}
         {onNext && (
           <button
             type="button"
             onClick={onNext}
             aria-label="Période suivante"
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-elev)]"
+            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--bg-elev)] shrink-0"
             style={{ color: 'var(--txt-2)' }}
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         )}
-        <span className="ml-1 text-xs font-medium" style={{ color: 'var(--txt)' }}>
+        <span
+          className={`${bp.isMobile ? 'ml-0.5 text-[11px]' : 'ml-1 text-xs'} font-medium truncate min-w-0`}
+          style={{ color: 'var(--txt)' }}
+          title={headerLabel || fmtWindowLabel(winStart, fitWindowDays)}
+        >
           {headerLabel || fmtWindowLabel(winStart, fitWindowDays)}
         </span>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          {/* Toggle scrubber (Piste D) — visible uniquement si la vue
+              d'ensemble est disponible (parent passe onJumpToDate). */}
+          {onJumpToDate && (
+            <button
+              type="button"
+              onClick={() => setScrubberUserPref(!scrubberOpen)}
+              aria-label={scrubberOpen ? "Masquer la vue d'ensemble" : "Afficher la vue d'ensemble"}
+              title={scrubberOpen ? "Masquer la vue d'ensemble" : "Afficher la vue d'ensemble"}
+              aria-pressed={scrubberOpen}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                border: '1px solid var(--brd)',
+                background: scrubberOpen ? 'var(--blue-bg)' : 'transparent',
+                color: scrubberOpen ? 'var(--blue)' : 'var(--txt-2)',
+              }}
+            >
+              <MapMiniIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Zoom segmented control */}
           <div
             className="flex items-center rounded-lg overflow-hidden"
@@ -576,8 +628,10 @@ export default function PlanningTimelineView({
 
       {/* Scrubber ±6 mois — vue d'ensemble + jump-to-date.
           On passe fitWindowDays pour que le rectangle bleu du scrubber
-          colle visuellement à ce qui est vraiment affiché à l'écran. */}
-      {onJumpToDate && (
+          colle visuellement à ce qui est vraiment affiché à l'écran.
+          Piste D : replié par défaut sur mobile, togglable via le bouton
+          de la barre de nav. */}
+      {onJumpToDate && scrubberOpen && (
         <Scrubber
           windowStart={winStart}
           windowDays={fitWindowDays}
@@ -595,16 +649,17 @@ export default function PlanningTimelineView({
         <div
           className="relative"
           style={{
-            width: laneLabelWidth + totalWidth,
+            width: effectiveLaneLabelWidth + totalWidth,
             minHeight: '100%',
           }}
         >
           {/* Header jours — sticky top */}
           <TimelineHeader
             days={days}
-            laneLabelWidth={laneLabelWidth}
+            laneLabelWidth={effectiveLaneLabelWidth}
             dayWidth={dayWidth}
             zoomLevel={zoomLevel}
+            isMobile={bp.isMobile}
           />
 
           {/* Lanes */}
@@ -633,7 +688,7 @@ export default function PlanningTimelineView({
               windowDays={fitWindowDays}
               dayWidth={dayWidth}
               rowHeight={rowHeight}
-              laneLabelWidth={laneLabelWidth}
+              laneLabelWidth={effectiveLaneLabelWidth}
               typeMap={typeMap}
               lotMap={lotMap}
               locationMap={locationMap}
@@ -643,6 +698,8 @@ export default function PlanningTimelineView({
               onDayClick={onDayClick}
               onBarMouseDown={handleBarMouseDown}
               dragState={dragRef.current}
+              isMobile={bp.isMobile}
+              containerWidth={containerWidth}
             />
           ))}
 
@@ -653,7 +710,7 @@ export default function PlanningTimelineView({
             <div
               className="absolute pointer-events-none z-10"
               style={{
-                left: laneLabelWidth + todayDiff * dayWidth + dayWidth / 2,
+                left: effectiveLaneLabelWidth + todayDiff * dayWidth + dayWidth / 2,
                 top: 0,
                 bottom: 0,
                 width: 1,
@@ -671,7 +728,7 @@ export default function PlanningTimelineView({
 
 // ── Header jours (mois + jour / semaine / mois) ────────────────────────────
 
-function TimelineHeader({ days, laneLabelWidth, dayWidth, zoomLevel }) {
+function TimelineHeader({ days, laneLabelWidth, dayWidth, zoomLevel, isMobile = false }) {
   // Bande supérieure : spans de mois (identique aux 3 zooms)
   const monthSpans = useMemo(() => {
     const out = []
@@ -702,15 +759,17 @@ function TimelineHeader({ days, laneLabelWidth, dayWidth, zoomLevel }) {
     >
       {/* Bande mois */}
       <div className="flex items-center" style={{ height: 24 }}>
-        <div
-          className="sticky left-0 z-10 shrink-0"
-          style={{
-            width: laneLabelWidth,
-            height: 24,
-            background: 'var(--bg-elev)',
-            borderRight: '1px solid var(--brd)',
-          }}
-        />
+        {!isMobile && (
+          <div
+            className="sticky left-0 z-10 shrink-0"
+            style={{
+              width: laneLabelWidth,
+              height: 24,
+              background: 'var(--bg-elev)',
+              borderRight: '1px solid var(--brd)',
+            }}
+          />
+        )}
         {monthSpans.map((m) => (
           <div
             key={m.key}
@@ -728,18 +787,20 @@ function TimelineHeader({ days, laneLabelWidth, dayWidth, zoomLevel }) {
 
       {/* Bande jours (varie selon le zoom) */}
       <div className="flex items-center" style={{ height: 28 }}>
-        <div
-          className="sticky left-0 z-10 shrink-0 flex items-center px-3 text-[10px] uppercase tracking-wide"
-          style={{
-            width: laneLabelWidth,
-            height: 28,
-            background: 'var(--bg-elev)',
-            color: 'var(--txt-3)',
-            borderRight: '1px solid var(--brd)',
-          }}
-        >
-          Lanes
-        </div>
+        {!isMobile && (
+          <div
+            className="sticky left-0 z-10 shrink-0 flex items-center px-3 text-[10px] uppercase tracking-wide"
+            style={{
+              width: laneLabelWidth,
+              height: 28,
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-3)',
+              borderRight: '1px solid var(--brd)',
+            }}
+          >
+            Lanes
+          </div>
+        )}
         {days.map((d, i) => {
           const weekday = (d.getDay() + 6) % 7 // 0 = Lun
           const isWeekend = weekday >= 5
@@ -855,6 +916,8 @@ function TimelineLane({
   onDayClick,
   onBarMouseDown,
   dragState,
+  isMobile = false,
+  containerWidth = 0,
 }) {
   const rowCount = Math.max(1, lane.rows.length)
   const expandedHeight = LANE_PADDING_Y * 2 + rowCount * rowHeight + (rowCount - 1) * ROW_GAP
@@ -875,6 +938,156 @@ function TimelineLane({
     onDayClick(date)
   }
 
+  // Contenu commun du label (utilisé côté desktop sticky-left & côté mobile
+  // stacked full-width) — évite la duplication de markup. Les styles d'accent
+  // (hover toggle, chip compteur) s'inversent entre les deux layouts pour
+  // garder un contraste correct : desktop label est sur `bg-surf` ; mobile
+  // label est sur `bg-elev`.
+  const hoverClass = isMobile ? 'hover:bg-[var(--bg-surf)]' : 'hover:bg-[var(--bg-elev)]'
+  const chipBg = isMobile ? 'var(--bg-surf)' : 'var(--bg-elev)'
+  const labelInner = (
+    <>
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        className={`${isMobile ? 'w-7 h-7' : 'w-5 h-5'} rounded flex items-center justify-center ${hoverClass} shrink-0`}
+        style={{ color: 'var(--txt-3)' }}
+        aria-label={collapsed ? 'Déplier la lane' : 'Replier la lane'}
+        aria-expanded={!collapsed}
+      >
+        {collapsed
+          ? <ChevronRightSmall className={isMobile ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
+          : <ChevronDown className={isMobile ? 'w-4 h-4' : 'w-3.5 h-3.5'} />}
+      </button>
+      {lane.color && (
+        <span
+          className="inline-block w-2 h-2 rounded-full shrink-0"
+          style={{ background: lane.color }}
+          aria-hidden
+        />
+      )}
+      <span
+        className={`${isMobile ? 'text-[13px]' : 'text-xs'} font-medium truncate min-w-0`}
+        style={{ color: 'var(--txt)' }}
+        title={lane.label}
+      >
+        {lane.label}
+      </span>
+      <span
+        className="ml-auto text-[10px] px-1.5 py-0.5 rounded shrink-0"
+        style={{ background: chipBg, color: 'var(--txt-3)' }}
+      >
+        {lane.events.length}
+      </span>
+    </>
+  )
+
+  // Grille + barres (factorisé pour les deux layouts).
+  const gridInner = (
+    <div
+      className="relative shrink-0 cursor-pointer"
+      style={{ width: windowDays * dayWidth, height }}
+      onClick={handleGridClick}
+    >
+      {/* Bandes verticales (jours, weekends, today) */}
+      {days.map((d, i) => {
+        const weekday = (d.getDay() + 6) % 7
+        const isWeekend = weekday >= 5
+        const isMonday = weekday === 0
+        const isToday = isSameDay(d, today)
+        return (
+          <div
+            key={i}
+            className="absolute top-0 bottom-0"
+            style={{
+              left: i * dayWidth,
+              width: dayWidth,
+              // Au zoom très serré (month), on n'affiche un séparateur que
+              // le lundi pour réduire le bruit visuel.
+              borderRight: dayWidth >= 14 || isMonday
+                ? '1px solid var(--brd)'
+                : 'none',
+              background: isToday
+                ? 'rgba(59,130,246,0.06)'
+                : isWeekend && dayWidth >= 10
+                  ? 'rgba(0,0,0,0.02)'
+                  : 'transparent',
+              pointerEvents: 'none',
+            }}
+          />
+        )
+      })}
+
+      {/* Barres événements (ou milestones) — mode normal */}
+      {!collapsed && lane.rows.map((row, rowIdx) => (
+        row.map((ev) => (
+          <EventBarOrMilestone
+            key={eventKey(ev)}
+            event={ev}
+            rowIdx={rowIdx}
+            winStart={winStart}
+            windowDays={windowDays}
+            dayWidth={dayWidth}
+            rowHeight={rowHeight}
+            typeMap={typeMap}
+            lotMap={lotMap}
+            locationMap={locationMap}
+            conflicts={conflicts}
+            onBarMouseDown={onBarMouseDown}
+            dragState={dragState}
+            isMobile={isMobile}
+          />
+        ))
+      ))}
+
+      {/* Marques condensées en mode replié : préserve la lecture spatiale
+          de l'activité de la lane sans prendre de hauteur. */}
+      {collapsed && lane.events.map((ev) => (
+        <CondensedEventMark
+          key={eventKey(ev)}
+          event={ev}
+          winStart={winStart}
+          windowDays={windowDays}
+          dayWidth={dayWidth}
+          laneHeight={height}
+          typeMap={typeMap}
+        />
+      ))}
+    </div>
+  )
+
+  // ── Layout stacked pour mobile (Piste B) ──────────────────────────────────
+  // On range l'étiquette de lane sur sa propre ligne au-dessus de la grille,
+  // sticky-left pour rester visible quand l'utilisateur scrolle horizontalement.
+  // On garde un fallback `100vw` si containerWidth n'est pas encore mesuré
+  // (premier paint) pour éviter une bande à largeur 0.
+  if (isMobile) {
+    const stickyWidth = containerWidth > 0 ? containerWidth : undefined
+    return (
+      <div
+        className="flex flex-col"
+        style={{
+          borderBottom: '1px solid var(--brd)',
+          width: windowDays * dayWidth,
+        }}
+      >
+        <div
+          className="sticky left-0 z-10 flex items-center gap-1.5 px-2 py-1.5"
+          style={{
+            width: stickyWidth,
+            maxWidth: '100vw',
+            background: 'var(--bg-elev)',
+            borderBottom: '1px solid var(--brd)',
+          }}
+        >
+          {labelInner}
+        </div>
+        {gridInner}
+      </div>
+    )
+  }
+
+  // ── Layout desktop/tablet inchangé : label sticky-left + grille côte-à-côte.
   return (
     <div
       className="flex"
@@ -889,110 +1102,11 @@ function TimelineLane({
           borderRight: '1px solid var(--brd)',
         }}
       >
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="w-5 h-5 rounded flex items-center justify-center hover:bg-[var(--bg-elev)] shrink-0"
-          style={{ color: 'var(--txt-3)' }}
-          aria-label={collapsed ? 'Déplier la lane' : 'Replier la lane'}
-          aria-expanded={!collapsed}
-        >
-          {collapsed
-            ? <ChevronRightSmall className="w-3.5 h-3.5" />
-            : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
-        {lane.color && (
-          <span
-            className="inline-block w-2 h-2 rounded-full shrink-0"
-            style={{ background: lane.color }}
-            aria-hidden
-          />
-        )}
-        <span
-          className="text-xs font-medium truncate"
-          style={{ color: 'var(--txt)' }}
-          title={lane.label}
-        >
-          {lane.label}
-        </span>
-        <span
-          className="ml-auto text-[10px] px-1.5 py-0.5 rounded shrink-0"
-          style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
-        >
-          {lane.events.length}
-        </span>
+        {labelInner}
       </div>
 
       {/* Grille + barres (vide si collapsed) */}
-      <div
-        className="relative shrink-0 cursor-pointer"
-        style={{ width: windowDays * dayWidth, height }}
-        onClick={handleGridClick}
-      >
-        {/* Bandes verticales (jours, weekends, today) */}
-        {days.map((d, i) => {
-          const weekday = (d.getDay() + 6) % 7
-          const isWeekend = weekday >= 5
-          const isMonday = weekday === 0
-          const isToday = isSameDay(d, today)
-          return (
-            <div
-              key={i}
-              className="absolute top-0 bottom-0"
-              style={{
-                left: i * dayWidth,
-                width: dayWidth,
-                // Au zoom très serré (month), on n'affiche un séparateur que
-                // le lundi pour réduire le bruit visuel.
-                borderRight: dayWidth >= 14 || isMonday
-                  ? '1px solid var(--brd)'
-                  : 'none',
-                background: isToday
-                  ? 'rgba(59,130,246,0.06)'
-                  : isWeekend && dayWidth >= 10
-                    ? 'rgba(0,0,0,0.02)'
-                    : 'transparent',
-                pointerEvents: 'none',
-              }}
-            />
-          )
-        })}
-
-        {/* Barres événements (ou milestones) — mode normal */}
-        {!collapsed && lane.rows.map((row, rowIdx) => (
-          row.map((ev) => (
-            <EventBarOrMilestone
-              key={eventKey(ev)}
-              event={ev}
-              rowIdx={rowIdx}
-              winStart={winStart}
-              windowDays={windowDays}
-              dayWidth={dayWidth}
-              rowHeight={rowHeight}
-              typeMap={typeMap}
-              lotMap={lotMap}
-              locationMap={locationMap}
-              conflicts={conflicts}
-              onBarMouseDown={onBarMouseDown}
-              dragState={dragState}
-            />
-          ))
-        ))}
-
-        {/* Marques condensées en mode replié : préserve la lecture spatiale
-            de l'activité de la lane sans prendre de hauteur. */}
-        {collapsed && lane.events.map((ev) => (
-          <CondensedEventMark
-            key={eventKey(ev)}
-            event={ev}
-            winStart={winStart}
-            windowDays={windowDays}
-            dayWidth={dayWidth}
-            laneHeight={height}
-            typeMap={typeMap}
-          />
-        ))}
-      </div>
+      {gridInner}
     </div>
   )
 }
@@ -1064,6 +1178,8 @@ function CondensedEventMark({
 // ── Wrapper qui choisit entre EventBar et MilestoneDiamond ─────────────────
 
 function EventBarOrMilestone(props) {
+  // props.isMobile est passé explicitement par TimelineLane pour que la
+  // cible tactile s'adapte (taille des losanges, affichage des handles…).
   if (isMilestone(props.event)) {
     return <MilestoneDiamond {...props} />
   }
@@ -1085,6 +1201,7 @@ function MilestoneDiamond({
   conflicts,
   onBarMouseDown,
   dragState,
+  isMobile = false,
 }) {
   const winStartMs = winStart.getTime()
   const winEndMs = winStartMs + windowDays * MS_PER_DAY
@@ -1099,7 +1216,11 @@ function MilestoneDiamond({
   const fractionFromStart = (evStartMs - winStartMs) / MS_PER_DAY
   const centerX = fractionFromStart * dayWidth + effectiveDelta
 
-  const size = Math.min(18, rowHeight - 6)
+  // Piste F : on grossit la cible tactile sur mobile (min 22px, idéalement
+  // 28px). Sur desktop on garde la taille historique (min(18, rowHeight - 6)).
+  const size = isMobile
+    ? Math.max(22, Math.min(28, rowHeight - 2))
+    : Math.min(18, rowHeight - 6)
   const top = LANE_PADDING_Y + rowIdx * (rowHeight + ROW_GAP) + (rowHeight - size) / 2
 
   const type = event.type_id ? typeMap[event.type_id] : null
@@ -1154,6 +1275,7 @@ function EventBar({
   conflicts,
   onBarMouseDown,
   dragState,
+  isMobile = false,
 }) {
   const geo = computeBarGeometry(event, winStart, windowDays, dayWidth)
   let { left, width } = geo
@@ -1191,7 +1313,10 @@ function EventBar({
 
   // Handles visibles uniquement si la barre est assez large, pour éviter
   // qu'elles mangent toute la zone cliquable sur un event court à zoom serré.
-  const showHandles = width >= 3 * HANDLE_WIDTH_PX + 4
+  // Piste F : sur mobile on masque les handles — impossibles à saisir au doigt
+  // et elles mangeraient toute la zone de tap. L'utilisateur passe par le
+  // modal pour ajuster les dates sur téléphone.
+  const showHandles = !isMobile && width >= 3 * HANDLE_WIDTH_PX + 4
 
   return (
     <div
