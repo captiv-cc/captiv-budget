@@ -58,9 +58,18 @@ const ProjetContext = createContext(null)
 export const useProjet = () => useContext(ProjetContext)
 
 // ─── Définition des onglets ───────────────────────────────────────────────────
-// finance: true → masqué pour coordinateur et prestataire
+// finance: true → masqué pour coordinateur et prestataire (legacy, conservé
+//                 en filet de sécurité mais plus utilisé par défaut depuis
+//                 BUDGET-PERM — les 4 onglets financiers utilisent désormais
+//                 `outil` pour gater par permission granulaire).
 // outil    → clé de outils_catalogue pour filtrage par permission (prestataire)
 // admin   → onglet admin/manager uniquement (admin + charge_prod attaché)
+//
+// BUDGET-PERM (2026-04-20) — clés outil pour les onglets financiers :
+//   Devis                            → 'devis'
+//   Budget réel + Factures + Dashboard → 'budget'
+// Les internes (admin/charge_prod/coordinateur) attachés bypassent via
+// can_read_outil/can_edit_outil (cf. ch3b_project_access.sql).
 const ALL_TABS = [
   {
     key: 'projet',
@@ -70,7 +79,14 @@ const ALL_TABS = [
     finance: false,
     outil: 'projet_info',
   },
-  { key: 'devis', label: 'Devis', icon: FileText, path: 'devis', finance: true, outil: null },
+  {
+    key: 'devis',
+    label: 'Devis',
+    icon: FileText,
+    path: 'devis',
+    finance: false,
+    outil: 'devis',
+  },
   { key: 'equipe', label: 'Équipe', icon: Users, path: 'equipe', finance: false, outil: 'equipe' },
   {
     key: 'planning',
@@ -101,24 +117,24 @@ const ALL_TABS = [
     label: 'Budget réel',
     icon: Activity,
     path: 'budget',
-    finance: true,
-    outil: null,
+    finance: false,
+    outil: 'budget',
   },
   {
     key: 'factures',
     label: 'Factures',
     icon: Receipt,
     path: 'factures',
-    finance: true,
-    outil: null,
+    finance: false,
+    outil: 'budget',
   },
   {
     key: 'dashboard',
     label: 'Dashboard',
     icon: BarChart3,
     path: 'dashboard',
-    finance: true,
-    outil: null,
+    finance: false,
+    outil: 'budget',
   },
   {
     key: 'access',

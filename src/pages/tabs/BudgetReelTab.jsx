@@ -14,6 +14,8 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { useProjet } from '../ProjetLayout'
 import { supabase } from '../../lib/supabase'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { calcLine, calcSynthese, CATS_HUMAINS, TAUX_DEFAUT, fmtEur } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
 import { Check, ChevronDown, ChevronRight, Plus, Package } from 'lucide-react'
@@ -43,6 +45,12 @@ function lotColor(lotId, orderedLots) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function BudgetReelTab() {
   const { project, projectId, lots, refDevisByLot } = useProjet()
+  // BUDGET-PERM (2026-04-20) — gating granulaire via l'outil 'budget' (partagé
+  // avec Factures + Dashboard). `canRead` ouvre la page, `canEdit` verrouille
+  // toutes les saisies (coût réel, validation, TVA, additifs, fournisseurs).
+  const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
+  const canRead = canDo(OUTILS.BUDGET, ACTIONS.READ)
+  const canEdit = canDo(OUTILS.BUDGET, ACTIONS.EDIT)
 
   // Lots actifs triés (non archivés) — base de l'affichage multi-lot
   const activeLots = useMemo(
@@ -299,6 +307,8 @@ export default function BudgetReelTab() {
   }
 
   async function saveLineReel(lineId, fieldsRaw) {
+    // BUDGET-PERM — sans droit édition, no-op (la RLS bloquerait de toute façon)
+    if (!canEdit) return
     const existing = reelByLine[lineId]
     const fields = withAutoValide(fieldsRaw, existing)
     if (existing && !String(existing.id).startsWith('__tmp_')) {
@@ -358,6 +368,7 @@ export default function BudgetReelTab() {
   }
 
   async function clearLineReel(lineId) {
+    if (!canEdit) return
     const existing = reelByLine[lineId]
     if (!existing) return
     setReel((p) => p.filter((r) => r.id !== existing.id))
@@ -370,6 +381,7 @@ export default function BudgetReelTab() {
   }
 
   async function confirmLineAtPrevu(lineId) {
+    if (!canEdit) return
     const line = lines.find((l) => l.id === lineId)
     if (!line) return
     const cp = refCout(line, membreByLine[lineId])
@@ -377,6 +389,7 @@ export default function BudgetReelTab() {
   }
 
   async function confirmBlocAtPrevu(catId) {
+    if (!canEdit) return
     const targets = lines
       .filter((l) => l.category_id === catId)
       .filter((l) => {
@@ -391,6 +404,7 @@ export default function BudgetReelTab() {
 
   // Un additif est créé depuis un bloc (catId) → on récupère le lot_id via le devis du bloc
   async function addAdditif(catId) {
+    if (!canEdit) return
     const cat = cats.find((c) => c.id === catId)
     const lotId = lotIdByDevisId[cat?.devis_id] || null
     const { data } = await supabase
@@ -414,6 +428,7 @@ export default function BudgetReelTab() {
   }
 
   async function updateAdditif(id, fieldsRaw) {
+    if (!canEdit) return
     const existing = reel.find((r) => r.id === id)
     const fields = withAutoValide(fieldsRaw, existing)
     setReel((p) => p.map((r) => (r.id === id ? { ...r, ...fields } : r)))
@@ -421,6 +436,7 @@ export default function BudgetReelTab() {
   }
 
   async function deleteAdditif(id) {
+    if (!canEdit) return
     if (!confirm('Supprimer cet additif ?')) return
     await supabase.from('budget_reel').delete().eq('id', id)
     setReel((p) => p.filter((r) => r.id !== id))
@@ -506,6 +522,7 @@ export default function BudgetReelTab() {
   }
 
   async function applyFournisseurToBloc(currentLineId, fournisseurId, nomNouveau) {
+    if (!canEdit) return
     let fId = fournisseurId
     if (!fId && nomNouveau) {
       const { data, error } = await supabase
@@ -539,6 +556,7 @@ export default function BudgetReelTab() {
   }
 
   async function selectFournisseur(lineId, fournisseurId, nomNouveau) {
+    if (!canEdit) return
     let fId = fournisseurId
     if (!fId && nomNouveau) {
       const { data, error } = await supabase
@@ -777,6 +795,29 @@ export default function BudgetReelTab() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // BUDGET-PERM — attente de la résolution des permissions projet
+  if (permLoading) {
+    return (
+      <div className="flex items-center justify-center p-16">
+        <div
+          className="w-6 h-6 border-2 rounded-full animate-spin"
+          style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }}
+        />
+      </div>
+    )
+  }
+
+  // BUDGET-PERM — prestataire sans droit 'budget' : refus explicite
+  if (!canRead) {
+    return (
+      <div className="p-12 text-center">
+        <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
+          Accès refusé — vous n&apos;avez pas accès au suivi budgétaire de ce projet.
+        </p>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-16">
@@ -816,6 +857,20 @@ export default function BudgetReelTab() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
+      {/* ── Notice lecture seule (BUDGET-PERM) ─────────────────────────── */}
+      {!canEdit && (
+        <div
+          className="rounded-lg px-3 py-2 text-xs"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt-3)',
+            border: '1px solid var(--brd-sub)',
+          }}
+        >
+          Vous avez accès en lecture seule — demandez un accès édition pour saisir le budget réel.
+        </div>
+      )}
+
       {/* ── Sélecteur de scope (masqué en mono-lot) ─────────────────────── */}
       {isMultiLot && (
         <LotScopeSelector

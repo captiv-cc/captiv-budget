@@ -14,6 +14,8 @@ import { createPortal } from 'react-dom'
 import { supabase } from '../../lib/supabase'
 import { useProjet } from '../ProjetLayout'
 import { useAuth } from '../../contexts/AuthContext'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { fmtEur } from '../../lib/cotisations'
 import LotScopeSelector from '../../components/LotScopeSelector'
 import {
@@ -259,13 +261,14 @@ function StatutBadge({ statut }) {
 }
 
 // ─── Dropdown statut via portal (évite le clipping overflow) ─────────────────
-function StatutDropdown({ statut, onSelect }) {
+function StatutDropdown({ statut, onSelect, disabled = false }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
   const btnRef = useRef(null)
   const menuRef = useRef(null)
 
   function toggle() {
+    if (disabled) return
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
       setPos({ top: r.bottom + 4, left: r.right - 160 })
@@ -286,7 +289,12 @@ function StatutDropdown({ statut, onSelect }) {
 
   return (
     <>
-      <button ref={btnRef} onClick={toggle}>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        disabled={disabled}
+        style={{ cursor: disabled ? 'default' : 'pointer' }}
+      >
         <StatutBadge statut={statut} />
       </button>
       {open &&
@@ -340,6 +348,7 @@ function FactureLine({
   onDelete,
   onChangeStatut,
   dim,
+  canEdit = true,
 }) {
   const type = typeMeta(facture.type)
   const tc = TYPE_COLORS[type.color] || TYPE_COLORS.blue
@@ -469,43 +478,48 @@ function FactureLine({
         <StatutDropdown
           statut={facture.statut}
           onSelect={(key) => onChangeStatut(facture.id, key)}
+          disabled={!canEdit}
         />
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-1 justify-end">
-        <button
-          onClick={() => onEdit(facture)}
-          className="p-1.5 rounded-md transition-colors"
-          title="Modifier"
-          style={{ color: 'var(--txt-3)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-elev)'
-            e.currentTarget.style.color = 'var(--txt)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = ''
-            e.currentTarget.style.color = 'var(--txt-3)'
-          }}
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => onDelete(facture.id)}
-          className="p-1.5 rounded-md transition-colors"
-          title="Supprimer"
-          style={{ color: 'var(--txt-3)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(239,68,68,.12)'
-            e.currentTarget.style.color = 'var(--red)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = ''
-            e.currentTarget.style.color = 'var(--txt-3)'
-          }}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {canEdit && (
+          <>
+            <button
+              onClick={() => onEdit(facture)}
+              className="p-1.5 rounded-md transition-colors"
+              title="Modifier"
+              style={{ color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-elev)'
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = ''
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onDelete(facture.id)}
+              className="p-1.5 rounded-md transition-colors"
+              title="Supprimer"
+              style={{ color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239,68,68,.12)'
+                e.currentTarget.style.color = 'var(--red)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = ''
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -1252,6 +1266,12 @@ function LotFacturationGauge({ lot, lots, totalDevisHT, totalFactureHT, totalFac
 export default function FacturesTab() {
   const { projectId, lots, refDevisByLot, refSynthByLot } = useProjet()
   const { canSeeFinance } = useAuth()
+  // BUDGET-PERM (2026-04-20) — gating granulaire : l'onglet Factures est rattaché
+  // à l'outil 'budget' (avec Budget réel + Dashboard). `canRead` ouvre la page,
+  // `canEdit` conditionne création/édition/suppression/changement de statut.
+  const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
+  const canRead = canDo(OUTILS.BUDGET, ACTIONS.READ)
+  const canEdit = canDo(OUTILS.BUDGET, ACTIONS.EDIT)
 
   const [factures, setFactures] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1434,6 +1454,35 @@ export default function FacturesTab() {
       </div>
     )
 
+  // BUDGET-PERM — attente de la résolution des permissions projet
+  if (permLoading)
+    return (
+      <div
+        className="flex items-center justify-center h-64 gap-2"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        <div
+          className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }}
+        />
+        <span className="text-sm">Chargement…</span>
+      </div>
+    )
+
+  // BUDGET-PERM — prestataire sans droit 'budget' : refus explicite
+  if (!canRead)
+    return (
+      <div
+        className="flex items-center justify-center h-64 gap-2"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        <Receipt className="w-5 h-5" />
+        <p className="text-sm">
+          Accès refusé — vous n&apos;avez pas accès aux factures de ce projet.
+        </p>
+      </div>
+    )
+
   return (
     <div className="p-6 space-y-5 max-w-6xl mx-auto">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -1455,24 +1504,43 @@ export default function FacturesTab() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => {
-            setEditing(null)
-            setModal(true)
-          }}
-          disabled={activeLots.length === 0}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: 'var(--blue)' }}
-          title={
-            activeLots.length === 0
-              ? 'Créez d\'abord un lot dans l\'onglet Devis'
-              : 'Nouvelle facture'
-          }
-        >
-          <Plus className="w-4 h-4" />
-          Nouvelle facture
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => {
+              setEditing(null)
+              setModal(true)
+            }}
+            disabled={activeLots.length === 0}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'var(--blue)' }}
+            title={
+              activeLots.length === 0
+                ? 'Créez d\'abord un lot dans l\'onglet Devis'
+                : 'Nouvelle facture'
+            }
+          >
+            <Plus className="w-4 h-4" />
+            Nouvelle facture
+          </button>
+        )}
       </div>
+
+      {/* ── Notice lecture seule ──────────────────────────────────────────── */}
+      {!canEdit && (
+        <div
+          className="rounded-lg px-3 py-2 text-xs flex items-center gap-2"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt-3)',
+            border: '1px solid var(--brd-sub)',
+          }}
+        >
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Vous avez accès en lecture seule — demandez un accès édition pour saisir des factures.
+          </span>
+        </div>
+      )}
 
       {/* ── Sélecteur de scope unifié (en tête, comme Dashboard / Budget Réel) ── */}
       {isMultiLot && factures.length > 0 && (
@@ -1691,7 +1759,7 @@ export default function FacturesTab() {
                 ? "Créez d'abord un lot dans l'onglet Devis"
                 : 'Planifiez une facture ici avant de l\'émettre dans Qonto'}
             </p>
-            {activeLots.length > 0 && (
+            {canEdit && activeLots.length > 0 && (
               <button
                 onClick={() => {
                   setEditing(null)
@@ -1731,6 +1799,7 @@ export default function FacturesTab() {
                 lots={lots}
                 showLotCol={showLotCol}
                 gridCols={gridCols}
+                canEdit={canEdit}
                 onEdit={(fac) => {
                   setEditing(fac)
                   setModal(true)
@@ -1775,6 +1844,7 @@ export default function FacturesTab() {
                       showLotCol={showLotCol}
                       gridCols={gridCols}
                       dim
+                      canEdit={canEdit}
                       onEdit={(fac) => {
                         setEditing(fac)
                         setModal(true)

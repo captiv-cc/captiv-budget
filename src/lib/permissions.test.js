@@ -81,10 +81,17 @@ describe('Constantes exportées', () => {
     expect(INTERNAL_ROLES).not.toContain('prestataire')
   })
 
-  it('OUTILS contient les 8 outils du catalogue', () => {
+  it('OUTILS contient les outils production historiques', () => {
     expect(OUTILS.LIVRABLES).toBe('livrables')
     expect(OUTILS.CALLSHEET).toBe('callsheet')
     expect(OUTILS.DECORS).toBe('decors')
+  })
+
+  it('OUTILS contient DEVIS et BUDGET (BUDGET-PERM 2026-04-20)', () => {
+    // Clés utilisées pour gater les onglets Devis / Factures / Budget réel /
+    // Dashboard. Miroir de la migration 20260420_budget_perm_catalogue.sql.
+    expect(OUTILS.DEVIS).toBe('devis')
+    expect(OUTILS.BUDGET).toBe('budget')
   })
 
   it('ACTIONS contient read / comment / edit', () => {
@@ -239,8 +246,23 @@ describe('can() — prestataire Réalisateur', () => {
   const permissions = buildPermissions(REALISATEUR_TEMPLATE)
   const user = ctx(ROLES.PRESTATAIRE, permissions)
 
-  it('peut lire et commenter TOUS les outils du projet', () => {
-    for (const outil of Object.values(OUTILS)) {
+  // Liste explicite des outils "production" couverts par REALISATEUR_TEMPLATE.
+  // On ne boucle PAS sur Object.values(OUTILS) car depuis BUDGET-PERM
+  // (2026-04-20) OUTILS inclut DEVIS/BUDGET qui sont hors scope du template
+  // Réalisateur (finance = opt-in explicite, jamais semé par défaut).
+  const PRODUCTION_OUTILS = [
+    OUTILS.PROJET_INFO,
+    OUTILS.EQUIPE,
+    OUTILS.PLANNING,
+    OUTILS.CALLSHEET,
+    OUTILS.PRODUCTION,
+    OUTILS.LIVRABLES,
+    OUTILS.MATERIEL,
+    OUTILS.DECORS,
+  ]
+
+  it('peut lire et commenter TOUS les outils production', () => {
+    for (const outil of PRODUCTION_OUTILS) {
       expect(can(user, outil, 'read')).toBe(true)
       expect(can(user, outil, 'comment')).toBe(true)
     }
@@ -251,6 +273,49 @@ describe('can() — prestataire Réalisateur', () => {
     expect(can(user, 'callsheet', 'edit')).toBe(false)
     expect(can(user, 'planning', 'edit')).toBe(false)
     expect(can(user, 'decors', 'edit')).toBe(false)
+  })
+
+  it('ne voit PAS devis ni budget (finance opt-in explicite)', () => {
+    // Le template Réalisateur est "prod-only" : aucun accès finance par défaut.
+    expect(can(user, OUTILS.DEVIS, 'read')).toBe(false)
+    expect(can(user, OUTILS.BUDGET, 'read')).toBe(false)
+    expect(can(user, OUTILS.DEVIS, 'edit')).toBe(false)
+    expect(can(user, OUTILS.BUDGET, 'edit')).toBe(false)
+  })
+})
+
+// ─── 3b. BUDGET-PERM — prestataire avec accès devis/budget explicite ───────
+describe('can() — prestataire avec outil devis (BUDGET-PERM)', () => {
+  const permissions = buildPermissions([
+    { outil_key: 'devis', can_read: true, can_comment: false, can_edit: false },
+  ])
+  const user = ctx(ROLES.PRESTATAIRE, permissions)
+
+  it('peut lire les devis', () => {
+    expect(can(user, OUTILS.DEVIS, 'read')).toBe(true)
+  })
+  it('ne peut PAS éditer les devis (read-only)', () => {
+    expect(can(user, OUTILS.DEVIS, 'edit')).toBe(false)
+  })
+  it('ne voit PAS le budget (outil séparé)', () => {
+    // Confirme la séparation 'devis' vs 'budget' : donner l'un ne donne pas l'autre.
+    expect(can(user, OUTILS.BUDGET, 'read')).toBe(false)
+  })
+})
+
+describe('can() — prestataire avec outil budget (BUDGET-PERM)', () => {
+  const permissions = buildPermissions([
+    { outil_key: 'budget', can_read: true, can_comment: false, can_edit: true },
+  ])
+  const user = ctx(ROLES.PRESTATAIRE, permissions)
+
+  it('peut lire ET éditer le budget (factures + budget réel + dashboard)', () => {
+    expect(can(user, OUTILS.BUDGET, 'read')).toBe(true)
+    expect(can(user, OUTILS.BUDGET, 'edit')).toBe(true)
+  })
+  it('ne voit PAS les devis (outil séparé)', () => {
+    expect(can(user, OUTILS.DEVIS, 'read')).toBe(false)
+    expect(can(user, OUTILS.DEVIS, 'edit')).toBe(false)
   })
 })
 

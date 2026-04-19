@@ -47,6 +47,12 @@ export const OUTILS = {
   LIVRABLES: 'livrables',
   MATERIEL: 'materiel',
   DECORS: 'decors',
+  // BUDGET-PERM (2026-04-20) — gating granulaire des onglets financiers :
+  //   DEVIS  → onglet Devis (catalogue, versions, validation client)
+  //   BUDGET → onglets Factures + Budget réel + Dashboard projet
+  // Voir supabase/migrations/20260420_budget_perm_catalogue.sql.
+  DEVIS: 'devis',
+  BUDGET: 'budget',
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────

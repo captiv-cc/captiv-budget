@@ -12,6 +12,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { notify } from '../../lib/notify'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
 import { LOT_STATUS } from '../../lib/lots'
@@ -47,6 +49,19 @@ export default function DevisTab() {
   const { devisId, id: projectId } = useParams()
   const { profile } = useAuth()
   const navigate = useNavigate()
+
+  // ── Permissions (BUDGET-PERM — 2026-04-20) ─────────────────────────────
+  // Gate UI côté client :
+  //   - canRead : obligatoire pour voir la page (défense en profondeur —
+  //     ProjetLayout masque déjà l'onglet si canSee('devis') est false).
+  //   - canEdit : cache les CTAs de création/modification/suppression de
+  //     lots et de devis. Les rôles internes attachés bypass tout.
+  // Note : l'éditeur de devis (DevisEditor) continue à fonctionner en
+  // lecture pour un user avec canRead seul — la RLS empêche les mutations
+  // côté serveur.
+  const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
+  const canRead = canDo(OUTILS.DEVIS, ACTIONS.READ)
+  const canEdit = canDo(OUTILS.DEVIS, ACTIONS.EDIT)
   const {
     lots,
     setLots,
@@ -492,6 +507,25 @@ export default function DevisTab() {
   // Rendu
   // ─────────────────────────────────────────────────────────────────────────
 
+  // Attente du chargement des permissions avant tout rendu "business".
+  // Sans ça, un prestataire sans droit verrait l'UI flash puis disparaître.
+  if (permLoading) {
+    return (
+      <div className="p-6 text-sm text-gray-500">Chargement…</div>
+    )
+  }
+
+  // Défense en profondeur : ProjetLayout masque déjà l'onglet si canSee est
+  // false, mais on garde un fallback ici au cas où quelqu'un atterrirait
+  // directement sur l'URL /projets/:id/devis.
+  if (!canRead) {
+    return (
+      <div className="p-6 text-sm text-gray-500">
+        Vous n&apos;avez pas la permission d&apos;accéder aux devis de ce projet.
+      </div>
+    )
+  }
+
   // Si un devisId est dans l'URL → afficher l'éditeur en plein écran.
   // Ce return DOIT venir après tous les hooks (useState/useMemo/useEffect)
   // pour garantir que le nombre de hooks appelés reste stable entre les
@@ -526,7 +560,7 @@ export default function DevisTab() {
               </p>
             )}
           </div>
-          {hasAnyLot && (
+          {hasAnyLot && canEdit && (
             <button onClick={() => createLot('')} className="btn-secondary btn-sm shrink-0">
               <Package className="w-3.5 h-3.5" />
               Nouveau lot
@@ -587,21 +621,30 @@ export default function DevisTab() {
                 «&nbsp;Aftermovie&nbsp;», «&nbsp;Vidéos réseaux sociaux&nbsp;»).
               </p>
               <div className="flex items-center justify-center gap-2 flex-wrap">
-                <button onClick={() => createDevis(null, null)} className="btn-primary">
-                  <Plus className="w-4 h-4" />
-                  Créer un devis vierge
-                </button>
-                <button
-                  disabled
-                  className="btn-secondary opacity-60 cursor-not-allowed"
-                  title="Disponible prochainement"
-                >
-                  <LayoutTemplate className="w-4 h-4" />
-                  Depuis un template
-                  <span className="ml-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-                    Bientôt
-                  </span>
-                </button>
+                {canEdit && (
+                  <button onClick={() => createDevis(null, null)} className="btn-primary">
+                    <Plus className="w-4 h-4" />
+                    Créer un devis vierge
+                  </button>
+                )}
+                {canEdit && (
+                  <button
+                    disabled
+                    className="btn-secondary opacity-60 cursor-not-allowed"
+                    title="Disponible prochainement"
+                  >
+                    <LayoutTemplate className="w-4 h-4" />
+                    Depuis un template
+                    <span className="ml-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                      Bientôt
+                    </span>
+                  </button>
+                )}
+                {!canEdit && (
+                  <p className="text-xs text-gray-500 italic">
+                    Vous avez accès en lecture seule — demandez un accès édition pour créer des devis.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -632,12 +675,13 @@ export default function DevisTab() {
                 onUpdateStatus={updateStatus}
                 devisStats={devisStats}
                 projectId={projectId}
+                canEdit={canEdit}
               />
             ))}
           </div>
 
           {/* Bouton global "+ Nouveau lot" en bas si plusieurs lots */}
-          {activeLots.length > 0 && (
+          {activeLots.length > 0 && canEdit && (
             <div className="flex items-center justify-center pt-1">
               <button onClick={() => createLot('')} className="btn-ghost btn-sm text-gray-500">
                 <Plus className="w-3.5 h-3.5" />
@@ -687,6 +731,7 @@ export default function DevisTab() {
                       onUpdateStatus={updateStatus}
                       devisStats={devisStats}
                       projectId={projectId}
+                      canEdit={canEdit}
                       isArchived
                     />
                   ))}
@@ -724,6 +769,7 @@ function LotAccordion({
   onUpdateStatus,
   devisStats,
   projectId,
+  canEdit = true,
   isArchived = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -774,13 +820,15 @@ function LotAccordion({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-bold text-gray-900 truncate">{lot.title}</h3>
-            <button
-              onClick={onRename}
-              title="Renommer ce lot"
-              className="p-0.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
+            {canEdit && (
+              <button
+                onClick={onRename}
+                title="Renommer ce lot"
+                className="p-0.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
             <span
               className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
               style={{ color: statusCfg.color, background: statusCfg.bg }}
@@ -822,7 +870,7 @@ function LotAccordion({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {!isArchived && (
+          {!isArchived && canEdit && (
             <button
               onClick={onCreateDevis}
               title="Nouvelle version dans ce lot"
@@ -832,6 +880,7 @@ function LotAccordion({
               Version
             </button>
           )}
+          {canEdit && (
           <div className="relative" ref={menuRef}>
             <button
               onClick={(e) => {
@@ -895,6 +944,7 @@ function LotAccordion({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -904,7 +954,7 @@ function LotAccordion({
           {devis.length === 0 ? (
             <div className="px-5 py-6 text-center">
               <p className="text-xs text-gray-500 mb-3">Aucune version dans ce lot.</p>
-              {!isArchived && (
+              {!isArchived && canEdit && (
                 <button onClick={onCreateDevis} className="btn-primary btn-sm">
                   <Plus className="w-3.5 h-3.5" />
                   Créer la première version
@@ -980,21 +1030,23 @@ function LotAccordion({
                           <span className="text-sm font-semibold text-gray-900 truncate">
                             {dv.title || `Devis V${dv.version_number}`}
                           </span>
-                          <button
-                            onClick={(e) => onRenameDevis(dv, e)}
-                            title={
-                              isDuplicate
-                                ? 'Plusieurs versions portent ce nom — renomme pour les distinguer'
-                                : 'Renommer cette version'
-                            }
-                            className={`p-1 rounded transition-colors ${
-                              isDuplicate
-                                ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50'
-                                : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100'
-                            }`}
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={(e) => onRenameDevis(dv, e)}
+                              title={
+                                isDuplicate
+                                  ? 'Plusieurs versions portent ce nom — renomme pour les distinguer'
+                                  : 'Renommer cette version'
+                              }
+                              className={`p-1 rounded transition-colors ${
+                                isDuplicate
+                                  ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50'
+                                  : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100'
+                              }`}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
                           {isRef && (
                             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-bold uppercase tracking-wider">
                               <Star className="w-2.5 h-2.5 fill-current" />
@@ -1070,9 +1122,11 @@ function LotAccordion({
                         <select
                           value={dv.status}
                           onChange={(e) => onUpdateStatus(dv.id, e.target.value, e)}
+                          disabled={!canEdit}
                           className={`
                             text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 cursor-pointer
                             focus:outline-none focus:border-blue-400 font-semibold
+                            disabled:cursor-not-allowed disabled:opacity-70
                             ${STATUS_MAP[dv.status]?.cls || ''}
                           `}
                         >
@@ -1083,22 +1137,24 @@ function LotAccordion({
                           ))}
                         </select>
 
-                        <div className="flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => onDuplicateDevis(dv, e)}
-                            title="Dupliquer cette version dans ce lot"
-                            className="btn-ghost btn-sm text-gray-400 hover:text-blue-600"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => onDeleteDevis(dv.id, e)}
-                            title="Supprimer ce devis"
-                            className="btn-ghost btn-sm text-gray-400 hover:text-red-500"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                        {canEdit && (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              onClick={(e) => onDuplicateDevis(dv, e)}
+                              title="Dupliquer cette version dans ce lot"
+                              className="btn-ghost btn-sm text-gray-400 hover:text-blue-600"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => onDeleteDevis(dv.id, e)}
+                              title="Supprimer ce devis"
+                              className="btn-ghost btn-sm text-gray-400 hover:text-red-500"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </Link>
                   )

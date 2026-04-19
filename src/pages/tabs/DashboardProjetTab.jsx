@@ -12,6 +12,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useProjet } from '../ProjetLayout'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
 import LotScopeSelector from '../../components/LotScopeSelector'
 import {
@@ -202,6 +204,10 @@ export default function DashboardProjetTab() {
     devisByLot,
     devisStats,
   } = useProjet()
+  // BUDGET-PERM (2026-04-20) — dashboard bundle sous l'outil 'budget' (lecture seule).
+  // Hugo : Q1 "Dashboard stays bundled with 'budget' (no dedicated outil)".
+  const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
+  const canRead = canDo(OUTILS.BUDGET, ACTIONS.READ)
 
   // Lots ayant effectivement un devis de référence (sinon pas d'info à afficher)
   const lotsWithRef = useMemo(
@@ -303,6 +309,37 @@ export default function DashboardProjetTab() {
     )
     return same ? first : null
   }, [scope, refDevisByLot])
+
+  // BUDGET-PERM — attente de la résolution des permissions projet
+  if (permLoading) {
+    return (
+      <div
+        className="flex items-center justify-center h-64 gap-2"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        <div
+          className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }}
+        />
+        <span className="text-sm">Chargement…</span>
+      </div>
+    )
+  }
+
+  // BUDGET-PERM — prestataire sans droit 'budget' : refus explicite
+  if (!canRead) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center h-64 gap-3"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        <BarChart3 className="w-10 h-10 opacity-30" />
+        <p className="text-sm">
+          Accès refusé — vous n&apos;avez pas accès au dashboard financier de ce projet.
+        </p>
+      </div>
+    )
+  }
 
   if (lotsWithRef.length === 0 || !scopedSynth) {
     return (
