@@ -22,6 +22,8 @@ import PlanningTimelineView from '../../features/planning/PlanningTimelineView'
 import ICalExportDrawer from '../../features/planning/ICalExportDrawer'
 import LotScopeSelector from '../../components/LotScopeSelector'
 import { useBreakpoint } from '../../hooks/useBreakpoint'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import {
   listEventsByProject,
   listEventTypes,
@@ -100,6 +102,19 @@ function uniquifyViewName(baseName, pool = []) {
 export default function PlanningTab() {
   const { project, projectId, lots = [] } = useProjet() || {}
   const bp = useBreakpoint()
+
+  // ── Permissions (CHANTIER PERM — avril 2026) ────────────────────────────
+  // Gate UI côté client :
+  //   - canRead : indispensable pour voir la page. En défense en profondeur
+  //     (ProjetLayout masque déjà l'onglet si canSee('planning') est false),
+  //     on affiche un message "Accès refusé" si on atterrit ici sans lecture.
+  //   - canEdit : cache les boutons de création, désactive drag/resize/kanban,
+  //     passe la modale EventEditorModal en readOnly.
+  // Les rôles internes (admin/charge_prod/coordinateur) bypass tout → canEdit
+  // et canRead renvoient toujours true pour eux (cf. useProjectPermissions).
+  const { loading: permLoading, can: canDo } = useProjectPermissions(projectId)
+  const canRead = canDo(OUTILS.PLANNING, ACTIONS.READ)
+  const canEdit = canDo(OUTILS.PLANNING, ACTIONS.EDIT)
 
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [lotScope, setLotScope] = useState('__all__')
@@ -554,6 +569,10 @@ export default function PlanningTab() {
   // drag-resize). Si on voulait plus tard permettre un détachement, il
   // faudrait ouvrir un EventMoveScopeModal comme pour les dates.
   async function handleMoveCard(ev, groupBy, nextKey) {
+    if (!canEdit) {
+      notify.error('Permission « Planning — Éditer » requise pour déplacer une carte.')
+      return
+    }
     if (!ev || !groupBy) return
     const field = GROUP_BY_FIELD_MAP[groupBy]
     if (!field) return
@@ -725,6 +744,10 @@ export default function PlanningTab() {
     // Fallback : pas de vue Jour disponible → on reste sur Semaine.
   }
   function handleNewEvent() {
+    if (!canEdit) {
+      notify.error('Permission « Planning — Éditer » requise pour créer un événement.')
+      return
+    }
     setEditingEvent(null)
     const today = new Date()
     // Pré-remplit au jour courant visible (ou today s'il est dans la plage).
@@ -752,6 +775,10 @@ export default function PlanningTab() {
   // On passe l'info via un "event synthétique" (sans id/_master_id) → le modal
   // détecte isNew=true mais lit typeId/lotId/locationId depuis nos valeurs.
   function handleAddEventInColumn(groupBy, colKey) {
+    if (!canEdit) {
+      notify.error('Permission « Planning — Éditer » requise pour créer un événement.')
+      return
+    }
     if (!groupBy) return
     const field = GROUP_BY_FIELD_MAP[groupBy]
     if (!field) return
@@ -782,6 +809,10 @@ export default function PlanningTab() {
   // occurrence virtuelle (avec _master_id / _master_starts_at / …). On ouvre
   // alors la modale de scope ; sinon on applique directement la modif.
   function handleEventMove(ev, newStart, newEnd) {
+    if (!canEdit) {
+      notify.error('Permission « Planning — Éditer » requise pour déplacer un événement.')
+      return
+    }
     if (ev._is_occurrence) {
       setPendingMove({ event: ev, newStart, newEnd, mode: 'move' })
       return
@@ -790,6 +821,10 @@ export default function PlanningTab() {
   }
 
   function handleEventResize(ev, newEnd) {
+    if (!canEdit) {
+      notify.error('Permission « Planning — Éditer » requise pour redimensionner un événement.')
+      return
+    }
     const start = new Date(ev.starts_at)
     if (ev._is_occurrence) {
       setPendingMove({ event: ev, newStart: start, newEnd, mode: 'resize' })
@@ -876,6 +911,27 @@ export default function PlanningTab() {
     )
   }
 
+  // Attente du chargement des permissions avant tout rendu "business".
+  // Sans ça, un prestataire sans droit verrait l'UI flash puis disparaître.
+  if (permLoading) {
+    return (
+      <div className="p-6 text-sm" style={{ color: 'var(--txt-3)' }}>
+        Chargement…
+      </div>
+    )
+  }
+
+  // Défense en profondeur : ProjetLayout masque déjà l'onglet si canSee est
+  // false, mais on garde un fallback ici au cas où quelqu'un atterrirait
+  // directement sur l'URL.
+  if (!canRead) {
+    return (
+      <div className="p-6 text-sm" style={{ color: 'var(--txt-3)' }}>
+        Vous n&apos;avez pas la permission d&apos;accéder au planning de ce projet.
+      </div>
+    )
+  }
+
   const noTypes = !loading && eventTypes.length === 0
   // timelineDays est déjà calculé en useMemo plus haut (responsive 3/5/7).
   // Le label suit la même logique : format court sur mobile/tablet (moins
@@ -945,19 +1001,23 @@ export default function PlanningTab() {
             </button>
           )}
 
-          {/* Nouveau event : icon-only sur mobile, full label sur sm+ */}
-          <button
-            type="button"
-            onClick={handleNewEvent}
-            disabled={noTypes}
-            aria-label="Nouvel événement"
-            className="px-2.5 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 shrink-0"
-            style={{ background: 'var(--blue)', color: '#fff' }}
-            title={noTypes ? "Ajoute d'abord des types dans Paramètres" : 'Nouvel événement'}
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nouvel événement</span>
-          </button>
+          {/* Nouveau event : icon-only sur mobile, full label sur sm+.
+              Caché si l'utilisateur n'a pas la permission "Planning — Éditer"
+              (avril 2026 — chantier PERM). Les rôles internes bypass. */}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleNewEvent}
+              disabled={noTypes}
+              aria-label="Nouvel événement"
+              className="px-2.5 sm:px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50 shrink-0"
+              style={{ background: 'var(--blue)', color: '#fff' }}
+              title={noTypes ? "Ajoute d'abord des types dans Paramètres" : 'Nouvel événement'}
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Nouvel événement</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1128,7 +1188,10 @@ export default function PlanningTab() {
         orgId={project?.org_id}
       />
 
-      {/* Modale édition */}
+      {/* Modale édition. readOnly si l'utilisateur n'a pas "Planning — Éditer"
+          (chantier PERM — avril 2026). Défense en profondeur : les handlers
+          de création (handleNewEvent, handleAddEventInColumn) sont déjà gated,
+          mais un event existant reste ouvrable via onClick (lecture seule). */}
       {editorOpen && (
         <EventEditorModal
           event={editingEvent}
@@ -1137,6 +1200,7 @@ export default function PlanningTab() {
           lots={activeLots}
           eventTypes={eventTypes}
           locations={locations}
+          readOnly={!canEdit}
           onClose={closeEditor}
           onSaved={handleSaved}
         />

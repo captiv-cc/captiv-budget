@@ -208,7 +208,13 @@ export default function PlanningGlobal() {
   const [eventTypes, setEventTypes] = useState([])
   const [locations, setLocations] = useState([])
   const [lots, setLots] = useState([])
-  const [projects, setProjects] = useState([])
+  // `rawProjects` = liste brute issue de la requête (tous les projets attachés,
+  // indépendamment des permissions planning). On en dérive ensuite `projects`
+  // (projets avec canRead) et `editableProjects` (projets avec canEdit) via
+  // les RPC can_read_outil / can_edit_outil — cf. PERM-6.
+  const [rawProjects, setRawProjects] = useState([])
+  const [planningPermsByProjectId, setPlanningPermsByProjectId] = useState({})
+  const [permsReady, setPermsReady] = useState(false) // PERM-6 : true après 1re résolution RPC
   const [projectsReady, setProjectsReady] = useState(false) // PG-5a : true après 1er load
 
   // View switcher — PG-4 : vues persistées en DB (project_id=NULL = scope global).
@@ -329,7 +335,7 @@ export default function PlanningGlobal() {
         if (projRes?.error) {
           console.error('[PlanningGlobal] load projects:', projRes.error)
         }
-        setProjects(projData)
+        setRawProjects(projData)
       })
       .catch((err) => {
         console.error('[PlanningGlobal] load types/locations/lots/projets:', err)
@@ -343,6 +349,72 @@ export default function PlanningGlobal() {
       cancelled = true
     }
   }, [])
+
+  // ── PERM-6 : résolution des permissions planning par projet ──────────────
+  // Pour chaque projet attaché, on interroge les helpers SQL can_read_outil /
+  // can_edit_outil via RPC. Les rôles internes (admin/charge_prod/coord.)
+  // bypassent côté SQL — les fonctions renvoient true pour eux. Les
+  // prestataires sont résolus via leur template + overrides (même règle que
+  // côté UI, source de vérité unique).
+  //
+  // Coût : 2 × N requêtes (N = nombre de projets attachés). Les RPC sont
+  // rapides (fonctions SQL STABLE) et on les fait en parallèle. Pour >50
+  // projets on pourra passer à un RPC de batch plus tard.
+  useEffect(() => {
+    if (!rawProjects.length) {
+      setPlanningPermsByProjectId({})
+      setPermsReady(true)
+      return
+    }
+    let cancelled = false
+    setPermsReady(false)
+    ;(async () => {
+      try {
+        const entries = await Promise.all(
+          rawProjects.map(async (p) => {
+            const [readRes, editRes] = await Promise.all([
+              supabase.rpc('can_read_outil', { pid: p.id, outil: 'planning' }),
+              supabase.rpc('can_edit_outil', { pid: p.id, outil: 'planning' }),
+            ])
+            return [
+              p.id,
+              {
+                canRead: readRes.data === true,
+                canEdit: editRes.data === true,
+              },
+            ]
+          }),
+        )
+        if (cancelled) return
+        setPlanningPermsByProjectId(Object.fromEntries(entries))
+      } catch (err) {
+        console.error('[PlanningGlobal] resolve planning perms:', err)
+        // Fail-safe : en cas d'erreur (RPC KO), on laisse l'objet vide.
+        // Les projets seront alors tous masqués du picker et de la liste,
+        // ce qui est plus safe que de tout exposer.
+        if (!cancelled) setPlanningPermsByProjectId({})
+      } finally {
+        if (!cancelled) setPermsReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [rawProjects])
+
+  // Projets visibles (canRead sur planning) — alimente le filtre "Projets" du
+  // drawer et le empty state "Aucun projet accessible".
+  const projects = useMemo(
+    () => rawProjects.filter((p) => planningPermsByProjectId[p.id]?.canRead),
+    [rawProjects, planningPermsByProjectId],
+  )
+
+  // Projets sur lesquels l'utilisateur peut créer un événement (canEdit) —
+  // alimente le picker "Nouvel événement".
+  const editableProjects = useMemo(
+    () => rawProjects.filter((p) => planningPermsByProjectId[p.id]?.canEdit),
+    [rawProjects, planningPermsByProjectId],
+  )
 
   // ── Chargement des events sur la fenêtre courante ────────────────────────
   const loadEvents = useCallback(async () => {
@@ -699,19 +771,25 @@ export default function PlanningGlobal() {
   }, [activeView, handleDeleteView])
 
   // ── Création cross-projet (PG-3e) ────────────────────────────────────────
-  // Clic "Nouvel événement" → si 0 projet accessible, erreur ; si 1 seul,
+  // Clic "Nouvel événement" → si 0 projet éditable, erreur ; si 1 seul,
   // ouverture directe du modal ; sinon, ouverture du picker.
+  // Depuis PERM-6 : on filtre sur `editableProjects` (canEdit sur planning)
+  // et non plus sur `projects` (canRead) — un user avec lecture seule ne
+  // doit pas voir de projet proposé à la création.
   const handleClickNewEvent = useCallback(() => {
-    if (!projects.length) {
-      toast.error('Aucun projet accessible — créez un projet d\u2019abord')
+    if (!editableProjects.length) {
+      toast.error('Aucun projet avec permission « Planning — Éditer »')
       return
     }
-    if (projects.length === 1) {
-      setNewEventProject({ id: projects[0].id, title: projects[0].title || '' })
+    if (editableProjects.length === 1) {
+      setNewEventProject({
+        id: editableProjects[0].id,
+        title: editableProjects[0].title || '',
+      })
       return
     }
     setProjectPickerOpen(true)
-  }, [projects])
+  }, [editableProjects])
 
   const handlePickProject = useCallback((project) => {
     setNewEventProject({ id: project.id, title: project.title || '' })
@@ -768,7 +846,21 @@ export default function PlanningGlobal() {
   }, [closeModal, loadEvents])
 
   // ── Drag & drop / resize (identique à PlanningTab) ───────────────────────
+  //
+  // PERM-6 : on vérifie canEdit sur le projet parent avant d'autoriser la
+  // mutation. Si l'utilisateur n'a que canRead, on notifie et on return —
+  // l'UI n'affiche alors aucun side-effect (pas de saut vers une ancienne
+  // position puisqu'on n'a pas fait d'optimistic update).
+  function canEditEventProject(ev) {
+    const pid = ev?.project?.id || ev?.project_id
+    return pid ? planningPermsByProjectId[pid]?.canEdit === true : false
+  }
+
   function handleEventMove(ev, newStart, newEnd) {
+    if (!canEditEventProject(ev)) {
+      notify.error('Permission « Planning — Éditer » requise sur ce projet.')
+      return
+    }
     if (ev._is_occurrence) {
       setPendingMove({ event: ev, newStart, newEnd, mode: 'move' })
       return
@@ -777,6 +869,10 @@ export default function PlanningGlobal() {
   }
 
   function handleEventResize(ev, newEnd) {
+    if (!canEditEventProject(ev)) {
+      notify.error('Permission « Planning — Éditer » requise sur ce projet.')
+      return
+    }
     const start = new Date(ev.starts_at)
     if (ev._is_occurrence) {
       setPendingMove({ event: ev, newStart: start, newEnd, mode: 'resize' })
@@ -848,6 +944,10 @@ export default function PlanningGlobal() {
 
   // ── Drag & drop Kanban (déplace une carte d'une colonne à l'autre) ───────
   async function handleMoveCard(ev, groupBy, nextKey) {
+    if (!canEditEventProject(ev)) {
+      notify.error('Permission « Planning — Éditer » requise sur ce projet.')
+      return
+    }
     if (!ev || !groupBy) return
     // Mapping local (évite un import circulaire) — identique à planning.js.
     const FIELD = { type: 'type_id', lot: 'lot_id', location: 'location_id' }
@@ -959,20 +1059,24 @@ export default function PlanningGlobal() {
             onOpenConfig={handleOpenConfig}
             compact={bp.isMobile}
           />
-          <button
-            type="button"
-            onClick={handleClickNewEvent}
-            disabled={!projects.length}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              background: 'var(--blue)',
-              color: '#fff',
-            }}
-            title="Créer un nouvel événement"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Nouvel événement</span>
-          </button>
+          {/* Bouton "Nouvel événement" — masqué si aucun projet n'autorise la
+              création (PERM-6). `editableProjects` = projets avec canEdit sur
+              planning (prestataire sans "Éditer" n'en a aucun). */}
+          {editableProjects.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClickNewEvent}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{
+                background: 'var(--blue)',
+                color: '#fff',
+              }}
+              title="Créer un nouvel événement"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Nouvel événement</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -992,10 +1096,12 @@ export default function PlanningGlobal() {
               </p>
             </div>
           </div>
-        ) : projectsReady && projects.length === 0 ? (
-          // PG-5a : état distinct du "aucun event" — ici l'utilisateur n'a
-          // accès à aucun projet (ni membre, ni admin). On propose une action
-          // claire plutôt que de le laisser sur une grille vide.
+        ) : projectsReady && permsReady && projects.length === 0 ? (
+          // PG-5a + PERM-6 : état distinct du "aucun event". Deux cas :
+          //   1. Aucun projet attaché (rawProjects vide)
+          //   2. Projets attachés mais aucun avec permission « Planning Lire »
+          //      (prestataire sans lecture sur planning sur tous ses projets)
+          // On adapte la copie en fonction pour rester honnête sur la cause.
           <div className="flex items-center justify-center h-full p-6">
             <div className="text-center max-w-sm">
               <div
@@ -1005,12 +1111,18 @@ export default function PlanningGlobal() {
                 <FolderOpen className="w-5 h-5" style={{ color: 'var(--blue)' }} />
               </div>
               <p className="text-sm font-medium mb-1" style={{ color: 'var(--txt)' }}>
-                Aucun projet accessible
+                {rawProjects.length === 0
+                  ? 'Aucun projet accessible'
+                  : 'Aucun planning accessible'}
               </p>
               <p className="text-xs leading-relaxed" style={{ color: 'var(--txt-3)' }}>
-                Le planning affiche les événements de vos projets. Créez un
-                projet ou demandez l&apos;accès à un projet existant pour
-                commencer à planifier.
+                {rawProjects.length === 0
+                  ? (<>Le planning affiche les événements de vos projets. Créez un
+                      projet ou demandez l&apos;accès à un projet existant pour
+                      commencer à planifier.</>)
+                  : (<>Vos projets n&apos;ont pas la permission
+                      «&nbsp;Planning Lire&nbsp;» pour votre compte. Demandez
+                      à un administrateur d&apos;activer cette permission.</>)}
               </p>
             </div>
           </div>
@@ -1151,7 +1263,8 @@ export default function PlanningGlobal() {
 
       {/* Modal vue/édition — ouvert en place au clic sur un event. Le lien
           "Voir dans le projet →" (via projectLink) permet de rebondir vers le
-          planning du projet parent si besoin. */}
+          planning du projet parent si besoin.
+          PERM-6 : readOnly passé selon canEdit sur le projet parent. */}
       {selectedEvent && selectedProject && (
         <EventEditorModal
           event={selectedEvent}
@@ -1159,6 +1272,7 @@ export default function PlanningGlobal() {
           lots={lots.filter((l) => l.project_id === selectedProject.id)}
           eventTypes={eventTypes}
           locations={locations}
+          readOnly={!planningPermsByProjectId[selectedProject.id]?.canEdit}
           onClose={closeModal}
           onSaved={handleSaved}
           projectLink={{
@@ -1217,11 +1331,13 @@ export default function PlanningGlobal() {
       )}
 
       {/* Picker projet (PG-3e) — affiché lorsqu'on clique "Nouvel événement"
-          avec plusieurs projets accessibles. Contenu minimal : une liste
-          cliquable ; pour >20 projets, ajouter un input de filtre futur. */}
+          avec plusieurs projets éditables (PERM-6 : on limite aux projets
+          avec canEdit sur planning, cf. `editableProjects`).
+          Contenu minimal : une liste cliquable ; pour >20 projets, l'input
+          de filtre interne suffit. */}
       {projectPickerOpen && (
         <ProjectPickerModal
-          projects={projects}
+          projects={editableProjects}
           onPick={handlePickProject}
           onCancel={() => setProjectPickerOpen(false)}
         />

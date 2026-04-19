@@ -13,6 +13,11 @@
  *   - locations   : tableau des lieux (optionnel — fallback texte libre)
  *   - onClose     : fn()
  *   - onSaved     : fn() — appelé après sauvegarde réussie
+ *   - readOnly    : bool (défaut false) — force le modal en mode lecture seule.
+ *                   Masque les boutons "Modifier" / "Supprimer" / "Enregistrer"
+ *                   et empêche la bascule vers le mode édition. Utilisé quand
+ *                   l'utilisateur n'a pas la permission "Planning — Éditer"
+ *                   (chantier PERM — avril 2026).
  *   - projectLink : { label: string, to: string } — optionnel. Affiche un
  *                   lien "Voir dans le projet →" sous le titre du modal.
  *                   Utilisé depuis le Planning global (PG-1) où l'user a
@@ -47,6 +52,7 @@ export default function EventEditorModal({
   locations = [],
   onClose,
   onSaved,
+  readOnly = false,
   projectLink = null,
 }) {
   // Un "event" venant du planning peut être une occurrence virtuelle (métadonnées
@@ -95,7 +101,8 @@ export default function EventEditorModal({
   // rapide au tap), et directement en "édition" pour une création. Un bouton
   // "Modifier" bascule en édition ; "Annuler" en édition restaure les valeurs
   // initiales et revient en vue.
-  const [mode, setMode] = useState(isNew ? 'edit' : 'view')
+  // readOnly (chantier PERM) force le mode "vue" et masque toutes les bascules.
+  const [mode, setMode] = useState(readOnly ? 'view' : (isNew ? 'edit' : 'view'))
 
   // Snapshot des valeurs initiales — utilisé pour restaurer le formulaire
   // quand on annule l'édition sans enregistrer.
@@ -112,6 +119,10 @@ export default function EventEditorModal({
   })
 
   function enterEditMode() {
+    // Blocage défensif : on ne doit jamais pouvoir entrer en édition en
+    // readOnly. Le bouton "Modifier" est déjà masqué, c'est une ceinture-
+    // bretelles au cas où un appelant forcerait l'état à la main.
+    if (readOnly) return
     setConfirmDelete(false)
     setMode('edit')
   }
@@ -245,6 +256,10 @@ export default function EventEditorModal({
   }, [draftConflicts])
 
   async function save() {
+    if (readOnly) {
+      notify.error('Mode lecture seule — permission « Planning — Éditer » requise.')
+      return
+    }
     if (!title.trim()) {
       notify.error('Le titre est obligatoire.')
       return
@@ -343,6 +358,10 @@ export default function EventEditorModal({
   }
 
   async function handleDelete() {
+    if (readOnly) {
+      notify.error('Mode lecture seule — permission « Planning — Éditer » requise.')
+      return
+    }
     if (!confirmDelete) {
       setConfirmDelete(true)
       return
@@ -444,6 +463,24 @@ export default function EventEditorModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-3 sm:py-4 flex flex-col gap-3 sm:gap-4">
+          {/* Bandeau lecture seule — visible uniquement quand readOnly est
+              activé (chantier PERM — avril 2026). Clarifie pour l'utilisateur
+              pourquoi il n'y a pas de bouton "Modifier" / "Supprimer". */}
+          {readOnly && (
+            <div
+              className="rounded-lg p-2.5 text-[11px]"
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt-3)',
+              }}
+            >
+              Mode lecture seule — vous n&apos;avez pas la permission
+              <strong> « Planning — Éditer » </strong>
+              sur ce projet.
+            </div>
+          )}
+
           {/* Bandeau conflit (partagé entre onglets) */}
           {draftConflicts.length > 0 && (
             <ConflictBanner conflicts={draftConflicts} />
@@ -665,9 +702,9 @@ export default function EventEditorModal({
             paddingBottom: 'max(env(safe-area-inset-bottom), 0.75rem)',
           }}
         >
-          {/* Supprimer (édition seulement) */}
+          {/* Supprimer (édition seulement, masqué en readOnly) */}
           <div className="flex">
-            {!isNew && (
+            {!isNew && !readOnly && (
               <button
                 type="button"
                 onClick={handleDelete}
@@ -706,15 +743,18 @@ export default function EventEditorModal({
                 >
                   Fermer
                 </button>
-                <button
-                  type="button"
-                  onClick={enterEditMode}
-                  className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
-                  style={{ background: 'var(--blue)', color: '#fff' }}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Modifier
-                </button>
+                {/* Bouton "Modifier" masqué en readOnly (chantier PERM). */}
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={enterEditMode}
+                    className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                    style={{ background: 'var(--blue)', color: '#fff' }}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Modifier
+                  </button>
+                )}
               </>
             ) : (
               <>
