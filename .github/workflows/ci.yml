@@ -28,7 +28,13 @@ jobs:
       - name: Tests
         # Le script package.json est `vitest run` → déjà en mode single-run.
         # Pas besoin de flag --watchAll (c'est un flag Jest, rejeté par vitest).
+        # Les env Supabase placeholder sont requises parce que src/lib/supabase.js
+        # instancie createClient() au top-level import, et supabase-js v2 throw
+        # si l'URL est vide — même si aucun test ne fait de requête réseau.
         run: npm test
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-key-for-ci-build
 
       - name: Build
         run: npm run build
