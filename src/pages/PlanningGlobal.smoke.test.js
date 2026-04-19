@@ -80,9 +80,25 @@ describe('PlanningGlobal — smoke (PG-5d)', () => {
     expect(SRC).not.toMatch(/!loading\s*&&\s*rawEvents\.length\s*===\s*0/)
   })
 
-  it('expose l\'empty state "Aucun projet accessible" (PG-5a)', () => {
-    expect(SRC).toMatch(/projectsReady\s*&&\s*projects\.length\s*===\s*0/)
+  it('expose l\'empty state "Aucun projet accessible" (PG-5a + PERM-6)', () => {
+    // Depuis PERM-6 on attend aussi permsReady avant d'afficher le empty state
+    // (sinon flash "rien à voir" pendant que les RPC can_read_outil résolvent).
+    expect(SRC).toMatch(/projectsReady\s*&&\s*permsReady\s*&&\s*projects\.length\s*===\s*0/)
     expect(SRC).toMatch(/Aucun projet accessible/)
+    // Le second message différencie "projet attaché mais pas de Planning Lire"
+    expect(SRC).toMatch(/Aucun planning accessible/)
+  })
+
+  it('batch-résout les permissions planning par projet (PERM-6)', () => {
+    // On interroge can_read_outil / can_edit_outil pour chaque projet attaché
+    expect(SRC).toMatch(/can_read_outil/)
+    expect(SRC).toMatch(/can_edit_outil/)
+    // L'index des perms est stocké dans planningPermsByProjectId
+    expect(SRC).toMatch(/planningPermsByProjectId/)
+    // editableProjects est la liste filtrée passée au ProjectPickerModal
+    expect(SRC).toMatch(/editableProjects/)
+    // canEditEventProject gate drag / resize / move sur events individuels
+    expect(SRC).toMatch(/canEditEventProject/)
   })
 
   it('utilise le PlanningGlobalSkeleton pendant le 1er fetch (PG-5a)', () => {
