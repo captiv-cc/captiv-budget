@@ -511,9 +511,9 @@ export default function ProjetLayout() {
                       />
                     )}
                   </div>
-                  {project?.type_projet && (
+                  {project?.types_projet?.length > 0 && (
                     <p className="hidden sm:block text-xs text-slate-500 mt-0.5">
-                      {project.type_projet}
+                      {project.types_projet.join(' · ')}
                     </p>
                   )}
                 </div>
