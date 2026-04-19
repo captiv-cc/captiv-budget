@@ -69,3 +69,6 @@ temp/
 *.bak
 *.tmp
 *.orig
+
+# Supabase CLI local cache
+supabase/.temp/
