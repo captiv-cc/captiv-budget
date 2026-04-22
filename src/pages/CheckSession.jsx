@@ -39,6 +39,7 @@ import CheckBlockCard from '../features/materiel/components/check/CheckBlockCard
 import CheckDocsViewer from '../features/materiel/components/check/CheckDocsViewer'
 import LoueurFilterBar from '../features/materiel/components/check/LoueurFilterBar'
 import PresenceStack from '../features/materiel/components/check/PresenceStack'
+import BilanExportModal from '../features/materiel/components/BilanExportModal'
 
 export default function CheckSession({ mode = 'token' }) {
   if (mode === 'authed') {
@@ -248,40 +249,20 @@ function CheckSessionShell({
   const [closeError, setCloseError] = useState(null)
   const [lastZip, setLastZip] = useState(null) // { blob, url, filename, download, revoke }
 
-  // Aperçu bilan : state de soumission (bouton occupe un état "en cours" le
-  // temps de la génération PDF/ZIP). Le blob est téléchargé directement puis
-  // l'URL est révoquée sous 2s ; inutile de le garder en state.
-  const [previewing, setPreviewing] = useState(false)
+  // Aperçu bilan (MAT-22) : on délègue à `BilanExportModal` qui offre les 3
+  // modes d'export (Global combiné / ZIP par loueur / 1 seul loueur) avec
+  // preview iframe inline. La session étant déjà chargée par le hook
+  // (`useCheckTokenSession` ou `useCheckAuthedSession`), on la passe en prop
+  // pour éviter un double-fetch réseau (et, en mode token, un fetch admin
+  // qui échouerait côté RLS).
+  const [bilanExportOpen, setBilanExportOpen] = useState(false)
 
   // Libère l'URL Blob à l'unmount (pas besoin de la garder après la session).
   useEffect(() => () => lastZip?.revoke?.(), [lastZip])
 
-  async function handlePreviewBilan() {
-    if (previewing) return
-    setPreviewing(true)
-    try {
-      const zip = await actions.preview()
-      try {
-        zip.download?.()
-      } catch {
-        /* no-op */
-      }
-      // Libère l'URL blob après 2s (le temps que le download démarre).
-      setTimeout(() => {
-        try {
-          zip.revoke?.()
-        } catch {
-          /* no-op */
-        }
-      }, 2000)
-    } catch (err) {
-      console.error('[CheckSession] aperçu bilan :', err)
-      // Pas de toast anon dispo ici — on affiche une alerte simple. Sur le
-      // chemin admin (MaterielTab), notify.error gère le feedback.
-      alert('Échec de l\'aperçu : ' + (err?.message || err))
-    } finally {
-      setPreviewing(false)
-    }
+  function handlePreviewBilan() {
+    if (!session) return
+    setBilanExportOpen(true)
   }
 
   async function handleConfirmCloture() {
@@ -358,7 +339,6 @@ function CheckSessionShell({
                 setClotureOpen(true)
               }}
               onPreview={handlePreviewBilan}
-              previewing={previewing}
             />
           )}
 
@@ -413,6 +393,14 @@ function CheckSessionShell({
           userName={userName}
         />
       )}
+
+      {/* MAT-22 — Modale export bilan (3 modes + preview) */}
+      <BilanExportModal
+        open={bilanExportOpen}
+        onClose={() => setBilanExportOpen(false)}
+        session={session}
+        versionId={session?.version?.id}
+      />
     </div>
   )
 }
@@ -756,14 +744,15 @@ function EmptyBlocksState() {
  * Bouton "Clôturer les essais" — dernière action du flow terrain.
  *
  * Visible en permanence (même si déjà clôturée : "Re-générer le bilan").
- * Un bouton secondaire "Aperçu bilan" permet de télécharger le ZIP sans
- * clôturer (aucune écriture serveur, juste une génération locale) — utile
- * pour vérifier qu'il ne manque rien avant de geler la version.
+ * Un bouton secondaire "Aperçu du bilan" ouvre la modale `BilanExportModal`
+ * (MAT-22) qui propose 3 modes d'export (global / ZIP / 1 loueur) avec
+ * preview iframe. Aucune écriture serveur côté aperçu.
  *
- * La génération du ZIP + upload + RPC est pilotée par la modale
- * ClotureConfirmModal pour que l'utilisateur ait une étape de confirmation.
+ * La génération du ZIP + upload + RPC (côté clôture définitive) est pilotée
+ * par la modale ClotureConfirmModal pour que l'utilisateur ait une étape de
+ * confirmation.
  */
-function CloseEssaisAction({ version, onOpen, onPreview, previewing }) {
+function CloseEssaisAction({ version, onOpen, onPreview }) {
   const isClosed = Boolean(version?.closed_at)
   return (
     <div className="mb-4">
@@ -794,25 +783,15 @@ function CloseEssaisAction({ version, onOpen, onPreview, previewing }) {
         <button
           type="button"
           onClick={onPreview}
-          disabled={previewing}
-          className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
           style={{
             background: 'transparent',
             color: 'var(--txt-2)',
             border: '1px solid var(--brd)',
           }}
         >
-          {previewing ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Génération…
-            </>
-          ) : (
-            <>
-              <FileSearch className="w-4 h-4" />
-              Aperçu du bilan
-            </>
-          )}
+          <FileSearch className="w-4 h-4" />
+          Aperçu du bilan
         </button>
       )}
 

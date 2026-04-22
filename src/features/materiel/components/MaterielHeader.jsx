@@ -47,6 +47,10 @@ import {
   Share2,
   Users,
 } from 'lucide-react'
+// Note — MAT-22 : "Aperçu bilan" et "Clôturer" ne sont plus des boutons
+// autonomes mais des items du dropdown Essais (même point d'entrée que
+// Checklist/Partager). Le ClotureBadge (+ Ré-ouvrir) reste affiché hors
+// dropdown puisqu'il communique l'état clôturé de la version.
 import { MATOS_FLAGS } from '../../../lib/materiel'
 import VersionSwitcher from './VersionSwitcher'
 import ExportPdfMenu from './ExportPdfMenu'
@@ -206,69 +210,22 @@ export default function MaterielHeader({
             disabled={!activeVersion}
           />
 
-          {canEdit && activeVersion && (
+          {/* MAT-22 : Dropdown "Essais" unifié — Checklist + Partager +
+              Aperçu bilan + Clôturer (avec séparateur entre les groupes).
+              On l'affiche pour toute version active : les items d'édition
+              (Partager, Clôturer) sont filtrés à l'intérieur via `canEdit`,
+              l'aperçu bilan reste ouvert à tous (lecture). Le badge Clôturé
+              et le bouton Ré-ouvrir restent hors dropdown — ils communiquent
+              un état de la version, pas une action ponctuelle. */}
+          {activeVersion && (
             <EssaisDropdown
               onOpenChantierMode={onOpenChantierMode}
               onOpenShare={onOpenShare}
+              onPreviewBilan={onPreviewBilan}
+              onCloseEssais={onCloseEssais}
+              canEdit={canEdit}
+              closedAt={closedAt}
             />
-          )}
-
-          {/* MAT-12 : Prévisualisation bilan (sans clôture) — visible même
-              en read-only pour que n'importe quel membre puisse vérifier le
-              rendu avant de demander la clôture à un admin. */}
-          {activeVersion && !closedAt && onPreviewBilan && (
-            <button
-              type="button"
-              onClick={onPreviewBilan}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-              style={{
-                background: 'var(--bg-elev)',
-                color: 'var(--txt-2)',
-                border: '1px solid var(--brd)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--blue-bg)'
-                e.currentTarget.style.color = 'var(--blue)'
-                e.currentTarget.style.borderColor = 'var(--blue)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--bg-elev)'
-                e.currentTarget.style.color = 'var(--txt-2)'
-                e.currentTarget.style.borderColor = 'var(--brd)'
-              }}
-              title="Prévisualiser le bilan PDF (ZIP global + par loueur) sans clôturer"
-            >
-              <FileSearch className="w-3 h-3" />
-              Aperçu bilan
-            </button>
-          )}
-
-          {/* MAT-12 : Clôture essais — bouton ou badge + ré-ouverture */}
-          {canEdit && activeVersion && !closedAt && (
-            <button
-              type="button"
-              onClick={onCloseEssais}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-              style={{
-                background: 'var(--bg-elev)',
-                color: 'var(--txt-2)',
-                border: '1px solid var(--brd)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--blue-bg)'
-                e.currentTarget.style.color = 'var(--blue)'
-                e.currentTarget.style.borderColor = 'var(--blue)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--bg-elev)'
-                e.currentTarget.style.color = 'var(--txt-2)'
-                e.currentTarget.style.borderColor = 'var(--brd)'
-              }}
-              title="Clôturer les essais et générer le bilan PDF"
-            >
-              <Lock className="w-3 h-3" />
-              Clôturer
-            </button>
           )}
 
           {activeVersion && closedAt && (
@@ -307,17 +264,38 @@ export default function MaterielHeader({
 }
 
 /**
- * Dropdown "Essais" — point d'entrée unique pour les deux workflows terrain :
- *   - Checklist : ouvre le mode chantier authenticated (MAT-14), identité =
- *     user connecté, route `/projets/:id/materiel/check/:versionId`.
- *   - Partager : ouvre ShareChecklistModal pour générer un lien tokenisé
- *     destiné à un loueur / prestataire externe.
+ * Dropdown "Essais" — point d'entrée unique pour tous les workflows de la
+ * phase essais (MAT-22 consolide ici ce qui était éparpillé en plusieurs
+ * boutons autonomes) :
+ *
+ *   GROUPE 1 — workflows terrain :
+ *     - Checklist : ouvre le mode chantier authenticated (MAT-14), identité
+ *       = user connecté, route `/projets/:id/materiel/check/:versionId`.
+ *     - Partager : ouvre ShareChecklistModal pour générer un lien tokenisé
+ *       destiné à un loueur / prestataire externe.
+ *
+ *   GROUPE 2 — bilan / clôture :
+ *     - Exporter bilan : ouvre la BilanExportModal (choix global / ZIP /
+ *       loueur unique avec preview avant téléchargement). Accessible même
+ *       en read-only (lecture seule).
+ *     - Clôturer essais : pose la version en lecture seule et archive le
+ *       bilan PDF/ZIP dans les documents. Visible uniquement si `canEdit`
+ *       ET si la version n'est pas déjà clôturée. Quand elle l'est, c'est
+ *       le `ClotureBadge` (hors dropdown) qui prend le relais + propose la
+ *       ré-ouverture.
  *
  * Fermeture : click outside + touche Échap (pattern standard). On évite un
  * portal/popper pour rester simple — le dropdown tient en position absolue
- * sous le bouton.
+ * sous le bouton. Un séparateur visuel sépare les deux groupes.
  */
-function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
+function EssaisDropdown({
+  onOpenChantierMode,
+  onOpenShare,
+  onPreviewBilan,
+  onCloseEssais,
+  canEdit = true,
+  closedAt = null,
+}) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef(null)
 
@@ -337,6 +315,16 @@ function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
       document.removeEventListener('keydown', handleKey)
     }
   }, [open])
+
+  // Le bouton Clôturer n'est pas pertinent si la version est déjà clôturée
+  // (le ClotureBadge + Ré-ouvrir couvrent ce cas hors dropdown).
+  const showCloseItem = Boolean(canEdit && onCloseEssais && !closedAt)
+  const showShareItem = Boolean(canEdit && onOpenShare)
+  // Le groupe "bilan" contient au minimum l'export bilan. La clôture est
+  // ajoutée dessous si elle est pertinente.
+  const showBilanGroup = Boolean(onPreviewBilan || showCloseItem)
+  // Le séparateur n'a de sens que si on a du contenu dans les deux groupes.
+  const showSeparator = Boolean(onOpenChantierMode || showShareItem) && showBilanGroup
 
   return (
     <div ref={containerRef} className="relative">
@@ -361,7 +349,7 @@ function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
           e.currentTarget.style.color = 'var(--txt-2)'
           e.currentTarget.style.borderColor = 'var(--brd)'
         }}
-        title="Essais terrain : ouvrir la checklist ou partager un lien"
+        title="Essais terrain, export bilan et clôture"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -375,30 +363,66 @@ function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
           role="menu"
           className="absolute right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
           style={{
-            minWidth: '220px',
+            minWidth: '240px',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
           }}
         >
-          <EssaisDropdownItem
-            icon={ClipboardCheck}
-            label="Checklist"
-            description="Ouvrir le mode chantier (ton compte)"
-            onClick={() => {
-              setOpen(false)
-              onOpenChantierMode?.()
-            }}
-          />
-          <EssaisDropdownItem
-            icon={Share2}
-            label="Partager"
-            description="Générer un lien pour le loueur / l'équipe"
-            onClick={() => {
-              setOpen(false)
-              onOpenShare?.()
-            }}
-          />
+          {/* Groupe 1 : workflows terrain */}
+          {onOpenChantierMode && (
+            <EssaisDropdownItem
+              icon={ClipboardCheck}
+              label="Checklist"
+              description="Ouvrir le mode chantier (ton compte)"
+              onClick={() => {
+                setOpen(false)
+                onOpenChantierMode?.()
+              }}
+            />
+          )}
+          {showShareItem && (
+            <EssaisDropdownItem
+              icon={Share2}
+              label="Partager"
+              description="Générer un lien pour le loueur / l'équipe"
+              onClick={() => {
+                setOpen(false)
+                onOpenShare?.()
+              }}
+            />
+          )}
+
+          {showSeparator && (
+            <div
+              className="my-1 mx-2"
+              style={{ borderTop: '1px solid var(--brd-sub)' }}
+            />
+          )}
+
+          {/* Groupe 2 : bilan / clôture */}
+          {onPreviewBilan && (
+            <EssaisDropdownItem
+              icon={FileSearch}
+              label="Exporter bilan"
+              description="Global, ZIP ou loueur unique — avec preview"
+              onClick={() => {
+                setOpen(false)
+                onPreviewBilan?.()
+              }}
+            />
+          )}
+          {showCloseItem && (
+            <EssaisDropdownItem
+              icon={Lock}
+              label="Clôturer les essais"
+              description="Archiver le bilan et figer la version"
+              onClick={() => {
+                setOpen(false)
+                onCloseEssais?.()
+              }}
+            />
+          )}
         </div>
       )}
     </div>

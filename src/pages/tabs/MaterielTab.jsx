@@ -29,6 +29,7 @@ import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
 import ExportLoueurModal from '../../features/materiel/components/ExportLoueurModal'
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
+import BilanExportModal from '../../features/materiel/components/BilanExportModal'
 import ShareChecklistModal from '../../features/materiel/components/ShareChecklistModal'
 import LoueurDocsPanel from '../../features/materiel/components/LoueurDocsPanel'
 import {
@@ -39,7 +40,6 @@ import {
 } from '../../features/materiel/matosPdfExport'
 import {
   closeEssaisAsAdmin,
-  previewBilanAsAdmin,
   reopenMatosVersion,
 } from '../../lib/matosCloture'
 import { isUnassignedRecap } from '../../lib/materiel'
@@ -91,6 +91,10 @@ export default function MaterielTab() {
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // MAT-22 : modale d'export bilan avec choix (global / ZIP / loueur unique)
+  // + preview inline. Remplace l'ancien bouton "Aperçu bilan" qui téléchargeait
+  // directement le ZIP sans preview.
+  const [bilanExportOpen, setBilanExportOpen] = useState(false)
 
   // ─── MAT-14 : Mode chantier authentifié ─────────────────────────────────
   // Ouvre la route plein écran `/projets/:id/materiel/check/:versionId`
@@ -294,18 +298,16 @@ export default function MaterielTab() {
     }
   }
 
-  // ─── MAT-12 : Aperçu du bilan (sans clôture) ───────────────────────────
+  // ─── MAT-22 : Export bilan avec choix (global / ZIP / loueur) + preview ──
   //
-  // Passe par `runExport` pour réutiliser le pipeline ZIP existant : détection
-  // `isZip`, download direct, révocation différée de l'URL blob, toast succès.
-  // Aucune écriture DB / Storage ici — on appelle juste l'agrégateur + builder.
+  // Remplace l'ancien `previewBilanAsAdmin` + runExport qui téléchargeait
+  // directement le ZIP. Désormais, on ouvre `BilanExportModal` qui fetch le
+  // snapshot une fois et laisse l'utilisateur choisir le format avec preview
+  // inline avant de télécharger. Aucune écriture DB / Storage ici.
   const handlePreviewBilan = useCallback(() => {
     if (!activeVersion) return
-    runExport(
-      () => previewBilanAsAdmin({ versionId: activeVersion.id, pdfOptions: { org } }),
-      'Aperçu bilan',
-    )
-  }, [runExport, activeVersion, org])
+    setBilanExportOpen(true)
+  }, [activeVersion])
 
   // ─── MAT-12 : Clôture essais + bilan PDF ────────────────────────────────
   //
@@ -511,6 +513,15 @@ export default function MaterielTab() {
         filename={previewState?.filename}
         onDownload={() => previewState?.download?.()}
         isZip={Boolean(previewState?.isZip)}
+      />
+
+      {/* MAT-22 : Modale d'export bilan avec choix (global / ZIP / loueur)
+          + preview inline. Ouverte via le dropdown Essais > "Exporter bilan". */}
+      <BilanExportModal
+        open={bilanExportOpen}
+        onClose={() => setBilanExportOpen(false)}
+        versionId={activeVersion?.id}
+        org={org}
       />
 
       <ShareChecklistModal
