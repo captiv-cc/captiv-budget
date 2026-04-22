@@ -52,6 +52,11 @@ const C = {
   red: [201, 51, 51],
   bluePale: [232, 242, 254],
   blue: [31, 111, 235],
+  // MAT-21 : tons pastels pour le relief visuel retirés / additifs
+  removedFill: [252, 245, 245],  // rouge très pâle pour rangée retirée
+  removedText: [140, 140, 140],  // gris pour texte retiré
+  additifAccent: [22, 118, 55],  // vert saturé pour accent section additifs
+  additifHead: [228, 240, 231],  // vert pâle pour header section additifs
 }
 
 const FLAG_COLOR = { ok: C.green, attention: C.amber, probleme: C.red }
@@ -232,6 +237,48 @@ function drawClotureBanner(doc, { y, closedAt, closedByName }) {
   return y + h + 3
 }
 
+// ─── MAT-21 : Ligne de synthèse narrative ──────────────────────────────────
+//
+// Une phrase compacte en italique placée JUSTE AVANT les cartes stats.
+// Utile pour une lecture rapide : l'œil balaye la ligne puis plonge dans
+// les cartes détaillées. Pas d'écho avec les cartes — on formule en texte
+// naturel là où les cartes sont des chiffres bruts.
+function drawSynthesisLine(doc, { y, stats }) {
+  const PW = doc.internal.pageSize.getWidth()
+  const M = 14
+
+  // Composition : "X items actifs · Y cochés (Z %) · N retirés · N additifs ·
+  //                ⚠ P problèmes"  — segments omis si nuls.
+  const parts = []
+  const nActive = stats.total || 0
+  parts.push(`${nActive} item${nActive > 1 ? 's' : ''} actif${nActive > 1 ? 's' : ''}`)
+  if (nActive > 0) {
+    const pct = Math.round((stats.ratio || 0) * 100)
+    parts.push(`${stats.checked}/${nActive} coché${stats.checked > 1 ? 's' : ''} (${pct} %)`)
+  } else {
+    parts.push('0 coché')
+  }
+  if (stats.removed > 0) {
+    parts.push(`${stats.removed} retiré${stats.removed > 1 ? 's' : ''}`)
+  }
+  if (stats.additifs > 0) {
+    parts.push(`${stats.additifs} additif${stats.additifs > 1 ? 's' : ''}`)
+  }
+  const nPb = stats.byFlag?.probleme || 0
+  const nAtt = stats.byFlag?.attention || 0
+  if (nPb > 0) parts.push(`${nPb} problème${nPb > 1 ? 's' : ''}`)
+  else if (nAtt > 0) parts.push(`${nAtt} attention${nAtt > 1 ? 's' : ''}`)
+
+  const text = 'Synthèse — ' + parts.join(' · ')
+
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...C.gray)
+  const lines = doc.splitTextToSize(text, PW - M * 2)
+  doc.text(lines, M, y + 3.5)
+  return y + lines.length * 4 + 2
+}
+
 // ─── Cartes stats (résumé) ─────────────────────────────────────────────────
 function drawStatsCards(doc, { y, stats }) {
   const PW = doc.internal.pageSize.getWidth()
@@ -311,6 +358,19 @@ function drawFlagBar(doc, { y, stats }) {
 }
 
 // ─── Rendu d'un bloc ───────────────────────────────────────────────────────
+//
+// MAT-21 : le bloc a désormais deux sous-sections :
+//   1. Items "de base" (scope initial : ceux qui N'ont PAS été ajoutés en
+//      cours d'essais). Les retirés y figurent aussi, avec un traitement
+//      visuel dédié (fond rose pâle, texte gris, strikethrough, pastille
+//      "RETIRÉ") pour signaler le changement de statut sans les cacher.
+//   2. Section "Additifs" en fin de bloc pour ceux ajoutés en cours
+//      d'essais (added_during_check). Encadrée en vert avec un en-tête
+//      explicite, pour signaler clairement que ces items ne faisaient pas
+//      partie du scope initial.
+//
+// La ligne meta (compteur + retirés + additifs) reste au niveau du titre
+// pour un coup d'œil rapide.
 function renderBlock(doc, { startY, block, items, renderPageHeader }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
@@ -352,71 +412,40 @@ function renderBlock(doc, { startY, block, items, renderPageHeader }) {
     return y + 6
   }
 
-  const body = items.map((it) => [
-    flagBilanCell(it.flag),
-    buildBilanDesignationCell(it),
-    { content: String(it.quantite ?? 1), styles: { halign: 'center' } },
-    statusCell(it),
-    loueursCellText(it),
-    commentsCountCell(it),
-  ])
+  // MAT-21 : split scope initial / additifs. Un additif retiré reste dans la
+  // section additifs (avec styling retiré) pour préserver sa provenance.
+  const mainItems = items.filter((it) => !it.added_during_check)
+  const additifsItems = items.filter((it) => it.added_during_check)
 
-  autoTable(doc, {
-    startY: y,
-    head: [['', 'Désignation', 'Qté', 'Statut', 'Loueur(s)', 'Notes']],
-    body,
-    theme: 'grid',
-    styles: {
-      font: 'WS',
-      fontSize: 8,
-      cellPadding: { top: 2, right: 2.5, bottom: 2, left: 2.5 },
-      lineColor: C.lgray,
-      lineWidth: 0.15,
-      textColor: C.black,
-      valign: 'middle',
-    },
-    headStyles: {
-      fillColor: C.header,
-      textColor: C.white,
-      fontStyle: 'bold',
-      fontSize: 7.5,
-      halign: 'left',
-    },
-    columnStyles: {
-      0: { cellWidth: 9,  halign: 'center' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 12, halign: 'center' },
-      3: { cellWidth: 46 },
-      4: { cellWidth: 40 },
-      5: { cellWidth: 22 },
-    },
-    margin: { left: M, right: M, top: 32, bottom: 16 },
-    didDrawPage: renderPageHeader,
-    didDrawCell: (data) => {
-      if (data.section !== 'body') return
-      // Rangée entière barrée si l'item est retiré : on dessine une ligne grise
-      // horizontale sur la cellule désignation uniquement (sinon ça traverse
-      // les autres colonnes à bordures bien nettes).
-      if (data.column.index === 1) {
-        const raw = data.cell.raw
-        if (raw?._removed) {
-          const midY = data.cell.y + data.cell.height / 2
-          doc.setDrawColor(...C.gray)
-          doc.setLineWidth(0.3)
-          doc.line(
-            data.cell.x + 1.5,
-            midY,
-            data.cell.x + data.cell.width - 1.5,
-            midY,
-          )
-        }
-      }
-    },
-  })
+  // ── Table principale (items du scope initial, retirés inclus) ──────────
+  if (mainItems.length > 0) {
+    renderItemsTable(doc, {
+      startY: y,
+      items: mainItems,
+      renderPageHeader,
+      variant: 'main',
+    })
+    y = doc.lastAutoTable.finalY + 4
+  } else {
+    // Bloc qui ne contient que des additifs : on affiche une mention discrète
+    // avant la section additifs pour garder le contexte.
+    doc.setFont('WS', 'italic')
+    doc.setFontSize(8)
+    doc.setTextColor(...C.gray)
+    doc.text('Aucun item du scope initial dans ce bloc.', M + 2, y + 3)
+    y += 6
+  }
 
-  y = doc.lastAutoTable.finalY + 4
+  // ── Section additifs (en fin de bloc, avec accent vert) ────────────────
+  if (additifsItems.length > 0) {
+    y = renderAdditifsSection(doc, {
+      startY: y,
+      items: additifsItems,
+      renderPageHeader,
+    })
+  }
 
-  // Rendu détaillé des commentaires (après le tableau, section compacte)
+  // Rendu détaillé des commentaires (après les deux sous-sections)
   const withComments = items.filter((it) => (it.comments || []).length > 0)
   if (withComments.length > 0) {
     if (y > 255) {
@@ -441,6 +470,235 @@ function renderBlock(doc, { startY, block, items, renderPageHeader }) {
   }
 
   return y + 3
+}
+
+// ─── MAT-21 : Tables d'items (scope initial + additifs) ───────────────────
+//
+// Deux fonctions exposées à `renderBlock` :
+//   - renderItemsTable : table standard (head gris foncé) pour les items
+//     du scope initial, retirés inclus avec traitement visuel.
+//   - renderAdditifsSection : bandeau vert "ADDITIFS ·  ajoutés en cours
+//     d'essais" + table avec head vert pâle.
+//
+// Les deux partagent :
+//   - BILAN_HEAD : 6 colonnes (Désignation · Qté · Loueurs · Flag · Statut
+//     · Comm.)
+//   - BILAN_COLUMN_STYLES : largeurs fixes
+//   - buildBilanBodyRows(items) : mapping item → tableau de cellules, avec
+//     un flag `_removed` posé sur chacune pour que les hooks didParseCell /
+//     didDrawCell puissent teinter le rang retiré et ajouter la pastille.
+//
+// Les retirés sont rendus inline (pas regroupés) : fond rouge très pâle,
+// texte gris, rayé + pastille "RETIRÉ" en haut-droit de la cellule
+// désignation. L'objectif est de préserver le contexte (ordre / voisins)
+// tout en signalant fortement le changement de statut.
+
+const BILAN_HEAD = [[
+  'Désignation',
+  { content: 'Qté', styles: { halign: 'center' } },
+  'Loueurs',
+  { content: 'Flag', styles: { halign: 'center' } },
+  'Statut',
+  { content: 'Comm.', styles: { halign: 'center' } },
+]]
+
+const BILAN_COLUMN_STYLES = {
+  0: { cellWidth: 'auto' },
+  1: { cellWidth: 10 },
+  2: { cellWidth: 28 },
+  3: { cellWidth: 12 },
+  4: { cellWidth: 40 },
+  5: { cellWidth: 16 },
+}
+
+const BILAN_TABLE_STYLES = {
+  font: 'WS',
+  fontSize: 8,
+  cellPadding: 1.6,
+  lineColor: C.lgray,
+  lineWidth: 0.1,
+  overflow: 'linebreak',
+  valign: 'top',
+}
+
+function buildBilanBodyRows(items) {
+  return items.map((it) => {
+    const removed = Boolean(it.removed_at)
+    const des = buildBilanDesignationCell(it)
+    des._removed = removed
+
+    const qte = {
+      content: String(it.quantite ?? ''),
+      _removed: removed,
+      styles: { halign: 'center' },
+    }
+    const lou = {
+      content: loueursCellText(it),
+      _removed: removed,
+      styles: { fontSize: 7 },
+    }
+    const flg = flagBilanCell(it.flag)
+    flg._removed = removed
+    // Les styles flags (couleur bold) doivent rester lisibles : si la ligne
+    // est retirée, on délave en gris (le badge "RETIRÉ" porte l'info forte).
+    if (removed) {
+      flg.styles = { ...(flg.styles || {}), textColor: C.removedText, fontStyle: 'normal' }
+    }
+    const sta = statusCell(it)
+    sta._removed = removed
+
+    const rawCom = commentsCountCell(it)
+    const com = typeof rawCom === 'string'
+      ? { content: rawCom, _removed: removed, styles: { halign: 'center' } }
+      : { ...rawCom, _removed: removed }
+
+    return [des, qte, lou, flg, sta, com]
+  })
+}
+
+function bilanDidParseCell(data) {
+  if (data.section !== 'body') return
+  const raw = data.cell.raw
+  if (raw && raw._removed) {
+    data.cell.styles.fillColor = C.removedFill
+    // On ne force la couleur du texte que si la cellule n'a pas déjà
+    // spécifié la sienne (sinon on écraserait le gris déjà posé par
+    // buildBilanBodyRows pour le flag).
+    if (!raw.styles || !raw.styles.textColor) {
+      data.cell.styles.textColor = C.removedText
+    }
+  }
+}
+
+// Retourne un hook didDrawCell qui :
+//   - dessine une pastille rouge "RETIRÉ" en haut-droit de la cellule
+//     désignation
+//   - trace un trait de rayure sur la 1ère ligne de texte (stoppé avant la
+//     pastille pour ne pas l'écraser)
+function makeBilanDidDrawCell(doc) {
+  return (data) => {
+    if (data.section !== 'body') return
+    if (data.column.index !== 0) return
+    const raw = data.cell.raw
+    if (!raw || !raw._removed) return
+
+    const { x, y: cy, width } = data.cell
+    const padX = 1.6
+    const padY = 1.4
+    const badgeW = 13
+    const badgeH = 3.8
+    const badgeX = x + width - badgeW - padX
+    const badgeY = cy + padY
+
+    // Pastille rouge pleine
+    doc.setFillColor(...C.red)
+    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 0.9, 0.9, 'F')
+    doc.setFont('WS', 'bold')
+    doc.setFontSize(6)
+    doc.setTextColor(...C.white)
+    doc.text('RETIRÉ', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.3, {
+      align: 'center',
+      baseline: 'middle',
+    })
+
+    // Rayure (strikethrough) sur la 1ère ligne, stoppée avant la pastille
+    doc.setDrawColor(...C.removedText)
+    doc.setLineWidth(0.2)
+    const strikeStop = badgeX - 1
+    const strikeY = cy + 4.2
+    if (strikeStop > x + 2.5) {
+      doc.line(x + 2, strikeY, strikeStop, strikeY)
+    }
+  }
+}
+
+function renderItemsTable(doc, { startY, items, renderPageHeader, variant = 'main' }) {
+  const M = 14
+
+  // `variant` est prévu pour de futures variantes (ex. archive) — pour
+  // l'instant, seule 'main' est utilisée.
+  void variant
+
+  autoTable(doc, {
+    startY,
+    head: BILAN_HEAD,
+    body: buildBilanBodyRows(items),
+    theme: 'grid',
+    styles: BILAN_TABLE_STYLES,
+    headStyles: {
+      font: 'WS',
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      fillColor: C.header,
+      textColor: C.white,
+    },
+    columnStyles: BILAN_COLUMN_STYLES,
+    margin: { left: M, right: M },
+    didDrawPage: renderPageHeader,
+    didParseCell: bilanDidParseCell,
+    didDrawCell: makeBilanDidDrawCell(doc),
+  })
+}
+
+function renderAdditifsSection(doc, { startY, items, renderPageHeader }) {
+  const PW = doc.internal.pageSize.getWidth()
+  const M = 14
+  let y = startY
+
+  // Saut de page si le bandeau + au moins la head ne rentrent pas.
+  if (y > 258) {
+    doc.addPage()
+    renderPageHeader()
+    y = 34
+  }
+
+  // Bandeau d'entrée : barre verticale accent vert + fond vert pâle
+  const hh = 6.5
+  const w = PW - M * 2
+  const barW = 1.4
+  doc.setFillColor(...C.additifHead)
+  doc.roundedRect(M, y, w, hh, 0.8, 0.8, 'F')
+  doc.setFillColor(...C.additifAccent)
+  doc.rect(M, y, barW, hh, 'F')
+
+  doc.setFont('WS', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...C.additifAccent)
+  doc.text("ADDITIFS  ·  ajoutés en cours d'essais", M + barW + 2, y + 4.3)
+
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(...C.additifAccent)
+  doc.text(
+    `${items.length} item${items.length > 1 ? 's' : ''}`,
+    M + w - 2, y + 4.3, { align: 'right' },
+  )
+
+  y += hh + 0.5
+
+  autoTable(doc, {
+    startY: y,
+    head: BILAN_HEAD,
+    body: buildBilanBodyRows(items),
+    theme: 'grid',
+    styles: BILAN_TABLE_STYLES,
+    headStyles: {
+      font: 'WS',
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      fillColor: C.additifHead,
+      textColor: C.additifAccent,
+      lineColor: C.additifAccent,
+      lineWidth: 0.15,
+    },
+    columnStyles: BILAN_COLUMN_STYLES,
+    margin: { left: M, right: M },
+    didDrawPage: renderPageHeader,
+    didParseCell: bilanDidParseCell,
+    didDrawCell: makeBilanDidDrawCell(doc),
+  })
+
+  return doc.lastAutoTable.finalY + 4
 }
 
 function renderItemComments(doc, { y, item }) {
@@ -582,6 +840,8 @@ export async function buildBilanGlobalPDF(snapshot, { org } = {}) {
       closedByName: snapshot.global.closedByName,
     })
   }
+  // MAT-21 : synthèse narrative juste avant les cartes chiffrées.
+  y = drawSynthesisLine(doc, { y, stats: snapshot.global.stats })
   y = drawStatsCards(doc, { y, stats: snapshot.global.stats })
   y += 2
 
@@ -665,6 +925,8 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org } = {
   )
   y += 9
 
+  // MAT-21 : synthèse narrative avant les cartes chiffrées.
+  y = drawSynthesisLine(doc, { y, stats: section.stats })
   y = drawStatsCards(doc, { y, stats: section.stats })
   y += 2
 
