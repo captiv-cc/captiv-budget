@@ -863,12 +863,24 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
   doc.setTextColor(...C.black)
   doc.text(loueur.nom || '—', M + 7, y + 4)
 
-  const totalUnites = lignes.reduce((s, l) => s + (l.qte || 0), 0)
+  // MAT-17 bis : on NE reprend PAS les labels dans le PDF loueur — il
+  // s'adresse directement au loueur qui se fiche de notre organisation
+  // interne (Body / Optique / Accessoires…). On affiche juste la
+  // désignation agrégée et la quantité. Les labels restent affichés dans
+  // le PDF global et dans le récap UI slide-over.
+  //
+  // Les lignes arrivent ici déjà agrégées par (designation, label) côté
+  // computeRecapByLoueur, donc deux items de même désignation mais labels
+  // différents seraient rendus comme deux lignes identiques sans label.
+  // On re-collapse ici par désignation pour éviter ces doublons visuels.
+  const lignesCollapsed = collapseByDesignation(lignes)
+
+  const totalUnites = lignesCollapsed.reduce((s, l) => s + (l.qte || 0), 0)
   doc.setFont('WS', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...C.gray)
   doc.text(
-    `${lignes.length} référence${lignes.length > 1 ? 's' : ''} · ${totalUnites} unité${totalUnites > 1 ? 's' : ''}`,
+    `${lignesCollapsed.length} référence${lignesCollapsed.length > 1 ? 's' : ''} · ${totalUnites} unité${totalUnites > 1 ? 's' : ''}`,
     PW - M,
     y + 4,
     { align: 'right' },
@@ -876,9 +888,9 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
 
   y += 8
 
-  const body = lignes.length
-    ? lignes.map((l) => [
-        buildLoueurDesignationCell(l),
+  const body = lignesCollapsed.length
+    ? lignesCollapsed.map((l) => [
+        l.designation || '—',
         { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
       ])
     : [[{ content: '—', colSpan: 2, styles: { halign: 'center', textColor: C.gray } }]]
@@ -908,10 +920,6 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
       1: { cellWidth: 22, halign: 'right' },
     },
     margin: { left: M, right: M, top: 32, bottom: 16 },
-    // MAT-17 : rendu custom pour afficher le label en préfixe bold (comme
-    // dans le PDF global). Réutilise redrawDesignationCell qui sait gérer
-    // les lignes sans remarques/libre (branches prises en no-op).
-    didDrawCell: (data) => redrawDesignationCell(doc, data),
     didDrawPage: () => {
       // Redessiner le header si on passe en page 2+ pour ce loueur
       drawHeader(doc, {
@@ -925,23 +933,26 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
   })
 }
 
-// ─── Cellule Désignation pour un PDF loueur (ligne agrégée du recap) ────────
-// Ne reprend pas buildDesignationCell(block, it) car ici on n'a pas d'item
-// DB mais une ligne de computeRecapByLoueur. Même shape de retour pour que
-// redrawDesignationCell puisse la traiter.
-function buildLoueurDesignationCell(l) {
-  const designation = l.designation || '—'
-  const label = l.label ? String(l.label).toUpperCase() : null
-  const parts = []
-  if (label) parts.push(label)
-  parts.push(designation)
-  return {
-    content: parts.join(' · '),
-    _label: label,
-    _designation: designation,
-    _libre: false,
-    _remarques: null,
+// ─── Collapse des lignes d'un recap loueur par désignation ──────────────────
+// computeRecapByLoueur agrège par (designation, label) pour conserver
+// l'info label dans l'UI / le PDF global. Le PDF loueur n'affiche pas les
+// labels → on re-fusionne les lignes de même désignation (case-insensitive,
+// trimmed) en sommant les quantités. L'ordre d'apparition est préservé.
+function collapseByDesignation(lignes) {
+  const out = []
+  const byKey = new Map()
+  for (const l of lignes) {
+    const key = String(l.designation || '').trim().toLowerCase()
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.qte = (existing.qte || 0) + (l.qte || 0)
+    } else {
+      const copy = { ...l }
+      byKey.set(key, copy)
+      out.push(copy)
+    }
   }
+  return out
 }
 
 // ─── Helpers nommage / couleur ──────────────────────────────────────────────
