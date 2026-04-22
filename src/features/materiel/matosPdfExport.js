@@ -33,6 +33,7 @@
 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { isUnassignedRecap } from '../../lib/materiel'
 
 // ─── Palette ────────────────────────────────────────────────────────────────
 const C = {
@@ -712,9 +713,12 @@ export async function exportMatosLoueursPDF({
   const doc = makeDoc(assets)
   const M = 14
 
+  // MAT-18 : on exclut TOUJOURS le groupe synthétique "Non assigné" des
+  // exports PDF — il n'a pas de destinataire, ce n'est qu'un indicateur UI.
+  const realRecap = recapByLoueur.filter((r) => !isUnassignedRecap(r))
   const entries = selectedLoueurIds
-    ? recapByLoueur.filter((r) => selectedLoueurIds.includes(r.loueur.id))
-    : recapByLoueur
+    ? realRecap.filter((r) => selectedLoueurIds.includes(r.loueur.id))
+    : realRecap
 
   if (!entries.length) {
     drawHeader(doc, {
@@ -769,9 +773,12 @@ export async function exportMatosLoueursZip({
   }
 
   const assets = await loadAssets()
+  // MAT-18 : on exclut TOUJOURS le groupe synthétique "Non assigné" des
+  // exports PDF — il n'a pas de destinataire, ce n'est qu'un indicateur UI.
+  const realRecap = recapByLoueur.filter((r) => !isUnassignedRecap(r))
   const entries = selectedLoueurIds
-    ? recapByLoueur.filter((r) => selectedLoueurIds.includes(r.loueur.id))
-    : recapByLoueur
+    ? realRecap.filter((r) => selectedLoueurIds.includes(r.loueur.id))
+    : realRecap
 
   if (!entries.length) {
     throw new Error('Aucun loueur à exporter.')

@@ -942,10 +942,24 @@ function normalizeDesignation(text = '') {
  * participe à la clé d'agrégation. Deux items avec même désignation mais
  * labels différents ("Body" vs "Optique") restent donc distincts dans le
  * récap, ce qui donne du contexte visuel au loueur.
+ *
+ * MAT-18 : les items sans aucun loueur affecté sont regroupés dans un
+ * groupe synthétique "Non assigné" (loueur.id = UNASSIGNED_LOUEUR_ID,
+ * loueur._isUnassigned = true) placé en fin de liste. Ce groupe permet à
+ * l'équipe de voir d'un coup d'œil ce qui reste à attribuer. Les exports
+ * PDF (par loueur / ZIP / single) ignorent ce groupe car il n'a pas de
+ * destinataire.
  */
-export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [] }) {
-  if (!itemLoueurs.length) return []
+export const UNASSIGNED_LOUEUR_ID = '__unassigned__'
 
+const UNASSIGNED_LOUEUR = Object.freeze({
+  id: UNASSIGNED_LOUEUR_ID,
+  nom: 'Non assigné',
+  couleur: '#94a3b8', // slate-400 — neutre, pas de charge visuelle
+  _isUnassigned: true,
+})
+
+export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [] }) {
   const itemById = new Map()
   for (const item of items) itemById.set(item.id, item)
 
@@ -954,10 +968,13 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
 
   // Structure intermédiaire : Map<loueur_id, Map<aggKey, { designation, label, qte, materielBddId }>>
   const perLoueur = new Map()
+  // Set des items qui ont au moins un loueur affecté (pour MAT-18 unassigned).
+  const assignedItemIds = new Set()
 
   for (const il of itemLoueurs) {
     const item = itemById.get(il.item_id)
     if (!item) continue
+    assignedItemIds.add(item.id)
     const loueurKey = il.loueur_id
     const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
     const aggKey = item.materiel_bdd_id
@@ -985,14 +1002,35 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
     }
   }
 
+  // MAT-18 : second pass — tous les items qui n'ont AUCUN loueur pivot.
+  // On les agrège dans un groupe synthétique.
+  const unassignedAgg = new Map()
+  for (const item of items) {
+    if (assignedItemIds.has(item.id)) continue
+    const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
+    const aggKey = item.materiel_bdd_id
+      ? `bdd:${item.materiel_bdd_id}${labelPart}`
+      : `text:${normalizeDesignation(item.designation)}${labelPart}`
+    const existing = unassignedAgg.get(aggKey)
+    const qty = Number(item.quantite) || 0
+    if (existing) {
+      existing.qte += qty
+    } else {
+      unassignedAgg.set(aggKey, {
+        key: aggKey,
+        designation: item.designation,
+        label: item.label || null,
+        qte: qty,
+        materielBddId: item.materiel_bdd_id || null,
+      })
+    }
+  }
+
   // Sérialisation triée : par nom de loueur puis par (label, désignation).
   // Les lignes sans label remontent en bas pour grouper visuellement les
   // items étiquetés.
-  const result = []
-  for (const [loueurId, byAgg] of perLoueur.entries()) {
-    const loueur = loueurById.get(loueurId)
-    if (!loueur) continue
-    const lignes = Array.from(byAgg.values()).sort((a, b) => {
+  const sortLignes = (lignes) =>
+    lignes.sort((a, b) => {
       const la = (a.label || '').toLowerCase()
       const lb = (b.label || '').toLowerCase()
       if (la && !lb) return -1
@@ -1000,10 +1038,34 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
       if (la !== lb) return la.localeCompare(lb, 'fr', { sensitivity: 'base' })
       return a.designation.localeCompare(b.designation, 'fr', { sensitivity: 'base' })
     })
-    result.push({ loueur, lignes })
+
+  const result = []
+  for (const [loueurId, byAgg] of perLoueur.entries()) {
+    const loueur = loueurById.get(loueurId)
+    if (!loueur) continue
+    result.push({ loueur, lignes: sortLignes(Array.from(byAgg.values())) })
   }
   result.sort((a, b) =>
     (a.loueur.nom || '').localeCompare(b.loueur.nom || '', 'fr', { sensitivity: 'base' }),
   )
+
+  // Groupe "Non assigné" toujours en fin de liste — il signale du travail
+  // à faire, pas une destination d'export.
+  if (unassignedAgg.size > 0) {
+    result.push({
+      loueur: UNASSIGNED_LOUEUR,
+      lignes: sortLignes(Array.from(unassignedAgg.values())),
+    })
+  }
+
   return result
+}
+
+/**
+ * Teste si un groupe de récap est le groupe synthétique "Non assigné".
+ * Pratique pour filtrer côté exports PDF (qui ne s'adressent qu'à des
+ * vrais loueurs) ou côté UI (pour hide le bouton PDF).
+ */
+export function isUnassignedRecap(group) {
+  return Boolean(group?.loueur?._isUnassigned) || group?.loueur?.id === UNASSIGNED_LOUEUR_ID
 }

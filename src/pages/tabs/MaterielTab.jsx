@@ -42,6 +42,7 @@ import {
   previewBilanAsAdmin,
   reopenMatosVersion,
 } from '../../lib/matosCloture'
+import { isUnassignedRecap } from '../../lib/materiel'
 import { confirm, prompt } from '../../lib/confirm'
 
 const OUTIL_KEY = 'materiel'
@@ -198,7 +199,12 @@ export default function MaterielTab() {
   }, [runExport, project, activeVersion, blocks, itemsByBlock, loueursByItem, loueursById, org])
 
   const handleExportByLoueur = useCallback(() => {
-    if (!recapByLoueur?.length) {
+    // MAT-18 : on ignore le groupe synthétique "Non assigné" pour tester
+    // s'il y a quelque chose à exporter. Si seul "Non assigné" est présent,
+    // on notifie comme si la version n'avait aucun loueur attribué.
+    const realCount =
+      recapByLoueur?.filter((r) => !isUnassignedRecap(r)).length ?? 0
+    if (!realCount) {
       notify.info('Aucun loueur affecté sur cette version')
       return
     }

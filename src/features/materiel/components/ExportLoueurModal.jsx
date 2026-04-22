@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { FileArchive, FileText, Users, X } from 'lucide-react'
+import { isUnassignedRecap } from '../../../lib/materiel'
 
 function alpha(hex, a = '22') {
   if (!hex || !hex.startsWith('#') || hex.length !== 7) return '#64748b' + a
@@ -31,7 +32,14 @@ export default function ExportLoueurModal({
   recapByLoueur = [],
   onConfirm,
 }) {
-  const allIds = useMemo(() => recapByLoueur.map((r) => r.loueur.id), [recapByLoueur])
+  // MAT-18 : le groupe synthétique "Non assigné" n'a pas de destinataire →
+  // on le retire de la liste des exports possibles. Il reste visible dans le
+  // panel UI comme alerte, mais ne peut pas être sélectionné à l'export.
+  const realRecap = useMemo(
+    () => recapByLoueur.filter((r) => !isUnassignedRecap(r)),
+    [recapByLoueur],
+  )
+  const allIds = useMemo(() => realRecap.map((r) => r.loueur.id), [realRecap])
 
   const [selected, setSelected] = useState(() => new Set(allIds))
   const [format, setFormat] = useState('combined') // 'combined' | 'zip'
@@ -189,7 +197,7 @@ export default function ExportLoueurModal({
                   border: '1px solid var(--brd-sub)',
                 }}
               >
-                {recapByLoueur.map((r) => {
+                {realRecap.map((r) => {
                   const loueur = r.loueur
                   const isChecked = selected.has(loueur.id)
                   const couleur = loueur.couleur || '#64748b'

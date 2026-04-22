@@ -24,8 +24,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, Users, X } from 'lucide-react'
+import { AlertTriangle, Download, FileText, Users, X } from 'lucide-react'
 import { exportMatosLoueurSinglePDF } from '../matosPdfExport'
+import { isUnassignedRecap } from '../../../lib/materiel'
 import { notify } from '../../../lib/notify'
 
 /** Opacifie une couleur hex (#RRGGBB) pour les backgrounds pastels. */
@@ -54,12 +55,15 @@ export default function LoueurRecapPanel({
     return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  // Compteur total items agrégés (pour header)
+  // Compteur total items agrégés (pour header) — on NE compte que les vrais
+  // loueurs dans le header, le groupe "Non assigné" est signalé à part pour
+  // ne pas inflate le chiffre côté fait-accompli.
   const totals = useMemo(() => {
-    const loueurs = recap.length
+    const realGroups = recap.filter((r) => !isUnassignedRecap(r))
+    const loueurs = realGroups.length
     let lignes = 0
     let unites = 0
-    for (const r of recap) {
+    for (const r of realGroups) {
       lignes += r.lignes.length
       for (const l of r.lignes) unites += l.qte || 0
     }
@@ -161,12 +165,14 @@ export default function LoueurRecapPanel({
 function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
   const { loueur, lignes } = recap
   const couleur = loueur.couleur || '#64748b'
+  const isUnassigned = isUnassignedRecap(recap)
   const [generating, setGenerating] = useState(false)
   const inflightRef = useRef(false)
 
   async function handlePdf() {
     if (inflightRef.current) return
     if (!onPreview) return
+    if (isUnassigned) return // MAT-18 : pas de PDF pour "Non assigné"
     inflightRef.current = true
     setGenerating(true)
     try {
@@ -191,7 +197,10 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
       className="rounded-xl overflow-hidden"
       style={{
         background: 'var(--bg-surf)',
-        border: `1px solid ${alpha(couleur, '55')}`,
+        // Bordure pointillée pour signaler "à attribuer" vs loueur effectif.
+        border: isUnassigned
+          ? `1px dashed ${alpha(couleur, '88')}`
+          : `1px solid ${alpha(couleur, '55')}`,
       }}
     >
       <header
@@ -201,14 +210,21 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
           borderBottom: `1px solid ${alpha(couleur, '44')}`,
         }}
       >
-        <span
-          className="inline-block rounded-full shrink-0"
-          style={{
-            width: '10px',
-            height: '10px',
-            background: couleur,
-          }}
-        />
+        {isUnassigned ? (
+          <AlertTriangle
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: couleur }}
+          />
+        ) : (
+          <span
+            className="inline-block rounded-full shrink-0"
+            style={{
+              width: '10px',
+              height: '10px',
+              background: couleur,
+            }}
+          />
+        )}
         <h3
           className="text-xs font-bold uppercase tracking-wider truncate"
           style={{ color: couleur, letterSpacing: '0.08em' }}
@@ -222,42 +238,45 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
           {lignes.length}
         </span>
 
-        {/* PDF (MAT-7) */}
-        <button
-          type="button"
-          onClick={handlePdf}
-          disabled={generating || !onPreview}
-          className="ml-1 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-all"
-          style={{
-            background: 'transparent',
-            color: generating ? 'var(--txt-3)' : couleur,
-            cursor: generating || !onPreview ? 'not-allowed' : 'pointer',
-            opacity: generating || !onPreview ? 0.6 : 1,
-            border: `1px solid ${alpha(couleur, '44')}`,
-          }}
-          onMouseEnter={(e) => {
-            if (!generating && onPreview) {
-              e.currentTarget.style.background = alpha(couleur, '18')
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent'
-          }}
-          title={`Exporter le PDF de ${loueur.nom}`}
-        >
-          {generating ? (
-            <span
-              className="inline-block w-3 h-3 border-2 rounded-full animate-spin"
-              style={{
-                borderColor: couleur,
-                borderTopColor: 'transparent',
-              }}
-            />
-          ) : (
-            <Download className="w-3 h-3" />
-          )}
-          PDF
-        </button>
+        {/* PDF (MAT-7) — masqué pour le groupe "Non assigné" (MAT-18) :
+            il n'a pas de destinataire, exporter un PDF n'a pas de sens. */}
+        {!isUnassigned && (
+          <button
+            type="button"
+            onClick={handlePdf}
+            disabled={generating || !onPreview}
+            className="ml-1 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-all"
+            style={{
+              background: 'transparent',
+              color: generating ? 'var(--txt-3)' : couleur,
+              cursor: generating || !onPreview ? 'not-allowed' : 'pointer',
+              opacity: generating || !onPreview ? 0.6 : 1,
+              border: `1px solid ${alpha(couleur, '44')}`,
+            }}
+            onMouseEnter={(e) => {
+              if (!generating && onPreview) {
+                e.currentTarget.style.background = alpha(couleur, '18')
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+            }}
+            title={`Exporter le PDF de ${loueur.nom}`}
+          >
+            {generating ? (
+              <span
+                className="inline-block w-3 h-3 border-2 rounded-full animate-spin"
+                style={{
+                  borderColor: couleur,
+                  borderTopColor: 'transparent',
+                }}
+              />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            PDF
+          </button>
+        )}
       </header>
 
       <table className="w-full text-xs">
