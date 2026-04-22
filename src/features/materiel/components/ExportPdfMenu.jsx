@@ -103,7 +103,7 @@ export default function ExportPdfMenu({
           className="absolute right-0 mt-1 z-40 rounded-lg overflow-hidden"
           style={{
             minWidth: '220px',
-            background: 'var(--bg-base)',
+            background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
           }}

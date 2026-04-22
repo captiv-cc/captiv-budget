@@ -83,7 +83,7 @@ export default function LoueurRecapPanel({
         className="fixed top-0 right-0 h-full z-50 flex flex-col"
         style={{
           width: 'min(520px, 100vw)',
-          background: 'var(--bg-base)',
+          background: 'var(--bg-elev)',
           borderLeft: '1px solid var(--brd)',
           boxShadow: '-10px 0 30px rgba(0,0,0,0.2)',
         }}

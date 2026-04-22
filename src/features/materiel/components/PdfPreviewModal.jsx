@@ -63,7 +63,7 @@ export default function PdfPreviewModal({
           transform: 'translateX(-50%)',
           width: 'min(1100px, 94vw)',
           height: '92vh',
-          background: 'var(--bg-base)',
+          background: 'var(--bg-elev)',
           border: '1px solid var(--brd)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
         }}
