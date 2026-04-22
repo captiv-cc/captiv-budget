@@ -823,7 +823,11 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     drawFooter(i)
   }
 
-  // ── Save ──────────────────────────────────────────────────────────────────────
+  // ── Output ─────────────────────────────────────────────────────────────────
+  // Retourne un handle { blob, url, filename, download(), revoke() } au lieu
+  // de déclencher `doc.save()` directement. Ça permet à l'appelant de choisir
+  // entre prévisualiser (URL.createObjectURL → <iframe>) et télécharger.
+  // Aligné avec le pattern `finishDoc` de matosBilanPdf.js.
   const sanitize = (s) => (s || '').replace(/[^a-zA-Z0-9àâäéèêëïîôùûüçÀÂÄÉÈÊËÏÎÔÙÛÜÇ &+\-_.]/g, '').trim()
   const ref = sanitize(project?.ref_projet) || 'CAPTIV'
   const clientName = sanitize(client?.raison_sociale || client?.nom_commercial) || ''
@@ -831,5 +835,22 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   const ver = devis.version_number || 1
   const parts = [ref, clientName, projTitle, 'DEVIS', `V${ver}`].filter(Boolean)
   const filename = parts.join('_') + '.pdf'
-  doc.save(filename)
+  const blob = doc.output('blob')
+  const url = URL.createObjectURL(blob)
+  return {
+    blob,
+    url,
+    filename,
+    download() {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    },
+    revoke() {
+      URL.revokeObjectURL(url)
+    },
+  }
 }

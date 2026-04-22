@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { notify } from '../lib/notify'
+import { confirm } from '../lib/confirm'
 import { calcSynthese, REGIMES_SALARIES, CATS_HUMAINS, TAUX_DEFAUT } from '../lib/cotisations'
 import { applyCategoryDansMarge } from '../lib/devisLines'
 import { exportDevisPDF } from '../lib/pdfExport'
@@ -12,9 +13,9 @@ import StatusSelect from '../features/devis/components/StatusSelect'
 import SynthBar from '../features/devis/components/SynthBar'
 import AddLineModal from '../features/devis/components/AddLineModal'
 import CategoryBlock from '../features/devis/components/CategoryBlock'
+import PdfPreviewModal from '../features/materiel/components/PdfPreviewModal'
 import {
   Copy,
-  Download,
   ChevronLeft,
   ChevronDown,
   ChevronRight,
@@ -70,6 +71,11 @@ export default function DevisEditor({ embedded = false }) {
   const [showAnalyse, setShowAnalyse] = useState(false) // toggle colonnes analyse
   const [showRemise, setShowRemise] = useState(false) // toggle colonne remise
   const [editingTitle, setEditingTitle] = useState(false) // toggle édition titre devis
+  // Prévisualisation PDF : { url, filename, revoke } | null
+  // Quand non-null, la modale <PdfPreviewModal /> s'ouvre et affiche le PDF
+  // en <iframe>. L'utilisateur peut télécharger depuis la modale ou la fermer.
+  const [pdfPreview, setPdfPreview] = useState(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
   const isSaving = useRef(false) // garde contre saves concurrentes
   const pendingSave = useRef(null) // dernier save en attente
   const insertingTempIds = useRef(new Set()) // évite double-INSERT
@@ -145,6 +151,21 @@ export default function DevisEditor({ embedded = false }) {
   useEffect(() => {
     loadAll()
   }, [devisId, loadAll])
+
+  // Nettoyage du Blob URL de preview PDF au démontage — évite les fuites
+  // mémoire si l'utilisateur ferme l'onglet / change de devis sans fermer
+  // la modale manuellement.
+  useEffect(() => {
+    return () => {
+      if (pdfPreview?.revoke) {
+        try {
+          pdfPreview.revoke()
+        } catch {
+          /* no-op */
+        }
+      }
+    }
+  }, [pdfPreview])
 
   // ── Auto-save : useEffect avec dépendances ────────────────────────────────
   // Ne se déclenche QUE si l'utilisateur a fait une modification (hasChanges)
@@ -331,8 +352,57 @@ export default function DevisEditor({ embedded = false }) {
     setCategories((prev) => prev.map((c) => (c.id === catId ? { ...c, notes } : c)))
   }
 
+  // ── Prévisualisation PDF ──────────────────────────────────────────────────
+  // Génère le PDF en mémoire et ouvre la modale <PdfPreviewModal />. Depuis
+  // la modale, l'utilisateur peut télécharger ou fermer. À la fermeture on
+  // révoque le Blob URL (cf. closePdfPreview).
+  async function openPdfPreview() {
+    if (pdfLoading) return
+    setPdfLoading(true)
+    try {
+      const handle = await exportDevisPDF(
+        { ...devis, categories, globalAdj },
+        project,
+        client,
+        org,
+        taux,
+      )
+      // Si une préview était déjà ouverte (double-clic, etc.), on révoque.
+      if (pdfPreview?.revoke) {
+        try {
+          pdfPreview.revoke()
+        } catch {
+          /* no-op */
+        }
+      }
+      setPdfPreview(handle)
+    } catch (err) {
+      console.error('[DevisEditor] PDF export:', err)
+      notify.error('Erreur export PDF')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
+  function closePdfPreview() {
+    if (pdfPreview?.revoke) {
+      try {
+        pdfPreview.revoke()
+      } catch {
+        /* no-op */
+      }
+    }
+    setPdfPreview(null)
+  }
+
   async function deleteCategory(catId) {
-    if (!confirm('Supprimer cette catégorie et toutes ses lignes ?')) return
+    const ok = await confirm({
+      title: 'Supprimer le bloc',
+      message: 'Cette catégorie et toutes ses lignes seront supprimées définitivement.',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     await supabase.from('devis_lines').delete().eq('category_id', catId)
     await supabase.from('devis_categories').delete().eq('id', catId)
     setCategories((prev) => prev.filter((c) => c.id !== catId))
@@ -675,18 +745,16 @@ export default function DevisEditor({ embedded = false }) {
               Dupliquer V{(devis?.version_number || 0) + 1}
             </button>
             <button
-              onClick={() =>
-                exportDevisPDF(
-                  { ...devis, categories, globalAdj },
-                  project,
-                  client,
-                  org,
-                  taux,
-                ).catch((err) => { console.error('[DevisEditor] PDF export:', err); notify.error('Erreur export PDF') })
-              }
+              onClick={openPdfPreview}
+              disabled={pdfLoading}
               className="btn-secondary btn-sm"
+              title="Prévisualiser le devis en PDF"
             >
-              <Download className="w-3.5 h-3.5" />
+              {pdfLoading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Eye className="w-3.5 h-3.5" />
+              )}
               PDF
             </button>
             <button
@@ -963,6 +1031,16 @@ export default function DevisEditor({ embedded = false }) {
         globalAdj={globalAdj}
         onUpdateGlobal={updateGlobalAdj}
         onUpdateDevis={updateDevisField}
+      />
+
+      {/* ── Prévisualisation PDF ─────────────────────────────────────────── */}
+      <PdfPreviewModal
+        open={Boolean(pdfPreview)}
+        onClose={closePdfPreview}
+        title={`Devis${devis?.version_number ? ` V${devis.version_number}` : ''}${project?.title ? ` — ${project.title}` : ''}`}
+        url={pdfPreview?.url || null}
+        filename={pdfPreview?.filename || 'devis.pdf'}
+        onDownload={() => pdfPreview?.download?.()}
       />
     </div>
   )

@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { notify } from '../../lib/notify'
+import { confirm, prompt } from '../../lib/confirm'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
 import { LOT_STATUS } from '../../lib/lots'
 import DevisEditor, { BLOCS_CANONIQUES } from '../DevisEditor'
@@ -168,10 +169,14 @@ export default function DevisTab() {
   // Actions LOT
   // ─────────────────────────────────────────────────────────────────────────
   async function createLot(defaultTitle = '') {
-    const title = prompt(
-      'Nom du lot (ex : "Aftermovie", "Vidéos réseaux sociaux") :',
-      defaultTitle,
-    )
+    const title = await prompt({
+      title: 'Nouveau lot',
+      message: 'Nom du lot (ex : « Aftermovie », « Vidéos réseaux sociaux ») :',
+      placeholder: 'Nom du lot',
+      initialValue: defaultTitle,
+      required: true,
+      confirmLabel: 'Créer',
+    })
     if (title === null) return
     const clean = title.trim()
     if (!clean) return
@@ -197,7 +202,14 @@ export default function DevisTab() {
 
   async function renameLot(lot, e) {
     e?.stopPropagation()
-    const next = prompt('Nom du lot :', lot.title || '')
+    const next = await prompt({
+      title: 'Renommer le lot',
+      message: 'Nom du lot :',
+      placeholder: 'Nom du lot',
+      initialValue: lot.title || '',
+      required: true,
+      confirmLabel: 'Enregistrer',
+    })
     if (next === null) return
     const clean = next.trim()
     if (!clean || clean === lot.title) return
@@ -216,8 +228,14 @@ export default function DevisTab() {
   async function toggleArchiveLot(lot, e) {
     e?.stopPropagation()
     const next = !lot.archived
-    if (next && !confirm(`Archiver le lot "${lot.title}" ? Son contenu reste accessible en lecture.`))
-      return
+    if (next) {
+      const ok = await confirm({
+        title: 'Archiver le lot',
+        message: `Archiver le lot « ${lot.title} » ? Son contenu reste accessible en lecture.`,
+        confirmLabel: 'Archiver',
+      })
+      if (!ok) return
+    }
     const { error } = await supabase
       .from('devis_lots')
       .update({ archived: next })
@@ -239,7 +257,13 @@ export default function DevisTab() {
       )
       return
     }
-    if (!confirm(`Supprimer définitivement le lot "${lot.title}" ?`)) return
+    const ok = await confirm({
+      title: 'Supprimer le lot',
+      message: `Supprimer définitivement le lot « ${lot.title} » ? Cette action est irréversible.`,
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     const { error } = await supabase.from('devis_lots').delete().eq('id', lot.id)
     if (error) {
       console.error('[deleteLot]', error)
@@ -348,7 +372,13 @@ export default function DevisTab() {
   async function deleteDevis(dvId, e) {
     e.preventDefault()
     e.stopPropagation()
-    if (!confirm('Supprimer ce devis et toutes ses lignes ?')) return
+    const ok = await confirm({
+      title: 'Supprimer le devis',
+      message: 'Ce devis et toutes ses lignes seront supprimés définitivement.',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     const { error } = await supabase.from('devis').delete().eq('id', dvId)
     if (error) {
       console.error('[deleteDevis]', error)
@@ -484,7 +514,13 @@ export default function DevisTab() {
   async function renameDevis(dv, e) {
     e.preventDefault()
     e.stopPropagation()
-    const next = prompt('Nom de cette version (vide pour réinitialiser) :', dv.title || '')
+    const next = await prompt({
+      title: 'Renommer la version',
+      message: 'Nom de cette version (laisser vide pour réinitialiser) :',
+      placeholder: 'Nom de la version',
+      initialValue: dv.title || '',
+      confirmLabel: 'Enregistrer',
+    })
     if (next === null) return
     const newTitle = next.trim() || null
     const { error } = await supabase.from('devis').update({ title: newTitle }).eq('id', dv.id)
