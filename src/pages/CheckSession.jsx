@@ -387,6 +387,7 @@ function CheckSessionShell({
                       progress={filteredProgressByBlock.get(b.id)}
                       commentsByItem={commentsByItem}
                       loueursByItem={loueursByItem}
+                      loueurs={loueurs}
                       onToggleItem={actions.toggle}
                       onAddItem={actions.addItem}
                       onAddComment={actions.addComment}

@@ -37,6 +37,9 @@ export default function CheckBlockCard({
   // afficher les pastilles loueurs sur chaque ligne (read-only). Le parent
   // peut passer `null`/`undefined` si aucun tagging n'est activé.
   loueursByItem = null,
+  // MAT-19 : liste des loueurs connus de la version, utilisée par AddItemForm
+  // pour proposer un loueur à l'additif au moment de l'ajout.
+  loueurs = [],
   onToggleItem,
   onAddItem,
   onAddComment,
@@ -171,7 +174,7 @@ export default function CheckBlockCard({
       )}
 
       {/* Formulaire d'ajout d'additif ─────────────────────────────────────── */}
-      <AddItemForm blockId={block.id} onAdd={onAddItem} />
+      <AddItemForm blockId={block.id} onAdd={onAddItem} loueurs={loueurs} />
     </section>
   )
 }

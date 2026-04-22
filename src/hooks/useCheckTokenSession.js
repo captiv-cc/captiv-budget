@@ -183,6 +183,22 @@ export function useCheckTokenSession(token) {
     })
   }, [])
 
+  // MAT-19 : pousse une ligne pivot `item_loueurs` en local après création d'un
+  // additif avec loueur attribué. Dédupe par `id` si connu (retour RPC), sinon
+  // par couple (item_id, loueur_id) pour rester idempotent en cas de re-render.
+  const appendItemLoueur = useCallback((pivot) => {
+    if (!pivot?.item_id || !pivot?.loueur_id) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.item_loueurs || []
+      if (pivot.id && existing.some((x) => x.id === pivot.id)) return prev
+      if (existing.some(
+        (x) => x.item_id === pivot.item_id && x.loueur_id === pivot.loueur_id,
+      )) return prev
+      return { ...prev, item_loueurs: [...existing, pivot] }
+    })
+  }, [])
+
   const appendComment = useCallback((newComment) => {
     if (!newComment?.id) return
     setSession((prev) => {
@@ -228,13 +244,19 @@ export function useCheckTokenSession(token) {
   )
 
   /**
-   * Ajoute un additif à un bloc. La RPC ne renvoie que `{id}` — on reconstruit
-   * la shape complète côté client pour pouvoir l'afficher immédiatement sans
-   * refetch. sort_order est mis à une grosse valeur pour qu'il apparaisse à
-   * la fin ; au prochain fetch, le vrai sort_order serveur prendra le relai.
+   * Ajoute un additif à un bloc. La RPC renvoie `{id, item_loueur_id, loueur_id}`
+   * (MAT-19) — on reconstruit la shape complète côté client pour pouvoir
+   * l'afficher immédiatement sans refetch. sort_order est mis à une grosse
+   * valeur pour qu'il apparaisse à la fin ; au prochain fetch, le vrai
+   * sort_order serveur prendra le relai.
+   *
+   * Si `loueurId` est fourni, la RPC insère aussi la ligne pivot `item_loueurs`
+   * dans la même transaction ; on la miroite en local avec `appendItemLoueur`
+   * pour que le récap loueur s'actualise instantanément (pas de délai le temps
+   * du refetch).
    */
   const addItem = useCallback(
-    async ({ blockId, designation, quantite = 1 }) => {
+    async ({ blockId, designation, quantite = 1, loueurId = null }) => {
       if (!userName) throw new Error('Nom utilisateur requis')
       const created = await CT.addCheckItem({
         token,
@@ -242,6 +264,7 @@ export function useCheckTokenSession(token) {
         designation,
         quantite,
         userName,
+        loueurId,
       })
       appendItem({
         id: created?.id,
@@ -256,9 +279,18 @@ export function useCheckTokenSession(token) {
         flag: null,
         sort_order: 99999,
       })
+      if (created?.item_loueur_id && created?.loueur_id) {
+        appendItemLoueur({
+          id: created.item_loueur_id,
+          item_id: created.id,
+          loueur_id: created.loueur_id,
+          numero_reference: null,
+          sort_order: 0,
+        })
+      }
       return created
     },
-    [token, userName, appendItem],
+    [token, userName, appendItem, appendItemLoueur],
   )
 
   /** Ajoute un commentaire sur un item. */

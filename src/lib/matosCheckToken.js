@@ -204,8 +204,21 @@ export async function toggleCheck({ token, itemId, userName }) {
  * Ajoute un "additif" (item ajouté pendant les essais) à un bloc. Les items
  * ajoutés sont taggués `added_during_check=true` et apparaissent séparément
  * dans l'UI, avec leur auteur ("Ajouté par Camille à 14h23").
+ *
+ * MAT-19 : `loueurId` optionnel. Si fourni, la RPC insère aussi la ligne pivot
+ * `matos_item_loueurs` dans la même transaction, pour que l'additif apparaisse
+ * directement dans le récap du bon loueur (sinon il tombe dans "Non assigné").
+ *
+ * Retour : `{ id: uuid, item_loueur_id: uuid|null, loueur_id: uuid|null }`
  */
-export async function addCheckItem({ token, blockId, designation, quantite = 1, userName }) {
+export async function addCheckItem({
+  token,
+  blockId,
+  designation,
+  quantite = 1,
+  userName,
+  loueurId = null,
+}) {
   if (!token || !blockId) throw new Error('addCheckItem : token + blockId requis')
   if (!designation?.trim()) throw new Error('addCheckItem : désignation requise')
   if (!userName?.trim()) throw new Error('addCheckItem : userName requis')
@@ -215,9 +228,10 @@ export async function addCheckItem({ token, blockId, designation, quantite = 1, 
     p_designation: designation.trim(),
     p_quantite: quantite,
     p_user_name: userName.trim(),
+    p_loueur_id: loueurId || null,
   })
   if (error) throw error
-  return data // ligne matos_items créée
+  return data // { id, item_loueur_id, loueur_id }
 }
 
 /**

@@ -1,32 +1,54 @@
 /**
- * AddItemForm — formulaire d'ajout d'un "additif" dans un bloc (MAT-10F).
+ * AddItemForm — formulaire d'ajout d'un "additif" dans un bloc (MAT-10F / MAT-19).
  *
- * Compact, inline en bas de la liste d'items. 2 champs : désignation + quantité.
- * Se replie en bouton "+ Ajouter un additif" quand inactif pour ne pas
- * encombrer la checklist quand on ne s'en sert pas.
+ * Compact, inline en bas de la liste d'items. Se replie en bouton
+ * "+ Ajouter un additif" quand inactif pour ne pas encombrer la checklist.
  *
  *   ── replié ────────────────────────────────────────
  *   ┌───────────────────────────────────────────┐
  *   │  +  Ajouter un additif                    │
  *   └───────────────────────────────────────────┘
  *
- *   ── déplié ────────────────────────────────────────
- *   ┌───────────────────────────────────────────┐
- *   │  Désignation (ex. Bras magique 1m)        │
- *   │  Quantité  [ 1 ]                          │
- *   │  [Annuler]                [+ Ajouter]     │
- *   └───────────────────────────────────────────┘
+ *   ── déplié (MAT-19) ───────────────────────────────
+ *   ┌───────────────────────────────────────────────┐
+ *   │  Désignation (ex. Bras magique 1m)            │
+ *   │  Quantité [1]  ·  Loueur : [Aucun ▾]          │
+ *   │                                               │
+ *   │  Loueurs : ◯ Aucun  ● Lux  ◯ TSF  ◯ …         │
+ *   │  [Annuler]                    [+ Ajouter]     │
+ *   └───────────────────────────────────────────────┘
+ *
+ * MAT-19 : on propose les loueurs déjà taggés sur la version (l'API
+ * `check_session_fetch` renvoie `session.loueurs`). Sélection optionnelle —
+ * "Aucun" reste l'état par défaut et retombe dans le récap "Non assigné".
+ *
+ * Props :
+ *   - blockId : uuid du bloc (obligatoire)
+ *   - onAdd({ blockId, designation, quantite, loueurId }) : handler async
+ *   - loueurs : Array<{ id, nom, couleur }> — loueurs connus de la version
  */
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { Plus, X } from 'lucide-react'
 
-export default function AddItemForm({ blockId, onAdd }) {
+function alpha(hex, a = '22') {
+  if (!hex || !hex.startsWith('#') || hex.length !== 7) return '#64748b' + a
+  return hex + a
+}
+
+export default function AddItemForm({ blockId, onAdd, loueurs = [] }) {
   const [open, setOpen] = useState(false)
   const [designation, setDesignation] = useState('')
   const [quantite, setQuantite] = useState(1)
+  const [loueurId, setLoueurId] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef(null)
+
+  // On trie par nom pour une présentation stable / prévisible.
+  const sortedLoueurs = useMemo(
+    () => [...loueurs].sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' })),
+    [loueurs],
+  )
 
   // Focus auto à l'ouverture pour enchaîner la saisie immédiatement.
   useEffect(() => {
@@ -40,6 +62,7 @@ export default function AddItemForm({ blockId, onAdd }) {
   function reset() {
     setDesignation('')
     setQuantite(1)
+    setLoueurId(null)
     setOpen(false)
   }
 
@@ -49,7 +72,12 @@ export default function AddItemForm({ blockId, onAdd }) {
     if (!trimmed || submitting) return
     setSubmitting(true)
     try {
-      await onAdd({ blockId, designation: trimmed, quantite: Math.max(1, Number(quantite) || 1) })
+      await onAdd({
+        blockId,
+        designation: trimmed,
+        quantite: Math.max(1, Number(quantite) || 1),
+        loueurId: loueurId || null,
+      })
       reset()
     } catch (err) {
       console.error('[AddItemForm] ajout failed', err)
@@ -120,6 +148,37 @@ export default function AddItemForm({ blockId, onAdd }) {
         />
       </div>
 
+      {/* Sélecteur de loueur — MAT-19. Affiché UNIQUEMENT si la version a des
+          loueurs tagués, sinon on masque totalement le contrôle pour ne pas
+          polluer le form avec une option inutile. */}
+      {sortedLoueurs.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <label
+            className="text-[10px] font-bold uppercase tracking-wider"
+            style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+          >
+            Loueur (optionnel)
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            <LoueurChip
+              active={loueurId === null}
+              onClick={() => setLoueurId(null)}
+              color="#64748b"
+              label="Aucun"
+            />
+            {sortedLoueurs.map((l) => (
+              <LoueurChip
+                key={l.id}
+                active={loueurId === l.id}
+                onClick={() => setLoueurId(l.id)}
+                color={l.couleur || '#64748b'}
+                label={l.nom}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
@@ -147,5 +206,33 @@ export default function AddItemForm({ blockId, onAdd }) {
         </button>
       </div>
     </form>
+  )
+}
+
+// ─── Chip loueur (toggle style) ────────────────────────────────────────────
+
+function LoueurChip({ active, onClick, color, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold transition-all"
+      style={{
+        background: active ? alpha(color, '33') : 'var(--bg-surf)',
+        color: active ? color : 'var(--txt-2)',
+        border: `1px solid ${active ? color : 'var(--brd-sub)'}`,
+        cursor: 'pointer',
+      }}
+    >
+      <span
+        className="inline-block rounded-full shrink-0"
+        style={{
+          width: '8px',
+          height: '8px',
+          background: color,
+        }}
+      />
+      <span className="truncate max-w-[140px]">{label}</span>
+    </button>
   )
 }

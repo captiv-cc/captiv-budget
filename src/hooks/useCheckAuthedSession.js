@@ -149,6 +149,21 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     })
   }, [])
 
+  // MAT-19 : miroir local d'une ligne pivot `item_loueurs` après création d'un
+  // additif avec loueur attribué — cf. useCheckTokenSession pour les détails.
+  const appendItemLoueur = useCallback((pivot) => {
+    if (!pivot?.item_id || !pivot?.loueur_id) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.item_loueurs || []
+      if (pivot.id && existing.some((x) => x.id === pivot.id)) return prev
+      if (existing.some(
+        (x) => x.item_id === pivot.item_id && x.loueur_id === pivot.loueur_id,
+      )) return prev
+      return { ...prev, item_loueurs: [...existing, pivot] }
+    })
+  }, [])
+
   const appendComment = useCallback((newComment) => {
     if (!newComment?.id) return
     setSession((prev) => {
@@ -187,9 +202,17 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     [patchItem],
   )
 
+  // MAT-19 : `loueurId` optionnel. Si fourni, la RPC insère aussi la ligne
+  // pivot `item_loueurs` dans la même transaction — on la miroite en local
+  // avec `appendItemLoueur` pour que le récap loueur s'actualise instant.
   const addItem = useCallback(
-    async ({ blockId, designation, quantite = 1 }) => {
-      const created = await CA.addCheckItemAuthed({ blockId, designation, quantite })
+    async ({ blockId, designation, quantite = 1, loueurId = null }) => {
+      const created = await CA.addCheckItemAuthed({
+        blockId,
+        designation,
+        quantite,
+        loueurId,
+      })
       appendItem({
         id: created?.id,
         block_id: blockId,
@@ -203,9 +226,18 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
         flag: null,
         sort_order: 99999,
       })
+      if (created?.item_loueur_id && created?.loueur_id) {
+        appendItemLoueur({
+          id: created.item_loueur_id,
+          item_id: created.id,
+          loueur_id: created.loueur_id,
+          numero_reference: null,
+          sort_order: 0,
+        })
+      }
       return created
     },
-    [appendItem, userName],
+    [appendItem, appendItemLoueur, userName],
   )
 
   const addComment = useCallback(

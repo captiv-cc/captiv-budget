@@ -67,14 +67,20 @@ export async function toggleCheckAuthed({ itemId }) {
 /**
  * Ajoute un additif à un bloc en mode authenticated. L'identité est dérivée de
  * `auth.uid()` serveur-side — on ne passe jamais de userName ici.
+ *
+ * MAT-19 : `loueurId` optionnel. Si fourni, la RPC insère aussi la ligne pivot
+ * `matos_item_loueurs` dans la même transaction (cf. matosCheckToken.js).
+ *
+ * Retour : `{ id: uuid, item_loueur_id: uuid|null, loueur_id: uuid|null }`
  */
-export async function addCheckItemAuthed({ blockId, designation, quantite = 1 }) {
+export async function addCheckItemAuthed({ blockId, designation, quantite = 1, loueurId = null }) {
   if (!blockId) throw new Error('addCheckItemAuthed : blockId requis')
   if (!designation?.trim()) throw new Error('addCheckItemAuthed : désignation requise')
   const { data, error } = await supabase.rpc('check_action_add_item_authed', {
     p_block_id: blockId,
     p_designation: designation.trim(),
     p_quantite: quantite,
+    p_loueur_id: loueurId || null,
   })
   if (error) throw error
   return data
