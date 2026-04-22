@@ -146,11 +146,19 @@ Deno.serve(async (req: Request) => {
       invited_by: callerId,
     }
 
-    const origin = req.headers.get('origin') || req.headers.get('referer') || ''
-    const cleanOrigin = origin.replace(/\/$/, '').replace(/\/accept-invite.*$/, '')
-    const redirectTo = cleanOrigin
-      ? `${cleanOrigin}/accept-invite`
-      : undefined
+    // Priorité pour l'URL de redirection :
+    //   1. PUBLIC_SITE_URL (env var du projet Supabase) → autoritative pour la prod
+    //   2. header `origin` (fallback dev/staging)
+    //   3. header `referer` (dernier recours)
+    // Le "Site URL" du Dashboard reste la source du {{ .ConfirmationURL }} dans
+    // le template email — à configurer également sur l'URL de prod.
+    const envSiteUrl = Deno.env.get('PUBLIC_SITE_URL') || ''
+    const reqOrigin = req.headers.get('origin') || req.headers.get('referer') || ''
+    const rawBase = envSiteUrl || reqOrigin
+    const cleanBase = rawBase
+      .replace(/\/$/, '')
+      .replace(/\/accept-invite.*$/, '')
+    const redirectTo = cleanBase ? `${cleanBase}/accept-invite` : undefined
 
     let newUserId: string = contact.user_id || ''
     let actionLink: string | null = null

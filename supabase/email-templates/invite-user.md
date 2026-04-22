@@ -111,8 +111,26 @@ Invitation à rejoindre CAPTIV
 
 ## Notes
 
-- Le lien `{{ .ConfirmationURL }}` pointe automatiquement vers l'URL passée dans
-  `redirectTo` par l'Edge Function (c'est-à-dire `{origin}/accept-invite`).
+- Le lien `{{ .ConfirmationURL }}` est composé par Supabase Auth à partir du
+  **Site URL** configuré dans Dashboard → Authentication → URL Configuration.
+  **Si ce champ est resté sur `http://localhost:5173` (valeur dev par défaut),
+  TOUS les mails d'invitation et de reset password partiront avec un lien
+  localhost.** Il faut impérativement le basculer sur l'URL de prod.
+- Le `redirect_to` passé par l'Edge Function est superposé au Site URL. L'Edge
+  Function prend sa valeur dans cet ordre :
+    1. `PUBLIC_SITE_URL` (env var du projet Supabase, à positionner avec
+       `supabase secrets set PUBLIC_SITE_URL=https://captiv.cc` par exemple).
+    2. Header `origin` de la requête (fallback dev).
+    3. Header `referer` (dernier recours).
+  Pour éviter que des invitations lancées depuis un admin en local partent
+  avec un redirect `http://localhost:5173/accept-invite`, on pose
+  `PUBLIC_SITE_URL` côté secrets.
+- URLs à whitelister dans Dashboard → Authentication → URL Configuration →
+  **Redirect URLs** :
+    - `https://<prod>/accept-invite`
+    - `https://<prod>/**`
+    - `http://localhost:5173/accept-invite` (optionnel — dev)
+    - `http://localhost:5173/**` (optionnel — dev)
 - Si le mail part dans les spams, vérifie la configuration SMTP custom dans
   Settings → Auth → SMTP Settings (sinon Supabase utilise son propre serveur
   limité à 3 mails/heure en free tier).

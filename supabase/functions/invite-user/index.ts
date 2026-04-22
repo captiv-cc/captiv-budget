@@ -164,9 +164,26 @@ Deno.serve(async (req: Request) => {
       invited_by: callerId,
     }
 
-    const origin = req.headers.get('origin') || req.headers.get('referer') || ''
-    const cleanOrigin = origin.replace(/\/$/, '').replace(/\/accept-invite.*$/, '')
-    const redirectTo = cleanOrigin ? `${cleanOrigin}/accept-invite` : undefined
+    // Détermine l'URL de redirection avec une priorité claire :
+    //   1. Variable d'environnement PUBLIC_SITE_URL (à configurer sur le projet
+    //      Supabase via `supabase secrets set PUBLIC_SITE_URL=https://...`).
+    //      C'est la source autoritative pour la prod — évite que des invites
+    //      lancées depuis un admin en localhost partent avec un lien localhost.
+    //   2. Header `origin` de la requête (fallback dev / staging).
+    //   3. Header `referer` en dernier recours.
+    //
+    // ATTENTION : ceci ne règle que le `redirect_to`. La base du lien magique
+    // (`{{ .ConfirmationURL }}`) est composée par Supabase Auth depuis le
+    // "Site URL" du Dashboard → Authentication → URL Configuration. Si ce
+    // champ est resté sur localhost, TOUS les emails partiront en localhost,
+    // peu importe ce qu'on met ici.
+    const envSiteUrl = Deno.env.get('PUBLIC_SITE_URL') || ''
+    const reqOrigin = req.headers.get('origin') || req.headers.get('referer') || ''
+    const rawBase = envSiteUrl || reqOrigin
+    const cleanBase = rawBase
+      .replace(/\/$/, '')
+      .replace(/\/accept-invite.*$/, '')
+    const redirectTo = cleanBase ? `${cleanBase}/accept-invite` : undefined
 
     let newUserId: string = contact.user_id || ''
     let actionLink: string | null = null
