@@ -86,6 +86,19 @@ function AppRoutes() {
       {/* Checklist terrain — accès anonyme via token (MAT-10). Le token fait
           authentification : pas de PrivateRoute, ne passe PAS dans Layout. */}
       <Route path="/check/:token" element={<CheckSession />} />
+      {/* Checklist terrain — accès authenticated direct (MAT-14). Même UI
+          plein écran que /check/:token, mais l'identité vient du user connecté
+          (pas de NamePrompt). La RLS + les RPC *_authed vérifient
+          can_read_outil('materiel') serveur-side. Hors Layout pour garder
+          l'expérience "mode chantier" sans sidebar projet. */}
+      <Route
+        path="/projets/:id/materiel/check/:versionId?"
+        element={
+          <PrivateRoute>
+            <CheckSession mode="authed" />
+          </PrivateRoute>
+        }
+      />
       <Route path="/unauthorized" element={<Unauthorized />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
 

@@ -1,13 +1,16 @@
 /**
- * CheckSession — Route publique plein écran `/check/:token` (MAT-10D)
+ * CheckSession — Checklist terrain plein écran (MAT-10D + MAT-14)
  *
- * Accessible sans compte CAPTIV : le token dans l'URL vaut authentification.
- * Le user tape son prénom à la première ouverture (stocké en localStorage
- * scopé par token, pour ne pas le redemander à chaque tap).
+ * Deux modes branchés via la prop `mode` :
+ *   - `mode="token"` (défaut) → route publique `/check/:token`, anon avec
+ *     prénom en localStorage, identité portée par le token jetable.
+ *   - `mode="authed"` → route privée `/projets/:id/materiel/check/:versionId?`
+ *     réservée aux membres CAPTIV connectés. Identité = profiles.full_name,
+ *     aucun NamePrompt, aucun localStorage. Les actions passent par les RPC
+ *     `check_*_authed` qui lisent auth.uid() côté serveur.
  *
- * Cette page est un shell : elle gère les états macro (loading / erreur /
- * prompt nom / session) et délègue le rendu des blocs/items à des composants
- * dédiés (MAT-10E : BlocksList, ItemRow checkable, AdditivesSection, etc.).
+ * Le shell JSX (header, blocks list, cloture modale, bannière) est commun.
+ * Seules les sources de `session`/`actions`/`userName` changent.
  *
  * Layout :
  *   ┌──────────────────────────────────────────────────┐
@@ -23,7 +26,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { Film, AlertTriangle, Loader2, Moon, Sun, CheckCircle2, FileSearch, Lock, Download, X } from 'lucide-react'
 import { useCheckTokenSession } from '../hooks/useCheckTokenSession'
+import { useCheckAuthedSession } from '../hooks/useCheckAuthedSession'
 import { useCheckPresence } from '../hooks/useCheckPresence'
+import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import {
   filterItemsByBlock as filterItemsByBlockPure,
   computeProgressByBlock as computeProgressByBlockPure,
@@ -34,31 +40,154 @@ import CheckDocsViewer from '../features/materiel/components/check/CheckDocsView
 import LoueurFilterBar from '../features/materiel/components/check/LoueurFilterBar'
 import PresenceStack from '../features/materiel/components/check/PresenceStack'
 
-export default function CheckSession() {
-  const { token } = useParams()
-  const {
-    loading,
-    error,
-    session,
-    userName,
-    setUserName,
-    blocks,
-    itemsByBlock,
-    loueurs,
-    loueursByItem,
-    commentsByItem,
-    progressByBlock,
-    attachments,
-    actions,
-  } = useCheckTokenSession(token)
+export default function CheckSession({ mode = 'token' }) {
+  if (mode === 'authed') {
+    return <AuthedCheckSession />
+  }
+  return <TokenCheckSession />
+}
 
-  // Presence live (MAT-10H) : ne s'active qu'une fois le user nommé.
-  // Le hook lui-même no-op si userName est falsy.
+/* ═══ Mode token (anon /check/:token) ═════════════════════════════════════ */
+
+function TokenCheckSession() {
+  const { token } = useParams()
+  const tokenSession = useCheckTokenSession(token)
+
+  // Presence live — channel keyed par version (pas par token), pour que les
+  // utilisateurs authenticated et les tokenisés apparaissent dans le même
+  // roster. On attend donc que la session soit chargée (version.id dispo).
   const { users, currentKey } = useCheckPresence({
-    token,
-    userName,
-    enabled: Boolean(userName && session),
+    versionId: tokenSession.session?.version?.id,
+    userName: tokenSession.userName,
+    enabled: Boolean(tokenSession.userName && tokenSession.session),
   })
+
+  // Garde minimale : pas de token → retour accueil.
+  if (!token) return <Navigate to="/accueil" replace />
+
+  return (
+    <CheckSessionShell
+      {...tokenSession}
+      mode="token"
+      presenceUsers={users}
+      presenceCurrentKey={currentKey}
+      requireName
+    />
+  )
+}
+
+/* ═══ Mode authed (/projets/:id/materiel/check/:versionId?) ═══════════════ */
+
+function AuthedCheckSession() {
+  const { id: projectId, versionId: paramVersionId } = useParams()
+  const { profile, user } = useAuth()
+
+  // Nom d'affichage — identique au fallback utilisé par MaterielTab pour la
+  // clôture admin. En dernier recours on tombe sur 'Utilisateur' pour éviter
+  // un roster vide côté presence.
+  const userName =
+    profile?.full_name?.trim() ||
+    user?.user_metadata?.full_name?.trim() ||
+    user?.email ||
+    'Utilisateur'
+
+  // Si la route n'a pas de versionId, on résout l'active version du projet.
+  // Pattern minimal : requête directe matos_versions + is_active=true. La
+  // RLS côté can_read_outil filtre automatiquement.
+  const [resolvedVersionId, setResolvedVersionId] = useState(paramVersionId || null)
+  const [resolveError, setResolveError] = useState(null)
+
+  useEffect(() => {
+    if (paramVersionId) {
+      setResolvedVersionId(paramVersionId)
+      return
+    }
+    if (!projectId) return
+    let cancelled = false
+    async function resolve() {
+      setResolveError(null)
+      try {
+        const { data, error } = await supabase
+          .from('matos_versions')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('is_active', true)
+          .maybeSingle()
+        if (cancelled) return
+        if (error) {
+          setResolveError(error)
+          return
+        }
+        if (!data?.id) {
+          setResolveError(new Error('Aucune version active sur ce projet'))
+          return
+        }
+        setResolvedVersionId(data.id)
+      } catch (err) {
+        if (!cancelled) setResolveError(err)
+      }
+    }
+    resolve()
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, paramVersionId])
+
+  const authedSession = useCheckAuthedSession(resolvedVersionId, { userName })
+
+  const { users, currentKey } = useCheckPresence({
+    versionId: resolvedVersionId,
+    userName,
+    enabled: Boolean(userName && authedSession.session),
+  })
+
+  if (!projectId) return <Navigate to="/accueil" replace />
+
+  if (resolveError) {
+    return <ErrorScreen error={resolveError} />
+  }
+
+  if (!resolvedVersionId) {
+    return <LoadingScreen />
+  }
+
+  return (
+    <CheckSessionShell
+      {...authedSession}
+      mode="authed"
+      presenceUsers={users}
+      presenceCurrentKey={currentKey}
+      requireName={false}
+    />
+  )
+}
+
+/* ═══ Shell commun — header + body + modale clôture ═══════════════════════ */
+
+function CheckSessionShell({
+  mode,
+  loading,
+  error,
+  session,
+  userName,
+  setUserName,
+  blocks,
+  itemsByBlock,
+  loueurs,
+  loueursByItem,
+  commentsByItem,
+  progressByBlock,
+  attachments,
+  actions,
+  presenceUsers,
+  presenceCurrentKey,
+  requireName,
+}) {
+  // Note : `users` et `currentKey` sont injectés par les wrappers Token/Authed
+  // pour garder la logique presence dans le composant qui sait quel identifiant
+  // (versionId) est stable dans son contexte.
+  const users = presenceUsers
+  const currentKey = presenceCurrentKey
 
   // ─── Light/Dark toggle (MAT-10K) ──────────────────────────────────────────
   // Décision Hugo 2026-04-22 : sombre par défaut, pas de persistance.
@@ -170,11 +299,9 @@ export default function CheckSession() {
     }
   }
 
-  // Garde minimale : pas de token → retour accueil.
-  if (!token) return <Navigate to="/accueil" replace />
-
   // ─── États d'erreur ────────────────────────────────────────────────────
-  // Token inconnu / révoqué / expiré : la RPC renvoie null ou une erreur.
+  // Token inconnu / révoqué / expiré OU version introuvable / accès refusé :
+  // la RPC renvoie null ou une erreur.
   if (error || (!loading && !session)) {
     return <ErrorScreen error={error} />
   }
@@ -184,8 +311,10 @@ export default function CheckSession() {
     return <LoadingScreen />
   }
 
-  // ─── Prompt nom (première ouverture) ───────────────────────────────────
-  if (!userName) {
+  // ─── Prompt nom (mode token uniquement) ────────────────────────────────
+  // En mode authed l'identité vient de profiles.full_name côté contexte Auth,
+  // aucun prompt n'est jamais affiché.
+  if (requireName && !userName) {
     return <NamePrompt onSubmit={setUserName} session={session} />
   }
 
@@ -195,11 +324,12 @@ export default function CheckSession() {
       <CheckHeader
         session={session}
         userName={userName}
-        onEditName={() => setUserName(null)}
+        onEditName={requireName ? () => setUserName(null) : null}
         presenceUsers={users}
         presenceCurrentKey={currentKey}
         theme={checkTheme}
         onToggleTheme={() => setCheckTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        mode={mode}
       />
 
       <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
@@ -440,6 +570,7 @@ function CheckHeader({
   presenceCurrentKey = null,
   theme = 'dark',
   onToggleTheme,
+  mode = 'token',
 }) {
   const project = session?.project
   const version = session?.version
@@ -497,18 +628,35 @@ function CheckHeader({
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={onEditName}
-          className="shrink-0 text-xs px-3 py-1.5 rounded-md"
-          style={{
-            background: 'var(--bg)',
-            border: '1px solid var(--brd)',
-            color: 'var(--txt-2)',
-          }}
-        >
-          {userName}
-        </button>
+        {/* En mode authed, l'identité vient de l'auth Supabase — pas de bouton
+            cliquable pour la modifier. On garde un simple label visuel. */}
+        {onEditName ? (
+          <button
+            type="button"
+            onClick={onEditName}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            style={{
+              background: 'var(--bg)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt-2)',
+            }}
+            title="Changer de prénom"
+          >
+            {userName}
+          </button>
+        ) : (
+          <span
+            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            style={{
+              background: 'var(--bg)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt-2)',
+            }}
+            title={mode === 'authed' ? 'Identifiant CAPTIV' : undefined}
+          >
+            {userName}
+          </span>
+        )}
       </div>
 
       {/* Presence mobile : seconde ligne pour ne pas étrangler le header */}

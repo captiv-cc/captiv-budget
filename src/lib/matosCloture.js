@@ -29,10 +29,9 @@
 
 import { supabase } from './supabase'
 import {
-  createCheckToken,
-  fetchCheckSession,
-  revokeCheckToken,
-} from './matosCheckToken'
+  fetchCheckSessionAuthed,
+  closeCheckEssaisAuthed,
+} from './matosCheckAuthed'
 import { aggregateBilanData, bilanZipFilename } from './matosBilanData'
 
 const BUCKET = 'matos-attachments'
@@ -181,17 +180,16 @@ export async function closeEssaisWithArchive({
 /**
  * Génère le ZIP bilan (PDF global + un PDF par loueur) **sans clôturer** :
  *   - pas d'upload Storage
- *   - pas d'appel RPC `check_action_close_essais`
+ *   - pas d'appel RPC `check_action_close_essais*`
  *   - pas de ligne `matos_version_attachments`
  *
- * Même pipeline que `closeEssaisAsAdmin` (token éphémère → fetch session →
- * agrégation → build ZIP) mais on s'arrête à la sortie du builder. L'appelant
- * récupère `{ blob, url, filename, isZip: true, download, revoke }` compatible
- * avec le `PdfPreviewModal` existant (runExport de MaterielTab).
+ * Depuis MAT-14, on passe directement par `check_session_fetch_authed`
+ * (SECURITY DEFINER gated par `can_read_outil('materiel')`) — plus besoin
+ * du token éphémère qui existait avant. L'historique matos_check_tokens
+ * n'est donc plus pollué par des lignes "Admin aperçu (usage unique)".
  *
- * Le token éphémère est quand même créé (5 min, labellisé "Admin aperçu")
- * parce que `fetch_check_session` passe par le token ; il est révoqué dans
- * le `finally`.
+ * Retourne `{ blob, url, filename, isZip: true, download, revoke }` — shape
+ * compatible avec le `PdfPreviewModal` existant (runExport de MaterielTab).
  *
  * @param {object} opts
  * @param {string} opts.versionId
@@ -201,33 +199,12 @@ export async function closeEssaisWithArchive({
 export async function previewBilanAsAdmin({ versionId, pdfOptions = {} }) {
   if (!versionId) throw new Error('previewBilanAsAdmin : versionId requis')
 
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-  const tokenRow = await createCheckToken({
-    versionId,
-    label: 'Admin aperçu (usage unique)',
-    expiresAt,
-  })
-  const adminToken = tokenRow?.token
-  const adminTokenId = tokenRow?.id
-  if (!adminToken) throw new Error('Création du token admin échouée')
+  const session = await fetchCheckSessionAuthed(versionId)
+  const snapshot = aggregateBilanData(session)
+  if (!snapshot.version?.id) throw new Error('Version introuvable dans la session')
 
-  try {
-    const session = await fetchCheckSession(adminToken)
-    const snapshot = aggregateBilanData(session)
-    if (!snapshot.version?.id) throw new Error('Version introuvable dans la session')
-
-    const { buildBilanZip } = await import('../features/materiel/matosBilanPdf')
-    const zip = await buildBilanZip(snapshot, pdfOptions)
-    return zip
-  } finally {
-    if (adminTokenId) {
-      try {
-        await revokeCheckToken(adminTokenId)
-      } catch {
-        /* silencieux — audit trail préservé */
-      }
-    }
-  }
+  const { buildBilanZip } = await import('../features/materiel/matosBilanPdf')
+  return buildBilanZip(snapshot, pdfOptions)
 }
 
 // ─── Clôture côté admin (authenticated) ───────────────────────────────────
@@ -235,71 +212,57 @@ export async function previewBilanAsAdmin({ versionId, pdfOptions = {} }) {
 /**
  * Clôture depuis l'onglet Matériel (admin authenticated).
  *
- * Contrairement au flow /check/:token (qui a déjà un token en mains), l'admin
- * n'en a pas forcément : on crée donc un token éphémère "Admin clôture
- * (usage unique)" expirant dans 5 minutes, on l'utilise pour fetcher la
- * session + closer, puis on le révoque en "best effort" dans le finally.
+ * Depuis MAT-14, on appelle directement les RPC `check_*_authed` qui gèrent
+ * l'authentification via `auth.uid()` + `can_edit_outil('materiel')`. Plus
+ * besoin de créer un token éphémère pour contourner le fait que les anciennes
+ * RPC exigeaient un token — la migration MAT-14A ajoute les wrappers
+ * authenticated.
  *
- * Avantage : on réutilise tout le pipeline existant (aggregate → ZIP → upload
- * → RPC), sans dupliquer la logique d'agrégation côté authenticated.
- *
- * Rationale : la RPC `check_action_close_essais` impose un token (cf. migration
- * MAT-12) ; un authenticated RPC sans token demanderait une nouvelle migration.
- * Le token jetable est un compromis acceptable (audit trail : `matos_check_tokens`
- * conservera la ligne avec `revoked_at` posée).
+ * Pipeline :
+ *   1. Fetch session authed (SECURITY DEFINER, gated)
+ *   2. Aggregate + build ZIP
+ *   3. Upload ZIP dans Storage
+ *   4. RPC `check_action_close_essais_authed` (pose closed_at + attachment)
  *
  * @param {object} opts
  * @param {string} opts.versionId
  * @param {string} opts.userName                      — prénom/nom visible dans le bilan
+ *                                                     (fallback local uniquement ;
+ *                                                     la vraie valeur vient de
+ *                                                     profiles.full_name côté RPC)
  * @param {object} [opts.pdfOptions]                   — passé à buildBilanZip ({org})
- * @returns {Promise<{ payload: object, zip: object, adminTokenId: string }>}
+ * @returns {Promise<{ payload: object, zip: object }>}
  */
 export async function closeEssaisAsAdmin({ versionId, userName, pdfOptions = {} }) {
   if (!versionId) throw new Error('closeEssaisAsAdmin : versionId requis')
   if (!userName?.trim()) throw new Error('closeEssaisAsAdmin : userName requis')
 
-  // 1. Crée un token éphémère (5 min) labellisé "Admin clôture".
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-  const tokenRow = await createCheckToken({
-    versionId,
-    label: 'Admin clôture (usage unique)',
-    expiresAt,
+  // 1. Fetch session via la RPC authed (SECURITY DEFINER, gated can_read_outil).
+  const session = await fetchCheckSessionAuthed(versionId)
+  const snapshot = aggregateBilanData(session)
+  if (!snapshot.version?.id) throw new Error('Version introuvable dans la session')
+
+  // 2. Build ZIP (lazy import pour garder matosCloture léger).
+  const { buildBilanZip } = await import('../features/materiel/matosBilanPdf')
+  const zip = await buildBilanZip(snapshot, pdfOptions)
+
+  // 3. Upload dans Storage puis 4. RPC close authed.
+  const zipFilename = bilanZipFilename({
+    project: snapshot.project,
+    version: snapshot.version,
   })
-  const adminToken = tokenRow?.token
-  const adminTokenId = tokenRow?.id
-  if (!adminToken) throw new Error('Création du token admin échouée')
+  const upload = await uploadBilanArchive({
+    versionId: snapshot.version.id,
+    blob: zip.blob,
+    filename: zipFilename,
+  })
+  const payload = await closeCheckEssaisAuthed({
+    versionId: snapshot.version.id,
+    archivePath: upload.storagePath,
+    archiveFilename: zipFilename,
+    archiveSize: upload.sizeBytes,
+    archiveMime: upload.mimeType,
+  })
 
-  try {
-    // 2. Fetch la session via le token (comme /check/:token).
-    const session = await fetchCheckSession(adminToken)
-    const snapshot = aggregateBilanData(session)
-    if (!snapshot.version?.id) throw new Error('Version introuvable dans la session')
-
-    // 3. Build ZIP (lazy import pour garder matosCloture léger).
-    const { buildBilanZip } = await import('../features/materiel/matosBilanPdf')
-    const zip = await buildBilanZip(snapshot, pdfOptions)
-
-    // 4. Upload + RPC close.
-    const payload = await closeEssaisWithArchive({
-      token: adminToken,
-      versionId: snapshot.version.id,
-      userName: userName.trim(),
-      zipBlob: zip.blob,
-      zipFilename: bilanZipFilename({
-        project: snapshot.project,
-        version: snapshot.version,
-      }),
-    })
-
-    return { payload, zip, adminTokenId }
-  } finally {
-    // 5. Révoque le token admin, best effort (ne bloque pas le retour).
-    if (adminTokenId) {
-      try {
-        await revokeCheckToken(adminTokenId)
-      } catch {
-        /* silencieux — audit trail préservé */
-      }
-    }
-  }
+  return { payload, zip }
 }

@@ -29,10 +29,13 @@
 //   - canEdit
 // ════════════════════════════════════════════════════════════════════════════
 
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Circle,
+  ClipboardCheck,
   Copy,
   Eye,
   EyeOff,
@@ -64,6 +67,7 @@ export default function MaterielHeader({
   onToggleDetailed,
   onOpenRecap,
   onOpenShare,
+  onOpenChantierMode,
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
@@ -203,30 +207,10 @@ export default function MaterielHeader({
           />
 
           {canEdit && activeVersion && (
-            <button
-              type="button"
-              onClick={onOpenShare}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-              style={{
-                background: 'var(--bg-elev)',
-                color: 'var(--txt-2)',
-                border: '1px solid var(--brd)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--blue-bg)'
-                e.currentTarget.style.color = 'var(--blue)'
-                e.currentTarget.style.borderColor = 'var(--blue)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'var(--bg-elev)'
-                e.currentTarget.style.color = 'var(--txt-2)'
-                e.currentTarget.style.borderColor = 'var(--brd)'
-              }}
-              title="Partager la checklist terrain (liens anonymes)"
-            >
-              <Share2 className="w-3 h-3" />
-              Essais
-            </button>
+            <EssaisDropdown
+              onOpenChantierMode={onOpenChantierMode}
+              onOpenShare={onOpenShare}
+            />
           )}
 
           {/* MAT-12 : Prévisualisation bilan (sans clôture) — visible même
@@ -319,6 +303,132 @@ export default function MaterielHeader({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Dropdown "Essais" — point d'entrée unique pour les deux workflows terrain :
+ *   - Checklist : ouvre le mode chantier authenticated (MAT-14), identité =
+ *     user connecté, route `/projets/:id/materiel/check/:versionId`.
+ *   - Partager : ouvre ShareChecklistModal pour générer un lien tokenisé
+ *     destiné à un loueur / prestataire externe.
+ *
+ * Fermeture : click outside + touche Échap (pattern standard). On évite un
+ * portal/popper pour rester simple — le dropdown tient en position absolue
+ * sous le bouton.
+ */
+function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    function handleClick(e) {
+      if (!containerRef.current) return
+      if (!containerRef.current.contains(e.target)) setOpen(false)
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
+        style={{
+          background: open ? 'var(--blue-bg)' : 'var(--bg-elev)',
+          color: open ? 'var(--blue)' : 'var(--txt-2)',
+          border: `1px solid ${open ? 'var(--blue)' : 'var(--brd)'}`,
+        }}
+        onMouseEnter={(e) => {
+          if (open) return
+          e.currentTarget.style.background = 'var(--blue-bg)'
+          e.currentTarget.style.color = 'var(--blue)'
+          e.currentTarget.style.borderColor = 'var(--blue)'
+        }}
+        onMouseLeave={(e) => {
+          if (open) return
+          e.currentTarget.style.background = 'var(--bg-elev)'
+          e.currentTarget.style.color = 'var(--txt-2)'
+          e.currentTarget.style.borderColor = 'var(--brd)'
+        }}
+        title="Essais terrain : ouvrir la checklist ou partager un lien"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <ClipboardCheck className="w-3 h-3" />
+        Essais
+        <ChevronDown className="w-3 h-3" />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-md py-1 shadow-lg"
+          style={{
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+          }}
+        >
+          <EssaisDropdownItem
+            icon={ClipboardCheck}
+            label="Checklist"
+            description="Ouvrir le mode chantier (ton compte)"
+            onClick={() => {
+              setOpen(false)
+              onOpenChantierMode?.()
+            }}
+          />
+          <EssaisDropdownItem
+            icon={Share2}
+            label="Partager"
+            description="Générer un lien pour le loueur / l'équipe"
+            onClick={() => {
+              setOpen(false)
+              onOpenShare?.()
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EssaisDropdownItem({ icon: Icon, label, description, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="w-full flex items-start gap-2 text-left px-3 py-2 transition-colors"
+      style={{
+        background: 'transparent',
+        color: 'var(--txt)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--bg-elev)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+    >
+      <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--blue)' }} />
+      <span className="flex flex-col">
+        <span className="text-xs font-semibold">{label}</span>
+        <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+          {description}
+        </span>
+      </span>
+    </button>
   )
 }
 

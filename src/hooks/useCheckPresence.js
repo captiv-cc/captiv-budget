@@ -1,30 +1,32 @@
 // ════════════════════════════════════════════════════════════════════════════
-// useCheckPresence — Presence live sur /check/:token via Supabase Realtime (MAT-10H)
+// useCheckPresence — Presence live checklist via Supabase Realtime (MAT-10H → MAT-14)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Pourquoi :
-//   Pendant les essais, plusieurs personnes (cadreur, DIT, loueur) ouvrent le
-//   même lien tokenisé en simultané. On veut voir en un coup d'œil qui est
-//   connecté en direct — sans badge "en ligne" compliqué, juste la liste des
-//   prénoms sous forme de pills colorées en haut de l'écran.
+//   Pendant les essais, plusieurs personnes (cadreur, DIT, loueur, membre
+//   CAPTIV authentifié) ouvrent la même checklist en simultané — certaines
+//   via un token jetable `/check/:token`, d'autres en authenticated
+//   `/projets/:id/materiel/check/:versionId`. On veut un roster UNIFIÉ
+//   (tout le monde dans la même pièce) — il est donc indexé par versionId,
+//   jamais par token.
 //
 // Architecture :
-//   - 1 channel Supabase par token : `check-presence:${token}`
+//   - 1 channel Supabase par version : `check-presence:version:${versionId}`
 //   - Chaque client tracke `{ name, color, joinedAt }` dès qu'il est SUBSCRIBED
-//   - On écoute l'event 'sync' + 'join' + 'leave' et on recalcule le roster
+//   - On écoute les events 'sync' + 'join' + 'leave' et on recalcule le roster
 //
 // Notes d'implémentation :
-//   - `presenceKey` : clé unique par client (on utilise un uuid-like local,
-//     régénéré à chaque mount). Même token + même nom sur 2 appareils = 2 pills
-//     distinctes (voulu : on veut voir si 2 cadreurs utilisent le même lien).
+//   - `presenceKey` : clé unique par client (uuid-like local, régénéré à
+//     chaque mount). Même version + même nom sur 2 appareils = 2 pills
+//     distinctes (voulu : on veut voir si 2 personnes partagent un appareil).
 //   - Couleur : dérivée hash(name) pour stabilité visuelle (Camille = toujours
-//     la même couleur). Palette picked dans une liste courte pour que les pills
-//     restent lisibles en light et dark.
+//     la même couleur). Palette picked dans une liste courte pour que les
+//     pills restent lisibles en light et dark.
 //   - Cleanup : on untrack + removeChannel au unmount pour libérer le slot
 //     de presence côté serveur.
 //
 // Exemple :
-//   const { users } = useCheckPresence({ token, userName, enabled })
+//   const { users } = useCheckPresence({ versionId, userName, enabled })
 //   // users = [{ key, name, color, joinedAt }, …]
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -69,26 +71,27 @@ function generatePresenceKey() {
 
 /**
  * @param {object} opts
- * @param {string} opts.token    — token anon de la session (clé du channel)
- * @param {string} opts.userName — prénom à annoncer (null/empty = pas de track)
+ * @param {string} opts.versionId — UUID de la version (clé du channel, commune
+ *                                 aux routes tokenisées et authenticated)
+ * @param {string} opts.userName  — prénom/nom à annoncer (null/empty = pas de track)
  * @param {boolean} [opts.enabled=true] — short-circuit pour désactiver temporairement
  *
- * @returns {{ users: Array<{ key, name, color, joinedAt }> }}
+ * @returns {{ users: Array<{ key, name, color, joinedAt }>, currentKey: string }}
  */
-export function useCheckPresence({ token, userName, enabled = true }) {
+export function useCheckPresence({ versionId, userName, enabled = true }) {
   const [roster, setRoster] = useState([])
-  // Clé stable sur la durée du mount (et du token).
+  // Clé stable sur la durée du mount (et de la version).
   const presenceKeyRef = useRef(null)
   if (!presenceKeyRef.current) presenceKeyRef.current = generatePresenceKey()
 
   useEffect(() => {
-    if (!enabled || !token || !userName) {
+    if (!enabled || !versionId || !userName) {
       setRoster([])
       return undefined
     }
 
     const presenceKey = presenceKeyRef.current
-    const channel = supabase.channel(`check-presence:${token}`, {
+    const channel = supabase.channel(`check-presence:version:${versionId}`, {
       config: {
         presence: { key: presenceKey },
         broadcast: { self: false }, // pas besoin d'écho broadcast
@@ -143,7 +146,7 @@ export function useCheckPresence({ token, userName, enabled = true }) {
       }
       supabase.removeChannel(channel)
     }
-  }, [token, userName, enabled])
+  }, [versionId, userName, enabled])
 
   // Memo stable — évite re-renders aval si roster content unchanged.
   return useMemo(

@@ -18,7 +18,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { Package, Plus } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useMateriel } from '../../hooks/useMateriel'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -48,6 +48,7 @@ const OUTIL_KEY = 'materiel'
 
 export default function MaterielTab() {
   const { id: projectId } = useParams()
+  const navigate = useNavigate()
   const ctx = useProjet()
   const project = ctx?.project
   const { org, user, profile } = useAuth()
@@ -88,6 +89,17 @@ export default function MaterielTab() {
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+
+  // ─── MAT-14 : Mode chantier authentifié ─────────────────────────────────
+  // Ouvre la route plein écran `/projets/:id/materiel/check/:versionId`
+  // pour l'utilisateur connecté. La route résout l'active version si le
+  // segment versionId est omis, donc passer l'id explicite reste safe si
+  // activeVersionId est null (rare — mais on retombe proprement).
+  const handleOpenChantierMode = useCallback(() => {
+    if (!projectId) return
+    const suffix = activeVersionId ? `/${activeVersionId}` : ''
+    navigate(`/projets/${projectId}/materiel/check${suffix}`)
+  }, [navigate, projectId, activeVersionId])
 
   // ─── Export PDF (MAT-7) ─────────────────────────────────────────────────
   // previewState : doc prêt à prévisualiser (ou ZIP prêt à télécharger).
@@ -406,6 +418,7 @@ export default function MaterielTab() {
         onToggleDetailed={setDetailed}
         onOpenRecap={() => setRecapOpen(true)}
         onOpenShare={() => setShareOpen(true)}
+        onOpenChantierMode={handleOpenChantierMode}
         onExportGlobal={handleExportGlobal}
         onExportByLoueur={handleExportByLoueur}
         onExportChecklist={handleExportChecklist}
