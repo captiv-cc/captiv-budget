@@ -142,7 +142,6 @@ function MenuItem({ icon, label, hint, onClick }) {
       style={{
         background: 'transparent',
         color: 'var(--txt-2)',
-        borderBottom: '1px solid var(--brd-sub)',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = 'var(--bg-hov)'

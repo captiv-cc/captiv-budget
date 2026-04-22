@@ -373,10 +373,12 @@ function EssaisDropdown({ onOpenChantierMode, onOpenShare }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-md py-1 shadow-lg"
+          className="absolute right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
           style={{
-            background: 'var(--bg-surf)',
+            minWidth: '220px',
+            background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
           }}
         >
           <EssaisDropdownItem
@@ -409,22 +411,24 @@ function EssaisDropdownItem({ icon: Icon, label, description, onClick }) {
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="w-full flex items-start gap-2 text-left px-3 py-2 transition-colors"
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all"
       style={{
         background: 'transparent',
-        color: 'var(--txt)',
+        color: 'var(--txt-2)',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--bg-elev)'
+        e.currentTarget.style.background = 'var(--bg-hov)'
+        e.currentTarget.style.color = 'var(--txt)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = 'transparent'
+        e.currentTarget.style.color = 'var(--txt-2)'
       }}
     >
-      <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--blue)' }} />
-      <span className="flex flex-col">
+      <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--blue)' }} />
+      <span className="flex flex-col min-w-0">
         <span className="text-xs font-semibold">{label}</span>
-        <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
           {description}
         </span>
       </span>
