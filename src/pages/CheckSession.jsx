@@ -144,7 +144,7 @@ function AuthedCheckSession() {
   if (!projectId) return <Navigate to="/accueil" replace />
 
   if (resolveError) {
-    return <ErrorScreen error={resolveError} />
+    return <ErrorScreen error={resolveError} mode="authed" />
   }
 
   if (!resolvedVersionId) {
@@ -303,7 +303,7 @@ function CheckSessionShell({
   // Token inconnu / révoqué / expiré OU version introuvable / accès refusé :
   // la RPC renvoie null ou une erreur.
   if (error || (!loading && !session)) {
-    return <ErrorScreen error={error} />
+    return <ErrorScreen error={error} mode={mode} />
   }
 
   // ─── Loader initial ────────────────────────────────────────────────────
@@ -437,14 +437,49 @@ function LoadingScreen() {
   )
 }
 
-function ErrorScreen({ error }) {
+function ErrorScreen({ error, mode = 'token' }) {
   // On distingue deux grandes familles :
-  //  - Lien mort : token inconnu / révoqué / expiré (RPC renvoie null)
-  //  - Erreur réseau / DB : on affiche un message générique mais on log l'erreur
-  //    brute en console pour le debug.
+  //  - Token mort : token inconnu / révoqué / expiré (RPC renvoie null)
+  //  - Erreur authed : version introuvable / accès refusé / migration absente…
+  //    → on affiche le vrai message d'erreur pour permettre le diagnostic,
+  //    plutôt que "lien expiré" qui n'a aucun sens dans ce mode.
   if (error) {
     console.error('[CheckSession] erreur fetch session :', error)
   }
+
+  const rawMessage =
+    error?.message ||
+    error?.details ||
+    (typeof error === 'string' ? error : null)
+
+  // Extraction du code Postgres si présent (42501 = forbidden, 28000 = not
+  // authenticated, 22023 = introuvable). Permet un message plus parlant même
+  // sans devtools ouverts.
+  const pgCode = error?.code || error?.hint || null
+
+  const title = (() => {
+    if (mode === 'token') return 'Lien invalide ou expiré'
+    if (pgCode === '42501' || /forbidden/i.test(rawMessage || '')) {
+      return 'Accès refusé'
+    }
+    if (pgCode === '22023' || /introuvable/i.test(rawMessage || '')) {
+      return 'Version introuvable'
+    }
+    return 'Impossible de charger la checklist'
+  })()
+
+  const subtitle = (() => {
+    if (mode === 'token') {
+      return "Ce lien de checklist n'est plus actif. Demandez un nouveau lien à la personne qui vous l'a partagé."
+    }
+    if (pgCode === '42501' || /forbidden/i.test(rawMessage || '')) {
+      return "Tu n'as pas le droit d'accéder au matériel de ce projet. Demande à un administrateur de te donner l'accès à l'outil « Matériel »."
+    }
+    if (pgCode === '22023' || /introuvable/i.test(rawMessage || '')) {
+      return "La version demandée n'existe pas ou a été supprimée. Reviens à l'onglet Matériel du projet."
+    }
+    return 'Une erreur est survenue en tentant de charger la session. Essaie de recharger la page.'
+  })()
 
   return (
     <div
@@ -463,12 +498,37 @@ function ErrorScreen({ error }) {
           style={{ color: 'var(--orange)' }}
         />
         <h1 className="text-lg font-semibold mb-2" style={{ color: 'var(--txt)' }}>
-          Lien invalide ou expiré
+          {title}
         </h1>
         <p className="text-sm" style={{ color: 'var(--txt-2)' }}>
-          Ce lien de checklist n&apos;est plus actif. Demandez un nouveau lien à la personne qui
-          vous l&apos;a partagé.
+          {subtitle}
         </p>
+
+        {/* En mode authed, on expose le message technique brut pour faciliter
+            le diagnostic côté admin (migration, perm, etc.) sans exiger
+            l'ouverture de la console. Volontairement masqué en mode token
+            pour ne pas fuiter de détails aux utilisateurs externes. */}
+        {mode === 'authed' && rawMessage && (
+          <details className="mt-4 text-left">
+            <summary
+              className="text-xs cursor-pointer"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Détail technique
+            </summary>
+            <pre
+              className="mt-2 p-2 rounded text-[11px] whitespace-pre-wrap break-words"
+              style={{
+                background: 'var(--bg)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt-3)',
+              }}
+            >
+{rawMessage}
+{pgCode ? `\n(code: ${pgCode})` : ''}
+            </pre>
+          </details>
+        )}
       </div>
     </div>
   )
