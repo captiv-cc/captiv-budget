@@ -20,6 +20,7 @@ import TvaPicker from '../components/TvaPicker'
 import { produitSchema, fournisseurSchema } from '../lib/schemas'
 import { useFormValidation } from '../hooks/useFormValidation'
 import FieldError from '../components/FieldError'
+import MaterielBddSection from '../features/materiel/components/MaterielBddSection'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
@@ -544,6 +545,7 @@ export default function BDD() {
           <p className="text-sm mt-0.5" style={{ color: 'var(--txt-3)' }}>
             {tab === 'catalogue' && <>{catCounts.all} élément{catCounts.all !== 1 ? 's' : ''} · régime et bloc choisis à l&apos;ajout dans le devis</>}
             {tab === 'fournisseurs' && <>{fournTypeCounts.all} fournisseur{fournTypeCounts.all !== 1 ? 's' : ''}</>}
+            {tab === 'matos' && <>Catalogue matériel — référentiel pour les listes projets</>}
             {tab === 'grille' && <>Grille convention collective audiovisuelle</>}
           </p>
         </div>
@@ -568,6 +570,7 @@ export default function BDD() {
         {[
           ['catalogue', 'Éléments & prestations'],
           ['fournisseurs', 'Fournisseurs'],
+          ['matos', 'Matériel'],
           ['grille', 'Grille CC Audiovisuelle'],
         ].map(([val, lbl]) => (
           <button
@@ -589,25 +592,27 @@ export default function BDD() {
         ))}
       </div>
 
-      {/* Recherche */}
-      <div className="relative mb-4">
-        <Search
-          className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
-          style={{ color: 'var(--txt-3)' }}
-        />
-        <input
-          className="input pl-9"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={
-            tab === 'catalogue'
-              ? 'Rechercher un élément…'
-              : tab === 'fournisseurs'
-                ? 'Rechercher un fournisseur…'
-                : 'Rechercher dans la grille CC…'
-          }
-        />
-      </div>
+      {/* Recherche — masquée pour `matos` (la section a sa propre recherche) */}
+      {tab !== 'matos' && (
+        <div className="relative mb-4">
+          <Search
+            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
+            style={{ color: 'var(--txt-3)' }}
+          />
+          <input
+            className="input pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={
+              tab === 'catalogue'
+                ? 'Rechercher un élément…'
+                : tab === 'fournisseurs'
+                  ? 'Rechercher un fournisseur…'
+                  : 'Rechercher dans la grille CC…'
+            }
+          />
+        </div>
+      )}
 
       {/* ── FilterChips (catalogue only) ──────────────────────────────────── */}
       {tab === 'catalogue' && (
@@ -961,6 +966,11 @@ export default function BDD() {
           )}
         </>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB: MATÉRIEL — catalogue materiel_bdd (section dédiée)
+          ═══════════════════════════════════════════════════════════════════ */}
+      {tab === 'matos' && <MaterielBddSection />}
 
       {/* ══════════════════════════════════════════════════════════════════════
           SLIDE-OVER : POSTE

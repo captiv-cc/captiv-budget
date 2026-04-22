@@ -52,6 +52,69 @@
   --pink-bg: rgba(255, 90, 196, 0.14);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT THEME — Opt-in via data attribute sur <html> (MAT-10K)
+   ═══════════════════════════════════════════════════════════════════════════
+   Scopé à la route /check/:token : activé par CheckSession via
+   `document.documentElement.dataset.checkTheme = 'light'`, retiré au démontage
+   pour ne pas polluer le reste de l'app (qui reste volontairement en dark).
+
+   Les variables surchargées sont les mêmes clés que `:root` — on ne redéfinit
+   PAS les couleurs de status (green/orange/red/blue/purple) dont la version
+   "vibrante à 14% d'alpha" passe correctement sur blanc comme sur noir. Si un
+   jour il fallait plus de contraste (ex. --green plus foncé en light), ce
+   serait le bon endroit.
+
+   Pourquoi data-attribute sur <html> et pas sur le div racine de Check :
+     - Les portals (AttachmentPreviewModal, ItemMenu kebab, react-hot-toast)
+       montent leurs nodes sur document.body. Un scope local au <div> ne les
+       atteindrait pas → incohérence visuelle.
+     - Le cleanup effect de Check enlève l'attribut au unmount → aucune fuite.
+*/
+html[data-check-theme='light'] {
+  /* ── Backgrounds ──────────────────────────────────────────────────────── */
+  --bg: #f7f7f8;         /* page : quasi blanc, un peu cassé pour être plus doux */
+  --bg-side: #ffffff;
+  --bg-surf: #ffffff;    /* cards */
+  --bg-elev: #ffffff;    /* modals, dropdowns */
+  --bg-hov: #eef0f2;
+  --bg-row: #fafafa;
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --brd: #d4d4d8;
+  --brd-sub: #e4e4e7;
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --txt: #0f172a;        /* ~slate-900 : haut contraste */
+  --txt-2: #475569;      /* ~slate-600 */
+  --txt-3: #64748b;      /* ~slate-500 — encore lisible en plein soleil */
+
+  /* ── Accent (CTA) — un bleu plutôt que blanc en light ────────────────── */
+  --acc: #2563eb;
+  --acc-hov: #1d4ed8;
+  --acc-bg: rgba(37, 99, 235, 0.08);
+  --acc-ring: rgba(37, 99, 235, 0.22);
+
+  /* ── Status — même palette vibrante, mais backgrounds un peu plus opaques
+       pour rester lisibles sur fond clair. 14% d'alpha sur blanc donnait des
+       pastels trop dilués ; 18% est un meilleur compromis. ──────────────── */
+  --green-bg: rgba(0, 200, 117, 0.18);
+  --orange-bg: rgba(255, 159, 10, 0.18);
+  --red-bg: rgba(255, 71, 87, 0.18);
+  --blue-bg: rgba(77, 159, 255, 0.18);
+  --purple-bg: rgba(156, 95, 253, 0.18);
+  --amber-bg: rgba(255, 206, 0, 0.18);
+  --pink-bg: rgba(255, 90, 196, 0.18);
+}
+
+/* Scrollbar en light mode : plus discrète pour ne pas trancher sur fond clair */
+html[data-check-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+html[data-check-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
   * {

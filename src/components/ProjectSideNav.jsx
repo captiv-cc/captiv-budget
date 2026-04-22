@@ -13,7 +13,7 @@
  * Les onglets sont groupés en 5 sections thématiques :
  *   - APERÇU        (Projet)
  *   - COMMERCIAL    (Devis, Factures)
- *   - PRODUCTION    (Équipe, Planning, Production, Livrables)
+ *   - PRODUCTION    (Équipe, Planning, Production, Livrables, Matériel)
  *   - ANALYSE       (Budget réel, Dashboard)
  *   - ADMIN         (Accès)
  *
@@ -69,7 +69,7 @@ const STORAGE_KEY = 'captiv:project-sidenav-collapsed'
 const GROUPS = [
   { label: 'Aperçu', keys: ['projet'] },
   { label: 'Commercial', keys: ['devis', 'factures'] },
-  { label: 'Production', keys: ['equipe', 'planning', 'production', 'livrables'] },
+  { label: 'Production', keys: ['equipe', 'planning', 'production', 'livrables', 'materiel'] },
   { label: 'Analyse', keys: ['budget', 'dashboard'] },
   { label: 'Admin', keys: ['access'] },
 ]

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
+import ConfirmHost from './components/ConfirmHost'
 import RequireRole from './components/guards/RequireRole'
 // RequirePermission est disponible (src/components/guards/RequirePermission.jsx)
 // pour les futures routes granulaires outil+action — non utilisé pour l'instant.
@@ -16,6 +17,7 @@ import BDD from './pages/BDD'
 import Compta from './pages/Compta'
 import Crew from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
+import CheckSession from './pages/CheckSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -35,6 +37,7 @@ import EquipeTab from './pages/tabs/EquipeTab'
 import PlanningTab from './pages/tabs/PlanningTab'
 import ProductionTab from './pages/tabs/ProductionTab'
 import LivrablesTab from './pages/tabs/LivrablesTab'
+import MaterielTab from './pages/tabs/MaterielTab'
 import AccessTab from './pages/tabs/AccessTab'
 
 // Pages placeholders (à créer si besoin)
@@ -80,6 +83,9 @@ function AppRoutes() {
       {/* Public */}
       <Route path="/login" element={<Login />} />
       <Route path="/devis/public/:token" element={<DevisPublic />} />
+      {/* Checklist terrain — accès anonyme via token (MAT-10). Le token fait
+          authentification : pas de PrivateRoute, ne passe PAS dans Layout. */}
+      <Route path="/check/:token" element={<CheckSession />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
 
@@ -176,6 +182,7 @@ function AppRoutes() {
           <Route path="planning" element={<PlanningTab />} />
           <Route path="production" element={<ProductionTab />} />
           <Route path="livrables" element={<LivrablesTab />} />
+          <Route path="materiel" element={<MaterielTab />} />
           <Route path="budget" element={<BudgetReelTab />} />
           <Route path="factures" element={<FacturesTab />} />
           <Route path="dashboard" element={<DashboardProjetTab />} />
@@ -201,6 +208,7 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <AppRoutes />
+          <ConfirmHost />
           <Toaster
             position="top-right"
             gutter={8}

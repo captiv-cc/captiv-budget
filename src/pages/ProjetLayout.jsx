@@ -46,6 +46,7 @@ import {
   Calendar,
   Clapperboard,
   CheckSquare,
+  Package,
   Shield,
   Menu,
 } from 'lucide-react'
@@ -111,6 +112,14 @@ const ALL_TABS = [
     path: 'livrables',
     finance: false,
     outil: 'livrables',
+  },
+  {
+    key: 'materiel',
+    label: 'Matériel',
+    icon: Package,
+    path: 'materiel',
+    finance: false,
+    outil: 'materiel',
   },
   {
     key: 'budget',
