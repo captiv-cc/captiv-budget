@@ -298,7 +298,7 @@ function drawStatsCards(doc, { y, stats }) {
       color: stats.total > 0 && stats.checked === stats.total ? C.green : C.black,
     },
     { label: 'Retirés',        value: String(stats.removed),  color: stats.removed ? C.red : C.gray },
-    { label: 'Additifs',       value: String(stats.additifs), color: stats.additifs ? C.amber : C.gray },
+    { label: 'Additifs',       value: String(stats.additifs), color: stats.additifs ? C.additifAccent : C.gray },
   ]
 
   for (let i = 0; i < cols; i++) {
@@ -368,6 +368,10 @@ function drawFlagBar(doc, { y, stats }) {
 //      d'essais (added_during_check). Encadrée en vert avec un en-tête
 //      explicite, pour signaler clairement que ces items ne faisaient pas
 //      partie du scope initial.
+//
+// Les commentaires sont rendus INLINE (rang colSpan=6 juste sous l'item
+// concerné) — plus de section "Commentaires" orpheline en fin de bloc qui
+// obligeait à faire le lien mental entre l'item et son commentaire.
 //
 // La ligne meta (compteur + retirés + additifs) reste au niveau du titre
 // pour un coup d'œil rapide.
@@ -445,29 +449,9 @@ function renderBlock(doc, { startY, block, items, renderPageHeader }) {
     })
   }
 
-  // Rendu détaillé des commentaires (après les deux sous-sections)
-  const withComments = items.filter((it) => (it.comments || []).length > 0)
-  if (withComments.length > 0) {
-    if (y > 255) {
-      doc.addPage()
-      renderPageHeader()
-      y = 34
-    }
-    doc.setFont('WS', 'medium')
-    doc.setFontSize(9)
-    doc.setTextColor(...C.gray)
-    doc.text('Commentaires', M, y + 3)
-    y += 5
-    for (const it of withComments) {
-      if (y > 270) {
-        doc.addPage()
-        renderPageHeader()
-        y = 34
-      }
-      y = renderItemComments(doc, { y, item: it })
-    }
-    y += 2
-  }
+  // MAT-21 : les commentaires sont désormais rendus inline sous chaque item
+  // via buildBilanBodyRows — plus de section "Commentaires" orpheline en fin
+  // de bloc.
 
   return y + 3
 }
@@ -522,7 +506,8 @@ const BILAN_TABLE_STYLES = {
 }
 
 function buildBilanBodyRows(items) {
-  return items.map((it) => {
+  const rows = []
+  for (const it of items) {
     const removed = Boolean(it.removed_at)
     const des = buildBilanDesignationCell(it)
     des._removed = removed
@@ -539,11 +524,6 @@ function buildBilanBodyRows(items) {
     }
     const flg = flagBilanCell(it.flag)
     flg._removed = removed
-    // Les styles flags (couleur bold) doivent rester lisibles : si la ligne
-    // est retirée, on délave en gris (le badge "RETIRÉ" porte l'info forte).
-    if (removed) {
-      flg.styles = { ...(flg.styles || {}), textColor: C.removedText, fontStyle: 'normal' }
-    }
     const sta = statusCell(it)
     sta._removed = removed
 
@@ -552,21 +532,53 @@ function buildBilanBodyRows(items) {
       ? { content: rawCom, _removed: removed, styles: { halign: 'center' } }
       : { ...rawCom, _removed: removed }
 
-    return [des, qte, lou, flg, sta, com]
-  })
+    rows.push([des, qte, lou, flg, sta, com])
+
+    // MAT-21 : commentaires inline juste sous l'item concerné. Un rang
+    // par commentaire, colSpan=6, indenté avec "»" pour lier visuellement
+    // au rang parent. Plus besoin d'une section "Commentaires" en fin de
+    // bloc — la relation item↔commentaire est directe.
+    const comments = it.comments || []
+    for (const c of comments) {
+      rows.push(buildCommentRow(c))
+    }
+  }
+  return rows
+}
+
+function buildCommentRow(c) {
+  const author = c.author_name || '—'
+  const date = fmtDateTime(c.created_at)
+  const body = (c.body || '').trim() || '(vide)'
+  // Format compact 1 ligne (wrap auto si trop long) : « » auteur · date — corps
+  return [
+    {
+      content: `»  ${author} · ${date}  —  ${body}`,
+      colSpan: 6,
+      _comment: true,
+      styles: {
+        halign: 'left',
+        fontSize: 7,
+        fontStyle: 'italic',
+        textColor: C.gray,
+        fillColor: [249, 249, 249],
+        cellPadding: { top: 1, bottom: 1, left: 8, right: 3 },
+        lineWidth: 0.05,
+        lineColor: [235, 235, 235],
+      },
+    },
+  ]
 }
 
 function bilanDidParseCell(data) {
   if (data.section !== 'body') return
   const raw = data.cell.raw
+  // Ligne retirée : fond rose pâle + texte gris + font non-gras
+  // (on force l'override pour neutraliser les couleurs des flags etc.)
   if (raw && raw._removed) {
     data.cell.styles.fillColor = C.removedFill
-    // On ne force la couleur du texte que si la cellule n'a pas déjà
-    // spécifié la sienne (sinon on écraserait le gris déjà posé par
-    // buildBilanBodyRows pour le flag).
-    if (!raw.styles || !raw.styles.textColor) {
-      data.cell.styles.textColor = C.removedText
-    }
+    data.cell.styles.textColor = C.removedText
+    data.cell.styles.fontStyle = 'normal'
   }
 }
 
@@ -701,39 +713,11 @@ function renderAdditifsSection(doc, { startY, items, renderPageHeader }) {
   return doc.lastAutoTable.finalY + 4
 }
 
-function renderItemComments(doc, { y, item }) {
-  const PW = doc.internal.pageSize.getWidth()
-  const M = 14
-  const IW = PW - M * 2
-
-  // Titre item
-  doc.setFont('WS', 'bold')
-  doc.setFontSize(8)
-  doc.setTextColor(...C.black)
-  doc.text(String(item.designation || '—'), M + 2, y + 3)
-  y += 5
-
-  // Lignes commentaires
-  for (const c of item.comments) {
-    doc.setFont('WS', 'normal')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...C.gray)
-    const meta = `${c.author_name || '—'} · ${fmtDateTime(c.created_at)}`
-    doc.text(meta, M + 4, y + 3)
-    doc.setFontSize(8)
-    doc.setTextColor(...C.black)
-    const lines = doc.splitTextToSize(String(c.body || ''), IW - 8)
-    doc.text(lines, M + 4, y + 7)
-    y += 7 + lines.length * 3.3 + 1
-  }
-
-  // TODO MAT-11 : insérer ici les miniatures photos quand item.photos[] existe.
-  //   for (const p of item.photos || []) {
-  //     doc.addImage(p.dataUrl, 'JPEG', ...)
-  //   }
-
-  return y + 1
-}
+// MAT-21 : renderItemComments (section "Commentaires" orpheline en fin de
+// bloc) retiré — les commentaires sont désormais rendus inline sous leur
+// item via buildCommentRow + buildBilanBodyRows. Cf. TODO MAT-11 : les
+// miniatures photos s'insèreront dans un rang similaire, juste sous leur
+// item (même pattern que les commentaires).
 
 // ─── Cellules dédiées bilan ────────────────────────────────────────────────
 function flagBilanCell(flag) {
