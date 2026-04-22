@@ -289,19 +289,26 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
               style={{ borderBottom: '1px solid var(--brd-sub)' }}
             >
               <td className="px-3 py-1.5" style={{ color: 'var(--txt)' }}>
-                {l.designation}
-                {!l.materielBddId && (
-                  <span
-                    className="ml-2 text-[9px] px-1 py-0.5 rounded uppercase tracking-wider"
-                    style={{
-                      background: 'var(--bg-hov)',
-                      color: 'var(--txt-3)',
-                    }}
-                    title="Désignation libre (pas dans le catalogue)"
-                  >
-                    libre
-                  </span>
+                {l.label && (
+                  <>
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-wider"
+                      style={{
+                        color: 'var(--txt-3)',
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      {l.label}
+                    </span>
+                    <span
+                      className="mx-1.5"
+                      style={{ color: 'var(--txt-3)' }}
+                    >
+                      ·
+                    </span>
+                  </>
                 )}
+                {l.designation}
               </td>
               <td
                 className="px-3 py-1.5 text-right font-bold tabular-nums"

@@ -535,7 +535,8 @@ export default function Block({
               {/* Colonne drag handle — vide pour ne pas ajouter de bruit visuel */}
               <Th width="20px" />
               <Th width="32px">Flag</Th>
-              {isConfig && <Th width="120px">Label</Th>}
+              {/* Label — désormais sur toutes les listes (config ET classique) */}
+              <Th width="120px">Label</Th>
               <Th>Désignation</Th>
               <Th width="56px" align="center">Qté</Th>
               <Th width="220px">Loueurs</Th>
@@ -547,10 +548,10 @@ export default function Block({
           <tbody>
             {items.length === 0 ? (
               <tr>
-                {/* +1 par rapport à l'ancien colSpan pour tenir compte de la
-                    nouvelle colonne drag handle (leftmost). */}
+                {/* 7 colonnes + 2 si detailed (drag / flag / label / désig /
+                    qté / loueurs [/ pré·post·prod / remarques] / delete) */}
                 <td
-                  colSpan={isConfig ? (detailed ? 9 : 7) : detailed ? 8 : 6}
+                  colSpan={detailed ? 9 : 7}
                   className="px-3 py-4 text-center italic"
                   style={{ color: 'var(--txt-3)' }}
                 >

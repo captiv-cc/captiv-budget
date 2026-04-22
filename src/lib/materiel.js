@@ -936,7 +936,12 @@ function normalizeDesignation(text = '') {
  * @param {Array} args.items
  * @param {Array} args.itemLoueurs
  * @param {Array} args.loueurs
- * @returns {Array<{ loueur, lignes: Array<{ designation, qte, materielBddId, key }> }>}
+ * @returns {Array<{ loueur, lignes: Array<{ designation, label, qte, materielBddId, key }> }>}
+ *
+ * MAT-17 : le `label` est désormais propagé dans les lignes agrégées et
+ * participe à la clé d'agrégation. Deux items avec même désignation mais
+ * labels différents ("Body" vs "Optique") restent donc distincts dans le
+ * récap, ce qui donne du contexte visuel au loueur.
  */
 export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [] }) {
   if (!itemLoueurs.length) return []
@@ -947,16 +952,17 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
   const loueurById = new Map()
   for (const l of loueurs) loueurById.set(l.id, l)
 
-  // Structure intermédiaire : Map<loueur_id, Map<aggKey, { designation, qte, materielBddId }>>
+  // Structure intermédiaire : Map<loueur_id, Map<aggKey, { designation, label, qte, materielBddId }>>
   const perLoueur = new Map()
 
   for (const il of itemLoueurs) {
     const item = itemById.get(il.item_id)
     if (!item) continue
     const loueurKey = il.loueur_id
+    const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
     const aggKey = item.materiel_bdd_id
-      ? `bdd:${item.materiel_bdd_id}`
-      : `text:${normalizeDesignation(item.designation)}`
+      ? `bdd:${item.materiel_bdd_id}${labelPart}`
+      : `text:${normalizeDesignation(item.designation)}${labelPart}`
 
     let byAgg = perLoueur.get(loueurKey)
     if (!byAgg) {
@@ -972,20 +978,28 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
       byAgg.set(aggKey, {
         key: aggKey,
         designation: item.designation,
+        label: item.label || null,
         qte: qty,
         materielBddId: item.materiel_bdd_id || null,
       })
     }
   }
 
-  // Sérialisation triée : par nom de loueur puis par désignation.
+  // Sérialisation triée : par nom de loueur puis par (label, désignation).
+  // Les lignes sans label remontent en bas pour grouper visuellement les
+  // items étiquetés.
   const result = []
   for (const [loueurId, byAgg] of perLoueur.entries()) {
     const loueur = loueurById.get(loueurId)
     if (!loueur) continue
-    const lignes = Array.from(byAgg.values()).sort((a, b) =>
-      a.designation.localeCompare(b.designation, 'fr', { sensitivity: 'base' }),
-    )
+    const lignes = Array.from(byAgg.values()).sort((a, b) => {
+      const la = (a.label || '').toLowerCase()
+      const lb = (b.label || '').toLowerCase()
+      if (la && !lb) return -1
+      if (!la && lb) return 1
+      if (la !== lb) return la.localeCompare(lb, 'fr', { sensitivity: 'base' })
+      return a.designation.localeCompare(b.designation, 'fr', { sensitivity: 'base' })
+    })
     result.push({ loueur, lignes })
   }
   result.sort((a, b) =>

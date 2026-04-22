@@ -265,9 +265,15 @@ function checkCell(done) {
 // dessus dans `didDrawCell`).
 function buildDesignationCell(block, it, { includeRemarques = false } = {}) {
   const designation = it.designation || '—'
-  const hasLabel = block.affichage === 'config' && Boolean(it.label)
+  // MAT-17 : affichage du label pour toutes les listes (config ET classique).
+  const hasLabel = Boolean(it.label)
   const label = hasLabel ? String(it.label).toUpperCase() : null
-  const isLibre = designation !== '—' && !it.materiel_bdd_id
+  // Le tag "libre" n'a de sens que pour les listes classiques. En mode config
+  // caméras, toutes les désignations sont forcément libres (on écrit "Sony
+  // FX6" sans attendre le catalogue) — afficher la pastille polluerait chaque
+  // ligne sans apporter d'info.
+  const isLibre =
+    designation !== '—' && !it.materiel_bdd_id && block.affichage !== 'config'
   const remarques = includeRemarques ? (it.remarques || '').trim() : ''
   const parts = []
   if (label) parts.push(label)
@@ -872,7 +878,7 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
 
   const body = lignes.length
     ? lignes.map((l) => [
-        l.designation || '—',
+        buildLoueurDesignationCell(l),
         { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
       ])
     : [[{ content: '—', colSpan: 2, styles: { halign: 'center', textColor: C.gray } }]]
@@ -902,6 +908,10 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
       1: { cellWidth: 22, halign: 'right' },
     },
     margin: { left: M, right: M, top: 32, bottom: 16 },
+    // MAT-17 : rendu custom pour afficher le label en préfixe bold (comme
+    // dans le PDF global). Réutilise redrawDesignationCell qui sait gérer
+    // les lignes sans remarques/libre (branches prises en no-op).
+    didDrawCell: (data) => redrawDesignationCell(doc, data),
     didDrawPage: () => {
       // Redessiner le header si on passe en page 2+ pour ce loueur
       drawHeader(doc, {
@@ -913,6 +923,25 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
       })
     },
   })
+}
+
+// ─── Cellule Désignation pour un PDF loueur (ligne agrégée du recap) ────────
+// Ne reprend pas buildDesignationCell(block, it) car ici on n'a pas d'item
+// DB mais une ligne de computeRecapByLoueur. Même shape de retour pour que
+// redrawDesignationCell puisse la traiter.
+function buildLoueurDesignationCell(l) {
+  const designation = l.designation || '—'
+  const label = l.label ? String(l.label).toUpperCase() : null
+  const parts = []
+  if (label) parts.push(label)
+  parts.push(designation)
+  return {
+    content: parts.join(' · '),
+    _label: label,
+    _designation: designation,
+    _libre: false,
+    _remarques: null,
+  }
 }
 
 // ─── Helpers nommage / couleur ──────────────────────────────────────────────

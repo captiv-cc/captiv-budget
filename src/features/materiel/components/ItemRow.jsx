@@ -197,28 +197,29 @@ export default function ItemRow({
         />
       </td>
 
-      {/* Label (uniquement en mode config) */}
-      {/* Les classes placeholder:* désaturent radicalement le placeholder
-          (casse normale + italique + pas de tracking + font léger + opacité
-          réduite) pour qu'il ne se confonde pas avec un vrai label rempli. */}
-      {isConfig && (
-        <td className="px-2 py-1.5 align-middle" style={{ width: '120px' }}>
-          <input
-            type="text"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onBlur={() => saveField('label', label.trim() || null)}
-            disabled={!canEdit}
-            placeholder="label…"
-            className="w-full bg-transparent focus:outline-none text-xs font-semibold uppercase tracking-wider placeholder:normal-case placeholder:font-normal placeholder:italic placeholder:tracking-normal placeholder:text-[color:var(--txt-3)] placeholder:opacity-70"
-            style={{
-              color: 'var(--txt-2)',
-              cursor: canEdit ? 'text' : 'default',
-              letterSpacing: '0.05em',
-            }}
-          />
-        </td>
-      )}
+      {/* Label — affiché sur tous les modes (liste ET config). Le placeholder
+          italique + normalisé (casse, tracking) permet de distinguer
+          visuellement un label vide d'un vrai label rempli.
+
+          Historiquement la colonne était réservée aux blocs 'config' (CAM),
+          mais elle est utile aussi sur les listes classiques pour structurer
+          (ex. "Body" / "Optiques" / "Accessoires") — MAT-16. */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '120px' }}>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={() => saveField('label', label.trim() || null)}
+          disabled={!canEdit}
+          placeholder="label…"
+          className="w-full bg-transparent focus:outline-none text-xs font-semibold uppercase tracking-wider placeholder:normal-case placeholder:font-normal placeholder:italic placeholder:tracking-normal placeholder:text-[color:var(--txt-3)] placeholder:opacity-70"
+          style={{
+            color: 'var(--txt-2)',
+            cursor: canEdit ? 'text' : 'default',
+            letterSpacing: '0.05em',
+          }}
+        />
+      </td>
 
       {/* Designation + autocomplete */}
       <td className="px-2 py-1.5 align-middle">
