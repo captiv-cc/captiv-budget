@@ -1,10 +1,15 @@
 /**
+ * @vitest-environment jsdom
+ *
  * Tests unitaires — matosCheckToken.js (MAT-10M)
  *
  * Ne couvre QUE les helpers purs (pas les wrappers Supabase) :
  *   - generateCheckToken  : format base64url, 32 chars, pas de +/=
  *   - buildCheckUrl       : assemblage + encodeURIComponent
  *   - get/setCheckUserName : persistence localStorage scopée par token
+ *
+ * Exige jsdom parce qu'on mocke window.location et qu'on utilise
+ * localStorage (absents en environnement Node pur).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
@@ -36,13 +41,24 @@ describe('generateCheckToken', () => {
   })
 
   it('lève une erreur explicite si WebCrypto est absent', () => {
-    const original = globalThis.crypto
-    // @ts-ignore
-    globalThis.crypto = undefined
+    // Node 20+ expose `globalThis.crypto` en getter-only : on ne peut pas
+    // l'écraser par affectation directe. On passe par defineProperty pour
+    // remplacer temporairement le descripteur, puis on le restaure.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+    Object.defineProperty(globalThis, 'crypto', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    })
     try {
       expect(() => generateCheckToken()).toThrow(/WebCrypto indisponible/)
     } finally {
-      globalThis.crypto = original
+      if (originalDescriptor) {
+        Object.defineProperty(globalThis, 'crypto', originalDescriptor)
+      } else {
+        // @ts-ignore
+        delete globalThis.crypto
+      }
     }
   })
 })
