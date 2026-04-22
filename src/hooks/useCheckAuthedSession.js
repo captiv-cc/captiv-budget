@@ -84,6 +84,11 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
   const itemLoueurs = useMemo(() => session?.item_loueurs || [], [session])
   const comments = useMemo(() => session?.comments || [], [session])
   const attachments = useMemo(() => session?.attachments || [], [session])
+  // MAT-20 : même snake_case que la RPC (version_loueur_infos).
+  const versionLoueurInfos = useMemo(
+    () => session?.version_loueur_infos || [],
+    [session],
+  )
 
   const itemsByBlock = useMemo(() => {
     const map = new Map()
@@ -129,6 +134,18 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     () => computeProgressByBlock(blocks, itemsByBlock),
     [blocks, itemsByBlock],
   )
+
+  // MAT-20 : index par loueur_id pour lookup O(1) côté consommateur
+  // (rendu PDF + éventuels affichages read-only). L'édition des infos se
+  // fait dans l'onglet Matériel, pas dans le mode chantier.
+  const infosLogistiqueByLoueur = useMemo(() => {
+    const map = new Map()
+    for (const vli of versionLoueurInfos) {
+      if (!vli?.loueur_id) continue
+      map.set(vli.loueur_id, vli)
+    }
+    return map
+  }, [versionLoueurInfos])
 
   // ─── Patch helpers (optimistic updates) ──────────────────────────────────
   const patchItem = useCallback((itemId, patch) => {
@@ -368,6 +385,9 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     commentsByItem,
     attachments,
     progressByBlock,
+    // MAT-20 : infos logistique par loueur (read-only côté check)
+    versionLoueurInfos,
+    infosLogistiqueByLoueur,
 
     // Actions
     actions: {

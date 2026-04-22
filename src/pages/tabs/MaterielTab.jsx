@@ -85,6 +85,7 @@ export default function MaterielTab() {
     recapByLoueur,
     detailed,
     setDetailed,
+    infosLogistiqueByLoueur, // MAT-20
     actions,
   } = mat
 
@@ -177,10 +178,11 @@ export default function MaterielTab() {
           loueursByItem,
           loueursById,
           org,
+          infosLogistiqueByLoueur, // MAT-20
         }),
       'Liste globale',
     )
-  }, [runExport, project, activeVersion, blocks, itemsByBlock, loueursByItem, loueursById, org])
+  }, [runExport, project, activeVersion, blocks, itemsByBlock, loueursByItem, loueursById, org, infosLogistiqueByLoueur])
 
   const handleExportChecklist = useCallback(() => {
     runExport(
@@ -223,6 +225,7 @@ export default function MaterielTab() {
               recapByLoueur,
               org,
               selectedLoueurIds: selectedIds,
+              infosLogistiqueByLoueur, // MAT-20
             }),
           'Par loueur (ZIP)',
         )
@@ -235,12 +238,13 @@ export default function MaterielTab() {
               recapByLoueur,
               org,
               selectedLoueurIds: selectedIds,
+              infosLogistiqueByLoueur, // MAT-20
             }),
           'Par loueur',
         )
       }
     },
-    [runExport, project, activeVersion, recapByLoueur, org],
+    [runExport, project, activeVersion, recapByLoueur, org, infosLogistiqueByLoueur],
   )
 
   // ─── Handlers ────────────────────────────────────────────────────────────
@@ -487,6 +491,9 @@ export default function MaterielTab() {
             isZip: Boolean(result.isZip),
           })
         }
+        infosLogistiqueByLoueur={infosLogistiqueByLoueur}
+        onSaveInfos={actions.saveLoueurInfos}
+        canEdit={canEdit}
       />
 
       <ExportLoueurModal

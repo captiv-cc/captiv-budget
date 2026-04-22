@@ -459,6 +459,7 @@ export async function exportMatosGlobalPDF({
   loueursByItem = {},
   loueursById,
   org,
+  infosLogistiqueByLoueur = null, // MAT-20 — Map(loueur_id -> row)
 }) {
   const assets = await loadAssets()
   const doc = makeDoc(assets)
@@ -477,6 +478,18 @@ export async function exportMatosGlobalPDF({
 
   renderPageHeader()
   let y = 34
+
+  // MAT-20 : bloc consolidé "Infos loueurs" en tête du PDF global. On
+  // n'affiche que les loueurs avec du texte renseigné — pas de bloc vide.
+  // Ordonné par apparition des loueurs dans `loueursById` (Map → ordre
+  // d'insertion, qui respecte l'ordre DB).
+  y = maybeDrawInfosLoueursGlobal(doc, {
+    y,
+    startX: M,
+    innerWidth: IW,
+    loueursById,
+    infosLogistiqueByLoueur,
+  })
 
   if (!blocks.length) {
     doc.setFont('WS', 'normal')
@@ -708,6 +721,7 @@ export async function exportMatosLoueursPDF({
   recapByLoueur = [],
   org,
   selectedLoueurIds = null, // null = tous
+  infosLogistiqueByLoueur = null, // MAT-20
 }) {
   const assets = await loadAssets()
   const doc = makeDoc(assets)
@@ -744,6 +758,7 @@ export async function exportMatosLoueursPDF({
       loueur: r.loueur,
       lignes: r.lignes,
       banner: assets.banner,
+      infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
   })
 
@@ -761,6 +776,7 @@ export async function exportMatosLoueursZip({
   recapByLoueur = [],
   org,
   selectedLoueurIds = null,
+  infosLogistiqueByLoueur = null, // MAT-20
 }) {
   let JSZip
   try {
@@ -793,6 +809,7 @@ export async function exportMatosLoueursZip({
       loueur: r.loueur,
       lignes: r.lignes,
       banner: assets.banner,
+      infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
     drawFooter(doc, { org })
     const blob = doc.output('blob')
@@ -832,6 +849,7 @@ export async function exportMatosLoueurSinglePDF({
   loueur,
   lignes = [],
   org,
+  infosLogistique = '', // MAT-20 — texte libre loueur
 }) {
   const assets = await loadAssets()
   const doc = makeDoc(assets)
@@ -841,15 +859,20 @@ export async function exportMatosLoueurSinglePDF({
     loueur,
     lignes,
     banner: assets.banner,
+    infosLogistique,
   })
   drawFooter(doc, { org })
   return finishDoc(doc, buildFilename(project, activeVersion, `loueur-${slug(loueur.nom)}`))
 }
 
 // ─── Rendu d'une section loueur ─────────────────────────────────────────────
-function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, banner }) {
+function renderLoueurSection(
+  doc,
+  { project, activeVersion, loueur, lignes, banner, infosLogistique = '' },
+) {
   const M = 14
   const PW = doc.internal.pageSize.getWidth()
+  const IW = PW - M * 2
 
   drawHeader(doc, {
     title: 'MATÉRIEL',
@@ -894,6 +917,19 @@ function renderLoueurSection(doc, { project, activeVersion, loueur, lignes, bann
   )
 
   y += 8
+
+  // MAT-20 : bloc infos logistique (cadre gris pastel avec bordure subtile).
+  // Placé entre le meta-header et le tableau des items. Ignoré si texte vide.
+  const infosText = String(infosLogistique || '').trim()
+  if (infosText) {
+    y = drawInfosLogistiqueBox(doc, {
+      x: M,
+      y,
+      width: IW,
+      text: infosText,
+      color: couleur,
+    })
+  }
 
   const body = lignesCollapsed.length
     ? lignesCollapsed.map((l) => [
@@ -988,6 +1024,177 @@ function buildZipFilename(project, activeVersion) {
     'materiel-par-loueur',
   ].filter(Boolean)
   return `${parts.join('_')}.zip`
+}
+
+// ─── MAT-20 : helpers infos logistique ──────────────────────────────────────
+
+// Lookup tolérant : accepte soit une Map, soit un objet, soit null/undefined.
+// Renvoie le texte (string) ou '' si non présent.
+function lookupInfos(infosByLoueur, loueurId) {
+  if (!infosByLoueur || !loueurId) return ''
+  const row =
+    typeof infosByLoueur.get === 'function'
+      ? infosByLoueur.get(loueurId)
+      : infosByLoueur[loueurId]
+  return (row?.infos_logistique || '').trim()
+}
+
+// Dessine le cadre "Infos logistique" sur un PDF par loueur.
+// Retourne la nouvelle valeur de y (après le cadre + petit margin).
+function drawInfosLogistiqueBox(doc, { x, y, width, text, color = C.gray }) {
+  const fontSize = 8.5
+  const lineH = 4
+  const padX = 3
+  const padTop = 3.2
+  const padBottom = 3.5
+  const titleH = 3.8
+  const titleGap = 1.6
+
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(fontSize)
+  const innerW = width - padX * 2
+  const lines = doc.splitTextToSize(text, innerW)
+  const contentH = lines.length * lineH
+  const boxH = padTop + titleH + titleGap + contentH + padBottom
+
+  // Fond gris très clair + bordure fine couleur du loueur.
+  const titleColor = Array.isArray(color) ? color : C.gray
+  doc.setFillColor(248, 248, 248)
+  doc.setDrawColor(titleColor[0], titleColor[1], titleColor[2])
+  doc.setLineWidth(0.3)
+  doc.roundedRect(x, y, width, boxH, 1.2, 1.2, 'FD')
+
+  // Titre
+  doc.setFont('WS', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(titleColor[0], titleColor[1], titleColor[2])
+  doc.text('INFOS LOGISTIQUE', x + padX, y + padTop + 2.3)
+
+  // Corps
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(fontSize)
+  doc.setTextColor(45, 45, 45)
+  let ly = y + padTop + titleH + titleGap + 3
+  for (const line of lines) {
+    doc.text(line, x + padX, ly)
+    ly += lineH
+  }
+
+  return y + boxH + 3
+}
+
+// Dessine le bloc consolidé "Infos loueurs" en tête du PDF global.
+// Retourne la nouvelle valeur de y (inchangée si rien à afficher).
+//
+// Entries: toutes les paires (loueur, texte) non-vides, préservant l'ordre
+// d'insertion de `loueursById` (c.-à-d. l'ordre de chargement DB).
+function maybeDrawInfosLoueursGlobal(doc, {
+  y,
+  startX,
+  innerWidth,
+  loueursById,
+  infosLogistiqueByLoueur,
+}) {
+  if (!infosLogistiqueByLoueur || !loueursById) return y
+
+  // Collect in loueursById's insertion order (same as DB list order).
+  const entries = []
+  const iterKeys =
+    typeof loueursById.keys === 'function'
+      ? Array.from(loueursById.keys())
+      : Object.keys(loueursById)
+  for (const id of iterKeys) {
+    const text = lookupInfos(infosLogistiqueByLoueur, id)
+    if (!text) continue
+    const loueur =
+      typeof loueursById.get === 'function'
+        ? loueursById.get(id)
+        : loueursById[id]
+    if (!loueur) continue
+    entries.push({ loueur, text })
+  }
+
+  if (!entries.length) return y
+
+  const M = startX
+  const IW = innerWidth
+  const padX = 3
+  const padY = 3
+  const titleH = 4
+  const bodyFontSize = 8.5
+  const bodyLineH = 4
+  const rowGap = 2.2
+
+  // Pré-calcul hauteur.
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(bodyFontSize)
+  const rows = entries.map((e) => {
+    const prefix = `${e.loueur.nom} — `
+    doc.setFont('WS', 'bold')
+    const prefixW = doc.getTextWidth(prefix)
+    doc.setFont('WS', 'normal')
+    // Première ligne avec indent pour le nom + wrap des suivantes full-width.
+    const firstLineW = IW - padX * 2 - prefixW
+    // Stratégie simple : on écrit le nom puis on wrappe le texte complet sur
+    // la largeur complète moins l'indent, pour un layout propre.
+    const wrapW = IW - padX * 2
+    const lines = doc.splitTextToSize(e.text, wrapW)
+    // La première ligne se verra tronquée à firstLineW via splitTextToSize
+    // additionnel — mais pour rester simple : on met nom sur sa propre ligne
+    // si le texte est long, sinon sur la même ligne.
+    void firstLineW
+    return { loueur: e.loueur, lines, prefix }
+  })
+  const contentH = rows.reduce(
+    (s, r) => s + bodyLineH + r.lines.length * bodyLineH + rowGap,
+    0,
+  )
+  const boxH = padY + titleH + 2 + contentH - rowGap + padY
+
+  // Cadre
+  doc.setFillColor(250, 250, 250)
+  doc.setDrawColor(...C.lgray)
+  doc.setLineWidth(0.25)
+  doc.roundedRect(M, y, IW, boxH, 1.2, 1.2, 'FD')
+
+  // Titre
+  doc.setFont('WS', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(...C.header)
+  doc.text('INFOS LOUEURS', M + padX, y + padY + 2.5)
+
+  // Body
+  let ly = y + padY + titleH + 3
+  for (const r of rows) {
+    // Nom (bold) + première ligne du texte
+    doc.setFont('WS', 'bold')
+    doc.setFontSize(bodyFontSize)
+    const couleur = hexToRgb(r.loueur.couleur) || C.gray
+    doc.setTextColor(...couleur)
+    const nom = r.loueur.nom || '—'
+    doc.text(nom, M + padX, ly)
+    const nomW = doc.getTextWidth(nom)
+
+    doc.setFont('WS', 'normal')
+    doc.setTextColor(110, 110, 110)
+    doc.text(' — ', M + padX + nomW, ly)
+    const dashW = doc.getTextWidth(' — ')
+
+    // On écrit la 1ère ligne à la suite du dash, puis les suivantes wrap sur
+    // la ligne suivante à gauche (indentées légèrement).
+    doc.setTextColor(40, 40, 40)
+    if (r.lines.length > 0) {
+      doc.text(r.lines[0], M + padX + nomW + dashW, ly)
+    }
+    ly += bodyLineH
+    for (let i = 1; i < r.lines.length; i++) {
+      doc.text(r.lines[i], M + padX + 4, ly)
+      ly += bodyLineH
+    }
+    ly += rowGap
+  }
+
+  return y + boxH + 4
 }
 
 function hexToRgb(hex) {

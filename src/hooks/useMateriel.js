@@ -56,6 +56,8 @@ export function useMateriel(projectId) {
   const [blocks, setBlocks] = useState([])
   const [items, setItems] = useState([])
   const [itemLoueurs, setItemLoueurs] = useState([])
+  // MAT-20 : infos logistique per-version, indexées ensuite par loueur_id.
+  const [versionLoueurInfos, setVersionLoueurInfos] = useState([])
   const [detailLoading, setDetailLoading] = useState(false)
 
   // Ressources partagées
@@ -156,6 +158,7 @@ export function useMateriel(projectId) {
       setBlocks([])
       setItems([])
       setItemLoueurs([])
+      setVersionLoueurInfos([])
       loadedVersionIdRef.current = null
       return
     }
@@ -164,11 +167,13 @@ export function useMateriel(projectId) {
     async function loadDetail() {
       if (isVersionSwitch) setDetailLoading(true)
       try {
-        const { blocks, items, itemLoueurs } = await M.fetchVersionDetails(activeVersionId)
+        const { blocks, items, itemLoueurs, versionLoueurInfos } =
+          await M.fetchVersionDetails(activeVersionId)
         if (cancelled || !aliveRef.current) return
         setBlocks(blocks)
         setItems(items)
         setItemLoueurs(itemLoueurs)
+        setVersionLoueurInfos(versionLoueurInfos || [])
         loadedVersionIdRef.current = activeVersionId
       } catch (err) {
         if (!cancelled && aliveRef.current) setError(err)
@@ -242,6 +247,14 @@ export function useMateriel(projectId) {
         { event: '*', schema: 'public', table: 'matos_item_loueurs' },
         debouncedReload,
       )
+      // MAT-20 : infos logistique per-version. Pas de filter (pas de
+      // project_id direct) → RLS filtre server-side comme pour les autres
+      // tables matos_*.
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'matos_version_loueur_infos' },
+        debouncedReload,
+      )
       .subscribe()
     return () => {
       if (timer) clearTimeout(timer)
@@ -273,6 +286,14 @@ export function useMateriel(projectId) {
   const recapByLoueur = useMemo(
     () => M.computeRecapByLoueur({ items, itemLoueurs, loueurs }),
     [items, itemLoueurs, loueurs],
+  )
+
+  // MAT-20 : Map(loueur_id → {id, infos_logistique, updated_at, updated_by}).
+  // Utilisé à la fois par la slide-over (édition) et par les exports PDF
+  // (rendu en tête de section).
+  const infosLogistiqueByLoueur = useMemo(
+    () => M.indexVersionLoueurInfosByLoueur(versionLoueurInfos),
+    [versionLoueurInfos],
   )
 
   // ─── Actions — Versions ──────────────────────────────────────────────────
@@ -486,6 +507,73 @@ export function useMateriel(projectId) {
     [bumpReload],
   )
 
+  // ─── Actions — Infos logistique loueur (MAT-20) ─────────────────────────
+  // Upsert (ou delete si chaîne vide) de la ligne `matos_version_loueur_infos`
+  // pour le couple (version active, loueur). Met à jour optimistiquement le
+  // state local pour que l'UI (slide-over + compteur "x infos renseignées")
+  // réagisse instantanément, puis laisse le Realtime + bumpReload rafraîchir
+  // le serveur de vérité.
+  //
+  // Contrat :
+  //   - text vide (ou whitespace only) → DELETE row (pas de clutter DB)
+  //   - text non vide → UPSERT (onConflict sur (version_id, loueur_id))
+  //
+  // On patche d'abord en optimistic (setState synchrone) puis on await le
+  // network call. En cas d'erreur, on laisse bumpReload() reset au serveur.
+  const saveLoueurInfosAction = useCallback(
+    async (loueurId, text) => {
+      if (!activeVersionId || !loueurId) return null
+      const trimmed = String(text ?? '').trim()
+
+      // Optimistic update : patch local avant la roundtrip.
+      setVersionLoueurInfos((prev) => {
+        const idx = prev.findIndex((vli) => vli.loueur_id === loueurId)
+        if (!trimmed) {
+          // Clear : on retire la ligne si elle existe.
+          if (idx === -1) return prev
+          const next = prev.slice()
+          next.splice(idx, 1)
+          return next
+        }
+        const nowIso = new Date().toISOString()
+        if (idx === -1) {
+          // Insertion optimiste (id provisoire — sera remplacé au prochain fetch).
+          return [
+            ...prev,
+            {
+              id: `__optimistic__${loueurId}`,
+              version_id: activeVersionId,
+              loueur_id: loueurId,
+              infos_logistique: trimmed,
+              updated_at: nowIso,
+              updated_by: null,
+            },
+          ]
+        }
+        const next = prev.slice()
+        next[idx] = { ...next[idx], infos_logistique: trimmed, updated_at: nowIso }
+        return next
+      })
+
+      try {
+        const result = await M.upsertVersionLoueurInfo({
+          versionId: activeVersionId,
+          loueurId,
+          infosLogistique: trimmed,
+        })
+        // bumpReload pour synchroniser l'id réel + updated_by (et rafraîchir
+        // les autres sessions ouvertes via Realtime).
+        bumpReload()
+        return result
+      } catch (err) {
+        // Rollback implicite via bumpReload (repart du serveur).
+        bumpReload()
+        throw err
+      }
+    },
+    [activeVersionId, bumpReload],
+  )
+
   // ─── Refresh manuel ─────────────────────────────────────────────────────
   const refresh = useCallback(() => bumpReload(), [bumpReload])
 
@@ -501,6 +589,9 @@ export function useMateriel(projectId) {
     blocks,
     items,
     itemLoueurs,
+    // MAT-20 : infos logistique par loueur (per-version).
+    versionLoueurInfos,
+    infosLogistiqueByLoueur,
     loueurs,
     loueursById,
     materielBdd,
@@ -543,6 +634,8 @@ export function useMateriel(projectId) {
       // Loueurs (fournisseurs)
       createLoueur: createLoueurAction,
       updateLoueurCouleur: updateLoueurCouleurAction,
+      // MAT-20 : infos logistique per-loueur
+      saveLoueurInfos: saveLoueurInfosAction,
       // Misc
       refresh,
     },

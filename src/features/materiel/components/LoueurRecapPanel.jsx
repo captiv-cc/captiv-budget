@@ -13,6 +13,12 @@
 // remonte le résultat au parent via `onPreview(result, title)` pour ouvrir la
 // prévisualisation. (MAT-7)
 //
+// MAT-20 : une affordance d'édition "Infos logistique" par loueur permet de
+// saisir un texte libre (horaires, adresse retrait, contact chantier, caution).
+// L'UI reste COMPACTE par défaut — un petit bouton + pastille si des infos
+// existent — et s'étend en textarea au clic. On NE rend PAS le texte en mode
+// browsing (décision Hugo MAT-20) : l'info est réservée aux PDFs.
+//
 // Props :
 //   - open : boolean
 //   - onClose : close handler
@@ -21,10 +27,21 @@
 //   - project, activeVersion, org : pour l'entête PDF
 //   - onPreview(result, title) : appelé après génération — le parent affiche
 //                                la preview et gère le revoke.
+//   - infosLogistiqueByLoueur : Map(loueur_id -> { infos_logistique, ... }) — MAT-20
+//   - onSaveInfos(loueurId, text) : handler async pour persister — MAT-20
+//   - canEdit : gating de l'édition — MAT-20
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Download, FileText, Users, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  Download,
+  FileText,
+  Info,
+  Users,
+  X,
+} from 'lucide-react'
 import { exportMatosLoueurSinglePDF } from '../matosPdfExport'
 import { isUnassignedRecap } from '../../../lib/materiel'
 import { notify } from '../../../lib/notify'
@@ -44,6 +61,9 @@ export default function LoueurRecapPanel({
   activeVersion = null,
   org = null,
   onPreview,
+  infosLogistiqueByLoueur = null, // MAT-20 — Map(loueur_id -> row)
+  onSaveInfos = null,             // MAT-20 — async handler (loueurId, text) => row|null
+  canEdit = false,                // MAT-20 — gate édition
 }) {
   // Escape pour fermer.
   useEffect(() => {
@@ -142,16 +162,22 @@ export default function LoueurRecapPanel({
             <EmptyRecap />
           ) : (
             <div className="flex flex-col gap-4">
-              {recap.map((r) => (
-                <LoueurCard
-                  key={r.loueur.id}
-                  recap={r}
-                  project={project}
-                  activeVersion={activeVersion}
-                  org={org}
-                  onPreview={onPreview}
-                />
-              ))}
+              {recap.map((r) => {
+                const vli = infosLogistiqueByLoueur?.get?.(r.loueur.id) || null
+                return (
+                  <LoueurCard
+                    key={r.loueur.id}
+                    recap={r}
+                    project={project}
+                    activeVersion={activeVersion}
+                    org={org}
+                    onPreview={onPreview}
+                    infosRow={vli}
+                    onSaveInfos={onSaveInfos}
+                    canEdit={canEdit}
+                  />
+                )
+              })}
             </div>
           )}
         </div>
@@ -162,12 +188,23 @@ export default function LoueurRecapPanel({
 
 // ─── Carte par loueur ──────────────────────────────────────────────────────
 
-function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
+function LoueurCard({
+  recap,
+  project,
+  activeVersion,
+  org,
+  onPreview,
+  infosRow = null,
+  onSaveInfos = null,
+  canEdit = false,
+}) {
   const { loueur, lignes } = recap
   const couleur = loueur.couleur || '#64748b'
   const isUnassigned = isUnassignedRecap(recap)
   const [generating, setGenerating] = useState(false)
   const inflightRef = useRef(false)
+
+  const infosLogistique = (infosRow?.infos_logistique || '').trim()
 
   async function handlePdf() {
     if (inflightRef.current) return
@@ -182,6 +219,7 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
         loueur,
         lignes,
         org,
+        infosLogistique,
       })
       onPreview(result, `Matériel — ${loueur.nom}`)
     } catch (err) {
@@ -279,6 +317,17 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
         )}
       </header>
 
+      {/* MAT-20 — Édition infos logistique (cachée pour "Non assigné"). */}
+      {!isUnassigned && (
+        <LoueurInfoEditor
+          loueurId={loueur.id}
+          couleur={couleur}
+          infosLogistique={infosLogistique}
+          onSaveInfos={onSaveInfos}
+          canEdit={canEdit}
+        />
+      )}
+
       <table className="w-full text-xs">
         <thead>
           <tr
@@ -340,6 +389,235 @@ function LoueurCard({ recap, project, activeVersion, org, onPreview }) {
         </tbody>
       </table>
     </section>
+  )
+}
+
+// ─── Éditeur infos logistique (MAT-20) ─────────────────────────────────────
+//
+// UI compacte : un bouton "Infos logistique" discret (avec pastille colorée
+// si des infos existent). Au clic, il se transforme en textarea avec
+// Enregistrer / Annuler. On sauve au clic sur Enregistrer, ou au blur si
+// le texte a changé (UX fire-and-forget). Vider le champ supprime la ligne.
+//
+// Le texte N'EST PAS rendu en mode browsing — décision Hugo MAT-20, pour
+// éviter le clutter dans le slide-over. Il apparaît UNIQUEMENT dans les PDFs.
+
+function LoueurInfoEditor({
+  loueurId,
+  couleur,
+  infosLogistique,
+  onSaveInfos,
+  canEdit,
+}) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState(infosLogistique || '')
+  const [saving, setSaving] = useState(false)
+  const inflightRef = useRef(false)
+  const textareaRef = useRef(null)
+
+  // Resync valeur locale quand la prop change et qu'on n'est pas en édition
+  // (ex. autre onglet qui a sauvé, Realtime).
+  useEffect(() => {
+    if (!open) setValue(infosLogistique || '')
+  }, [infosLogistique, open])
+
+  // Focus + select-all au passage en édition.
+  useEffect(() => {
+    if (open && textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }, [open])
+
+  const hasInfos = Boolean(infosLogistique)
+  const dirty = value !== (infosLogistique || '')
+
+  async function commit() {
+    if (inflightRef.current) return
+    if (!onSaveInfos) {
+      setOpen(false)
+      return
+    }
+    if (!dirty) {
+      setOpen(false)
+      return
+    }
+    inflightRef.current = true
+    setSaving(true)
+    try {
+      await onSaveInfos(loueurId, value)
+      setOpen(false)
+    } catch (err) {
+      notify.error('Erreur sauvegarde : ' + (err?.message || err))
+    } finally {
+      inflightRef.current = false
+      setSaving(false)
+    }
+  }
+
+  function cancel() {
+    setValue(infosLogistique || '')
+    setOpen(false)
+  }
+
+  // Mode compact — bouton seul. Read-only : on masque complètement le
+  // bouton s'il n'y a rien à afficher (pas de teasing d'édition).
+  if (!open) {
+    if (!canEdit && !hasInfos) return null
+    return (
+      <div
+        className="flex items-center gap-1.5 px-3 py-1.5"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <button
+          type="button"
+          onClick={() => canEdit && setOpen(true)}
+          disabled={!canEdit}
+          className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md transition-all"
+          style={{
+            letterSpacing: '0.08em',
+            color: hasInfos ? couleur : 'var(--txt-3)',
+            background: hasInfos ? alpha(couleur, '12') : 'transparent',
+            border: `1px solid ${hasInfos ? alpha(couleur, '33') : 'var(--brd-sub)'}`,
+            cursor: canEdit ? 'pointer' : 'default',
+            opacity: canEdit ? 1 : 0.85,
+          }}
+          title={
+            hasInfos
+              ? 'Infos logistique définies (cliquer pour modifier)'
+              : 'Ajouter des infos logistique (horaires, retrait, contact…)'
+          }
+          onMouseEnter={(e) => {
+            if (canEdit) {
+              e.currentTarget.style.background = alpha(couleur, '18')
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = hasInfos
+              ? alpha(couleur, '12')
+              : 'transparent'
+          }}
+        >
+          {hasInfos ? (
+            <Check className="w-3 h-3" style={{ color: couleur }} />
+          ) : (
+            <Info className="w-3 h-3" />
+          )}
+          Infos logistique
+          {hasInfos && (
+            <span
+              className="inline-block rounded-full"
+              style={{
+                width: '6px',
+                height: '6px',
+                background: couleur,
+              }}
+            />
+          )}
+        </button>
+        <span
+          className="text-[10px]"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {hasInfos ? '· rendues dans le PDF' : '· optionnel'}
+        </span>
+      </div>
+    )
+  }
+
+  // Mode expanded — textarea + actions.
+  return (
+    <div
+      className="flex flex-col gap-2 px-3 py-2"
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: alpha(couleur, '08'),
+      }}
+    >
+      <label
+        className="text-[10px] font-bold uppercase tracking-wider"
+        style={{ color: couleur, letterSpacing: '0.08em' }}
+      >
+        Infos logistique (horaires · retrait · contact · caution…)
+      </label>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            cancel()
+          } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            commit()
+          }
+        }}
+        disabled={saving}
+        placeholder="Ex. Retrait 11 rue X, lundi 9h–12h · Contact: Julie 06…"
+        rows={3}
+        className="w-full text-xs rounded-md p-2 resize-y"
+        style={{
+          background: 'var(--bg-elev)',
+          border: `1px solid ${alpha(couleur, '55')}`,
+          color: 'var(--txt)',
+          outline: 'none',
+          fontFamily: 'inherit',
+          minHeight: '70px',
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={commit}
+          disabled={saving || !dirty}
+          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md transition-all"
+          style={{
+            letterSpacing: '0.08em',
+            background: dirty ? couleur : alpha(couleur, '33'),
+            color: dirty ? '#fff' : 'var(--txt-3)',
+            border: `1px solid ${couleur}`,
+            cursor: saving || !dirty ? 'not-allowed' : 'pointer',
+            opacity: saving ? 0.7 : 1,
+          }}
+          title="Enregistrer (⌘↵)"
+        >
+          {saving ? (
+            <span
+              className="inline-block w-3 h-3 border-2 rounded-full animate-spin"
+              style={{
+                borderColor: '#fff',
+                borderTopColor: 'transparent',
+              }}
+            />
+          ) : (
+            <Check className="w-3 h-3" />
+          )}
+          Enregistrer
+        </button>
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={saving}
+          className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md transition-all"
+          style={{
+            letterSpacing: '0.08em',
+            background: 'transparent',
+            color: 'var(--txt-3)',
+            border: '1px solid var(--brd-sub)',
+            cursor: saving ? 'not-allowed' : 'pointer',
+          }}
+          title="Annuler (Échap)"
+        >
+          Annuler
+        </button>
+        <span
+          className="ml-auto text-[10px]"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          ⌘↵ pour enregistrer
+        </span>
+      </div>
+    </div>
   )
 }
 

@@ -101,6 +101,12 @@ export function useCheckTokenSession(token) {
   const itemLoueurs = useMemo(() => session?.item_loueurs || [], [session])
   const comments = useMemo(() => session?.comments || [], [session])
   const attachments = useMemo(() => session?.attachments || [], [session])
+  // MAT-20 : même contrainte snake_case — la RPC renvoie `version_loueur_infos`
+  // (array de {id, version_id, loueur_id, infos_logistique, updated_at}).
+  const versionLoueurInfos = useMemo(
+    () => session?.version_loueur_infos || [],
+    [session],
+  )
 
   // Index par block_id → items.
   const itemsByBlock = useMemo(() => {
@@ -157,6 +163,19 @@ export function useCheckTokenSession(token) {
     () => computeProgressByBlock(blocks, itemsByBlock),
     [blocks, itemsByBlock],
   )
+
+  // MAT-20 : index par loueur_id pour lookup O(1) en rendu PDF (via
+  // aggregateBilanData) et plus largement côté consommateur. Pas d'action
+  // d'édition sur /check/:token (les infos logistique se gèrent depuis
+  // l'onglet Matériel authed, la route publique est read-only à ce sujet).
+  const infosLogistiqueByLoueur = useMemo(() => {
+    const map = new Map()
+    for (const vli of versionLoueurInfos) {
+      if (!vli?.loueur_id) continue
+      map.set(vli.loueur_id, vli)
+    }
+    return map
+  }, [versionLoueurInfos])
 
   // ─── Helpers pour patcher `session` localement (optimistic updates) ──────
   //
@@ -476,6 +495,9 @@ export function useCheckTokenSession(token) {
     commentsByItem,
     attachments,
     progressByBlock,
+    // MAT-20 : infos logistique par loueur (read-only côté token)
+    versionLoueurInfos,
+    infosLogistiqueByLoueur,
 
     // Actions
     actions: {

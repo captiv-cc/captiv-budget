@@ -159,7 +159,9 @@ export async function fetchVersions(projectId) {
  * Charge le détail complet d'une version : blocs + items + pivots loueurs.
  */
 export async function fetchVersionDetails(versionId) {
-  if (!versionId) return { blocks: [], items: [], itemLoueurs: [] }
+  if (!versionId) {
+    return { blocks: [], items: [], itemLoueurs: [], versionLoueurInfos: [] }
+  }
 
   // 1. Blocs
   const { data: blocks, error: bErr } = await supabase
@@ -169,21 +171,29 @@ export async function fetchVersionDetails(versionId) {
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
   if (bErr) throw bErr
-  if (!blocks?.length) return { blocks: [], items: [], itemLoueurs: [] }
+
+  // MAT-20 : on charge TOUJOURS les infos logistique — même si la version n'a
+  // aucun bloc, Hugo peut avoir déjà saisi un texte par loueur. On évite donc
+  // l'early return pré-MAT-20 et on poursuit jusqu'au bout.
+  const hasBlocks = Boolean(blocks?.length)
 
   // 2. Items des blocs
-  const blockIds = blocks.map((b) => b.id)
-  const { data: items, error: iErr } = await supabase
-    .from('matos_items')
-    .select('*')
-    .in('block_id', blockIds)
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true })
-  if (iErr) throw iErr
+  let items = []
+  if (hasBlocks) {
+    const blockIds = blocks.map((b) => b.id)
+    const { data: itemsData, error: iErr } = await supabase
+      .from('matos_items')
+      .select('*')
+      .in('block_id', blockIds)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+    if (iErr) throw iErr
+    items = itemsData || []
+  }
 
   // 3. Pivots loueurs des items
   let itemLoueurs = []
-  const itemIds = (items || []).map((i) => i.id)
+  const itemIds = items.map((i) => i.id)
   if (itemIds.length) {
     const { data: ils, error: lErr } = await supabase
       .from('matos_item_loueurs')
@@ -194,7 +204,30 @@ export async function fetchVersionDetails(versionId) {
     itemLoueurs = ils || []
   }
 
-  return { blocks, items: items || [], itemLoueurs }
+  // 4. MAT-20 : infos logistique par loueur (per-version pivot).
+  const versionLoueurInfos = await fetchVersionLoueurInfos(versionId)
+
+  return {
+    blocks: blocks || [],
+    items,
+    itemLoueurs,
+    versionLoueurInfos,
+  }
+}
+
+/**
+ * MAT-20 : charge les infos logistique de tous les loueurs pour une version.
+ * Renvoie `Array<{ id, version_id, loueur_id, infos_logistique, updated_at, updated_by }>`.
+ * Le filtrage RLS (can_read_outil) est appliqué serveur-side.
+ */
+export async function fetchVersionLoueurInfos(versionId) {
+  if (!versionId) return []
+  const { data, error } = await supabase
+    .from('matos_version_loueur_infos')
+    .select('id, version_id, loueur_id, infos_logistique, updated_at, updated_by')
+    .eq('version_id', versionId)
+  if (error) throw error
+  return data || []
 }
 
 /**
@@ -285,7 +318,8 @@ export async function duplicateVersion({ sourceVersionId }) {
     .single()
   if (srcErr) throw srcErr
 
-  const { blocks, items, itemLoueurs } = await fetchVersionDetails(sourceVersionId)
+  const { blocks, items, itemLoueurs, versionLoueurInfos } =
+    await fetchVersionDetails(sourceVersionId)
 
   // 2. Calcule le prochain numero sur ce projet.
   const { data: existing, error: exErr } = await supabase
@@ -377,6 +411,24 @@ export async function duplicateVersion({ sourceVersionId }) {
     if (rows.length) {
       const { error: lErr } = await supabase.from('matos_item_loueurs').insert(rows)
       if (lErr) throw lErr
+    }
+  }
+
+  // 8. MAT-20 : clone les infos logistique par loueur (per-version).
+  //    Les infos sont propres à UN tournage, mais quand on duplique une V1
+  //    vers V2 on part sur le même contrat logistique (mêmes horaires, même
+  //    contact, même adresse) — l'utilisateur ajustera si besoin. Ne pas
+  //    propager serait plus pénible que l'inverse (le texte est toujours à
+  //    retaper sinon).
+  if (versionLoueurInfos?.length) {
+    const rows = versionLoueurInfos.map((vli) => ({
+      version_id: newVersion.id,
+      loueur_id: vli.loueur_id,
+      infos_logistique: vli.infos_logistique || '',
+    }))
+    if (rows.length) {
+      const { error: vliErr } = await supabase.from('matos_version_loueur_infos').insert(rows)
+      if (vliErr) throw vliErr
     }
   }
 
@@ -755,6 +807,76 @@ export async function removeLoueurFromItem(itemLoueurId) {
     .delete()
     .eq('id', itemLoueurId)
   if (error) throw error
+}
+
+// ═══ Mutations — Infos logistique par loueur (MAT-20) ══════════════════════
+
+/**
+ * MAT-20 : upsert une ligne `matos_version_loueur_infos` pour un couple
+ * (version, loueur). Si le texte est vide ou ne contient que des espaces,
+ * on supprime plutôt la ligne (pas de clutter DB avec des textes vides).
+ *
+ * Renvoie la ligne upserted (ou `null` si clear).
+ */
+export async function upsertVersionLoueurInfo({ versionId, loueurId, infosLogistique }) {
+  if (!versionId || !loueurId) {
+    throw new Error('upsertVersionLoueurInfo: versionId et loueurId requis')
+  }
+  const text = String(infosLogistique ?? '').trim()
+
+  // Vider → DELETE (évite de garder des lignes vides sans signal).
+  if (!text) {
+    await clearVersionLoueurInfo({ versionId, loueurId })
+    return null
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { data, error } = await supabase
+    .from('matos_version_loueur_infos')
+    .upsert(
+      {
+        version_id: versionId,
+        loueur_id: loueurId,
+        infos_logistique: text,
+        updated_by: user?.id || null,
+        // `updated_at` est géré par le trigger `set_updated_at()` côté DB.
+      },
+      { onConflict: 'version_id,loueur_id' },
+    )
+    .select('id, version_id, loueur_id, infos_logistique, updated_at, updated_by')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * MAT-20 : supprime la ligne d'infos pour un couple (version, loueur).
+ * Idempotent — pas d'erreur si la ligne n'existe pas.
+ */
+export async function clearVersionLoueurInfo({ versionId, loueurId }) {
+  if (!versionId || !loueurId) return
+  const { error } = await supabase
+    .from('matos_version_loueur_infos')
+    .delete()
+    .eq('version_id', versionId)
+    .eq('loueur_id', loueurId)
+  if (error) throw error
+}
+
+/**
+ * MAT-20 : indexe un tableau de `matos_version_loueur_infos` par `loueur_id`
+ * pour lookup O(1) depuis l'UI. Pure / synchrone.
+ */
+export function indexVersionLoueurInfosByLoueur(versionLoueurInfos = []) {
+  const map = new Map()
+  for (const vli of versionLoueurInfos) {
+    if (!vli?.loueur_id) continue
+    map.set(vli.loueur_id, vli)
+  }
+  return map
 }
 
 // ═══ Mutations — Fournisseurs (loueurs matos) ══════════════════════════════
