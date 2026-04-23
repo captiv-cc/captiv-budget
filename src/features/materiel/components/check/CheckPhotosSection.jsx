@@ -18,7 +18,8 @@
  * Props :
  *   - photos : Array<matos_item_photos row>  (pre-filtered for this anchor,
  *     tri chrono ASC de preference)
- *   - kind : 'probleme' | 'pack'             (XOR anchor implied)
+ *   - kind : 'probleme' | 'pack' | 'retour'  (XOR anchor implied)
+ *     — 'retour' est MAT-13D, utilisé uniquement en phase rendu
  *   - anchor : { itemId } | { blockId }      (exactement l'un des deux)
  *   - userName : string                      (identité anon/authed pour
  *                                             ownership matching)
@@ -38,6 +39,17 @@
  *                                             (MAT-23E) où l'ajout se fait via
  *                                             le menu ⋯ dans une section
  *                                             éditable dédiée.
+ *   - readOnly : boolean (optionnel)         mode consultation pure (MAT-13D).
+ *                                             En rendu, on affiche les photos
+ *                                             essais (pack + problème) pour
+ *                                             traçabilité sans permettre d'ajout,
+ *                                             ni suppression, ni édition de
+ *                                             légende. Implique hideUploader,
+ *                                             et désactive les actions dans le
+ *                                             lightbox (delete + caption edit).
+ *                                             Le lightbox et la grille restent
+ *                                             ouvrables (consultation vignettes
+ *                                             + plein écran).
  *
  * Pas de gestion d'état photos elle-même : le parent (hook useCheck*Session)
  * est source de vérité. L'uploader appelle `onUpload` → le hook append dans
@@ -46,10 +58,23 @@
  * Limite 10 photos par ancrage : enforcée côté DB (fonction
  * `_matos_photo_enforce_limit`). Ici on affiche juste un message + disable
  * le bouton quand on atteint la limite pour éviter la RPC qui lèverait.
+ *
+ * Polish MAT-11F :
+ *   - Toutes les erreurs (upload, delete, caption) passent par
+ *     `humanizePhotoError` → messages FR lisibles au lieu du brut
+ *     PostgrestError / StorageError.
+ *   - Skeleton shimmer pendant le chargement des signed URLs (gradient
+ *     animate-pulse au lieu d'un loader centré).
+ *   - Bandeau "Aperçus indisponibles + Recharger" quand TOUTES les signed
+ *     URLs foirent (réseau down, token expiré, bucket KO).
+ *   - Compteur `count/MAX` coloré : orange à partir de 8/10, rouge à 10/10
+ *     pour signaler l'approche de la limite avant le blocage.
+ *   - Double-barrière sur `atLimit` : disable le bouton + check au submit
+ *     (si jamais le bouton était bypassé).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Loader2, Sparkles, Trash2, X } from 'lucide-react'
+import { Camera, Loader2, RefreshCcw, Sparkles, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Lightbox from 'yet-another-react-lightbox'
 import 'yet-another-react-lightbox/styles.css'
@@ -59,6 +84,7 @@ import {
   ACCEPTED_MIME_TYPES,
   getPhotoThumbnailUrl,
   getPhotoUrl,
+  humanizePhotoError,
   isPhotoOwnedBy,
   validatePhotoFile,
 } from '../../../../lib/matosItemPhotos'
@@ -77,7 +103,13 @@ export default function CheckPhotosSection({
   compact = false,
   emptyLabel = null,
   hideUploader = false,
+  readOnly = false,
 }) {
+  // En mode readOnly (MAT-13D, consultation essais depuis la phase rendu),
+  // on force hideUploader et on désactive toutes les actions destructives du
+  // lightbox. L'user peut toujours tap sur une vignette pour voir la photo
+  // plein écran (usage principal de la consultation).
+  const uploaderHidden = hideUploader || readOnly
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [originalQuality, setOriginalQuality] = useState(false)
@@ -93,24 +125,28 @@ export default function CheckPhotosSection({
   //
   // Les URLs signées Supabase ont une durée de vie (1h par défaut, cf.
   // getPhotoUrl). On les recharge en un batch au mount + à chaque change de
-  // la liste photos. Map photo.id → { thumb, full }. Un `refreshKey` permet
+  // la liste photos. Map photo.id → { thumb, full }. `refreshKey` permet
   // de re-générer à la demande (si on a eu un 403 / lien expiré — rare).
   const [urls, setUrls] = useState(new Map())
   const [urlsLoading, setUrlsLoading] = useState(false)
-  // `refreshKey` reste un hook à part pour permettre un reload manuel
-  // (ex. si on ajoute un bouton "recharger" suite à des 403 liés à un
-  // token expiré). Le setter n'est pas exposé pour l'instant — on le
-  // préfixe `_` pour le documenter sans faire râler le linter.
-  const [refreshKey] = useState(0)
+  // `urlsError` : true si le batch de signed URLs s'est entièrement vautré
+  // (ex. token storage expiré, réseau coupé, bucket indispo). Permet d'afficher
+  // un petit bouton "recharger les aperçus" au lieu d'un grid de placeholders
+  // gris. Reset à chaque reload effectif.
+  const [urlsError, setUrlsError] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const handleRetryUrls = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       if (photos.length === 0) {
         setUrls(new Map())
+        setUrlsError(false)
         return
       }
       setUrlsLoading(true)
+      setUrlsError(false)
       try {
         const entries = await Promise.all(
           photos.map(async (p) => {
@@ -125,7 +161,16 @@ export default function CheckPhotosSection({
             }
           }),
         )
-        if (!cancelled) setUrls(new Map(entries))
+        if (!cancelled) {
+          const map = new Map(entries)
+          setUrls(map)
+          // Signale une erreur globale si AUCUNE url n'a pu être générée
+          // alors qu'on avait des photos (problème réseau / bucket / token).
+          const allFailed = photos.length > 0 && [...map.values()].every(
+            (v) => !v?.thumb && !v?.full,
+          )
+          setUrlsError(allFailed)
+        }
       } finally {
         if (!cancelled) setUrlsLoading(false)
       }
@@ -172,8 +217,16 @@ export default function CheckPhotosSection({
       const files = Array.from(event.target.files || [])
       event.target.value = '' // permet de re-choisir le même fichier plus tard
       if (files.length === 0) return
+      // Défense en profondeur : si le bouton a été cliqué par bypass JS alors
+      // qu'on est déjà au quota (atLimit recalculé au render), on bloque net.
+      if (count >= MAX_PHOTOS_PER_ANCHOR) {
+        toast.error(
+          `Limite de ${MAX_PHOTOS_PER_ANCHOR} photos atteinte sur cet élément.`,
+        )
+        return
+      }
       // On borne la sélection : si on a déjà 7 photos et que l'user pique 5,
-      // on n'upload que les 3 premiers. Simple, pas de toast intrusif.
+      // on n'upload que les 3 premiers. Toast info (pas d'erreur).
       const remaining = Math.max(0, MAX_PHOTOS_PER_ANCHOR - count)
       const toUpload = files.slice(0, remaining)
       if (files.length > remaining) {
@@ -186,11 +239,15 @@ export default function CheckPhotosSection({
 
       setUploading(true)
       let successCount = 0
+      let rejectedCount = 0
       for (const file of toUpload) {
         // Validation locale (taille + MIME) avant d'embêter le pipeline image.
         const validationError = validatePhotoFile(file)
         if (validationError) {
-          toast.error(`${file.name} : ${validationError}`)
+          toast.error(
+            humanizePhotoError(validationError, { prefix: file.name || 'Photo' }),
+          )
+          rejectedCount += 1
           continue
         }
         try {
@@ -205,7 +262,10 @@ export default function CheckPhotosSection({
           successCount += 1
         } catch (err) {
           console.error('[CheckPhotosSection] upload failed', err)
-          toast.error(`${file.name} : ${err?.message || 'Upload échoué'}`)
+          toast.error(
+            humanizePhotoError(err, { prefix: file.name || 'Photo' }),
+            { duration: 5000 },
+          )
         }
       }
       setUploading(false)
@@ -214,6 +274,16 @@ export default function CheckPhotosSection({
           successCount === 1
             ? '1 photo ajoutée'
             : `${successCount} photos ajoutées`,
+        )
+      }
+      // Si on a tout rejeté et rien n'est passé, un hint final : l'user voit
+      // que la sélection n'a abouti à rien (évite une impression de silence).
+      if (successCount === 0 && rejectedCount > 0 && toUpload.length > 1) {
+        toast(
+          `${rejectedCount} fichier${rejectedCount > 1 ? 's' : ''} non ajouté${
+            rejectedCount > 1 ? 's' : ''
+          }.`,
+          { icon: '⚠️' },
         )
       }
     },
@@ -244,7 +314,7 @@ export default function CheckPhotosSection({
         if (photos.length === 1) handleCloseLightbox()
       } catch (err) {
         console.error('[CheckPhotosSection] delete failed', err)
-        toast.error(err?.message || 'Suppression échouée')
+        toast.error(humanizePhotoError(err))
       }
     },
     [onDelete, photos.length, handleCloseLightbox],
@@ -268,17 +338,21 @@ export default function CheckPhotosSection({
         toast.success('Légende enregistrée')
       } catch (err) {
         console.error('[CheckPhotosSection] updateCaption failed', err)
-        toast.error(err?.message || 'Légende non enregistrée')
+        toast.error(humanizePhotoError(err))
       }
     },
     [captionBody, onUpdateCaption],
   )
 
-  // Photo active dans le lightbox (pour l'overlay actions)
+  // Photo active dans le lightbox (pour l'overlay actions). En readOnly
+  // (consultation rendu, MAT-13D-bis) on ne peut jamais "gérer" la photo
+  // même si on en est propriétaire : pas de bouton delete, pas d'édition
+  // de légende — juste visionnage plein écran.
   const activePhoto = lightboxIndex >= 0 ? photos[lightboxIndex] : null
-  const canManageActive = activePhoto
-    ? isAdmin || isPhotoOwnedBy(activePhoto, userName)
-    : false
+  const canManageActive =
+    activePhoto && !readOnly
+      ? isAdmin || isPhotoOwnedBy(activePhoto, userName)
+      : false
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -297,9 +371,24 @@ export default function CheckPhotosSection({
           style={{ color: 'var(--txt-2)' }}
         >
           <Camera className="w-3.5 h-3.5" />
-          {kind === 'pack' ? 'Photos pack' : 'Photos problème'}
+          {kind === 'pack'
+            ? 'Photos pack'
+            : kind === 'retour'
+              ? 'Photos retour'
+              : 'Photos problème'}
           {count > 0 && (
-            <span className="tabular-nums" style={{ color: 'var(--txt-3)' }}>
+            <span
+              className="tabular-nums"
+              // Passe en orange quand on est proche (>=80%) et en rouge plein
+              // quand on est à la limite exacte — signal visuel pour anticiper.
+              style={{
+                color: atLimit
+                  ? 'var(--red, #c0392b)'
+                  : count >= MAX_PHOTOS_PER_ANCHOR - 2
+                    ? 'var(--orange, #c47f17)'
+                    : 'var(--txt-3)',
+              }}
+            >
               · {count}/{MAX_PHOTOS_PER_ANCHOR}
             </span>
           )}
@@ -307,10 +396,10 @@ export default function CheckPhotosSection({
 
         <div className="flex-1" />
 
-        {/* Uploader (Orig. + Ajouter + file input) — caché si hideUploader.
-            Utilisé en mode preview au-dessus du bloc (MAT-23E) : l'ajout
-            se fait via le menu ⋯ dans une section éditable dédiée. */}
-        {!hideUploader && (
+        {/* Uploader (Orig. + Ajouter + file input) — caché si hideUploader
+            OU readOnly. Utilisé en mode preview au-dessus du bloc (MAT-23E)
+            ou en consultation pure depuis la phase rendu (MAT-13D). */}
+        {!uploaderHidden && (
           <>
             {/* Toggle qualité originale (petit, subtil) */}
             <label
@@ -369,15 +458,51 @@ export default function CheckPhotosSection({
           {emptyLabel ||
             (kind === 'pack'
               ? 'Aucune photo pack. Servent à documenter le contenu des flight cases (usage interne).'
-              : 'Aucune photo. Photographier un défaut ou une remarque.')}
+              : kind === 'retour'
+                ? "Aucune photo retour. Photographier l'état du matériel au retour loueur."
+                : 'Aucune photo. Photographier un défaut ou une remarque.')}
         </p>
       ) : (
-        <div
-          className="grid gap-1.5"
-          style={{
-            gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
-          }}
-        >
+        <>
+          {/* Bandeau d'erreur batch URLs + bouton retry — affiché SEULEMENT
+              quand aucun thumb n'a pu être généré. Pour un échec partiel
+              (certains thumbs OK) on laisse juste les placeholders par photo
+              pour ne pas polluer l'UI. */}
+          {urlsError && !urlsLoading && (
+            <div
+              className="flex items-center gap-2 px-2 py-1.5 mb-2 rounded-md text-xs"
+              style={{
+                background: 'var(--orange-bg, rgba(230, 138, 0, 0.1))',
+                border: '1px solid var(--orange-brd, rgba(230, 138, 0, 0.3))',
+                color: 'var(--orange, #c47f17)',
+              }}
+            >
+              <span className="flex-1">
+                Aperçus indisponibles. Lien expiré ou réseau interrompu.
+              </span>
+              <button
+                type="button"
+                onClick={handleRetryUrls}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid currentColor',
+                  color: 'inherit',
+                }}
+                aria-label="Recharger les aperçus"
+              >
+                <RefreshCcw className="w-3 h-3" />
+                Recharger
+              </button>
+            </div>
+          )}
+
+          <div
+            className="grid gap-1.5"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+            }}
+          >
           {photos.map((photo, index) => {
             const thumbUrl = urls.get(photo.id)?.thumb
             return (
@@ -385,7 +510,9 @@ export default function CheckPhotosSection({
                 key={photo.id}
                 type="button"
                 onClick={() => handleOpenLightbox(index)}
-                className="relative rounded-md overflow-hidden"
+                className={`relative rounded-md overflow-hidden ${
+                  !thumbUrl && urlsLoading ? 'animate-pulse' : ''
+                }`}
                 style={{
                   aspectRatio: '1 / 1',
                   background: 'var(--bg-surf)',
@@ -403,17 +530,36 @@ export default function CheckPhotosSection({
                     alt={photo.caption || ''}
                     className="w-full h-full object-cover"
                     loading="lazy"
+                    // Si la CDN drop l'image (rare : lien signé expiré entre
+                    // render et onload), on laisse le bg-surf + icône prendre
+                    // le dessus via display:none — pas de broken-image icon
+                    // disgracieux.
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                ) : urlsLoading ? (
+                  // Skeleton shimmer : gradient subtil qui pulse pendant le
+                  // chargement des signed URLs. Aucun icône — le animate-pulse
+                  // sur le bouton parent donne le feedback de chargement.
+                  <div
+                    className="w-full h-full"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, var(--bg-surf) 0%, var(--bg-hov, rgba(128,128,128,0.1)) 50%, var(--bg-surf) 100%)',
+                    }}
+                    aria-label="Chargement de l'aperçu"
                   />
                 ) : (
+                  // Fallback final : URL non générée ET pas en loading
+                  // → probablement échec de la signed URL pour cette photo.
+                  // Icône camera + fond neutre.
                   <div
                     className="w-full h-full flex items-center justify-center"
                     style={{ color: 'var(--txt-3)' }}
+                    title="Aperçu indisponible — photo toujours stockée"
                   >
-                    {urlsLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Camera className="w-4 h-4" />
-                    )}
+                    <Camera className="w-4 h-4" />
                   </div>
                 )}
                 {/* Badge caption tronquée si présente */}
@@ -431,7 +577,8 @@ export default function CheckPhotosSection({
               </button>
             )
           })}
-        </div>
+          </div>
+        </>
       )}
 
       {/* Lightbox plein écran ──────────────────────────────────────────── */}
@@ -468,12 +615,14 @@ export default function CheckPhotosSection({
             container: { zIndex: 9999 },
           }}
           render={{
-            // Légende custom sous chaque slide. Éditable si owner/admin.
+            // Légende custom sous chaque slide. Éditable si owner/admin —
+            // jamais en readOnly (consultation essais depuis rendu).
             slideFooter: ({ slide }) => {
               const p = photos.find((x) => x.id === slide.photoId)
               if (!p) return null
               const editing = captionDraft === p.id
-              const canEditCaption = isAdmin || isPhotoOwnedBy(p, userName)
+              const canEditCaption =
+                !readOnly && (isAdmin || isPhotoOwnedBy(p, userName))
               return (
                 <div
                   className="absolute bottom-0 left-0 right-0 px-4 py-3 pointer-events-auto"

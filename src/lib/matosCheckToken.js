@@ -63,6 +63,27 @@ export function buildCheckUrl(token) {
   return `${window.location.origin}/check/${encodeURIComponent(token)}`
 }
 
+/**
+ * MAT-13 : URL pour un token phase='rendu'. Le chemin change (/rendu/:token)
+ * pour que l'utilisateur final comprenne immédiatement qu'il est sur la
+ * checklist retour et pas sur les essais. Le token lui-même reste opaque — c'est
+ * côté serveur (check_action_toggle & co.) que la phase est vérifiée via
+ * `_check_token_get_phase`. Un token phase='rendu' reçu sur /check/:token
+ * renverrait SQLSTATE 42501 sur la première action.
+ */
+export function buildRenduUrl(token) {
+  if (typeof window === 'undefined' || !token) return ''
+  return `${window.location.origin}/rendu/${encodeURIComponent(token)}`
+}
+
+/**
+ * MAT-13 : helper d'aiguillage — choisit l'URL selon la phase du token. Utilisé
+ * dans ShareChecklistModal qui gère les deux phases dans la même UI.
+ */
+export function buildCheckUrlForPhase(token, phase = 'essais') {
+  return phase === 'rendu' ? buildRenduUrl(token) : buildCheckUrl(token)
+}
+
 // ═══ CRUD matos_check_tokens (côté authenticated) ═══════════════════════════
 //
 // Ces fonctions sont appelées depuis l'UI autorisée (onglet Matériel > Gestion
@@ -72,16 +93,28 @@ export function buildCheckUrl(token) {
  * Liste les tokens d'une version. `includeRevoked=true` par défaut pour
  * permettre l'audit dans l'UI de gestion ; passer `false` pour ne voir que
  * les liens actifs.
+ *
+ * MAT-13 : paramètre `phase` optionnel. Si fourni ('essais'|'rendu'), filtre
+ * la liste sur la phase du token. Non fourni → tous les tokens (utile pour
+ * la vue unifiée où on groupe essais + rendu dans le même modal).
  */
-export async function listCheckTokens({ versionId, includeRevoked = true } = {}) {
+export async function listCheckTokens({ versionId, includeRevoked = true, phase = null } = {}) {
   if (!versionId) throw new Error('listCheckTokens : versionId requis')
+  if (phase && !['essais', 'rendu'].includes(phase)) {
+    throw new Error(`listCheckTokens : phase invalide (${phase})`)
+  }
   let query = supabase
     .from('matos_check_tokens')
-    .select('id, token, version_id, label, created_by, created_at, revoked_at, expires_at, last_accessed_at')
+    .select(
+      'id, token, version_id, label, phase, created_by, created_at, revoked_at, expires_at, last_accessed_at',
+    )
     .eq('version_id', versionId)
     .order('created_at', { ascending: false })
   if (!includeRevoked) {
     query = query.is('revoked_at', null)
+  }
+  if (phase) {
+    query = query.eq('phase', phase)
   }
   const { data, error } = await query
   if (error) throw error
@@ -92,9 +125,24 @@ export async function listCheckTokens({ versionId, includeRevoked = true } = {})
  * Crée un nouveau token pour une version. Le secret est généré localement
  * (crypto) ; on l'insère avec un label libre ("Équipe caméra", "Loueur Lux"…)
  * et une date d'expiration optionnelle.
+ *
+ * MAT-13 : paramètre `phase` ∈ {'essais','rendu'} (défaut 'essais' pour
+ * rester rétro-compatible avec l'ancien chemin MAT-10L). Un token phase='rendu'
+ * ne fonctionnera que sur les RPC qui acceptent la phase rendu (toggle
+ * post_check, photos kind='retour', comments kind='rendu', close_rendu).
+ * Côté serveur, la colonne phase a DEFAULT 'essais' + CHECK IN ('essais',
+ * 'rendu') — l'insertion rejettera toute autre valeur.
  */
-export async function createCheckToken({ versionId, label = null, expiresAt = null }) {
+export async function createCheckToken({
+  versionId,
+  label = null,
+  expiresAt = null,
+  phase = 'essais',
+}) {
   if (!versionId) throw new Error('createCheckToken : versionId requis')
+  if (!['essais', 'rendu'].includes(phase)) {
+    throw new Error(`createCheckToken : phase invalide (${phase})`)
+  }
 
   const token = generateCheckToken()
   const payload = {
@@ -102,12 +150,15 @@ export async function createCheckToken({ versionId, label = null, expiresAt = nu
     version_id: versionId,
     label: label?.trim() || null,
     expires_at: expiresAt || null,
+    phase,
   }
 
   const { data, error } = await supabase
     .from('matos_check_tokens')
     .insert([payload])
-    .select('id, token, version_id, label, created_by, created_at, revoked_at, expires_at, last_accessed_at')
+    .select(
+      'id, token, version_id, label, phase, created_by, created_at, revoked_at, expires_at, last_accessed_at',
+    )
     .single()
   if (error) throw error
   return data
@@ -184,20 +235,34 @@ export async function fetchCheckSession(token) {
 }
 
 /**
- * Toggle le pre_check sur un item. Si le user n'était pas coché → on le
- * coche avec son nom ; sinon on décoche. Le nom est obligatoire pour tracer
- * qui a fait quoi (sert aussi pour l'UI "coché par Camille").
+ * Toggle le check d'un item pour une phase donnée. Si le user n'était pas
+ * coché → on le coche avec son nom ; sinon on décoche. Le nom est obligatoire
+ * pour tracer qui a fait quoi (sert aussi pour l'UI "coché par Camille").
+ *
+ * MAT-13 : `phase` route la colonne (pre_check_* ou post_check_*). Le token
+ * fourni doit correspondre à la même phase côté DB (sinon SQLSTATE 42501).
+ * Défaut 'essais' pour compat backward avec les appelants pré-MAT-13.
+ *
+ * @param {object} opts
+ * @param {string} opts.token
+ * @param {string} opts.itemId
+ * @param {string} opts.userName
+ * @param {('essais'|'rendu')} [opts.phase='essais']
  */
-export async function toggleCheck({ token, itemId, userName }) {
+export async function toggleCheck({ token, itemId, userName, phase = 'essais' }) {
   if (!token || !itemId) throw new Error('toggleCheck : token + itemId requis')
   if (!userName?.trim()) throw new Error('toggleCheck : userName requis')
+  if (!['essais', 'rendu'].includes(phase)) {
+    throw new Error(`toggleCheck : phase invalide (${phase})`)
+  }
   const { data, error } = await supabase.rpc('check_action_toggle', {
     p_token: token,
     p_item_id: itemId,
     p_user_name: userName.trim(),
+    p_phase: phase,
   })
   if (error) throw error
-  return data // ligne matos_items mise à jour
+  return data // ligne matos_items mise à jour (shape diffère selon phase)
 }
 
 /**
@@ -257,9 +322,13 @@ export async function addCheckComment({
   if (!!itemId === !!blockId) {
     throw new Error('addCheckComment : exactement un ancrage (itemId XOR blockId)')
   }
-  if (!['probleme', 'note'].includes(kind)) {
+  if (!['probleme', 'note', 'rendu'].includes(kind)) {
     throw new Error(`addCheckComment : kind invalide (${kind})`)
   }
+  // MAT-13 : cohérence phase/kind côté JS pour échouer avant l'aller-retour
+  // serveur. Le serveur re-vérifie via _check_token_get_phase + SQLSTATE 42501.
+  // Note : on ne peut pas connaître la phase du token sans round-trip ; on se
+  // contente de valider le format. La RPC tranchera.
   if (!body?.trim()) throw new Error('addCheckComment : corps du message requis')
   if (!userName?.trim()) throw new Error('addCheckComment : userName requis')
   const { data, error } = await supabase.rpc('check_action_add_comment', {

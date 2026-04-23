@@ -46,13 +46,21 @@ export function itemMatchesLoueur(item, loueursByItem, activeLoueurId) {
  * Calcule la progression d'une liste d'items.
  * Les items retirés (removed_at truthy) sont exclus du total ET du compteur.
  *
+ * MAT-13 : le paramètre `{ phase }` route la colonne utilisée pour "checké" :
+ *   - phase='essais' (défaut) → `pre_check_at`
+ *   - phase='rendu'            → `post_check_at`
+ * Les items retirés restent exclus dans les deux cas (rationale identique).
+ *
  * @param {Array} items - items du bloc (filtrés ou non)
+ * @param {object} [opts]
+ * @param {('essais'|'rendu')} [opts.phase='essais']
  * @returns {{ total: number, checked: number, ratio: number, allChecked: boolean }}
  */
-export function computeBlockProgress(items) {
+export function computeBlockProgress(items, { phase = 'essais' } = {}) {
   const active = (items || []).filter((it) => !it?.removed_at)
   const total = active.length
-  const checked = active.filter((it) => Boolean(it?.pre_check_at)).length
+  const checkedKey = phase === 'rendu' ? 'post_check_at' : 'pre_check_at'
+  const checked = active.filter((it) => Boolean(it?.[checkedKey])).length
   const ratio = total > 0 ? checked / total : 0
   return {
     total,
@@ -88,15 +96,19 @@ export function filterItemsByBlock(itemsByBlock, loueursByItem, activeLoueurId) 
  * chaque entrée de l'index. Utilisé par useCheckTokenSession (global) ET par
  * CheckSession (sur la slice filtrée).
  *
+ * MAT-13 : param `{ phase }` propagé à `computeBlockProgress`. Défaut 'essais'.
+ *
  * @param {Iterable<{ id: string }>} blocks
  * @param {Map<string, Array>} itemsByBlock
+ * @param {object} [opts]
+ * @param {('essais'|'rendu')} [opts.phase='essais']
  * @returns {Map<string, { total, checked, ratio, allChecked }>}
  */
-export function computeProgressByBlock(blocks, itemsByBlock) {
+export function computeProgressByBlock(blocks, itemsByBlock, { phase = 'essais' } = {}) {
   const map = new Map()
   for (const block of blocks || []) {
     const arr = itemsByBlock?.get?.(block.id) || []
-    map.set(block.id, computeBlockProgress(arr))
+    map.set(block.id, computeBlockProgress(arr, { phase }))
   }
   return map
 }

@@ -18,6 +18,7 @@ import Compta from './pages/Compta'
 import Crew from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import CheckSession from './pages/CheckSession'
+import RenduSession from './pages/RenduSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -96,6 +97,21 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <CheckSession mode="authed" />
+          </PrivateRoute>
+        }
+      />
+      {/* Rendu (loueur) — accès anonyme via token (MAT-13C). Mirror
+          de /check/:token mais scope phase='rendu'. Un token essais
+          ouvert ici provoque une erreur "phase mismatch" décodée en
+          UX par RenduSession. */}
+      <Route path="/rendu/:token" element={<RenduSession />} />
+      {/* Rendu (loueur) — accès authenticated direct. Même patron
+          que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
+      <Route
+        path="/projets/:id/materiel/rendu/:versionId?"
+        element={
+          <PrivateRoute>
+            <RenduSession mode="authed" />
           </PrivateRoute>
         }
       />

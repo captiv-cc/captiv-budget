@@ -1,46 +1,56 @@
 // ════════════════════════════════════════════════════════════════════════════
-// matosBilanPdf.js — PDF bilan de fin d'essais + ZIP multi-loueur (MAT-12)
+// matosBonRetourPdf.js — PDF Bon de retour (MAT-13E / MAT-13H)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// 3 entrées publiques :
+// Entrées publiques (MAT-13H) :
 //
-//   1. buildBilanGlobalPDF(snapshot, { org })
-//      → { blob, url, filename, download(), revoke() }
-//      Rendu d'un PDF "bilan global" : résumé stats + tous les blocs/items
-//      avec état (coché par, retiré, ajouté en cours d'essais), loueurs, et
-//      fil de commentaires. Utilisé pour le PDF "vue d'ensemble" du ZIP.
+//   buildBonRetourGlobalPdf(snapshot, { org, photoDataMap })
+//   buildBonRetourLoueurPdf(snapshot, { loueur, section, org, photoDataMap })
+//   buildBonRetourZip(snapshot, { org })
+//     → { blob, url, filename, download(), revoke() }
 //
-//   2. buildBilanLoueurPDF(snapshot, { loueur, section, org })
-//      → { blob, url, filename, download(), revoke() }
-//      PDF bilan pour UN loueur (ou "Sans loueur" si loueur=null). Même style
-//      que le bilan global mais scopé aux items de ce loueur.
+//   buildBonRetourPdf — alias de buildBonRetourGlobalPdf (backward compat
+//   MAT-13E ; préservé pour les callers hooks `close()` / `preview()`).
 //
-//   3. buildBilanZip(snapshot, { org })
-//      → { blob, url, filename, download(), revoke(), isZip: true,
-//          globalPdf, loueurPdfs }
-//      Assemble le bilan global + 1 PDF par loueur dans un ZIP prêt à uploader
-//      vers Storage + archiver dans matos_version_attachments (MAT-12 RPC
-//      check_action_close_essais).
+// Trois variantes d'export, miroir de MAT-22 côté bilan essais :
+//   • Global   : un seul PDF combiné, tous les loueurs confondus
+//   • Loueur   : un PDF filtré sur un bucket (id loueur ou "Sans loueur")
+//   • ZIP      : global + 1 PDF/loueur empaquetés (partage photoDataMap)
 //
-// Le snapshot attendu est la sortie de `aggregateBilanData(session)` — cf.
-// src/lib/matosBilanData.js. Les builders ne relisent PAS la session brute :
-// toute l'agrégation / tri / stats est déjà faite.
+// Page de garde + synthèse rendu + tableau par bloc (cochés via post_check_at,
+// retirés inline avec pastille "RETIRÉ", additifs en fin de bloc) + annexe
+// photos kind='retour'.
 //
-// Style : aligné avec matosPdfExport.js (Work Sans + palette captiv) — mais
-// module séparé pour ne pas ré-exporter les helpers privés. Si on veut
-// mutualiser un jour, on extraira un `pdfBase.js`.
+// MAT-13G : chaque PDF injecte les feedbacks saisis en checklist :
+//   • Global → `snapshot.version.rendu_feedback`
+//   • Loueur → les DEUX : global (contextuel) + loueur-specific (primaire)
+//     depuis `snapshot.version_loueur_infos[*].rendu_feedback`
+//   • Si un feedback est vide, le bloc correspondant est simplement omis.
 //
-// MAT-11E (photos) : les photos probleme sont rendues dans une section
-// "Photos" en fin de bloc, groupées par item (rendu robuste : pas de
-// surgery dans autoTable). Les photos pack ne sont incluses QUE dans le
-// PDF global (usage interne remballe — cf. migration MAT-11A). Le prefetch
-// est mutualisé au niveau `buildBilanZip` pour ne fetcher Storage qu'une
-// fois pour N+1 PDFs.
+// Le snapshot attendu est la sortie de `aggregateBilanData(session)` (même
+// shape que le bilan essais — MAT-12). Les seules différences exploitées
+// côté rendu :
+//   - cloture        : snapshot.version.rendu_closed_at / rendu_closed_by_name
+//   - status item    : on lit post_check_at / post_check_by_name
+//   - commentaires   : on filtre kind='rendu' (avant de les rendre inline)
+//   - photos item    : on lit it.photos_retour (kind='retour'). Pas de pack
+//                      photos : usage interne remballe, hors périmètre rendu.
+//
+// Style : aligné avec matosBilanPdf.js (Work Sans + palette captiv) — avec
+// un accent orange pour signaler la phase rendu vs. le bleu des essais.
+// Helpers volontairement dupliqués (pas d'extraction pdfBase.js) pour garder
+// les deux modules décorrélés — la coïncidence stylistique est maintenue à
+// la main.
 // ════════════════════════════════════════════════════════════════════════════
 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { bilanPdfFilename, bilanZipFilename, versionLabel } from '../../lib/matosBilanData'
+import { versionLabel, NO_LOUEUR_BUCKET_ID } from '../../lib/matosBilanData'
+import {
+  bonRetourPdfFilename,
+  bonRetourLoueurPdfFilename,
+  bonRetourZipFilename,
+} from '../../lib/matosRendu'
 import { getPhotoThumbnailUrl } from '../../lib/matosItemPhotos'
 
 // ─── Palette + symboles ────────────────────────────────────────────────────
@@ -54,19 +64,25 @@ const C = {
   green: [34, 139, 58],
   amber: [201, 132, 17],
   red: [201, 51, 51],
-  bluePale: [232, 242, 254],
-  blue: [31, 111, 235],
-  // MAT-21 : tons pastels pour le relief visuel retirés / additifs
-  removedFill: [252, 245, 245],  // rouge très pâle pour rangée retirée
-  removedText: [140, 140, 140],  // gris pour texte retiré
-  additifAccent: [22, 118, 55],  // vert saturé pour accent section additifs
-  additifHead: [228, 240, 231],  // vert pâle pour header section additifs
+  // MAT-13E : accents orange pour la phase rendu (vs. bleu pour essais)
+  renduAccent: [204, 75, 12],   // burnt orange pour bandeaux cloture / titres
+  renduPale:   [254, 235, 215], // pêche pâle pour fond bandeau cloture
+  // Repris de matosBilanPdf.js : tons pastels retirés / additifs
+  removedFill: [252, 245, 245],
+  removedText: [140, 140, 140],
+  additifAccent: [22, 118, 55],
+  additifHead: [228, 240, 231],
 }
 
 const FLAG_COLOR = { ok: C.green, attention: C.amber, probleme: C.red }
 const FLAG_LABEL = { ok: 'OK', attention: 'ATT.', probleme: 'PB', none: '–' }
 
 // ─── Loaders d'assets (cache module) ──────────────────────────────────────
+//
+// Cache privé au module : deux PDFs (bilan essais + bon-retour) peuvent
+// coexister dans la même session sans recharger les fonts, mais chacun
+// garde son cache — la duplication est acceptée pour ne pas créer un
+// pdfBase.js partagé.
 let _assetsCache = null
 
 async function loadFontBase64(url) {
@@ -176,7 +192,7 @@ function drawHeader(doc, { title, subtitle, project, version, banner }) {
 
   doc.setFont('WS', 'bold')
   doc.setFontSize(16)
-  doc.setTextColor(...C.black)
+  doc.setTextColor(...C.renduAccent)
   doc.text(title, PW - M, 13, { align: 'right' })
 
   if (subtitle) {
@@ -216,20 +232,20 @@ function drawFooter(doc, { org }) {
   }
 }
 
-// ─── Bannière "clôturé" ────────────────────────────────────────────────────
+// ─── Bannière "rendu clôturé" (accent orange) ─────────────────────────────
 function drawClotureBanner(doc, { y, closedAt, closedByName }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
   const h = 10
-  doc.setFillColor(...C.bluePale)
-  doc.setDrawColor(...C.blue)
+  doc.setFillColor(...C.renduPale)
+  doc.setDrawColor(...C.renduAccent)
   doc.setLineWidth(0.2)
   doc.roundedRect(M, y, PW - M * 2, h, 1.5, 1.5, 'FD')
 
   doc.setFont('WS', 'bold')
   doc.setFontSize(9)
-  doc.setTextColor(...C.blue)
-  doc.text('Essais clôturés', M + 3, y + 4)
+  doc.setTextColor(...C.renduAccent)
+  doc.text('Rendu clôturé', M + 3, y + 4)
 
   doc.setFont('WS', 'normal')
   doc.setFontSize(8)
@@ -241,26 +257,109 @@ function drawClotureBanner(doc, { y, closedAt, closedByName }) {
   return y + h + 3
 }
 
-// ─── MAT-21 : Ligne de synthèse narrative ──────────────────────────────────
+// ─── Bloc feedback (MAT-13G) ──────────────────────────────────────────────
 //
-// Une phrase compacte en italique placée JUSTE AVANT les cartes stats.
-// Utile pour une lecture rapide : l'œil balaye la ligne puis plonge dans
-// les cartes détaillées. Pas d'écho avec les cartes — on formule en texte
-// naturel là où les cartes sont des chiffres bruts.
+// Rendu d'un cartouche orange pâle avec un titre en gras et le texte
+// libre saisi en checklist. Largeur pleine page, hauteur dynamique calculée
+// via `splitTextToSize`. Si `body` est vide (après trim), on no-op et on
+// renvoie `y` inchangé — la gestion du "skip si vide" est donc à la charge
+// de l'appelant (on garde le helper idempotent).
+//
+// On tolère un saut de page si le bloc ne rentre plus : on déplace tout le
+// cartouche sur la page suivante en redessinant le header.
+function drawFeedbackBlock(doc, { y, title, body, renderPageHeader }) {
+  const text = String(body || '').trim()
+  if (!text) return y
+  const PW = doc.internal.pageSize.getWidth()
+  const PH = doc.internal.pageSize.getHeight()
+  const M = 14
+  const innerPadX = 3
+  const innerPadY = 3.2
+  const titleH = 4.5
+
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(8.5)
+  const lines = doc.splitTextToSize(text, PW - M * 2 - innerPadX * 2)
+  const bodyH = lines.length * 3.8
+  const h = innerPadY + titleH + 1 + bodyH + innerPadY
+
+  // Saut de page si le cartouche ne rentre plus (header = 32, footer = 16)
+  if (y + h > PH - 16) {
+    doc.addPage()
+    if (typeof renderPageHeader === 'function') renderPageHeader()
+    y = 34
+  }
+
+  doc.setFillColor(...C.renduPale)
+  doc.setDrawColor(...C.renduAccent)
+  doc.setLineWidth(0.2)
+  doc.roundedRect(M, y, PW - M * 2, h, 1.5, 1.5, 'FD')
+
+  doc.setFont('WS', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...C.renduAccent)
+  doc.text(title || 'Feedback', M + innerPadX, y + innerPadY + 2.6)
+
+  doc.setFont('WS', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...C.black)
+  doc.text(lines, M + innerPadX, y + innerPadY + titleH + 3)
+
+  return y + h + 3
+}
+
+// ─── Stats rendu (dérivées du snapshot, basées sur post_check_at) ─────────
+//
+// Ne réutilise PAS `section.stats` (qui compte pre_check_at = essais). On
+// re-dérive un objet de même shape pour alimenter `drawSynthesisLine` et
+// `drawStatsCards` sans surcharge.
+function computeRenduStats(section) {
+  const stats = {
+    total: 0,
+    checked: 0,
+    removed: 0,
+    additifs: 0,
+    ratio: 0,
+    byFlag: { ok: 0, attention: 0, probleme: 0, none: 0 },
+  }
+  const allItems = (section?.blocks || []).flatMap((b) => b.items || [])
+  for (const it of allItems) {
+    const isRemoved = Boolean(it?.removed_at)
+    const isAdditif = Boolean(it?.added_during_check)
+    if (isAdditif) stats.additifs += 1
+    if (isRemoved) {
+      stats.removed += 1
+      continue
+    }
+    stats.total += 1
+    if (it?.post_check_at) stats.checked += 1
+    const flag = it?.flag
+    if (flag === 'ok') stats.byFlag.ok += 1
+    else if (flag === 'attention') stats.byFlag.attention += 1
+    else if (flag === 'probleme') stats.byFlag.probleme += 1
+    else stats.byFlag.none += 1
+  }
+  stats.ratio = stats.total > 0 ? stats.checked / stats.total : 0
+  return stats
+}
+
+// ─── Ligne de synthèse narrative ──────────────────────────────────────────
+//
+// Formulation rendu : "X items actifs · Y/X rendus (Z %) · N retirés · N
+// additifs · ⚠ P problèmes". Cohérent avec la version essais, mais le mot-
+// clé "rendus" remplace "cochés" pour éviter toute ambiguïté de phase.
 function drawSynthesisLine(doc, { y, stats }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
 
-  // Composition : "X items actifs · Y cochés (Z %) · N retirés · N additifs ·
-  //                ⚠ P problèmes"  — segments omis si nuls.
   const parts = []
   const nActive = stats.total || 0
   parts.push(`${nActive} item${nActive > 1 ? 's' : ''} actif${nActive > 1 ? 's' : ''}`)
   if (nActive > 0) {
     const pct = Math.round((stats.ratio || 0) * 100)
-    parts.push(`${stats.checked}/${nActive} coché${stats.checked > 1 ? 's' : ''} (${pct} %)`)
+    parts.push(`${stats.checked}/${nActive} rendu${stats.checked > 1 ? 's' : ''} (${pct} %)`)
   } else {
-    parts.push('0 coché')
+    parts.push('0 rendu')
   }
   if (stats.removed > 0) {
     parts.push(`${stats.removed} retiré${stats.removed > 1 ? 's' : ''}`)
@@ -296,7 +395,7 @@ function drawStatsCards(doc, { y, stats }) {
   const cards = [
     { label: 'Items actifs',  value: String(stats.total), color: C.black },
     {
-      label: 'Cochés',
+      label: 'Rendus',
       value: `${stats.checked}/${stats.total}`,
       sub: stats.total ? `${Math.round(stats.ratio * 100)} %` : '—',
       color: stats.total > 0 && stats.checked === stats.total ? C.green : C.black,
@@ -331,7 +430,8 @@ function drawStatsCards(doc, { y, stats }) {
     }
   }
 
-  // Ligne flags (pastilles colorées)
+  // Ligne flags (pastilles colorées) — mêmes flags que l'essais (le flag
+  // de l'item est partagé entre phases côté modèle).
   const flagY = y + cardH + 4
   drawFlagBar(doc, { y: flagY, stats })
   return flagY + 6
@@ -363,25 +463,11 @@ function drawFlagBar(doc, { y, stats }) {
 
 // ─── Rendu d'un bloc ───────────────────────────────────────────────────────
 //
-// MAT-21 : le bloc a désormais deux sous-sections :
-//   1. Items "de base" (scope initial : ceux qui N'ont PAS été ajoutés en
-//      cours d'essais). Les retirés y figurent aussi, avec un traitement
-//      visuel dédié (fond rose pâle, texte gris, strikethrough, pastille
-//      "RETIRÉ") pour signaler le changement de statut sans les cacher.
-//   2. Section "Additifs" en fin de bloc pour ceux ajoutés en cours
-//      d'essais (added_during_check). Encadrée en vert avec un en-tête
-//      explicite, pour signaler clairement que ces items ne faisaient pas
-//      partie du scope initial.
-//
-// Les commentaires sont rendus INLINE (rang colSpan=6 juste sous l'item
-// concerné) — plus de section "Commentaires" orpheline en fin de bloc qui
-// obligeait à faire le lien mental entre l'item et son commentaire.
-//
-// La ligne meta (compteur + retirés + additifs) reste au niveau du titre
-// pour un coup d'œil rapide.
+// Même structure que le bilan : deux sous-sections (scope initial +
+// additifs), commentaires kind='rendu' inline sous chaque item, puis
+// annexe photos retour en fin de bloc.
 function renderBlock(doc, {
-  startY, block, items, renderPageHeader,
-  pack_photos = [], photoDataMap = null, includePack = false,
+  startY, block, items, renderPageHeader, photoDataMap = null,
 }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
@@ -400,12 +486,12 @@ function renderBlock(doc, {
   doc.setTextColor(...C.black)
   doc.text(block.titre || 'Bloc', M, y + 4)
 
-  // Mini meta ligne : compte, coché, retiré, additifs
+  // Mini meta ligne : compte, rendus, retirés, additifs
   const nTot = items.filter((it) => !it.removed_at).length
-  const nChecked = items.filter((it) => !it.removed_at && it.pre_check_at).length
+  const nReturned = items.filter((it) => !it.removed_at && it.post_check_at).length
   const nRem = items.filter((it) => it.removed_at).length
   const nAdd = items.filter((it) => it.added_during_check).length
-  const metaParts = [`${nTot} item${nTot > 1 ? 's' : ''}`, `${nChecked} cochés`]
+  const metaParts = [`${nTot} item${nTot > 1 ? 's' : ''}`, `${nReturned} rendus`]
   if (nRem) metaParts.push(`${nRem} retiré${nRem > 1 ? 's' : ''}`)
   if (nAdd) metaParts.push(`${nAdd} additif${nAdd > 1 ? 's' : ''}`)
 
@@ -423,23 +509,14 @@ function renderBlock(doc, {
     return y + 6
   }
 
-  // MAT-21 : split scope initial / additifs. Un additif retiré reste dans la
-  // section additifs (avec styling retiré) pour préserver sa provenance.
+  // Split scope initial / additifs (miroir du bilan essais)
   const mainItems = items.filter((it) => !it.added_during_check)
   const additifsItems = items.filter((it) => it.added_during_check)
 
-  // ── Table principale (items du scope initial, retirés inclus) ──────────
   if (mainItems.length > 0) {
-    renderItemsTable(doc, {
-      startY: y,
-      items: mainItems,
-      renderPageHeader,
-      variant: 'main',
-    })
+    renderItemsTable(doc, { startY: y, items: mainItems, renderPageHeader })
     y = doc.lastAutoTable.finalY + 4
   } else {
-    // Bloc qui ne contient que des additifs : on affiche une mention discrète
-    // avant la section additifs pour garder le contexte.
     doc.setFont('WS', 'italic')
     doc.setFontSize(8)
     doc.setTextColor(...C.gray)
@@ -447,56 +524,28 @@ function renderBlock(doc, {
     y += 6
   }
 
-  // ── Section additifs (en fin de bloc, avec accent vert) ────────────────
   if (additifsItems.length > 0) {
-    y = renderAdditifsSection(doc, {
-      startY: y,
-      items: additifsItems,
-      renderPageHeader,
-    })
+    y = renderAdditifsSection(doc, { startY: y, items: additifsItems, renderPageHeader })
   }
 
-  // MAT-21 : les commentaires sont désormais rendus inline sous chaque item
-  // via buildBilanBodyRows — plus de section "Commentaires" orpheline en fin
-  // de bloc.
-
-  // ── MAT-11E : Photos (probleme par item + pack si includePack) ─────────
+  // Annexe photos retour à l'échelle du bloc
   if (photoDataMap) {
-    y = renderBlockPhotos(doc, {
-      startY: y,
-      items,
-      pack_photos,
-      photoDataMap,
-      includePack,
-      renderPageHeader,
-    })
+    y = renderBlockPhotosRetour(doc, { startY: y, items, photoDataMap, renderPageHeader })
   }
 
   return y + 3
 }
 
-// ─── MAT-21 : Tables d'items (scope initial + additifs) ───────────────────
+// ─── Tables d'items ────────────────────────────────────────────────────────
 //
-// Deux fonctions exposées à `renderBlock` :
-//   - renderItemsTable : table standard (head gris foncé) pour les items
-//     du scope initial, retirés inclus avec traitement visuel.
-//   - renderAdditifsSection : bandeau vert "ADDITIFS ·  ajoutés en cours
-//     d'essais" + table avec head vert pâle.
+// 6 colonnes :
+//   Désignation · Qté · Loueurs · Flag · Statut (rendu/retiré/additif) · Comm.
 //
-// Les deux partagent :
-//   - BILAN_HEAD : 6 colonnes (Désignation · Qté · Loueurs · Flag · Statut
-//     · Comm.)
-//   - BILAN_COLUMN_STYLES : largeurs fixes
-//   - buildBilanBodyRows(items) : mapping item → tableau de cellules, avec
-//     un flag `_removed` posé sur chacune pour que les hooks didParseCell /
-//     didDrawCell puissent teinter le rang retiré et ajouter la pastille.
-//
-// Les retirés sont rendus inline (pas regroupés) : fond rouge très pâle,
-// texte gris, rayé + pastille "RETIRÉ" en haut-droit de la cellule
-// désignation. L'objectif est de préserver le contexte (ordre / voisins)
-// tout en signalant fortement le changement de statut.
+// Le statut est dérivé de post_check_at (pas pre_check_at). Les
+// commentaires rendus en colSpan=6 sont filtrés kind='rendu' (les notes
+// essais ne polluent pas le bon de retour).
 
-const BILAN_HEAD = [[
+const RENDU_HEAD = [[
   'Désignation',
   { content: 'Qté', styles: { halign: 'center' } },
   'Loueurs',
@@ -505,7 +554,7 @@ const BILAN_HEAD = [[
   { content: 'Comm.', styles: { halign: 'center' } },
 ]]
 
-const BILAN_COLUMN_STYLES = {
+const RENDU_COLUMN_STYLES = {
   0: { cellWidth: 'auto' },
   1: { cellWidth: 10 },
   2: { cellWidth: 28 },
@@ -514,7 +563,7 @@ const BILAN_COLUMN_STYLES = {
   5: { cellWidth: 16 },
 }
 
-const BILAN_TABLE_STYLES = {
+const RENDU_TABLE_STYLES = {
   font: 'WS',
   fontSize: 8,
   cellPadding: 1.6,
@@ -524,11 +573,11 @@ const BILAN_TABLE_STYLES = {
   valign: 'top',
 }
 
-function buildBilanBodyRows(items) {
+function buildRenduBodyRows(items) {
   const rows = []
   for (const it of items) {
     const removed = Boolean(it.removed_at)
-    const des = buildBilanDesignationCell(it)
+    const des = buildDesignationCell(it)
     des._removed = removed
 
     const qte = {
@@ -541,24 +590,20 @@ function buildBilanBodyRows(items) {
       _removed: removed,
       styles: { fontSize: 7 },
     }
-    const flg = flagBilanCell(it.flag)
+    const flg = flagCell(it.flag)
     flg._removed = removed
-    const sta = statusCell(it)
+    const sta = statusCellRendu(it)
     sta._removed = removed
 
-    const rawCom = commentsCountCell(it)
+    const renduComments = (it.comments || []).filter((c) => c.kind === 'rendu')
+    const rawCom = commentsCountCell(renduComments)
     const com = typeof rawCom === 'string'
       ? { content: rawCom, _removed: removed, styles: { halign: 'center' } }
       : { ...rawCom, _removed: removed }
 
     rows.push([des, qte, lou, flg, sta, com])
 
-    // MAT-21 : commentaires inline juste sous l'item concerné. Un rang
-    // par commentaire, colSpan=6, indenté avec "»" pour lier visuellement
-    // au rang parent. Plus besoin d'une section "Commentaires" en fin de
-    // bloc — la relation item↔commentaire est directe.
-    const comments = it.comments || []
-    for (const c of comments) {
+    for (const c of renduComments) {
       rows.push(buildCommentRow(c))
     }
   }
@@ -569,7 +614,6 @@ function buildCommentRow(c) {
   const author = c.author_name || '—'
   const date = fmtDateTime(c.created_at)
   const body = (c.body || '').trim() || '(vide)'
-  // Format compact 1 ligne (wrap auto si trop long) : « » auteur · date — corps
   return [
     {
       content: `»  ${author} · ${date}  —  ${body}`,
@@ -589,11 +633,9 @@ function buildCommentRow(c) {
   ]
 }
 
-function bilanDidParseCell(data) {
+function renduDidParseCell(data) {
   if (data.section !== 'body') return
   const raw = data.cell.raw
-  // Ligne retirée : fond rose pâle + texte gris + font non-gras
-  // (on force l'override pour neutraliser les couleurs des flags etc.)
   if (raw && raw._removed) {
     data.cell.styles.fillColor = C.removedFill
     data.cell.styles.textColor = C.removedText
@@ -601,12 +643,7 @@ function bilanDidParseCell(data) {
   }
 }
 
-// Retourne un hook didDrawCell qui :
-//   - dessine une pastille rouge "RETIRÉ" en haut-droit de la cellule
-//     désignation
-//   - trace un trait de rayure sur la 1ère ligne de texte (stoppé avant la
-//     pastille pour ne pas l'écraser)
-function makeBilanDidDrawCell(doc) {
+function makeRenduDidDrawCell(doc) {
   return (data) => {
     if (data.section !== 'body') return
     if (data.column.index !== 0) return
@@ -621,7 +658,6 @@ function makeBilanDidDrawCell(doc) {
     const badgeX = x + width - badgeW - padX
     const badgeY = cy + padY
 
-    // Pastille rouge pleine
     doc.setFillColor(...C.red)
     doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 0.9, 0.9, 'F')
     doc.setFont('WS', 'bold')
@@ -632,7 +668,6 @@ function makeBilanDidDrawCell(doc) {
       baseline: 'middle',
     })
 
-    // Rayure (strikethrough) sur la 1ère ligne, stoppée avant la pastille
     doc.setDrawColor(...C.removedText)
     doc.setLineWidth(0.2)
     const strikeStop = badgeX - 1
@@ -643,19 +678,15 @@ function makeBilanDidDrawCell(doc) {
   }
 }
 
-function renderItemsTable(doc, { startY, items, renderPageHeader, variant = 'main' }) {
+function renderItemsTable(doc, { startY, items, renderPageHeader }) {
   const M = 14
-
-  // `variant` est prévu pour de futures variantes (ex. archive) — pour
-  // l'instant, seule 'main' est utilisée.
-  void variant
 
   autoTable(doc, {
     startY,
-    head: BILAN_HEAD,
-    body: buildBilanBodyRows(items),
+    head: RENDU_HEAD,
+    body: buildRenduBodyRows(items),
     theme: 'grid',
-    styles: BILAN_TABLE_STYLES,
+    styles: RENDU_TABLE_STYLES,
     headStyles: {
       font: 'WS',
       fontStyle: 'bold',
@@ -663,11 +694,11 @@ function renderItemsTable(doc, { startY, items, renderPageHeader, variant = 'mai
       fillColor: C.header,
       textColor: C.white,
     },
-    columnStyles: BILAN_COLUMN_STYLES,
+    columnStyles: RENDU_COLUMN_STYLES,
     margin: { left: M, right: M, top: 32, bottom: 16 },
     didDrawPage: renderPageHeader,
-    didParseCell: bilanDidParseCell,
-    didDrawCell: makeBilanDidDrawCell(doc),
+    didParseCell: renduDidParseCell,
+    didDrawCell: makeRenduDidDrawCell(doc),
   })
 }
 
@@ -676,14 +707,12 @@ function renderAdditifsSection(doc, { startY, items, renderPageHeader }) {
   const M = 14
   let y = startY
 
-  // Saut de page si le bandeau + au moins la head ne rentrent pas.
   if (y > 258) {
     doc.addPage()
     renderPageHeader()
     y = 34
   }
 
-  // Bandeau d'entrée : barre verticale accent vert + fond vert pâle
   const hh = 6.5
   const w = PW - M * 2
   const barW = 1.4
@@ -709,10 +738,10 @@ function renderAdditifsSection(doc, { startY, items, renderPageHeader }) {
 
   autoTable(doc, {
     startY: y,
-    head: BILAN_HEAD,
-    body: buildBilanBodyRows(items),
+    head: RENDU_HEAD,
+    body: buildRenduBodyRows(items),
     theme: 'grid',
-    styles: BILAN_TABLE_STYLES,
+    styles: RENDU_TABLE_STYLES,
     headStyles: {
       font: 'WS',
       fontStyle: 'bold',
@@ -722,41 +751,99 @@ function renderAdditifsSection(doc, { startY, items, renderPageHeader }) {
       lineColor: C.additifAccent,
       lineWidth: 0.15,
     },
-    columnStyles: BILAN_COLUMN_STYLES,
+    columnStyles: RENDU_COLUMN_STYLES,
     margin: { left: M, right: M, top: 32, bottom: 16 },
     didDrawPage: renderPageHeader,
-    didParseCell: bilanDidParseCell,
-    didDrawCell: makeBilanDidDrawCell(doc),
+    didParseCell: renduDidParseCell,
+    didDrawCell: makeRenduDidDrawCell(doc),
   })
 
   return doc.lastAutoTable.finalY + 4
 }
 
-// MAT-21 : renderItemComments (section "Commentaires" orpheline en fin de
-// bloc) retiré — les commentaires sont désormais rendus inline sous leur
-// item via buildCommentRow + buildBilanBodyRows.
-//
-// ─── MAT-11E : Photos (prefetch + rendu) ─────────────────────────────────
-//
-// Architecture :
-//   1. `prefetchPhotoDataUrls(snapshot)` — async : walk le snapshot,
-//      collecte les photo IDs uniques, fetch les thumbnails Supabase
-//      (transform on-the-fly, resize='cover') en parallèle et les convertit
-//      en dataURL (input de jsPDF.addImage). Retourne une Map<photoId,
-//      { dataUrl, format, width, height }> réutilisable entre PDFs.
-//
-//   2. `renderBlockPhotos(doc, { ..., photoDataMap, includePack })` —
-//      ajoute à la fin d'un bloc (juste après table main + additifs) une
-//      section "Photos" groupée par item + pack. Skip si rien à afficher.
-//
-// Le rendu est gracieux sur échec : si une photo ne peut pas être fetchée
-// (URL expirée, réseau ko, MIME inconnu), elle est silencieusement omise
-// du PDF — préférable à un crash ou un placeholder laid.
+// ─── Cellules dédiées ──────────────────────────────────────────────────────
+function flagCell(flag) {
+  if (!flag || flag === 'none') {
+    return { content: '–', styles: { halign: 'center', textColor: C.gray } }
+  }
+  return {
+    content: FLAG_LABEL[flag] || '?',
+    styles: {
+      halign: 'center',
+      fontStyle: 'bold',
+      textColor: FLAG_COLOR[flag] || C.gray,
+      fontSize: 7,
+    },
+  }
+}
 
-// Taille de thumbnail demandée à Supabase (cover-crop carré). 600px couvre
-// confortablement un rendu à ~38mm à 200 DPI d'impression (600/1.5 ≈ 400 DPI
-// réel) sans exploser le poids du PDF (~60 KB/photo en JPEG q=75).
+function buildDesignationCell(it) {
+  const designation = it.designation || '—'
+  const hasLabel = it.label && String(it.label).trim().length > 0
+  const label = hasLabel ? String(it.label).toUpperCase() : null
+  const remarques = (it.remarques || '').trim() || null
+  const parts = []
+  if (label) parts.push(label)
+  parts.push(designation)
+  const line1 = parts.join(' · ')
+  const content = remarques ? `${line1}\n${remarques}` : line1
+  return {
+    content,
+    _removed: Boolean(it.removed_at),
+    _designation: designation,
+    _label: label,
+    _remarques: remarques,
+  }
+}
+
+// Cellule Statut rendu : "✓ X · DATE" (rendu) ou "Non rendu". Ajoute les
+// infos retiré / additif si applicable (motif retiré inclus).
+function statusCellRendu(it) {
+  const lines = []
+  if (it.post_check_at) {
+    lines.push(
+      `✓ ${it.post_check_by_name || '—'}${it.post_check_at ? ' · ' + fmtDateTime(it.post_check_at) : ''}`
+    )
+  } else {
+    lines.push('Non rendu')
+  }
+  if (it.removed_at) {
+    lines.push(`Retiré — ${it.removed_by_name || '—'}`)
+    if (it.removed_reason) lines.push(`(${it.removed_reason})`)
+  }
+  if (it.added_during_check) {
+    lines.push(`Additif — ${it.added_by_name || '—'}`)
+  }
+  return {
+    content: lines.join('\n'),
+    styles: { fontSize: 7 },
+  }
+}
+
+function loueursCellText(it) {
+  const arr = it.loueurs || []
+  if (arr.length === 0) return '—'
+  return arr.map((l) => l?.nom || '?').join(', ')
+}
+
+function commentsCountCell(comments) {
+  const n = (comments || []).length
+  if (n === 0) return '—'
+  return {
+    content: `${n} message${n > 1 ? 's' : ''}`,
+    styles: { halign: 'center', fontStyle: 'bold' },
+  }
+}
+
+// ─── Photos retour : prefetch + rendu ──────────────────────────────────────
+//
+// Walk uniquement les `photos_retour` des items (kind='retour' ancrées
+// item_id). Pas de pack_photos côté rendu.
+
 const PHOTO_THUMB_SIZE = 600
+const PHOTO_THUMB_MM = 40
+const PHOTO_GAP_MM = 2.5
+const PHOTO_CAPTION_H = 3.2
 
 function detectImageFormat(mimeType, storagePath) {
   const mime = String(mimeType || '').toLowerCase()
@@ -767,7 +854,6 @@ function detectImageFormat(mimeType, storagePath) {
   if (path.endsWith('.png')) return 'PNG'
   if (path.endsWith('.webp')) return 'WEBP'
   if (path.endsWith('.gif')) return 'GIF'
-  // Supabase transform returns JPEG by default — safest fallback.
   return 'JPEG'
 }
 
@@ -790,27 +876,34 @@ async function fetchPhotoAsDataUrl(storagePath, { size = PHOTO_THUMB_SIZE } = {}
 }
 
 /**
- * Walk un snapshot bilan et retourne une Map<photoId, { dataUrl, format,
- * width, height }> avec les thumbnails pré-fetchés. Mutualisé via
- * buildBilanZip pour éviter N+1 fetches sur ZIP.
+ * Walk le snapshot et retourne une Map<photoId, { dataUrl, format, width,
+ * height }> pour toutes les photos kind='retour' ancrées aux items. Exposé
+ * au cas où un caller veut mutualiser le prefetch (ex. preview + clôture
+ * enchaînés) — sinon buildBonRetourPdf le fait automatiquement.
  */
-export async function prefetchPhotoDataUrls(snapshot, { size = PHOTO_THUMB_SIZE } = {}) {
+export async function prefetchRenduPhotoDataUrls(snapshot, { size = PHOTO_THUMB_SIZE } = {}) {
   const seen = new Map()
-  const collectSection = (section) => {
-    if (!section || !Array.isArray(section.blocks)) return
+  // On walk la section globale ET byLoueur (MAT-13H : pour un usage
+  // "section only" on peut passer { global: section, byLoueur: [] }, mais
+  // pour un ZIP on partage le même Map entre tous les PDFs → on accepte
+  // aussi snapshot.byLoueur pour de la robustesse).
+  const sections = []
+  if (snapshot?.global) sections.push(snapshot.global)
+  if (Array.isArray(snapshot?.byLoueur)) {
+    for (const s of snapshot.byLoueur) {
+      if (s) sections.push(s)
+    }
+  }
+  for (const section of sections) {
+    if (!Array.isArray(section.blocks)) continue
     for (const b of section.blocks) {
-      for (const p of b.pack_photos || []) {
-        if (p?.id && !seen.has(p.id)) seen.set(p.id, p)
-      }
       for (const it of b.items || []) {
-        for (const p of it.photos || []) {
+        for (const p of it.photos_retour || []) {
           if (p?.id && !seen.has(p.id)) seen.set(p.id, p)
         }
       }
     }
   }
-  collectSection(snapshot?.global)
-  for (const s of snapshot?.byLoueur || []) collectSection(s)
 
   const entries = await Promise.all(
     [...seen.values()].map(async (p) => {
@@ -826,26 +919,8 @@ export async function prefetchPhotoDataUrls(snapshot, { size = PHOTO_THUMB_SIZE 
   return new Map(entries)
 }
 
-// ─── Rendu d'une grille de photos (thumbnails carrées) ─────────────────────
-//
-// Grille fixed-size (carrés) ergonomique pour le bilan : 4 par ligne à 40mm
-// avec 2.5mm de gap tient sur la largeur utile A4 (182mm = 4×40 + 3×2.5 =
-// 167.5mm). Les thumbnails arrivent déjà cover-croppées par Supabase — on
-// les paint sans calcul d'aspect.
-//
-// Caption optionnelle (1 ligne, 6.5pt gris) sous chaque thumb, tronquée.
-//
-// Pagination : si la ligne de photos courante ne tient plus, on crée une
-// nouvelle page et on continue. Le caller passe `renderPageHeader` pour
-// re-draw header/cartes en cas de saut.
-
-const PHOTO_THUMB_MM = 40        // Côté de la miniature (carré)
-const PHOTO_GAP_MM = 2.5         // Espace entre deux miniatures
-const PHOTO_CAPTION_H = 3.2      // Hauteur approximative de la caption (mm)
-
 function renderPhotoGrid(doc, {
-  startY, photos, photoDataMap, renderPageHeader,
-  withCaption = true,
+  startY, photos, photoDataMap, renderPageHeader, withCaption = true,
 }) {
   if (!photos || photos.length === 0) return startY
   const PW = doc.internal.pageSize.getWidth()
@@ -862,9 +937,8 @@ function renderPhotoGrid(doc, {
 
   for (const p of photos) {
     const data = photoDataMap?.get(p.id)
-    if (!data?.dataUrl) continue // skip fails silencieux
+    if (!data?.dataUrl) continue
 
-    // Page break si la ligne courante ne rentre plus
     if (y + cellH > PH - 16) {
       doc.addPage()
       renderPageHeader()
@@ -876,7 +950,6 @@ function renderPhotoGrid(doc, {
     try {
       doc.addImage(data.dataUrl, data.format || 'JPEG', x, y, cellW, PHOTO_THUMB_MM, undefined, 'FAST')
     } catch {
-      // Placeholder discret si addImage échoue (format inconnu, dataURL corrompu…)
       doc.setDrawColor(...C.lgray)
       doc.setLineWidth(0.2)
       doc.rect(x, y, cellW, PHOTO_THUMB_MM)
@@ -900,7 +973,6 @@ function renderPhotoGrid(doc, {
         doc.setFont('WS', 'normal')
         doc.setFontSize(6.5)
         doc.setTextColor(...C.gray)
-        // Tronque à une ligne
         const maxW = cellW
         const [firstLine] = doc.splitTextToSize(line, maxW)
         doc.text(firstLine, x + 0.3, y + PHOTO_THUMB_MM + 2.4)
@@ -917,88 +989,49 @@ function renderPhotoGrid(doc, {
     }
   }
 
-  // Si on a écrit des photos sur la dernière ligne partielle, avance y.
   if (col !== 0) {
     y += cellH + PHOTO_GAP_MM
   }
   return y
 }
 
-// ─── Rendu de la section "Photos" d'un bloc ────────────────────────────────
-//
-// Structure :
-//   ── Photos ──
-//   ITEM · Désignation (N photos)
-//   [thumb] [thumb] [thumb]
-//   ITEM · Autre désignation (N photos)
-//   [thumb]
-//   Pack (N photos)                    ← seulement si includePack=true
-//   [thumb] [thumb] [thumb]
-//
-// Skip complet si aucun item n'a de photo ET aucune pack photo (ou
-// includePack=false). Retourne la nouvelle y.
-
-function renderBlockPhotos(doc, {
-  startY, items, pack_photos = [], photoDataMap, includePack, renderPageHeader,
+function renderBlockPhotosRetour(doc, {
+  startY, items, photoDataMap, renderPageHeader,
 }) {
-  const itemsWithPhotos = (items || []).filter((it) => (it.photos || []).length > 0)
-  const packPhotos = includePack ? (pack_photos || []) : []
-  if (itemsWithPhotos.length === 0 && packPhotos.length === 0) return startY
+  const itemsWithPhotos = (items || []).filter((it) => (it.photos_retour || []).length > 0)
+  if (itemsWithPhotos.length === 0) return startY
 
   const PW = doc.internal.pageSize.getWidth()
   const PH = doc.internal.pageSize.getHeight()
   const M = 14
   let y = startY
 
-  // Saut de page si le header de section ne rentre pas.
   if (y > PH - 24) {
     doc.addPage()
     renderPageHeader()
     y = 34
   }
 
-  // Entête de section "Photos" — style discret (trait + label)
+  // Entête de section "Photos retour"
   doc.setDrawColor(...C.lgray)
   doc.setLineWidth(0.25)
   doc.line(M, y + 1.5, PW - M, y + 1.5)
   doc.setFont('WS', 'bold')
   doc.setFontSize(7.5)
-  doc.setTextColor(...C.gray)
-  const total = itemsWithPhotos.reduce((s, it) => s + it.photos.length, 0) + packPhotos.length
-  doc.text(`PHOTOS · ${total} vignette${total > 1 ? 's' : ''}`, M, y + 4.5)
+  doc.setTextColor(...C.renduAccent)
+  const total = itemsWithPhotos.reduce((s, it) => s + it.photos_retour.length, 0)
+  doc.text(`PHOTOS RETOUR · ${total} vignette${total > 1 ? 's' : ''}`, M, y + 4.5)
   y += 6.5
 
-  // Sous-sections par item
   for (const it of itemsWithPhotos) {
-    y = renderItemPhotosSubsection(doc, {
-      startY: y,
-      item: it,
-      photoDataMap,
-      renderPageHeader,
-    })
-  }
-
-  // Sous-section pack (global uniquement)
-  if (packPhotos.length > 0) {
-    y = renderSubsectionHeader(doc, {
-      startY: y,
-      title: `Pack (${packPhotos.length} photo${packPhotos.length > 1 ? 's' : ''})`,
-      accent: C.blue,
-      renderPageHeader,
-    })
-    y = renderPhotoGrid(doc, {
-      startY: y,
-      photos: packPhotos,
-      photoDataMap,
-      renderPageHeader,
-    })
+    y = renderItemPhotosSubsection(doc, { startY: y, item: it, photoDataMap, renderPageHeader })
   }
 
   return y + 1
 }
 
 function renderItemPhotosSubsection(doc, { startY, item, photoDataMap, renderPageHeader }) {
-  const photos = item.photos || []
+  const photos = item.photos_retour || []
   if (photos.length === 0) return startY
   const designation = item.designation || '—'
   const labelPrefix = item.label ? `${String(item.label).toUpperCase()} · ` : ''
@@ -1015,14 +1048,12 @@ function renderSubsectionHeader(doc, { startY, title, accent = C.gray, renderPag
   const M = 14
   let y = startY
 
-  // Saut de page si même le header + une thumbnail ne tiennent pas.
   if (y + 6 + PHOTO_THUMB_MM + PHOTO_CAPTION_H > PH - 16) {
     doc.addPage()
     renderPageHeader()
     y = 34
   }
 
-  // Petit point coloré + titre
   doc.setFillColor(...accent)
   doc.circle(M + 1.2, y + 2.1, 0.9, 'F')
   doc.setFont('WS', 'bold')
@@ -1032,102 +1063,29 @@ function renderSubsectionHeader(doc, { startY, title, accent = C.gray, renderPag
   return y + 5.5
 }
 
-// ─── Cellules dédiées bilan ────────────────────────────────────────────────
-function flagBilanCell(flag) {
-  if (!flag || flag === 'none') {
-    return { content: '–', styles: { halign: 'center', textColor: C.gray } }
-  }
-  return {
-    content: FLAG_LABEL[flag] || '?',
-    styles: {
-      halign: 'center',
-      fontStyle: 'bold',
-      textColor: FLAG_COLOR[flag] || C.gray,
-      fontSize: 7,
-    },
-  }
-}
-
-function buildBilanDesignationCell(it) {
-  const designation = it.designation || '—'
-  const hasLabel = it.label && String(it.label).trim().length > 0
-  const label = hasLabel ? String(it.label).toUpperCase() : null
-  const remarques = (it.remarques || '').trim() || null
-  const parts = []
-  if (label) parts.push(label)
-  parts.push(designation)
-  const line1 = parts.join(' · ')
-  const content = remarques ? `${line1}\n${remarques}` : line1
-  return {
-    content,
-    _removed: Boolean(it.removed_at),
-    _designation: designation,
-    _label: label,
-    _remarques: remarques,
-  }
-}
-
-function statusCell(it) {
-  const lines = []
-  if (it.pre_check_at) {
-    lines.push(
-      `✓ ${it.pre_check_by_name || '—'}${it.pre_check_at ? ' · ' + fmtDateTime(it.pre_check_at) : ''}`
-    )
-  } else {
-    lines.push('Non coché')
-  }
-  if (it.removed_at) {
-    lines.push(`Retiré — ${it.removed_by_name || '—'}`)
-    if (it.removed_reason) lines.push(`(${it.removed_reason})`)
-  }
-  if (it.added_during_check) {
-    lines.push(`Additif — ${it.added_by_name || '—'}`)
-  }
-  return {
-    content: lines.join('\n'),
-    styles: { fontSize: 7 },
-  }
-}
-
-function loueursCellText(it) {
-  const arr = it.loueurs || []
-  if (arr.length === 0) return '—'
-  return arr.map((l) => l?.nom || '?').join(', ')
-}
-
-function commentsCountCell(it) {
-  const n = (it.comments || []).length
-  if (n === 0) return '—'
-  return {
-    content: `${n} message${n > 1 ? 's' : ''}`,
-    styles: { halign: 'center', fontStyle: 'bold' },
-  }
-}
-
-// ─── Sélecteur "bloc par section" (global vs loueur) ──────────────────────
-function sectionBlocks(section) {
-  return section.blocks.filter((b) => b.items.length > 0)
-}
-
-// ═══ PDF GLOBAL ════════════════════════════════════════════════════════════
+// ═══ PDF BON DE RETOUR — GLOBAL (MAT-13E / MAT-13H) ════════════════════════
 //
-// Option `photoDataMap` : si fournie, évite de re-fetcher les photos
-// (mutualisation via buildBilanZip). Sinon, prefetch interne automatique.
-export async function buildBilanGlobalPDF(snapshot, { org, photoDataMap = null } = {}) {
+// Option `photoDataMap` : si fournie (via `prefetchRenduPhotoDataUrls`),
+// évite un re-fetch (utile pour preview + clôture enchaînés, ou pour le ZIP
+// qui partage la map entre tous les PDFs). Sinon prefetch interne automatique.
+//
+// MAT-13G : le feedback global (`snapshot.version.rendu_feedback`) est rendu
+// juste après la bannière de clôture éventuelle. Omis si vide.
+export async function buildBonRetourGlobalPdf(snapshot, { org, photoDataMap = null } = {}) {
   if (!snapshot || !snapshot.version) {
-    throw new Error('buildBilanGlobalPDF : snapshot invalide')
+    throw new Error('buildBonRetourGlobalPdf : snapshot invalide')
   }
   const assets = await loadAssets()
   const doc = makeDoc(assets)
   const M = 14
 
-  // MAT-11E : prefetch photos si pas déjà fourni par l'appelant.
-  const photos = photoDataMap || (await prefetchPhotoDataUrls(snapshot))
+  // Prefetch photos retour si pas déjà fourni par l'appelant.
+  const photos = photoDataMap || (await prefetchRenduPhotoDataUrls(snapshot))
 
   const renderPageHeader = () =>
     drawHeader(doc, {
-      title: 'BILAN ESSAIS',
-      subtitle: 'Vue d\'ensemble',
+      title: 'BON DE RETOUR',
+      subtitle: 'Rendu matériel — vue d\'ensemble',
       project: snapshot.project,
       version: snapshot.version,
       banner: assets.banner,
@@ -1136,19 +1094,26 @@ export async function buildBilanGlobalPDF(snapshot, { org, photoDataMap = null }
   renderPageHeader()
 
   let y = 34
-  if (snapshot.global.closedAt) {
-    y = drawClotureBanner(doc, {
-      y,
-      closedAt: snapshot.global.closedAt,
-      closedByName: snapshot.global.closedByName,
-    })
+  const renduClosedAt = snapshot.version?.rendu_closed_at || null
+  const renduClosedByName = snapshot.version?.rendu_closed_by_name || null
+  if (renduClosedAt) {
+    y = drawClotureBanner(doc, { y, closedAt: renduClosedAt, closedByName: renduClosedByName })
   }
-  // MAT-21 : synthèse narrative juste avant les cartes chiffrées.
-  y = drawSynthesisLine(doc, { y, stats: snapshot.global.stats })
-  y = drawStatsCards(doc, { y, stats: snapshot.global.stats })
+
+  // MAT-13G : feedback global (no-op si vide).
+  y = drawFeedbackBlock(doc, {
+    y,
+    title: 'Feedback rendu — tous loueurs',
+    body: snapshot.version?.rendu_feedback || '',
+    renderPageHeader,
+  })
+
+  const renduStats = computeRenduStats(snapshot.global)
+  y = drawSynthesisLine(doc, { y, stats: renduStats })
+  y = drawStatsCards(doc, { y, stats: renduStats })
   y += 2
 
-  const blocks = sectionBlocks(snapshot.global)
+  const blocks = (snapshot.global?.blocks || []).filter((b) => b.items.length > 0)
   if (blocks.length === 0) {
     doc.setFont('WS', 'italic')
     doc.setFontSize(9)
@@ -1160,9 +1125,7 @@ export async function buildBilanGlobalPDF(snapshot, { org, photoDataMap = null }
         startY: y,
         block: entry.block,
         items: entry.items,
-        pack_photos: entry.pack_photos || [],
         photoDataMap: photos,
-        includePack: true, // pack photos visibles dans PDF global uniquement
         renderPageHeader,
       })
     }
@@ -1171,24 +1134,37 @@ export async function buildBilanGlobalPDF(snapshot, { org, photoDataMap = null }
   drawFooter(doc, { org })
   return finishDoc(
     doc,
-    bilanPdfFilename({ project: snapshot.project, version: snapshot.version }),
+    bonRetourPdfFilename({ project: snapshot.project, version: snapshot.version }),
   )
 }
 
-// ═══ PDF PAR LOUEUR ════════════════════════════════════════════════════════
+// Backward-compat alias (MAT-13E). Les callers existants (hooks close/preview)
+// passent par cette entrée ; on la garde même shape + même filename.
+export const buildBonRetourPdf = buildBonRetourGlobalPdf
+
+// ═══ PDF BON DE RETOUR — PAR LOUEUR (MAT-13H) ══════════════════════════════
 //
-// Option `photoDataMap` : si fournie, évite de re-fetcher (mutualisation
-// via buildBilanZip). Sinon, prefetch interne automatique scoped au snapshot.
+// Filtre le rendu sur un seul bucket loueur (ou "Sans loueur"). La section
+// est passée par l'appelant (pré-résolue via `snapshot.byLoueur`) pour
+// éviter la duplication de logique de dispatch.
 //
-// Semantique photos : seules les photos probleme (ancrées aux items du
-// loueur) sont rendues. Les pack photos restent cachées côté loueur (cf.
-// migration MAT-11A : usage interne remballe, non-visible).
-export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, photoDataMap = null } = {}) {
+// Feedbacks affichés dans l'ordre :
+//   1. feedback loueur-specific (primaire, cf. `version_loueur_infos`)
+//   2. feedback global (contexte secondaire, plus discret possible à
+//      terme — pour l'instant même cartouche, juste un titre différent)
+//
+// Les deux sont omis si vides.
+export async function buildBonRetourLoueurPdf(snapshot, {
+  loueur,
+  section,
+  org,
+  photoDataMap = null,
+} = {}) {
   if (!snapshot || !snapshot.version) {
-    throw new Error('buildBilanLoueurPDF : snapshot invalide')
+    throw new Error('buildBonRetourLoueurPdf : snapshot invalide')
   }
   if (!section) {
-    throw new Error('buildBilanLoueurPDF : section (loueur bucket) requis')
+    throw new Error('buildBonRetourLoueurPdf : section (loueur bucket) requis')
   }
 
   const assets = await loadAssets()
@@ -1196,11 +1172,9 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
   const M = 14
   const PW = doc.internal.pageSize.getWidth()
 
-  // MAT-11E : prefetch si pas fourni. Un snapshot "sectioné" a déjà les
-  // items enrichis avec `photos: []` (kind=probleme), donc prefetchPhotoDataUrls
-  // peut walker n'importe quel { blocks } — on passe la section entière comme
-  // un mini-snapshot pour ne fetch que le nécessaire en mode standalone.
-  const photos = photoDataMap || (await prefetchPhotoDataUrls({
+  // Prefetch si pas fourni. On passe la section comme mini-snapshot pour
+  // ne fetch que les photos du bucket en mode standalone.
+  const photos = photoDataMap || (await prefetchRenduPhotoDataUrls({
     global: section,
     byLoueur: [],
   }))
@@ -1208,7 +1182,7 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
   const loueurNom = loueur?.nom || 'Sans loueur'
   const renderPageHeader = () =>
     drawHeader(doc, {
-      title: 'BILAN ESSAIS',
+      title: 'BON DE RETOUR',
       subtitle: `Loueur : ${loueurNom}`,
       project: snapshot.project,
       version: snapshot.version,
@@ -1219,17 +1193,15 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
 
   let y = 34
 
-  if (snapshot.global.closedAt) {
-    y = drawClotureBanner(doc, {
-      y,
-      closedAt: snapshot.global.closedAt,
-      closedByName: snapshot.global.closedByName,
-    })
+  const renduClosedAt = snapshot.version?.rendu_closed_at || null
+  const renduClosedByName = snapshot.version?.rendu_closed_by_name || null
+  if (renduClosedAt) {
+    y = drawClotureBanner(doc, { y, closedAt: renduClosedAt, closedByName: renduClosedByName })
   }
 
   // En-tête loueur : pastille couleur + nom + nb refs/unités
   if (loueur?.couleur) {
-    const rgb = hexToRgb(loueur.couleur) || C.gray
+    const rgb = _hexToRgb(loueur.couleur) || C.gray
     doc.setFillColor(...rgb)
     doc.circle(M + 2.5, y + 2.5, 2.5, 'F')
   }
@@ -1252,12 +1224,34 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
   )
   y += 9
 
-  // MAT-21 : synthèse narrative avant les cartes chiffrées.
-  y = drawSynthesisLine(doc, { y, stats: section.stats })
-  y = drawStatsCards(doc, { y, stats: section.stats })
+  // MAT-13G : feedback loueur-specific (primaire).
+  const loueurInfo = (snapshot.version_loueur_infos || []).find(
+    (row) => row?.loueur_id === (loueur?.id || null),
+  )
+  const loueurFeedback = loueurInfo?.rendu_feedback || ''
+  y = drawFeedbackBlock(doc, {
+    y,
+    title: `Feedback pour ${loueurNom}`,
+    body: loueurFeedback,
+    renderPageHeader,
+  })
+
+  // MAT-13G : feedback global (contextuel — utile si ça s'applique à tous
+  // les loueurs en plus du loueur-specific).
+  y = drawFeedbackBlock(doc, {
+    y,
+    title: 'Feedback général',
+    body: snapshot.version?.rendu_feedback || '',
+    renderPageHeader,
+  })
+
+  // Stats recalculées sur la section (pas sur snapshot.global).
+  const renduStats = computeRenduStats(section)
+  y = drawSynthesisLine(doc, { y, stats: renduStats })
+  y = drawStatsCards(doc, { y, stats: renduStats })
   y += 2
 
-  const blocks = sectionBlocks(section)
+  const blocks = (section.blocks || []).filter((b) => b.items.length > 0)
   if (blocks.length === 0) {
     doc.setFont('WS', 'italic')
     doc.setFontSize(9)
@@ -1269,9 +1263,7 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
         startY: y,
         block: entry.block,
         items: entry.items,
-        pack_photos: entry.pack_photos || [],
         photoDataMap: photos,
-        includePack: false, // photos pack masquées côté loueur (MAT-11A)
         renderPageHeader,
       })
     }
@@ -1280,7 +1272,7 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
   drawFooter(doc, { org })
   return finishDoc(
     doc,
-    bilanPdfFilename({
+    bonRetourLoueurPdfFilename({
       project: snapshot.project,
       version: snapshot.version,
       loueur: loueur || { nom: 'sans-loueur' },
@@ -1288,10 +1280,13 @@ export async function buildBilanLoueurPDF(snapshot, { loueur, section, org, phot
   )
 }
 
-// ═══ ZIP : global + 1 PDF / loueur ════════════════════════════════════════
-export async function buildBilanZip(snapshot, { org } = {}) {
+// ═══ ZIP : global + 1 PDF / loueur (MAT-13H) ══════════════════════════════
+//
+// Même pattern que buildBilanZip : on partage photoDataMap pour éviter N+1
+// round-trips Storage.
+export async function buildBonRetourZip(snapshot, { org } = {}) {
   if (!snapshot || !snapshot.version) {
-    throw new Error('buildBilanZip : snapshot invalide')
+    throw new Error('buildBonRetourZip : snapshot invalide')
   }
 
   let JSZip
@@ -1306,19 +1301,16 @@ export async function buildBilanZip(snapshot, { org } = {}) {
 
   const zip = new JSZip()
 
-  // MAT-11E : prefetch photos UNE SEULE FOIS et partage la dataURL map entre
-  // tous les PDFs du ZIP. Évite N+1 round-trips Supabase Storage (une version
-  // peut avoir ~50 photos × ~10 loueurs = 500 fetches sinon).
-  const photoDataMap = await prefetchPhotoDataUrls(snapshot)
+  const photoDataMap = await prefetchRenduPhotoDataUrls(snapshot)
 
   // 1. Global
-  const globalPdf = await buildBilanGlobalPDF(snapshot, { org, photoDataMap })
+  const globalPdf = await buildBonRetourGlobalPdf(snapshot, { org, photoDataMap })
   zip.file(globalPdf.filename, await globalPdf.blob.arrayBuffer())
 
   // 2. Par loueur — 1 PDF / bucket (y compris "Sans loueur" s'il existe)
   const loueurPdfs = []
-  for (const section of snapshot.byLoueur) {
-    const pdf = await buildBilanLoueurPDF(snapshot, {
+  for (const section of snapshot.byLoueur || []) {
+    const pdf = await buildBonRetourLoueurPdf(snapshot, {
       loueur: section.loueur,
       section,
       org,
@@ -1334,7 +1326,7 @@ export async function buildBilanZip(snapshot, { org } = {}) {
     compressionOptions: { level: 6 },
   })
   const url = URL.createObjectURL(zipBlob)
-  const filename = bilanZipFilename({
+  const filename = bonRetourZipFilename({
     project: snapshot.project,
     version: snapshot.version,
   })
@@ -1362,11 +1354,15 @@ export async function buildBilanZip(snapshot, { org } = {}) {
   }
 }
 
-// ─── Helpers couleur ───────────────────────────────────────────────────────
-function hexToRgb(hex) {
+// ─── Helper couleur (module-local — dupliqué de matosBilanPdf pour
+// garder les deux modules décorrélés, cf. header de fichier) ──────────────
+function _hexToRgb(hex) {
   if (!hex || typeof hex !== 'string') return null
   const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/)
   if (!m) return null
   const n = parseInt(m[1], 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
+
+// Re-export du sentinelle pour commodité (utilisé côté BonRetourExportModal).
+export { NO_LOUEUR_BUCKET_ID }

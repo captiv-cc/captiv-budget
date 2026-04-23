@@ -39,6 +39,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
+  ClipboardCheck,
   Clock,
   Copy,
   ExternalLink,
@@ -49,10 +50,11 @@ import {
   RotateCcw,
   Share2,
   Trash2,
+  Truck,
   X,
 } from 'lucide-react'
 import {
-  buildCheckUrl,
+  buildCheckUrlForPhase,
   createCheckToken,
   listCheckTokens,
   renameCheckToken,
@@ -72,7 +74,17 @@ const EXPIRY_OPTIONS = [
   { value: '30d', label: '30 jours', days: 30 },
 ]
 
-export default function ShareChecklistModal({ open, onClose, activeVersion }) {
+export default function ShareChecklistModal({
+  open,
+  onClose,
+  activeVersion,
+  // MAT-13C — phase à pré-sélectionner à l'ouverture. 'essais' par défaut,
+  // 'rendu' quand le modal est ouvert depuis le dropdown "Rendu". On
+  // conserve la phase active pendant la session mais l'utilisateur peut
+  // librement basculer via les chips (les tokens sont filtrés par phase
+  // à l'affichage et créés avec la phase active).
+  initialPhase = 'essais',
+}) {
   const versionId = activeVersion?.id || null
   const versionLabel = activeVersion
     ? `V${activeVersion.numero}${activeVersion.label ? ' · ' + activeVersion.label : ''}`
@@ -81,6 +93,7 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
   const [tokens, setTokens] = useState([])
   const [loading, setLoading] = useState(false)
   const [showRevoked, setShowRevoked] = useState(false)
+  const [phase, setPhase] = useState(initialPhase)
 
   // État du formulaire de création
   const [newLabel, setNewLabel] = useState('')
@@ -88,6 +101,9 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
   const [creating, setCreating] = useState(false)
 
   // ─── Load tokens ────────────────────────────────────────────────────────
+  // On charge tous les tokens (essais + rendu) et on partitionne côté front.
+  // Comme le volume est faible (~10 max par version), on évite un round-trip
+  // supplémentaire au toggle de phase.
   const reload = useCallback(async () => {
     if (!versionId) return
     setLoading(true)
@@ -107,14 +123,15 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
     }
   }, [open, versionId, reload])
 
-  // Reset création quand on rouvre
+  // Reset création quand on rouvre — recale aussi la phase sur initialPhase
   useEffect(() => {
     if (open) {
       setNewLabel('')
       setNewExpiry('never')
       setShowRevoked(false)
+      setPhase(initialPhase)
     }
-  }, [open])
+  }, [open, initialPhase])
 
   // Escape pour fermer
   useEffect(() => {
@@ -140,13 +157,14 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
         versionId,
         label: newLabel,
         expiresAt,
+        phase,
       })
       setTokens((prev) => [created, ...prev])
       setNewLabel('')
       setNewExpiry('never')
-      notify.success('Lien créé')
+      notify.success(phase === 'rendu' ? 'Lien de rendu créé' : 'Lien créé')
       // Copie auto dans le clipboard pour partage immédiat (UX mobile terrain)
-      const url = buildCheckUrl(created.token)
+      const url = buildCheckUrlForPhase(created.token, created.phase || phase)
       try {
         await navigator.clipboard?.writeText(url)
         notify.info('URL copiée dans le presse-papier')
@@ -161,7 +179,7 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
   }
 
   const handleCopy = useCallback(async (token) => {
-    const url = buildCheckUrl(token.token)
+    const url = buildCheckUrlForPhase(token.token, token.phase || 'essais')
     try {
       await navigator.clipboard.writeText(url)
       notify.success('URL copiée')
@@ -171,7 +189,7 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
   }, [])
 
   const handleOpen = useCallback((token) => {
-    const url = buildCheckUrl(token.token)
+    const url = buildCheckUrlForPhase(token.token, token.phase || 'essais')
     window.open(url, '_blank', 'noopener,noreferrer')
   }, [])
 
@@ -233,16 +251,24 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
     }
   }, [])
 
-  // ─── Partition active vs révoqués ──────────────────────────────────────
-  const { activeTokens, revokedTokens } = useMemo(() => {
+  // ─── Partition active vs révoqués, filtré par phase ────────────────────
+  // MAT-13C : les tokens essais et rendu vivent dans la même table, on
+  // affiche uniquement ceux de la phase sélectionnée (chips en-tête). Les
+  // compteurs dans les chips eux reflètent tous les tokens actifs des deux
+  // phases pour aider à visualiser le total.
+  const { activeTokens, revokedTokens, countsByPhase } = useMemo(() => {
     const actives = []
     const revoked = []
+    const counts = { essais: 0, rendu: 0 }
     for (const t of tokens) {
+      const tokenPhase = t.phase || 'essais'
+      if (!t.revoked_at) counts[tokenPhase] = (counts[tokenPhase] || 0) + 1
+      if (tokenPhase !== phase) continue
       if (t.revoked_at) revoked.push(t)
       else actives.push(t)
     }
-    return { activeTokens: actives, revokedTokens: revoked }
-  }, [tokens])
+    return { activeTokens: actives, revokedTokens: revoked, countsByPhase: counts }
+  }, [tokens, phase])
 
   if (!open) return null
 
@@ -273,42 +299,88 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
       >
         {/* Header */}
         <div
-          className="flex items-start gap-3 px-5 py-4 border-b"
+          className="flex flex-col gap-3 px-5 py-4 border-b"
           style={{ borderColor: 'var(--brd-sub)' }}
         >
+          <div className="flex items-start gap-3">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+              style={{
+                background:
+                  phase === 'rendu'
+                    ? 'var(--orange-bg, #fff4e5)'
+                    : 'var(--blue-bg)',
+              }}
+            >
+              <Share2
+                className="w-4 h-4"
+                style={{
+                  color:
+                    phase === 'rendu'
+                      ? 'var(--orange, #b45309)'
+                      : 'var(--blue)',
+                }}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-sm font-bold" style={{ color: 'var(--txt)' }}>
+                {phase === 'rendu'
+                  ? 'Partager la checklist de rendu'
+                  : 'Partager la checklist terrain'}
+              </h2>
+              {versionLabel && (
+                <p
+                  className="text-xs mt-0.5 truncate"
+                  style={{ color: 'var(--txt-3)' }}
+                >
+                  {versionLabel}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-md flex items-center justify-center transition-all shrink-0"
+              style={{ background: 'transparent', color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hov)'
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+              aria-label="Fermer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Chips de phase — bascule entre liens essais et liens rendu.
+              Chaque chip affiche le nombre de liens actifs de sa phase. */}
           <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: 'var(--blue-bg)' }}
+            role="tablist"
+            aria-label="Phase"
+            className="flex items-center gap-1.5 p-1 rounded-lg w-fit"
+            style={{ background: 'var(--bg)' }}
           >
-            <Share2 className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+            <PhaseChip
+              active={phase === 'essais'}
+              onClick={() => setPhase('essais')}
+              icon={ClipboardCheck}
+              label="Essais"
+              count={countsByPhase.essais}
+              tone="blue"
+            />
+            <PhaseChip
+              active={phase === 'rendu'}
+              onClick={() => setPhase('rendu')}
+              icon={Truck}
+              label="Rendu"
+              count={countsByPhase.rendu}
+              tone="orange"
+            />
           </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold" style={{ color: 'var(--txt)' }}>
-              Partager la checklist terrain
-            </h2>
-            {versionLabel && (
-              <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>
-                {versionLabel}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-md flex items-center justify-center transition-all shrink-0"
-            style={{ background: 'transparent', color: 'var(--txt-3)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hov)'
-              e.currentTarget.style.color = 'var(--txt)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'var(--txt-3)'
-            }}
-            aria-label="Fermer"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Body (scrollable) */}
@@ -323,14 +395,18 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
               className="text-xs font-semibold uppercase tracking-wide mb-3"
               style={{ color: 'var(--txt-3)' }}
             >
-              Créer un nouveau lien
+              Créer un nouveau lien {phase === 'rendu' ? 'de rendu' : 'essais'}
             </h3>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="Ex. Équipe caméra (facultatif)"
+                placeholder={
+                  phase === 'rendu'
+                    ? 'Ex. Loueur VDEF — retour (facultatif)'
+                    : 'Ex. Équipe caméra (facultatif)'
+                }
                 className="flex-1 min-w-0 px-3 py-2 rounded-md text-sm"
                 style={{
                   background: 'var(--bg)',
@@ -365,7 +441,10 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
                 disabled={creating || !versionId}
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  background: 'var(--blue)',
+                  background:
+                    phase === 'rendu'
+                      ? 'var(--orange, #b45309)'
+                      : 'var(--blue)',
                   color: 'white',
                 }}
                 onMouseEnter={(e) => {
@@ -414,7 +493,7 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
                 </h3>
 
                 {activeTokens.length === 0 ? (
-                  <EmptyHint />
+                  <EmptyHint phase={phase} />
                 ) : (
                   <ul className="flex flex-col gap-2">
                     {activeTokens.map((tk) => (
@@ -491,7 +570,7 @@ export default function ShareChecklistModal({ open, onClose, activeVersion }) {
 
 // ─── Empty state ────────────────────────────────────────────────────────────
 
-function EmptyHint() {
+function EmptyHint({ phase = 'essais' }) {
   return (
     <div
       className="p-4 rounded-lg text-center"
@@ -505,12 +584,63 @@ function EmptyHint() {
         style={{ color: 'var(--txt-3)' }}
       />
       <p className="text-xs" style={{ color: 'var(--txt-2)' }}>
-        Aucun lien actif pour cette version.
+        {phase === 'rendu'
+          ? 'Aucun lien de rendu actif pour cette version.'
+          : 'Aucun lien actif pour cette version.'}
       </p>
       <p className="text-[11px] mt-1" style={{ color: 'var(--txt-3)' }}>
-        Crée un lien ci-dessus et partage-le par SMS / WhatsApp / email à l&apos;équipe.
+        {phase === 'rendu'
+          ? 'Crée un lien de rendu et partage-le au loueur pour sa checklist de retour.'
+          : 'Crée un lien ci-dessus et partage-le par SMS / WhatsApp / email à l\u2019équipe.'}
       </p>
     </div>
+  )
+}
+
+/**
+ * PhaseChip — chip interactif dans la tablist de phases. Affiche un
+ * compteur (nombre de tokens actifs de la phase). Le chip actif prend la
+ * couleur de sa phase (bleu = essais, orange = rendu).
+ */
+function PhaseChip({ active, onClick, icon: Icon, label, count, tone }) {
+  const isRendu = tone === 'orange'
+  const accent = isRendu ? 'var(--orange, #b45309)' : 'var(--blue)'
+  const accentBg = isRendu ? 'var(--orange-bg, #fff4e5)' : 'var(--blue-bg)'
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all"
+      style={{
+        background: active ? accentBg : 'transparent',
+        color: active ? accent : 'var(--txt-3)',
+        border: `1px solid ${active ? accent : 'transparent'}`,
+      }}
+      onMouseEnter={(e) => {
+        if (active) return
+        e.currentTarget.style.color = 'var(--txt-2)'
+      }}
+      onMouseLeave={(e) => {
+        if (active) return
+        e.currentTarget.style.color = 'var(--txt-3)'
+      }}
+    >
+      <Icon className="w-3 h-3" />
+      {label}
+      {count > 0 && (
+        <span
+          className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold"
+          style={{
+            background: active ? accent : 'var(--bg-elev)',
+            color: active ? 'white' : 'var(--txt-3)',
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -526,7 +656,7 @@ function TokenRow({
   revoked = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const url = buildCheckUrl(token.token)
+  const url = buildCheckUrlForPhase(token.token, token.phase || 'essais')
 
   const createdAgo = formatRelative(token.created_at)
   const lastAccessed = token.last_accessed_at

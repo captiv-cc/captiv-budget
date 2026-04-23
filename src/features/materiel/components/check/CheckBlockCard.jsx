@@ -1,11 +1,27 @@
 /**
  * CheckBlockCard — carte d'un bloc de matériel dans la checklist terrain
- * (MAT-10E + MAT-10F + MAT-23E).
+ * (MAT-10E + MAT-10F + MAT-23E + MAT-13D).
  *
  * Rend un header coloré (titre + progression + ⋯ menu bloc) + une preview
  * horizontale des photos pack (view-only) + la liste des items cliquables
  * + une section "Additifs" pour les items added_during_check + un formulaire
  * d'ajout inline en bas.
+ *
+ * MAT-13D — En phase='rendu', on simplifie la card :
+ *   - Items de base + additifs affichés à plat (les additifs sont actés par
+ *     la clôture essais, pas de distinction visuelle en rendu).
+ *   - AddItemForm caché : pas de mutation structurelle en rendu.
+ *   - Prop `phase` propagée à chaque CheckItemRow pour la lecture post_check_*.
+ *
+ * MAT-13D-bis — Les contenus essais (pack + problèmes + notes) restent
+ * visibles en rendu via les pastilles de la header + les entrées du menu ⋯,
+ * mais en mode CONSULTATION READ-ONLY (pas d'ajout/suppression) pour la
+ * traçabilité. L'opérateur rendu peut :
+ *   - Voir les photos pack (comparer retour vs initial)
+ *   - Voir les problèmes essais (photos + comments kind='probleme' combinés)
+ *   - Voir les notes essais (kind='note')
+ * Le bouton "Signaler retour" reste la seule action éditable (photos retour
+ * + comments kind='rendu').
  *
  * Quand tous les items (base + additifs) sont checkés, un bandeau vert est
  * ajouté en haut pour signaler visuellement "bloc validé".
@@ -60,7 +76,9 @@ export default function CheckBlockCard({
   items,
   progress,
   commentsByItem,
-  // MAT-23E : commentaires indexés par block_id (kinds 'probleme' + 'note').
+  // MAT-23E : commentaires indexés par block_id. Kinds possibles :
+  //   - essais : 'probleme' + 'note'
+  //   - rendu  : 'rendu' uniquement (MAT-13D)
   // Séparés localement pour les badges du menu ⋯ et les sections.
   commentsByBlock = null,
   // MAT-10O : index item_id → [loueurs]. Injecté depuis CheckSession pour
@@ -86,69 +104,125 @@ export default function CheckBlockCard({
   onUploadPhoto = null,
   onDeletePhoto = null,
   onUpdatePhotoCaption = null,
+  // MAT-13D — phase active, pilote l'UI simplifiée en rendu (voir doc du
+  // fichier). La `progress` passée doit déjà être phase-aware (calcul dans
+  // le hook via computeProgressByBlock({phase})).
+  phase = 'essais',
 }) {
+  const isRendu = phase === 'rendu'
+
   const { total = 0, checked = 0, ratio = 0, allChecked = false } = progress || {}
   const pct = Math.round(ratio * 100)
 
   // Section dépliée (exclusive) — mêmes clés que CheckItemRow pour garder la
   // mémoire musculaire entre les deux niveaux ligne / bloc.
   const [expandedSection, setExpandedSection] = useState(null)
-  //   'signal' | 'pack' | 'notes' | null
+  //   'signal' | 'pack' | 'notes' | null  (pack+notes absents en rendu)
   function toggleSection(key) {
     setExpandedSection((prev) => (prev === key ? null : key))
   }
 
-  // Sépare les items de base vs les additifs ajoutés pendant les essais.
-  // Les additifs apparaissent dans une section dédiée en bas.
-  const baseItems = items.filter((it) => !it.added_during_check)
-  const additifItems = items.filter((it) => it.added_during_check)
+  // MAT-13D — En rendu, additifs et items de base sont fusionnés (la clôture
+  // essais les a entérinés, plus de distinction métier). En essais on garde
+  // la séparation pour afficher la section "Additifs" en bas.
+  const baseItems = isRendu ? items : items.filter((it) => !it.added_during_check)
+  const additifItems = isRendu
+    ? []
+    : items.filter((it) => it.added_during_check)
 
   // MAT-11 : activation des photos. Une seule flag suffit (onUploadPhoto
   // présent == on est câblé). Les 2 autres callbacks sont implicitement là
   // aussi si l'appelant respecte l'API du hook.
   const photosEnabled = Boolean(onUploadPhoto)
 
-  // Split photos par kind sur l'ancrage bloc. Le hook nous donne toutes les
-  // photos block_id-anchored ; depuis MAT-23 les blocs peuvent porter les 2
-  // kinds (pack + probleme).
+  // Partition photos bloc par kind — source neutre (MAT-13D-bis).
   const blockPhotos = photosEnabled ? (photosByBlock?.get(block.id) || []) : []
-  const blockPhotosPack = blockPhotos.filter((p) => p.kind === 'pack')
-  const blockPhotosProbleme = blockPhotos.filter((p) => p.kind === 'probleme')
-
-  // Split comments par kind sur l'ancrage bloc.
+  const blockPhotosByKind = {
+    pack: blockPhotos.filter((p) => p.kind === 'pack'),
+    probleme: blockPhotos.filter((p) => p.kind === 'probleme'),
+    retour: blockPhotos.filter((p) => p.kind === 'retour'),
+  }
+  // Partition comments bloc par kind.
   const blockComments = commentsByBlock?.get(block.id) || []
-  const blockCommentsProbleme = blockComments.filter((c) => c.kind === 'probleme')
-  const blockCommentsNote = blockComments.filter((c) => c.kind !== 'probleme')
+  const blockCommentsByKind = {
+    probleme: blockComments.filter((c) => c.kind === 'probleme'),
+    rendu: blockComments.filter((c) => c.kind === 'rendu'),
+    note: blockComments.filter(
+      (c) => c.kind !== 'probleme' && c.kind !== 'rendu',
+    ),
+  }
 
-  const signalCount = blockCommentsProbleme.length + blockPhotosProbleme.length
+  // Section "signal" éditable — phase-dépendante.
+  const blockPhotosSignal = isRendu
+    ? blockPhotosByKind.retour
+    : blockPhotosByKind.probleme
+  const blockCommentsSignal = isRendu
+    ? blockCommentsByKind.rendu
+    : blockCommentsByKind.probleme
 
-  // Menu ⋯ du bloc — 3 entrées symétriques à celles d'un item. Pas de
-  // "Retirer/Supprimer" au niveau bloc (les blocs sont gérés via MaterielTab).
+  // Pack + notes : présents dans les 2 phases (éditables essais, RO rendu).
+  const blockPhotosPack = blockPhotosByKind.pack
+  const blockCommentsNote = blockCommentsByKind.note
+
+  // Consultation "Problèmes essais" — RENDU UNIQUEMENT (MAT-13D-bis).
+  const blockPhotosProblemeEssais = isRendu ? blockPhotosByKind.probleme : []
+  const blockCommentsProblemeEssais = isRendu
+    ? blockCommentsByKind.probleme
+    : []
+  const blockProblemeEssaisCount =
+    blockPhotosProblemeEssais.length + blockCommentsProblemeEssais.length
+
+  const signalCount = blockCommentsSignal.length + blockPhotosSignal.length
+
+  // Kinds à écrire depuis l'UI (MAT-13D — le hook rendu forcera aussi
+  // serveur-side, mais on garde la cohérence client pour la lisibilité).
+  const signalCommentKind = isRendu ? 'rendu' : 'probleme'
+  const noteCommentKind = isRendu ? 'rendu' : 'note'
+  const signalPhotoKind = isRendu ? 'retour' : 'probleme'
+
+  // Menu ⋯ du bloc. En essais : Signaler + Photos pack + Commentaires (tous
+  // éditables). En rendu (MAT-13D-bis) : Signaler retour (éditable) + 3
+  // entrées consultation RO (Photos pack, Problèmes essais, Notes essais).
   const menuActions = [
     {
       id: 'signal',
       icon: AlertTriangle,
-      label: 'Signaler',
+      label: isRendu ? 'Signaler retour' : 'Signaler',
       variant: signalCount > 0 ? 'warning' : 'default',
       badge: signalCount > 0 ? signalCount : null,
       onClick: () => toggleSection('signal'),
     },
-    onUploadPhoto || blockPhotosPack.length > 0
+    // Photos pack — visible dans les 2 phases. Editable essais, RO rendu.
+    (!isRendu && (onUploadPhoto || blockPhotosPack.length > 0)) ||
+    (isRendu && blockPhotosPack.length > 0)
       ? {
           id: 'pack',
           icon: Camera,
-          label: 'Photos pack',
+          label: isRendu ? 'Photos pack (essais)' : 'Photos pack',
           badge: blockPhotosPack.length > 0 ? blockPhotosPack.length : null,
           onClick: () => toggleSection('pack'),
         }
       : null,
-    {
-      id: 'notes',
-      icon: MessageCircle,
-      label: 'Commentaires',
-      badge: blockCommentsNote.length > 0 ? blockCommentsNote.length : null,
-      onClick: () => toggleSection('notes'),
-    },
+    // Problèmes essais — RENDU UNIQUEMENT (consultation RO combinée).
+    isRendu && blockProblemeEssaisCount > 0
+      ? {
+          id: 'probleme-essais',
+          icon: AlertTriangle,
+          label: 'Problèmes essais',
+          badge: blockProblemeEssaisCount,
+          onClick: () => toggleSection('probleme-essais'),
+        }
+      : null,
+    // Notes — visibles dans les 2 phases. Editable essais, RO rendu.
+    !isRendu || blockCommentsNote.length > 0
+      ? {
+          id: 'notes',
+          icon: MessageCircle,
+          label: isRendu ? 'Notes essais' : 'Commentaires',
+          badge: blockCommentsNote.length > 0 ? blockCommentsNote.length : null,
+          onClick: () => toggleSection('notes'),
+        }
+      : null,
   ].filter(Boolean)
 
   // Titre du bottom sheet mobile : label court du bloc (l'utilisateur ne voit
@@ -193,19 +267,37 @@ export default function CheckBlockCard({
               style={{ color: 'var(--txt)' }}
             >
               <span className="truncate">{block.titre || 'Bloc'}</span>
-              {/* Pastille signalement — écho visuel de CheckItemRow (style
-                  discret : texte coloré + icône, pas de fond ni bordure). */}
+              {/* Pastilles bloc — code couleur identique aux lignes CheckItemRow :
+                    • ⚠ violet : retour (rendu uniquement)
+                    • ⚠ orange : problèmes essais (essais direct, ou rendu RO)
+                    • 📷 bleu  : photos pack
+                    • 💬 gris  : notes essais                                */}
               {signalCount > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
-                  style={{ color: 'var(--orange)' }}
-                  title={`${signalCount} signalement${signalCount > 1 ? 's' : ''} sur ce bloc`}
+                  style={{ color: isRendu ? 'var(--purple)' : 'var(--orange)' }}
+                  title={
+                    isRendu
+                      ? `${signalCount} remarque${signalCount > 1 ? 's' : ''} au retour`
+                      : `${signalCount} signalement${signalCount > 1 ? 's' : ''} sur ce bloc`
+                  }
                 >
                   <AlertTriangle className="w-2.5 h-2.5" />
                   {signalCount}
                 </span>
               )}
-              {/* Pastille photos pack — repère discret côté bloc. */}
+              {/* Problèmes essais — RENDU UNIQUEMENT (rappel pour l'opérateur). */}
+              {isRendu && blockProblemeEssaisCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--orange)' }}
+                  title={`${blockProblemeEssaisCount} problème${blockProblemeEssaisCount > 1 ? 's' : ''} signalé${blockProblemeEssaisCount > 1 ? 's' : ''} aux essais`}
+                >
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  {blockProblemeEssaisCount}
+                </span>
+              )}
+              {/* Photos pack — visible dans les 2 phases (consultation en rendu). */}
               {blockPhotosPack.length > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
@@ -216,7 +308,7 @@ export default function CheckBlockCard({
                   {blockPhotosPack.length}
                 </span>
               )}
-              {/* Pastille commentaires notes — repère discret côté bloc. */}
+              {/* Notes — visibles dans les 2 phases (consultation en rendu). */}
               {blockCommentsNote.length > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
@@ -283,11 +375,12 @@ export default function CheckBlockCard({
       </header>
 
       {/* MAT-23E : Preview photos pack (view-only, hideUploader=true) ───────
-          On affiche la grille des photos pack en tête pour que l'équipe voit
-          le contenu de la valise "d'un coup d'œil". L'ajout se fait via
-          ⋯ → Photos pack (section éditable dédiée). On masque la preview
-          si aucune photo pack : on évite un grand espace vide sur les blocs
-          sans pack documenté. */}
+          Grille des photos pack en tête pour que l'équipe voie le contenu
+          de la valise "d'un coup d'œil". L'ajout se fait via ⋯ → Photos pack
+          (section éditable en essais / consultation RO en rendu). On masque
+          la preview si aucune photo pack : évite un grand espace vide.
+          MAT-13D-bis : preview conservée en rendu aussi (utile pour comparer
+          retour vs initial), mais readOnly (pas d'édition de caption).     */}
       {photosEnabled && blockPhotosPack.length > 0 && (
         <CheckPhotosSection
           photos={blockPhotosPack}
@@ -300,19 +393,22 @@ export default function CheckBlockCard({
           onUpdateCaption={onUpdatePhotoCaption}
           compact
           hideUploader
+          readOnly={isRendu}
         />
       )}
 
-      {/* Section dépliée — signalements (photos + comments problème) ──── */}
+      {/* Section dépliée — signalements (photos + comments signal) ──── */}
       {expandedSection === 'signal' && (
         <BlockSignalSection
-          photos={blockPhotosProbleme}
-          comments={blockCommentsProbleme}
+          photos={blockPhotosSignal}
+          comments={blockCommentsSignal}
           anchor={{ blockId: block.id }}
           userName={userName}
           isAdmin={isAdmin}
+          phase={phase}
+          photoKind={signalPhotoKind}
           onAddComment={(body) =>
-            onAddComment({ blockId: block.id, kind: 'probleme', body })
+            onAddComment({ blockId: block.id, kind: signalCommentKind, body })
           }
           onUploadPhoto={onUploadPhoto}
           onDeletePhoto={onDeletePhoto}
@@ -320,7 +416,7 @@ export default function CheckBlockCard({
         />
       )}
 
-      {/* Section dépliée — photos pack éditable (uploader visible) ─────── */}
+      {/* Section photos pack — éditable en essais, READ-ONLY en rendu. */}
       {expandedSection === 'pack' && (
         <CheckPhotosSection
           photos={blockPhotosPack}
@@ -331,19 +427,41 @@ export default function CheckBlockCard({
           onUpload={onUploadPhoto}
           onDelete={onDeletePhoto}
           onUpdateCaption={onUpdatePhotoCaption}
+          readOnly={isRendu}
+          emptyLabel={
+            isRendu
+              ? 'Aucune photo pack documentée sur ce bloc pendant les essais.'
+              : undefined
+          }
         />
       )}
 
-      {/* Section dépliée — commentaires notes ──────────────────────────── */}
+      {/* Section problèmes essais — RENDU UNIQUEMENT (consultation RO). */}
+      {isRendu && expandedSection === 'probleme-essais' && (
+        <BlockEssaisProblemeSection
+          photos={blockPhotosProblemeEssais}
+          comments={blockCommentsProblemeEssais}
+          anchor={{ blockId: block.id }}
+          userName={userName}
+          isAdmin={isAdmin}
+        />
+      )}
+
+      {/* Section commentaires notes — éditable en essais, RO en rendu. */}
       {expandedSection === 'notes' && (
         <BlockCommentsThread
           comments={blockCommentsNote}
           onSubmit={(body) =>
-            onAddComment({ blockId: block.id, kind: 'note', body })
+            onAddComment({ blockId: block.id, kind: noteCommentKind, body })
           }
           placeholder="Commentaire sur ce bloc…"
-          emptyLabel="Aucun commentaire sur ce bloc. Laisse une note pour l'équipe."
+          emptyLabel={
+            isRendu
+              ? 'Aucune note interne posée sur ce bloc pendant les essais.'
+              : "Aucun commentaire sur ce bloc. Laisse une note pour l'équipe."
+          }
           submitLabel="Envoyer"
+          readOnly={isRendu}
         />
       )}
 
@@ -363,6 +481,7 @@ export default function CheckBlockCard({
               photos={photosByItem?.get(it.id) || []}
               userName={userName}
               isAdmin={isAdmin}
+              phase={phase}
               onToggle={onToggleItem}
               onAddComment={onAddComment}
               onSetRemoved={onSetRemoved}
@@ -376,8 +495,8 @@ export default function CheckBlockCard({
         </div>
       )}
 
-      {/* Section additifs ─────────────────────────────────────────────────── */}
-      {additifItems.length > 0 && (
+      {/* Section additifs — essais uniquement (MAT-13D fusionne en rendu) ── */}
+      {!isRendu && additifItems.length > 0 && (
         <>
           <div
             className="px-4 py-2 text-xs font-medium uppercase tracking-wide border-t border-b"
@@ -399,6 +518,7 @@ export default function CheckBlockCard({
                 photos={photosByItem?.get(it.id) || []}
                 userName={userName}
                 isAdmin={isAdmin}
+                phase={phase}
                 onToggle={onToggleItem}
                 onAddComment={onAddComment}
                 onSetRemoved={onSetRemoved}
@@ -413,8 +533,11 @@ export default function CheckBlockCard({
         </>
       )}
 
-      {/* Formulaire d'ajout d'additif ─────────────────────────────────────── */}
-      <AddItemForm blockId={block.id} onAdd={onAddItem} loueurs={loueurs} />
+      {/* Formulaire d'ajout d'additif — essais uniquement (pas de mutation
+          structurelle en rendu, le hook ne fournit même pas onAddItem) ─── */}
+      {!isRendu && onAddItem && (
+        <AddItemForm blockId={block.id} onAdd={onAddItem} loueurs={loueurs} />
+      )}
     </section>
   )
 }
@@ -422,9 +545,13 @@ export default function CheckBlockCard({
 /* ═══ Block signal section ═══════════════════════════════════════════════ */
 
 /**
- * Jumelle côté bloc de SignalSection (CheckItemRow). Combine photos problème
- * + composer commentaires problème. Pas de dépendance sur CheckItemRow pour
- * garder le composant bloc autonome (sinon cyclique à l'import).
+ * Jumelle côté bloc de SignalSection (CheckItemRow). Combine photos + composer
+ * commentaires signal — adapte son wording à la phase (MAT-13D) :
+ *   essais → photos kind='probleme' + comments kind='probleme'
+ *   rendu  → photos kind='retour'   + comments kind='rendu'
+ *
+ * Pas de dépendance sur CheckItemRow pour garder le composant bloc autonome
+ * (éviter un cycle à l'import).
  */
 function BlockSignalSection({
   photos,
@@ -432,12 +559,26 @@ function BlockSignalSection({
   anchor,
   userName,
   isAdmin,
+  phase = 'essais',
+  photoKind = 'probleme',
   onAddComment,
   onUploadPhoto,
   onDeletePhoto,
   onUpdatePhotoCaption,
 }) {
   const photosEnabled = Boolean(onUploadPhoto)
+  const isRendu = phase === 'rendu'
+  const placeholder = isRendu
+    ? "Décrire l'état de ce bloc au retour…"
+    : 'Signaler un problème sur ce bloc…'
+  const submitLabel = isRendu ? 'Enregistrer' : 'Signaler'
+  const emptyLabel = isRendu
+    ? photosEnabled
+      ? 'Aucune remarque sur ce bloc au retour. Photos + commentaire visibles dans le bon de retour.'
+      : 'Aucune remarque sur ce bloc. Elles apparaissent dans le bon de retour.'
+    : photosEnabled
+      ? 'Aucun problème signalé. Photos + commentaire visibles dans le bilan loueur.'
+      : 'Aucun problème signalé. Les signalements apparaissent dans le bilan loueur.'
   return (
     <div
       className="border-t"
@@ -446,7 +587,7 @@ function BlockSignalSection({
       {photosEnabled && (
         <CheckPhotosSection
           photos={photos}
-          kind="probleme"
+          kind={photoKind}
           anchor={anchor}
           userName={userName}
           isAdmin={isAdmin}
@@ -458,13 +599,46 @@ function BlockSignalSection({
       <BlockCommentsThread
         comments={comments}
         onSubmit={onAddComment}
-        placeholder="Signaler un problème sur ce bloc…"
-        emptyLabel={
-          photosEnabled
-            ? 'Aucun problème signalé. Photos + commentaire visibles dans le bilan loueur.'
-            : 'Aucun problème signalé. Les signalements apparaissent dans le bilan loueur.'
-        }
-        submitLabel="Signaler"
+        placeholder={placeholder}
+        emptyLabel={emptyLabel}
+        submitLabel={submitLabel}
+      />
+    </div>
+  )
+}
+
+/* ═══ Block essais probleme section (consultation RO en phase rendu) ═══ */
+
+/**
+ * Jumelle de EssaisProblemeSection (CheckItemRow) côté bloc. Combine photos
+ * kind='probleme' + comments kind='probleme' pour consultation RO depuis
+ * la phase rendu (MAT-13D-bis).
+ */
+function BlockEssaisProblemeSection({
+  photos,
+  comments,
+  anchor,
+  userName,
+  isAdmin,
+}) {
+  return (
+    <div
+      className="border-t"
+      style={{ borderColor: 'var(--brd-sub)', background: 'var(--bg)' }}
+    >
+      <CheckPhotosSection
+        photos={photos}
+        kind="probleme"
+        anchor={anchor}
+        userName={userName}
+        isAdmin={isAdmin}
+        readOnly
+        emptyLabel="Aucune photo problème posée sur ce bloc pendant les essais."
+      />
+      <BlockCommentsThread
+        comments={comments}
+        readOnly
+        emptyLabel="Aucun signalement texte sur ce bloc pendant les essais."
       />
     </div>
   )
@@ -482,12 +656,15 @@ function BlockCommentsThread({
   placeholder = 'Ajouter un commentaire…',
   emptyLabel = null,
   submitLabel = 'Envoyer',
+  // MAT-13D-bis : consultation pure (essais lus depuis rendu).
+  readOnly = false,
 }) {
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (readOnly) return
     const trimmed = body.trim()
     if (!trimmed || submitting) return
     setSubmitting(true)
@@ -542,34 +719,36 @@ function BlockCommentsThread({
         </ul>
       )}
 
-      <form onSubmit={handleSubmit} className="flex items-end gap-2 pt-2">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={placeholder}
-          rows={2}
-          className="flex-1 px-3 py-2 rounded-md text-sm resize-none"
-          style={{
-            background: 'var(--bg-surf)',
-            border: '1px solid var(--brd)',
-            color: 'var(--txt)',
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              handleSubmit(e)
-            }
-          }}
-        />
-        <button
-          type="submit"
-          disabled={!body.trim() || submitting}
-          className="px-3 py-2 rounded-md text-sm font-medium disabled:opacity-40"
-          style={{ background: 'var(--acc)', color: '#000' }}
-        >
-          {submitting ? '…' : submitLabel}
-        </button>
-      </form>
+      {!readOnly && (
+        <form onSubmit={handleSubmit} className="flex items-end gap-2 pt-2">
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={placeholder}
+            rows={2}
+            className="flex-1 px-3 py-2 rounded-md text-sm resize-none"
+            style={{
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSubmit(e)
+              }
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!body.trim() || submitting}
+            className="px-3 py-2 rounded-md text-sm font-medium disabled:opacity-40"
+            style={{ background: 'var(--acc)', color: '#000' }}
+          >
+            {submitting ? '…' : submitLabel}
+          </button>
+        </form>
+      )}
     </div>
   )
 }

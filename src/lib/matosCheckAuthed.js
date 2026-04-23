@@ -48,17 +48,28 @@ export async function fetchCheckSessionAuthed(versionId) {
 // ═══ RPC authed : actions ═══════════════════════════════════════════════════
 
 /**
- * Toggle le pre_check d'un item. Côté serveur, `auth.uid()` est utilisé pour
- * `pre_check_by` et `profiles.full_name` pour `pre_check_by_name` — pas besoin
- * de passer userName ici.
+ * Toggle le check d'un item pour une phase donnée. Côté serveur, `auth.uid()`
+ * est utilisé pour `{pre|post}_check_by` et `profiles.full_name` pour le
+ * `_by_name`. Pas besoin de passer userName ici.
  *
- * Retour identique à `toggleCheck` côté token : `{ item_id, pre_check_at,
- * pre_check_by, pre_check_by_name, … }`.
+ * MAT-13 : `phase` route la colonne (pre_check_* ou post_check_*). Pas de
+ * contrainte de phase côté authed (un admin peut toggler les deux phases
+ * via le même RPC). Défaut 'essais' pour compat backward.
+ *
+ * Retour : `{ item_id, phase, pre_check_at | post_check_at, *_by_name }`.
+ *
+ * @param {object} opts
+ * @param {string} opts.itemId
+ * @param {('essais'|'rendu')} [opts.phase='essais']
  */
-export async function toggleCheckAuthed({ itemId }) {
+export async function toggleCheckAuthed({ itemId, phase = 'essais' }) {
   if (!itemId) throw new Error('toggleCheckAuthed : itemId requis')
+  if (!['essais', 'rendu'].includes(phase)) {
+    throw new Error(`toggleCheckAuthed : phase invalide (${phase})`)
+  }
   const { data, error } = await supabase.rpc('check_action_toggle_authed', {
     p_item_id: itemId,
+    p_phase: phase,
   })
   if (error) throw error
   return data
@@ -103,7 +114,7 @@ export async function addCheckCommentAuthed({
   if (!!itemId === !!blockId) {
     throw new Error('addCheckCommentAuthed : exactement un ancrage (itemId XOR blockId)')
   }
-  if (!['probleme', 'note'].includes(kind)) {
+  if (!['probleme', 'note', 'rendu'].includes(kind)) {
     throw new Error(`addCheckCommentAuthed : kind invalide (${kind})`)
   }
   if (!body?.trim()) throw new Error('addCheckCommentAuthed : corps du message requis')

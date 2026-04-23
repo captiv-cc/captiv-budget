@@ -46,8 +46,10 @@ import {
   Lock,
   LockOpen,
   Package,
+  PackageCheck,
   Plus,
   Share2,
+  Truck,
   Users,
 } from 'lucide-react'
 // Note — MAT-22 : "Aperçu bilan" et "Clôturer" ne sont plus des boutons
@@ -84,10 +86,20 @@ export default function MaterielHeader({
   onPreviewBilan,
   onCloseEssais,
   onReopenEssais,
+  // MAT-13C — Rendu (loueur / retour de matériel). Parallèle à essais :
+  // mode chantier authed dédié, lien tokenisé dédié (phase='rendu'), PDF
+  // "bon de retour" synthétique, clôture, ré-ouverture.
+  onOpenChantierModeRendu,
+  onOpenShareRendu,
+  onPreviewBonRetour,
+  onCloseRendu,
+  onReopenRendu,
   canEdit = true,
 }) {
   const closedAt = activeVersion?.closed_at || null
   const closedByName = activeVersion?.closed_by_name || null
+  const renduClosedAt = activeVersion?.rendu_closed_at || null
+  const renduClosedByName = activeVersion?.rendu_closed_by_name || null
   const done =
     (checklistProgress?.pre?.done || 0) +
     (checklistProgress?.post?.done || 0) +
@@ -240,6 +252,35 @@ export default function MaterielHeader({
               closedByName={closedByName}
               canEdit={canEdit}
               onReopen={onReopenEssais}
+            />
+          )}
+
+          {/* MAT-13C : Dropdown "Rendu" — parallèle au dropdown "Essais".
+              Point d'entrée unique pour les workflows de la phase rendu
+              (loueur / retour matériel) : mode chantier authed, lien
+              tokenisé dédié, bon de retour PDF, clôture.
+              Gate "essais non clos" : si la version n'est pas clôturée côté
+              essais, les items sont disabled + tooltip explicatif. C'est
+              une UX non bloquante (aucun verrou SQL), on laisse juste
+              l'utilisateur comprendre l'ordre naturel du flow. */}
+          {activeVersion && (
+            <RenduDropdown
+              onOpenChantierMode={onOpenChantierModeRendu}
+              onOpenShare={onOpenShareRendu}
+              onPreviewBonRetour={onPreviewBonRetour}
+              onCloseRendu={onCloseRendu}
+              canEdit={canEdit}
+              essaisClosedAt={closedAt}
+              renduClosedAt={renduClosedAt}
+            />
+          )}
+
+          {activeVersion && renduClosedAt && (
+            <ClotureRenduBadge
+              closedAt={renduClosedAt}
+              closedByName={renduClosedByName}
+              canEdit={canEdit}
+              onReopen={onReopenRendu}
             />
           )}
 
@@ -491,6 +532,306 @@ function EssaisDropdownItem({ icon: Icon, label, description, onClick }) {
         </span>
       </span>
     </button>
+  )
+}
+
+/**
+ * Dropdown "Rendu" — point d'entrée unique pour tous les workflows de la
+ * phase rendu (retour loueur), miroir du dropdown "Essais" (MAT-13C) :
+ *
+ *   GROUPE 1 — workflows terrain :
+ *     - Checklist rendu : ouvre le mode chantier authed en phase rendu
+ *       (route `/projets/:id/materiel/rendu/:versionId`).
+ *     - Partager : génère un lien tokenisé phase='rendu' pour le loueur
+ *       (même ShareChecklistModal, sélecteur phase).
+ *
+ *   GROUPE 2 — bilan / clôture :
+ *     - Aperçu bon de retour : preview du PDF synthétique MAT-13E.
+ *     - Clôturer le rendu : fige la version côté rendu + archive PDF.
+ *
+ * Gate "essais non clos" : si la version n'a pas été clôturée côté essais
+ * (`!essaisClosedAt`), les items sont visuellement disabled avec un tooltip
+ * explicite. C'est une UX non bloquante (aucun verrou SQL côté MAT-13A), on
+ * guide juste l'utilisateur dans l'ordre naturel du workflow. L'admin peut
+ * toujours forcer via le badge Clôturé (pas relevant ici) — ici on veut
+ * juste éviter les ouvertures de rendu "par erreur".
+ */
+function RenduDropdown({
+  onOpenChantierMode,
+  onOpenShare,
+  onPreviewBonRetour,
+  onCloseRendu,
+  canEdit = true,
+  essaisClosedAt = null,
+  renduClosedAt = null,
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    function handleClick(e) {
+      if (!containerRef.current) return
+      if (!containerRef.current.contains(e.target)) setOpen(false)
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  const essaisGate = !essaisClosedAt
+  const gateTitle = essaisGate
+    ? 'Clôturez d\'abord les essais avant de démarrer le rendu.'
+    : null
+
+  // showCloseItem : canEdit + rendu pas encore clôturé + handler dispo
+  const showCloseItem = Boolean(canEdit && onCloseRendu && !renduClosedAt)
+  const showShareItem = Boolean(canEdit && onOpenShare)
+  const showBilanGroup = Boolean(onPreviewBonRetour || showCloseItem)
+  const showSeparator =
+    Boolean(onOpenChantierMode || showShareItem) && showBilanGroup
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
+        style={{
+          background: open ? 'var(--orange-bg, #fff4e5)' : 'var(--bg-elev)',
+          color: open ? 'var(--orange, #b45309)' : 'var(--txt-2)',
+          border: `1px solid ${open ? 'var(--orange, #b45309)' : 'var(--brd)'}`,
+        }}
+        onMouseEnter={(e) => {
+          if (open) return
+          e.currentTarget.style.background = 'var(--orange-bg, #fff4e5)'
+          e.currentTarget.style.color = 'var(--orange, #b45309)'
+          e.currentTarget.style.borderColor = 'var(--orange, #b45309)'
+        }}
+        onMouseLeave={(e) => {
+          if (open) return
+          e.currentTarget.style.background = 'var(--bg-elev)'
+          e.currentTarget.style.color = 'var(--txt-2)'
+          e.currentTarget.style.borderColor = 'var(--brd)'
+        }}
+        title="Retour loueur, bon de retour et clôture"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Truck className="w-3 h-3" />
+        Rendu
+        <ChevronDown className="w-3 h-3" />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
+          style={{
+            minWidth: '260px',
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
+          }}
+        >
+          {/* Bandeau "essais non clos" — informatif, non bloquant */}
+          {essaisGate && (
+            <div
+              className="flex items-start gap-2 px-3 py-2 text-[11px] leading-tight"
+              style={{
+                background: 'var(--orange-bg, #fff4e5)',
+                color: 'var(--orange, #b45309)',
+                borderBottom: '1px solid var(--brd-sub)',
+              }}
+            >
+              <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+              <span>
+                Les essais ne sont pas clôturés. Tu peux ouvrir le rendu quand
+                même, mais l&apos;ordre naturel est&nbsp;: <strong>essais → rendu</strong>.
+              </span>
+            </div>
+          )}
+
+          {/* Groupe 1 : workflows terrain */}
+          {onOpenChantierMode && (
+            <RenduDropdownItem
+              icon={PackageCheck}
+              label="Checklist rendu"
+              description="Ouvrir le mode chantier rendu (ton compte)"
+              onClick={() => {
+                setOpen(false)
+                onOpenChantierMode?.()
+              }}
+              dimmed={essaisGate}
+              dimmedTitle={gateTitle}
+            />
+          )}
+          {showShareItem && (
+            <RenduDropdownItem
+              icon={Share2}
+              label="Partager"
+              description="Générer un lien rendu pour le loueur"
+              onClick={() => {
+                setOpen(false)
+                onOpenShare?.()
+              }}
+              dimmed={essaisGate}
+              dimmedTitle={gateTitle}
+            />
+          )}
+
+          {showSeparator && (
+            <div
+              className="my-1 mx-2"
+              style={{ borderTop: '1px solid var(--brd-sub)' }}
+            />
+          )}
+
+          {/* Groupe 2 : bilan / clôture */}
+          {onPreviewBonRetour && (
+            <RenduDropdownItem
+              icon={FileSearch}
+              label="Aperçu bon de retour"
+              description="PDF synthétique des items retournés"
+              onClick={() => {
+                setOpen(false)
+                onPreviewBonRetour?.()
+              }}
+              dimmed={essaisGate}
+              dimmedTitle={gateTitle}
+            />
+          )}
+          {showCloseItem && (
+            <RenduDropdownItem
+              icon={Lock}
+              label="Clôturer le rendu"
+              description="Archiver le bon de retour et figer la phase rendu"
+              onClick={() => {
+                setOpen(false)
+                onCloseRendu?.()
+              }}
+              dimmed={essaisGate}
+              dimmedTitle={gateTitle}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RenduDropdownItem({
+  icon: Icon,
+  label,
+  description,
+  onClick,
+  dimmed = false,
+  dimmedTitle = null,
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all"
+      style={{
+        background: 'transparent',
+        color: dimmed ? 'var(--txt-3)' : 'var(--txt-2)',
+        opacity: dimmed ? 0.75 : 1,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--bg-hov)'
+        if (!dimmed) e.currentTarget.style.color = 'var(--txt)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+        e.currentTarget.style.color = dimmed ? 'var(--txt-3)' : 'var(--txt-2)'
+      }}
+      title={dimmed && dimmedTitle ? dimmedTitle : undefined}
+    >
+      <Icon
+        className="w-3.5 h-3.5 shrink-0"
+        style={{ color: 'var(--orange, #b45309)' }}
+      />
+      <span className="flex flex-col min-w-0">
+        <span className="text-xs font-semibold">{label}</span>
+        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+          {description}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+/**
+ * Badge "Rendu clôturé le DD/MM/YYYY par X" — équivalent de `ClotureBadge`
+ * mais pour la phase rendu. Affiché dès que `activeVersion.rendu_closed_at`
+ * est posé. Expose un bouton Ré-ouvrir pour les admins.
+ */
+function ClotureRenduBadge({ closedAt, closedByName, canEdit, onReopen }) {
+  const dateLabel = (() => {
+    try {
+      const d = new Date(closedAt)
+      return d.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      })
+    } catch {
+      return '—'
+    }
+  })()
+
+  const title = closedByName
+    ? `Rendu clôturé le ${dateLabel} par ${closedByName}`
+    : `Rendu clôturé le ${dateLabel}`
+
+  return (
+    <div
+      className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+      style={{
+        background: 'var(--orange-bg, #fff4e5)',
+        color: 'var(--orange, #b45309)',
+        border: '1px solid var(--orange, #b45309)',
+      }}
+      title={title}
+    >
+      <PackageCheck className="w-3 h-3" />
+      <span className="truncate max-w-[10rem]">
+        Rendu clôturé {dateLabel}
+        {closedByName ? ` · ${closedByName}` : ''}
+      </span>
+      {canEdit && onReopen && (
+        <button
+          type="button"
+          onClick={onReopen}
+          className="flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded transition-all ml-1"
+          style={{
+            background: 'transparent',
+            color: 'var(--orange, #b45309)',
+            border: '1px solid var(--orange, #b45309)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--orange, #b45309)'
+            e.currentTarget.style.color = 'white'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--orange, #b45309)'
+          }}
+          title="Ré-ouvrir le rendu (efface rendu_closed_at, garde l'archive du bon de retour)"
+        >
+          <LockOpen className="w-3 h-3" />
+          Ré-ouvrir
+        </button>
+      )}
+    </div>
   )
 }
 

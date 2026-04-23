@@ -40,6 +40,14 @@
 //
 // Un item retiré est compté dans `removed` ET pas dans `total` ; il peut aussi
 // être un additif (on veut le tracer 2x : "3 additifs dont 1 retiré").
+//
+// Photos (MAT-11E)
+// ────────────────
+// Chaque item enrichi porte `photos: []` (kind='probleme' ancrées à l'item,
+// triées chrono ASC). Chaque entrée de bloc porte `pack_photos: []` (kind='pack'
+// ancrées au bloc, triées chrono ASC). Le PDF global inclut les deux ; le PDF
+// loueur n'inclut QUE les photos probleme des items du bucket (la sémantique
+// pack_photos = usage interne remballe, cf. migration MAT-11A).
 // ════════════════════════════════════════════════════════════════════════════
 
 // Sentinelle pour le bucket "Sans loueur" — id stable et reconnaissable.
@@ -66,6 +74,8 @@ export function aggregateBilanData(session) {
       version: null,
       global: { blocks: [], stats: emptyStats(), closedAt: null, closedByName: null },
       byLoueur: [],
+      // MAT-13G : pass-through vide pour conserver un contrat stable.
+      version_loueur_infos: [],
     }
   }
 
@@ -76,6 +86,7 @@ export function aggregateBilanData(session) {
   const loueurs = Array.isArray(session.loueurs) ? session.loueurs : []
   const itemLoueurs = Array.isArray(session.item_loueurs) ? session.item_loueurs : []
   const comments = Array.isArray(session.comments) ? session.comments : []
+  const photos = Array.isArray(session.photos) ? session.photos : []
 
   // ─── Index auxiliaires ────────────────────────────────────────────────
   const loueurById = new Map(loueurs.map((l) => [l.id, l]))
@@ -113,17 +124,54 @@ export function aggregateBilanData(session) {
     })
   }
 
-  // ─── Enrichissement des items (loueurs + comments collés) ───────────
+  // ─── Photos : index par ancrage (MAT-11E + MAT-13E) ─────────────────
+  // kind='probleme' → ancrage item_id (essais), kind='pack' → ancrage
+  // block_id (essais), kind='retour' → ancrage item_id (rendu). On prépare
+  // 3 maps triées chrono ASC (première prise d'abord). On IGNORE les kinds
+  // inattendus (robustesse future si on ajoute un kind sans mettre à jour
+  // ici). Les pack photos vont UNIQUEMENT dans le PDF global (cf. migration
+  // MAT-11A : usage interne remballe, non-visible par le loueur). Les
+  // photos retour sont attachées en parallèle (`photos_retour`) pour
+  // alimenter le bon de retour PDF MAT-13E sans dupliquer la passe.
+  const problemePhotosByItem = new Map()
+  const packPhotosByBlock = new Map()
+  const retourPhotosByItem = new Map()
+  for (const p of photos) {
+    if (!p) continue
+    if (p.kind === 'probleme' && p.item_id) {
+      if (!problemePhotosByItem.has(p.item_id)) problemePhotosByItem.set(p.item_id, [])
+      problemePhotosByItem.get(p.item_id).push(p)
+    } else if (p.kind === 'pack' && p.block_id) {
+      if (!packPhotosByBlock.has(p.block_id)) packPhotosByBlock.set(p.block_id, [])
+      packPhotosByBlock.get(p.block_id).push(p)
+    } else if (p.kind === 'retour' && p.item_id) {
+      if (!retourPhotosByItem.has(p.item_id)) retourPhotosByItem.set(p.item_id, [])
+      retourPhotosByItem.get(p.item_id).push(p)
+    }
+  }
+  const sortChrono = (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0)
+  for (const arr of problemePhotosByItem.values()) arr.sort(sortChrono)
+  for (const arr of packPhotosByBlock.values()) arr.sort(sortChrono)
+  for (const arr of retourPhotosByItem.values()) arr.sort(sortChrono)
+
+  // ─── Enrichissement des items (loueurs + comments + photos collés) ──
   const enrichItem = (it) => ({
     ...it,
     loueurs: loueursByItem.get(it.id) || [],
     comments: commentsByItem.get(it.id) || [],
+    photos: problemePhotosByItem.get(it.id) || [],
+    photos_retour: retourPhotosByItem.get(it.id) || [],
   })
 
   // ─── Construction du bilan GLOBAL ────────────────────────────────────
   const globalBlocks = blocks.map((block) => {
     const arr = (itemsByBlock.get(block.id) || []).map(enrichItem)
-    return { block, items: arr, stats: computeStats(arr) }
+    return {
+      block,
+      items: arr,
+      stats: computeStats(arr),
+      pack_photos: packPhotosByBlock.get(block.id) || [],
+    }
   })
   const globalStats = computeStats(items.map(enrichItem))
 
@@ -141,12 +189,19 @@ export function aggregateBilanData(session) {
 
   // Ordre : l'ordre des loueurs tel que fourni par la RPC (déjà cohérent avec
   // l'UI /check/:token). On ne re-trie pas.
+  //
+  // Note MAT-11E : on N'attache PAS les pack photos aux sections loueur —
+  // elles ne sont affichées que dans le PDF global. On passe `{}` comme index
+  // pack pour garder la shape cohérente (tous les block entries ont
+  // `pack_photos: []`, peut-être vide).
+  const emptyPackIndex = new Map()
   for (const loueur of loueurs) {
     const section = buildLoueurSection({
       loueur,
       blocks,
       itemsByBlock,
       enrichItem,
+      packPhotosByBlock: emptyPackIndex,
       predicate: (it) =>
         (loueursByItem.get(it.id) || []).some((l) => l?.id === loueur.id),
     })
@@ -163,30 +218,48 @@ export function aggregateBilanData(session) {
     blocks,
     itemsByBlock,
     enrichItem,
+    packPhotosByBlock: emptyPackIndex,
     predicate: (it) => (loueursByItem.get(it.id) || []).length === 0,
   })
   if (noLoueurSection.blocks.some((b) => b.items.length > 0)) {
     byLoueur.push(noLoueurSection)
   }
 
+  // MAT-13G : pass-through des infos logistiques par loueur (contient
+  // `rendu_feedback` et les autres champs du pivot matos_version_loueur_infos).
+  // On l'expose tel quel pour que les PDFs puissent injecter les feedbacks
+  // sans re-fetch. Array potentiellement vide.
+  const version_loueur_infos = Array.isArray(session.version_loueur_infos)
+    ? session.version_loueur_infos
+    : []
+
   return {
     project,
     version,
     global: globalSection,
     byLoueur,
+    version_loueur_infos,
   }
 }
 
 // ─── Helpers internes ──────────────────────────────────────────────────────
 
-function buildLoueurSection({ loueur, blocks, itemsByBlock, enrichItem, predicate }) {
+function buildLoueurSection({
+  loueur, blocks, itemsByBlock, enrichItem, predicate,
+  packPhotosByBlock = new Map(),
+}) {
   const sectionBlocks = []
   const flatItems = []
   for (const block of blocks) {
     const arr = (itemsByBlock.get(block.id) || [])
       .filter(predicate)
       .map(enrichItem)
-    sectionBlocks.push({ block, items: arr, stats: computeStats(arr) })
+    sectionBlocks.push({
+      block,
+      items: arr,
+      stats: computeStats(arr),
+      pack_photos: packPhotosByBlock.get(block.id) || [],
+    })
     for (const it of arr) flatItems.push(it)
   }
   return {

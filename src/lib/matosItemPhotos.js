@@ -172,44 +172,75 @@ export async function processImageForUpload(
 
   let working = input
 
+  // Flags indicatifs pour l'UI (ex. afficher un toast "image non compressée,
+  // la taille peut être plus grande que prévu"). Ne bloque jamais l'upload.
+  let heicFallback = false
+  let compressionFallback = false
+
   // ── 1. Transcodage HEIC → JPEG ─────────────────────────────────────────
   if (isHeicFile(working)) {
-    const mod = await import('heic2any')
-    const heic2any = mod.default || mod
-    const blob = await heic2any({
-      blob: working,
-      toType: 'image/jpeg',
-      quality: originalQuality ? 0.95 : 0.85,
-    })
-    // heic2any peut retourner un Blob ou un array (si multi-frame) — on prend
-    // la 1ère frame si tableau (JPEG ne gère pas le multi-image de toute façon).
-    const finalBlob = Array.isArray(blob) ? blob[0] : blob
-    const renamed = working.name.replace(/\.(heic|heif)$/i, '.jpg')
-    working = new File([finalBlob], renamed || 'photo.jpg', {
-      type: 'image/jpeg',
-      lastModified: Date.now(),
-    })
+    try {
+      const mod = await import('heic2any')
+      const heic2any = mod.default || mod
+      const blob = await heic2any({
+        blob: working,
+        toType: 'image/jpeg',
+        quality: originalQuality ? 0.95 : 0.85,
+      })
+      // heic2any peut retourner un Blob ou un array (si multi-frame) — on prend
+      // la 1ère frame si tableau (JPEG ne gère pas le multi-image de toute façon).
+      const finalBlob = Array.isArray(blob) ? blob[0] : blob
+      const renamed = working.name.replace(/\.(heic|heif)$/i, '.jpg')
+      working = new File([finalBlob], renamed || 'photo.jpg', {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      })
+    } catch (err) {
+      // Fallback HEIC : on remonte le fichier brut. Safari iOS sait afficher
+      // HEIC nativement (même pour le uploader), donc le thumb se rendra sur
+      // ces navigateurs. Chrome/Firefox afficheront un placeholder cassé mais
+      // la photo reste stockée et sera visible sur le PDF (ImageRun côté jsPDF
+      // gère HEIC via le CDN de transformation Supabase). L'UI peut signaler
+      // via `_heicFallback` pour informer l'utilisateur.
+      console.warn('[processImageForUpload] HEIC transcode failed, uploading raw:', err)
+      heicFallback = true
+    }
   }
 
   // ── 2. Compression (si toggle OFF) ─────────────────────────────────────
   if (!originalQuality) {
-    const mod = await import('browser-image-compression')
-    const imageCompression = mod.default || mod
-    const compressed = await imageCompression(working, {
-      maxSizeMB,
-      maxWidthOrHeight: maxDimension,
-      useWebWorker: true,
-      fileType: 'image/jpeg',
-      initialQuality: 0.8,
-    })
-    // browser-image-compression renvoie un File avec le bon type.
-    working = compressed
+    try {
+      const mod = await import('browser-image-compression')
+      const imageCompression = mod.default || mod
+      const compressed = await imageCompression(working, {
+        maxSizeMB,
+        maxWidthOrHeight: maxDimension,
+        useWebWorker: true,
+        fileType: 'image/jpeg',
+        initialQuality: 0.8,
+      })
+      // browser-image-compression renvoie un File avec le bon type.
+      working = compressed
+    } catch (err) {
+      // Fallback compression : on garde `working` tel quel (HEIC-transcodé
+      // ou original). L'upload continue, la taille peut être plus grande
+      // que prévu mais reste sous MAX_UPLOAD_BYTES (sinon la validation
+      // initiale aurait bloqué). L'UI peut signaler via `_compressionFallback`.
+      console.warn('[processImageForUpload] compression failed, uploading uncompressed:', err)
+      compressionFallback = true
+    }
   }
 
   // ── 3. Dimensions finales ──────────────────────────────────────────────
   const { width, height } = await readImageDimensions(working)
 
-  return { file: working, width, height }
+  return {
+    file: working,
+    width,
+    height,
+    _heicFallback: heicFallback,
+    _compressionFallback: compressionFallback,
+  }
 }
 
 // ═══ Validation pré-upload ═══════════════════════════════════════════════════
@@ -244,6 +275,166 @@ export function validatePhotoFile(file) {
   return null
 }
 
+// ═══ Humanisation des erreurs ═══════════════════════════════════════════════
+//
+// Les erreurs qui remontent d'un upload photo peuvent venir de 3 couches :
+//
+//   - Supabase Storage (bucket policy, 413 payload too large, 403 RLS anon,
+//     network timeout, CORS) — exposées comme `StorageError` avec `.message`
+//     et parfois `.statusCode`.
+//   - PostgREST / RPC (RAISE EXCEPTION côté SQL : limite 10, kind invalide,
+//     anchor mismatch) — exposées comme `PostgrestError` avec `.message` et
+//     souvent `.code` (PG SQLSTATE : 23514 check_violation, 22023 invalid_param,
+//     42501 insufficient_privilege / RLS, P0001 RAISE sans code).
+//   - Client (validatePhotoFile, processImageForUpload) — `new Error(...)`
+//     classiques.
+//
+// Cette fonction centralise la traduction en français lisible, pour que
+// l'UI (toast.error) n'expose pas "duplicate key value violates unique
+// constraint" ou "new row violates check constraint _matos_photos_anchor".
+//
+// Retourne toujours une string (jamais null). Le 2e param permet d'ajouter
+// un préfixe contextuel (ex. nom du fichier).
+
+/**
+ * Normalise et traduit une erreur d'upload/delete/caption en message
+ * utilisateur lisible. Tolérant : accepte un Error, un objet Supabase, ou
+ * une string.
+ *
+ * @param {unknown} err
+ * @param {object}  [opts]
+ * @param {string}  [opts.prefix] — ajouté en tête, ex. "photo.jpg"
+ * @returns {string}
+ */
+export function humanizePhotoError(err, { prefix = null } = {}) {
+  const rawMsg =
+    typeof err === 'string'
+      ? err
+      : err?.message || err?.error_description || err?.details || ''
+  const code = err?.code || err?.statusCode || ''
+  const lower = String(rawMsg).toLowerCase()
+
+  let out = null
+
+  // ── Limite 10 photos atteinte ─────────────────────────────────────────
+  if (
+    lower.includes('limite de 10 photos') ||
+    lower.includes('photos atteinte') ||
+    code === '23514' ||
+    lower.includes('check constraint') && lower.includes('photo')
+  ) {
+    out = 'Limite de 10 photos atteinte sur cet élément.'
+  }
+  // ── Payload too large (storage ou bucket 413) ────────────────────────
+  else if (
+    code === 413 ||
+    String(code) === '413' ||
+    lower.includes('payload too large') ||
+    lower.includes('exceeded the maximum size') ||
+    lower.includes('too large')
+  ) {
+    const maxMb = (MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(0)
+    out = `Fichier trop volumineux (max ${maxMb} Mo).`
+  }
+  // ── Format rejeté (bucket MIME whitelist, validation client) ─────────
+  else if (
+    lower.includes('mime type') ||
+    lower.includes('format non supporté') ||
+    lower.includes('extension non supportée') ||
+    lower.includes('invalid mime')
+  ) {
+    out = 'Format non supporté. Formats acceptés : JPG, PNG, WebP, HEIC.'
+  }
+  // ── Kind invalide (RAISE EXCEPTION côté RPC) ─────────────────────────
+  else if (lower.includes('kind invalide')) {
+    out = 'Type de photo invalide (erreur technique).'
+  }
+  // ── Anchor mismatch (item/block appartient pas à la version du token) ─
+  else if (
+    lower.includes('anchor') ||
+    lower.includes('version_id') ||
+    lower.includes('storage_path doit commencer')
+  ) {
+    out = 'La photo n’est pas rattachée à la bonne version. Rechargez la page.'
+  }
+  // ── RLS / Permissions (suppression sans ownership) ───────────────────
+  else if (
+    code === '42501' ||
+    code === 401 ||
+    String(code) === '401' ||
+    code === 403 ||
+    String(code) === '403' ||
+    lower.includes('insufficient_privilege') ||
+    lower.includes('row-level security') ||
+    lower.includes('permission denied') ||
+    lower.includes('not authorized') ||
+    lower.includes('unauthorized')
+  ) {
+    out =
+      'Action refusée : vous n’êtes pas l’auteur de cette photo ou le lien a expiré.'
+  }
+  // ── Token expiré / invalide ──────────────────────────────────────────
+  else if (
+    lower.includes('token') &&
+    (lower.includes('expire') || lower.includes('invalide') || lower.includes('invalid'))
+  ) {
+    out = 'Session expirée. Rechargez la page pour continuer.'
+  }
+  // ── Reseau / offline ─────────────────────────────────────────────────
+  else if (
+    lower.includes('failed to fetch') ||
+    lower.includes('network') ||
+    lower.includes('networkerror') ||
+    lower.includes('offline') ||
+    lower.includes('timeout')
+  ) {
+    out = 'Connexion réseau interrompue. Vérifiez votre connexion et réessayez.'
+  }
+  // ── Transcode HEIC impossible (heic2any a planté) ────────────────────
+  else if (
+    lower.includes('heic') ||
+    lower.includes('heif') ||
+    lower.includes('heic2any')
+  ) {
+    out =
+      'Impossible de convertir le HEIC. Essayez d’envoyer en JPG depuis votre téléphone.'
+  }
+  // ── Fichier corrompu / pas une image ─────────────────────────────────
+  else if (
+    lower.includes('decoding') ||
+    lower.includes('image/') && lower.includes('invalid') ||
+    lower.includes('corrupted')
+  ) {
+    out = 'Fichier illisible. Essayez une autre photo.'
+  }
+  // ── Storage bucket manquant / mal configuré (erreur admin) ───────────
+  else if (
+    lower.includes('bucket not found') ||
+    lower.includes('bucket') && lower.includes('does not exist')
+  ) {
+    out =
+      'Erreur de configuration Storage. Contactez l’administrateur.'
+  }
+  // ── Duplicate (rare, mais au cas où le client resoumet 2x le même path) ─
+  else if (
+    code === '23505' ||
+    lower.includes('duplicate key') ||
+    lower.includes('already exists')
+  ) {
+    out = 'Cette photo a déjà été envoyée. Actualisez la page.'
+  }
+
+  // Fallback : on garde le message brut s'il est court et lisible, sinon
+  // message générique.
+  if (!out) {
+    if (rawMsg && rawMsg.length <= 140) out = rawMsg
+    else out = 'Opération échouée. Réessayez.'
+  }
+
+  return prefix ? `${prefix} · ${out}` : out
+}
+
+
 // ═══ Upload (flow unifié : storage + RPC) ═══════════════════════════════════
 
 /**
@@ -259,7 +450,7 @@ export function validatePhotoFile(file) {
  * @param {string} opts.versionId
  * @param {string} [opts.itemId]   — XOR avec blockId
  * @param {string} [opts.blockId]  — XOR avec itemId
- * @param {string} opts.kind       — 'probleme' | 'pack'
+ * @param {string} opts.kind       — 'probleme' | 'pack' | 'retour' (MAT-13)
  * @param {File}   opts.file
  * @param {string} opts.userName
  * @param {string} [opts.caption]
@@ -281,8 +472,8 @@ export async function uploadPhotoToken({
   if (!token) throw new Error('uploadPhotoToken : token requis')
   if (!versionId) throw new Error('uploadPhotoToken : versionId requis')
   if (!userName?.trim()) throw new Error('uploadPhotoToken : userName requis')
-  if (!kind || !['probleme', 'pack'].includes(kind)) {
-    throw new Error('uploadPhotoToken : kind invalide (probleme|pack)')
+  if (!kind || !['probleme', 'pack', 'retour'].includes(kind)) {
+    throw new Error('uploadPhotoToken : kind invalide (probleme|pack|retour)')
   }
   if (!itemId && !blockId) {
     throw new Error('uploadPhotoToken : itemId ou blockId requis')
@@ -353,8 +544,8 @@ export async function uploadPhotoAuthed({
   originalQuality = false,
 }) {
   if (!versionId) throw new Error('uploadPhotoAuthed : versionId requis')
-  if (!kind || !['probleme', 'pack'].includes(kind)) {
-    throw new Error('uploadPhotoAuthed : kind invalide (probleme|pack)')
+  if (!kind || !['probleme', 'pack', 'retour'].includes(kind)) {
+    throw new Error('uploadPhotoAuthed : kind invalide (probleme|pack|retour)')
   }
   if (!itemId && !blockId) {
     throw new Error('uploadPhotoAuthed : itemId ou blockId requis')
@@ -436,11 +627,9 @@ export async function deletePhotoToken({ token, photoId, userName }) {
       // remontent en console pour debug mais ne font PAS échouer le delete
       // (la DB est cohérente, seul l'objet storage est orphelin).
       if (storageError && !/not.*found/i.test(storageError.message || '')) {
-        // eslint-disable-next-line no-console
         console.warn('[deletePhotoToken] storage orphan :', storageError)
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[deletePhotoToken] storage cleanup failed :', err)
     }
   }
@@ -464,11 +653,9 @@ export async function deletePhotoAuthed({ photoId }) {
         .from(BUCKET)
         .remove([storagePath])
       if (storageError && !/not.*found/i.test(storageError.message || '')) {
-        // eslint-disable-next-line no-console
         console.warn('[deletePhotoAuthed] storage orphan :', storageError)
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[deletePhotoAuthed] storage cleanup failed :', err)
     }
   }

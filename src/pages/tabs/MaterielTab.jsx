@@ -43,6 +43,13 @@ import {
   closeEssaisAsAdmin,
   reopenMatosVersion,
 } from '../../lib/matosCloture'
+// MAT-13C : rendu / loueur — clôture et ré-ouverture de la phase rendu.
+import {
+  bonRetourPdfFilename,
+  closeCheckRenduAuthed,
+  reopenMatosVersionRendu,
+  uploadBonRetourArchive,
+} from '../../lib/matosRendu'
 import { isUnassignedRecap } from '../../lib/materiel'
 import { confirm, prompt } from '../../lib/confirm'
 
@@ -92,6 +99,10 @@ export default function MaterielTab() {
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // MAT-13C : phase initiale du ShareChecklistModal. 'essais' quand ouvert
+  // depuis le dropdown Essais, 'rendu' depuis le dropdown Rendu. L'utilisateur
+  // peut ensuite basculer via les chips intra-modal.
+  const [sharePhase, setSharePhase] = useState('essais')
   // MAT-11D : panneau latéral Photos (audit transversal des photos de la
   // version). Conditionnellement monté (cf. fin du composant) pour que le
   // hook useCheckAuthedSession dans MaterielPhotosPanel ne se déclenche qu'à
@@ -112,6 +123,26 @@ export default function MaterielTab() {
     const suffix = activeVersionId ? `/${activeVersionId}` : ''
     navigate(`/projets/${projectId}/materiel/check${suffix}`)
   }, [navigate, projectId, activeVersionId])
+
+  // ─── MAT-13C : Mode chantier rendu (loueur / retour) ────────────────────
+  // Variante rendu : même pattern navigate, route distincte `/materiel/rendu/:versionId`.
+  // La page RenduSession affichera un banner "essais non clos" si nécessaire
+  // (UX-only, aucun verrou SQL côté MAT-13A).
+  const handleOpenChantierModeRendu = useCallback(() => {
+    if (!projectId) return
+    const suffix = activeVersionId ? `/${activeVersionId}` : ''
+    navigate(`/projets/${projectId}/materiel/rendu${suffix}`)
+  }, [navigate, projectId, activeVersionId])
+
+  // ─── MAT-13C : Ouvrir le ShareChecklistModal sur la phase essais/rendu ──
+  const handleOpenShareEssais = useCallback(() => {
+    setSharePhase('essais')
+    setShareOpen(true)
+  }, [])
+  const handleOpenShareRendu = useCallback(() => {
+    setSharePhase('rendu')
+    setShareOpen(true)
+  }, [])
 
   // ─── Export PDF (MAT-7) ─────────────────────────────────────────────────
   // previewState : doc prêt à prévisualiser (ou ZIP prêt à télécharger).
@@ -391,6 +422,162 @@ export default function MaterielTab() {
     }
   }
 
+  // ─── MAT-13C : Aperçu du bon de retour PDF ──────────────────────────────
+  //
+  // Charge le builder PDF `buildBonRetourPdf` (MAT-13E — pas encore livré) via
+  // dynamic import pour ne pas alourdir le bundle initial. Si le module n'est
+  // pas encore présent, on notifie gracieusement sans faire crasher la page.
+  const handlePreviewBonRetour = useCallback(async () => {
+    if (!activeVersion) return
+    try {
+      const mod = await import(
+        '../../features/materiel/matosBonRetourPdf.js'
+      ).catch(() => null)
+      const builder = mod?.buildBonRetourPdf || mod?.default
+      if (!builder) {
+        notify.info(
+          'Aperçu bon de retour : disponible après livraison de MAT-13E',
+        )
+        return
+      }
+      const result = await builder({
+        project,
+        activeVersion,
+        blocks,
+        itemsByBlock,
+        loueursByItem,
+        loueursById,
+        org,
+        infosLogistiqueByLoueur,
+      })
+      setPreviewState({
+        open: true,
+        title: 'Bon de retour',
+        url: result.url,
+        filename: result.filename,
+        download: result.download,
+        revoke: result.revoke,
+        isZip: false,
+      })
+    } catch (err) {
+      notify.error('Erreur aperçu bon de retour : ' + (err?.message || err))
+    }
+  }, [
+    project,
+    activeVersion,
+    blocks,
+    itemsByBlock,
+    loueursByItem,
+    loueursById,
+    org,
+    infosLogistiqueByLoueur,
+  ])
+
+  // ─── MAT-13C : Clôture rendu + archivage du PDF bon-retour ──────────────
+  //
+  // Pattern aligné sur handleCloseEssais :
+  //   1. Prompt pour confirmer + saisir le nom affiché sur le bon de retour.
+  //   2. Dynamic import du builder (MAT-13E) ; si absent, message gracieux.
+  //   3. Upload du PDF dans Storage via `uploadBonRetourArchive`.
+  //   4. RPC `closeCheckRenduAuthed` — pose `rendu_closed_at` + enregistre
+  //      l'attachment (rendu).
+  //   5. Refresh + notify.
+  async function handleCloseRendu() {
+    if (!canEdit || !activeVersion) return
+    if (activeVersion.rendu_closed_at) {
+      notify.info('Le rendu est déjà clôturé')
+      return
+    }
+    const name = await prompt({
+      title: 'Clôturer le rendu',
+      message:
+        'Génère le bon de retour PDF, l\'archive dans les documents de la version et fige la phase rendu. Tu pourras ré-ouvrir si besoin.',
+      placeholder: 'Prénom / Nom',
+      initialValue: defaultUserName,
+      required: true,
+      confirmLabel: 'Clôturer & générer le bon de retour',
+    })
+    if (!name) return
+    try {
+      const mod = await import(
+        '../../features/materiel/matosBonRetourPdf.js'
+      ).catch(() => null)
+      const builder = mod?.buildBonRetourPdf || mod?.default
+      if (!builder) {
+        notify.info(
+          'Clôture rendu : disponible après livraison de MAT-13E (builder PDF)',
+        )
+        return
+      }
+      const result = await builder({
+        project,
+        activeVersion,
+        blocks,
+        itemsByBlock,
+        loueursByItem,
+        loueursById,
+        org,
+        infosLogistiqueByLoueur,
+        userName: name,
+      })
+      // result attendu : { blob, filename, download?, revoke? }
+      const filename =
+        result.filename ||
+        bonRetourPdfFilename({ project, version: activeVersion })
+      const { storagePath, sizeBytes, mimeType } =
+        await uploadBonRetourArchive({
+          versionId: activeVersion.id,
+          blob: result.blob,
+          filename,
+        })
+      await closeCheckRenduAuthed({
+        versionId: activeVersion.id,
+        archivePath: storagePath,
+        archiveFilename: filename,
+        archiveSize: sizeBytes,
+        archiveMime: mimeType,
+      })
+      // Download local immédiat (bonus UX) si le builder expose `download`.
+      try {
+        result.download?.()
+      } catch {
+        /* no-op */
+      }
+      setTimeout(() => {
+        try {
+          result.revoke?.()
+        } catch {
+          /* no-op */
+        }
+      }, 2000)
+      notify.success('Rendu clôturé · Bon de retour archivé')
+      actions.refresh?.()
+    } catch (err) {
+      notify.error('Erreur clôture rendu : ' + (err?.message || err))
+    }
+  }
+
+  // handleReopenRendu : efface `rendu_closed_at` + `rendu_closed_by*`. Les
+  // attachments bon-retour déjà archivés restent en base (audit).
+  async function handleReopenRendu() {
+    if (!canEdit || !activeVersion?.rendu_closed_at) return
+    const ok = await confirm({
+      title: 'Ré-ouvrir le rendu',
+      message:
+        "Cette action efface la marque de clôture du rendu. Les bons de retour déjà archivés restent consultables dans les documents (audit).",
+      confirmLabel: 'Ré-ouvrir',
+      cancelLabel: 'Annuler',
+    })
+    if (!ok) return
+    try {
+      await reopenMatosVersionRendu(activeVersion.id)
+      notify.success('Rendu ré-ouvert')
+      actions.refresh?.()
+    } catch (err) {
+      notify.error('Erreur ré-ouverture rendu : ' + (err?.message || err))
+    }
+  }
+
   // ─── Loading ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -435,7 +622,7 @@ export default function MaterielTab() {
         detailed={detailed}
         onToggleDetailed={setDetailed}
         onOpenRecap={() => setRecapOpen(true)}
-        onOpenShare={() => setShareOpen(true)}
+        onOpenShare={handleOpenShareEssais}
         onOpenChantierMode={handleOpenChantierMode}
         onOpenPhotos={() => setPhotosPanelOpen(true)}
         onExportGlobal={handleExportGlobal}
@@ -444,6 +631,12 @@ export default function MaterielTab() {
         onPreviewBilan={handlePreviewBilan}
         onCloseEssais={handleCloseEssais}
         onReopenEssais={handleReopenEssais}
+        // MAT-13C : callbacks pour le dropdown "Rendu"
+        onOpenChantierModeRendu={handleOpenChantierModeRendu}
+        onOpenShareRendu={handleOpenShareRendu}
+        onPreviewBonRetour={handlePreviewBonRetour}
+        onCloseRendu={handleCloseRendu}
+        onReopenRendu={handleReopenRendu}
         canEdit={canEdit}
       />
 
@@ -535,6 +728,7 @@ export default function MaterielTab() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         activeVersion={activeVersion}
+        initialPhase={sharePhase}
       />
 
       {/* MAT-11D : Panneau Photos (slide-over) — monté conditionnellement pour
