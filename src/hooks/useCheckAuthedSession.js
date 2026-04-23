@@ -122,11 +122,27 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     return map
   }, [loueurs, itemLoueurs])
 
+  // Index par item_id → [comments]. Ignore les comments ancrés bloc.
   const commentsByItem = useMemo(() => {
     const map = new Map()
     for (const c of comments) {
+      if (!c.item_id) continue
       if (!map.has(c.item_id)) map.set(c.item_id, [])
       map.get(c.item_id).push(c)
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    }
+    return map
+  }, [comments])
+
+  // MAT-23 : index par block_id → [comments]. Symétrique à commentsByItem.
+  const commentsByBlock = useMemo(() => {
+    const map = new Map()
+    for (const c of comments) {
+      if (!c.block_id) continue
+      if (!map.has(c.block_id)) map.set(c.block_id, [])
+      map.get(c.block_id).push(c)
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
@@ -300,9 +316,10 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     [appendItem, appendItemLoueur, userName],
   )
 
+  // MAT-23 : ancrage XOR item|block + kind (note|probleme).
   const addComment = useCallback(
-    async ({ itemId, body }) => {
-      const created = await CA.addCheckCommentAuthed({ itemId, body })
+    async ({ itemId = null, blockId = null, kind = 'note', body }) => {
+      const created = await CA.addCheckCommentAuthed({ itemId, blockId, kind, body })
       appendComment(created)
       return created
     },
@@ -472,6 +489,8 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     loueursByItem,
     comments,
     commentsByItem,
+    // MAT-23 : comments ancrés bloc
+    commentsByBlock,
     attachments,
     progressByBlock,
     // MAT-20 : infos logistique par loueur (read-only côté check)

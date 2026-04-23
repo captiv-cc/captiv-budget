@@ -87,14 +87,30 @@ export async function addCheckItemAuthed({ blockId, designation, quantite = 1, l
 }
 
 /**
- * Ajoute un commentaire sur un item. `author_id` = auth.uid(), `author_name`
- * = profiles.full_name. Retour identique au chemin token.
+ * Ajoute un commentaire sur un item OU un bloc (XOR exclusif). `author_id`
+ * = auth.uid(), `author_name` = profiles.full_name. Retour identique au
+ * chemin token.
+ *
+ * kind = 'note' (défaut) ou 'probleme' (signalement, apparait dans le bilan
+ * loueur PDF et est surligné côté UX).
  */
-export async function addCheckCommentAuthed({ itemId, body }) {
-  if (!itemId) throw new Error('addCheckCommentAuthed : itemId requis')
+export async function addCheckCommentAuthed({
+  itemId = null,
+  blockId = null,
+  kind = 'note',
+  body,
+}) {
+  if (!!itemId === !!blockId) {
+    throw new Error('addCheckCommentAuthed : exactement un ancrage (itemId XOR blockId)')
+  }
+  if (!['probleme', 'note'].includes(kind)) {
+    throw new Error(`addCheckCommentAuthed : kind invalide (${kind})`)
+  }
   if (!body?.trim()) throw new Error('addCheckCommentAuthed : corps du message requis')
   const { data, error } = await supabase.rpc('check_action_add_comment_authed', {
     p_item_id: itemId,
+    p_block_id: blockId,
+    p_kind: kind,
     p_body: body.trim(),
   })
   if (error) throw error

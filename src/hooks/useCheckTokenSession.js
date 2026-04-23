@@ -144,11 +144,33 @@ export function useCheckTokenSession(token) {
   }, [loueurs, itemLoueurs])
 
   // Index par item_id → [commentaires] (ordre chrono ascendant).
+  // Ignore les comments ancrés bloc (block_id NOT NULL) — ceux-ci vont dans
+  // commentsByBlock. Inclut les deux kinds (probleme + note) ; la
+  // sérialisation kind se fait côté UI pour afficher ou non les signalements
+  // vs notes selon le contexte.
   const commentsByItem = useMemo(() => {
     const map = new Map()
     for (const c of comments) {
+      if (!c.item_id) continue
       if (!map.has(c.item_id)) map.set(c.item_id, [])
       map.get(c.item_id).push(c)
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    }
+    return map
+  }, [comments])
+
+  // MAT-23 : index par block_id → [commentaires]. Symétrique à commentsByItem.
+  // Contient les comments "bloc" (pelicase fissuré, note remballe…) ancrés
+  // directement au bloc via block_id (CHECK XOR côté DB garantit que item_id
+  // est NULL pour ceux-ci).
+  const commentsByBlock = useMemo(() => {
+    const map = new Map()
+    for (const c of comments) {
+      if (!c.block_id) continue
+      if (!map.has(c.block_id)) map.set(c.block_id, [])
+      map.get(c.block_id).push(c)
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
@@ -357,13 +379,28 @@ export function useCheckTokenSession(token) {
     [token, userName, appendItem, appendItemLoueur],
   )
 
-  /** Ajoute un commentaire sur un item. */
+  /**
+   * Ajoute un commentaire sur un item OU un bloc (XOR exclusif). `kind`
+   * distingue :
+   *   - 'note'     → commentaire interne (défaut), N'apparait PAS dans le
+   *                  bilan loueur PDF.
+   *   - 'probleme' → signalement destiné au loueur, apparait dans le bilan
+   *                  PDF et est surligné côté UX.
+   *
+   * La RPC renvoie déjà le row complet (id, item_id, block_id, kind, body,
+   * author_name, created_at) — on l'ajoute tel quel au bundle local.
+   */
   const addComment = useCallback(
-    async ({ itemId, body }) => {
+    async ({ itemId = null, blockId = null, kind = 'note', body }) => {
       if (!userName) throw new Error('Nom utilisateur requis')
-      const created = await CT.addCheckComment({ token, itemId, body, userName })
-      // La RPC renvoie déjà le row complet côté comment (id, item_id, body,
-      // author_name, created_at) — on peut l'ajouter tel quel.
+      const created = await CT.addCheckComment({
+        token,
+        itemId,
+        blockId,
+        kind,
+        body,
+        userName,
+      })
       appendComment(created)
       return created
     },
@@ -624,6 +661,8 @@ export function useCheckTokenSession(token) {
     loueursByItem,
     comments,
     commentsByItem,
+    // MAT-23 : comments ancrés bloc (note pelicase, signalement bloc entier).
+    commentsByBlock,
     attachments,
     progressByBlock,
     // MAT-20 : infos logistique par loueur (read-only côté token)

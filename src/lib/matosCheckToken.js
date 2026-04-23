@@ -235,21 +235,43 @@ export async function addCheckItem({
 }
 
 /**
- * Ajoute un commentaire sur un item (thread append-only). Les commentaires
- * sont affichés dans l'ordre chronologique sous l'item, avec l'auteur.
+ * Ajoute un commentaire sur un item OU un bloc (XOR, exclusif). Thread
+ * append-only. Deux kinds :
+ *   - 'note'     → commentaire interne équipe (DEFAULT, N'apparait PAS
+ *                  dans le bilan loueur PDF).
+ *   - 'probleme' → signalement destiné au loueur (apparait dans le bilan
+ *                  PDF + surligné "problème" côté UX).
+ *
+ * Garantie DB : CHECK XOR (item_id IS NOT NULL) <> (block_id IS NOT NULL).
+ * Cette fonction valide aussi le XOR côté JS pour échouer vite.
  */
-export async function addCheckComment({ token, itemId, body, userName }) {
-  if (!token || !itemId) throw new Error('addCheckComment : token + itemId requis')
+export async function addCheckComment({
+  token,
+  itemId = null,
+  blockId = null,
+  kind = 'note',
+  body,
+  userName,
+}) {
+  if (!token) throw new Error('addCheckComment : token requis')
+  if (!!itemId === !!blockId) {
+    throw new Error('addCheckComment : exactement un ancrage (itemId XOR blockId)')
+  }
+  if (!['probleme', 'note'].includes(kind)) {
+    throw new Error(`addCheckComment : kind invalide (${kind})`)
+  }
   if (!body?.trim()) throw new Error('addCheckComment : corps du message requis')
   if (!userName?.trim()) throw new Error('addCheckComment : userName requis')
   const { data, error } = await supabase.rpc('check_action_add_comment', {
     p_token: token,
     p_item_id: itemId,
+    p_block_id: blockId,
+    p_kind: kind,
     p_body: body.trim(),
     p_user_name: userName.trim(),
   })
   if (error) throw error
-  return data // ligne matos_item_comments créée
+  return data // ligne matos_item_comments créée (incl. kind + block_id)
 }
 
 /**
