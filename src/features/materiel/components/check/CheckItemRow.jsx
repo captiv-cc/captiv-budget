@@ -340,10 +340,13 @@ export default function CheckItemRow({
                   « {truncate(removedReason, 40)} »
                 </span>
               )}
-              {/* Pastille récap visuelle sur la ligne : nombre de signalements
-                  problème + nombre de photos pack, pour signaler de loin les
-                  items qui méritent qu'on ouvre le menu. Discrète — on laisse
-                  les badges du menu porter le détail. */}
+              {/* Pastille récap visuelle sur la ligne — deux pastilles
+                  indépendantes pour repérer de loin les items qui méritent
+                  qu'on ouvre le menu. Discret — les badges DU menu portent
+                  déjà le détail, ici on ne duplique que l'ESSENTIEL pour la
+                  vue liste.
+                    • ⚠ orange : signalements (photos/comments kind='probleme')
+                    • 📷 bleu  : photos pack (documentation interne, MAT-23) */}
               {signalCount > 0 && (
                 <span
                   className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
@@ -356,6 +359,20 @@ export default function CheckItemRow({
                 >
                   <AlertTriangle className="w-2.5 h-2.5" />
                   {signalCount}
+                </span>
+              )}
+              {photosPack.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                  style={{
+                    background: 'var(--blue-bg)',
+                    color: 'var(--blue)',
+                    border: '1px solid var(--brd-sub)',
+                  }}
+                  title={`${photosPack.length} photo${photosPack.length > 1 ? 's' : ''} pack`}
+                >
+                  <Camera className="w-2.5 h-2.5" />
+                  {photosPack.length}
                 </span>
               )}
             </span>
@@ -531,7 +548,15 @@ function CommentsThread({
       setBody('')
     } catch (err) {
       console.error('[CommentsThread] submit failed', err)
-      toast.error('Commentaire non envoyé')
+      // Affiche le message serveur si dispo (ex. "function does not exist"
+      // quand la migration MAT-23A n'est pas encore appliquée). Aide au
+      // diagnostic en prod sans avoir à ouvrir la console.
+      const detail = err?.message || err?.details || err?.hint
+      toast.error(
+        detail
+          ? `Commentaire non envoyé — ${detail}`
+          : 'Commentaire non envoyé',
+      )
     } finally {
       setSubmitting(false)
     }

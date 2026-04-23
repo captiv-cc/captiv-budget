@@ -478,7 +478,12 @@ function BlockCommentsThread({
       setBody('')
     } catch (err) {
       console.error('[BlockCommentsThread] submit failed', err)
-      toast.error('Commentaire non envoyé')
+      const detail = err?.message || err?.details || err?.hint
+      toast.error(
+        detail
+          ? `Commentaire non envoyé — ${detail}`
+          : 'Commentaire non envoyé',
+      )
     } finally {
       setSubmitting(false)
     }
