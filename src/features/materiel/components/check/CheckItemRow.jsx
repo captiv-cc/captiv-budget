@@ -340,21 +340,20 @@ export default function CheckItemRow({
                   « {truncate(removedReason, 40)} »
                 </span>
               )}
-              {/* Pastille récap visuelle sur la ligne — deux pastilles
-                  indépendantes pour repérer de loin les items qui méritent
-                  qu'on ouvre le menu. Discret — les badges DU menu portent
-                  déjà le détail, ici on ne duplique que l'ESSENTIEL pour la
-                  vue liste.
+              {/* Pastilles récap visuelles sur la ligne — 3 micro-indicateurs
+                  indépendants pour repérer de loin les items qui méritent
+                  qu'on ouvre le menu. Volontairement minimalistes (icône +
+                  chiffre, pas de fond ni bordure) : les badges DU menu
+                  portent déjà le détail et la couleur de variant ; ici on
+                  duplique juste l'essentiel pour la vue liste, sans charger
+                  l'UI.
                     • ⚠ orange : signalements (photos/comments kind='probleme')
-                    • 📷 bleu  : photos pack (documentation interne, MAT-23) */}
+                    • 📷 bleu  : photos pack (documentation interne, MAT-23)
+                    • 💬 gris  : commentaires internes (kind='note')         */}
               {signalCount > 0 && (
                 <span
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                  style={{
-                    background: 'var(--orange-bg)',
-                    color: 'var(--orange)',
-                    border: '1px solid var(--brd-sub)',
-                  }}
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--orange)' }}
                   title={`${signalCount} signalement${signalCount > 1 ? 's' : ''}`}
                 >
                   <AlertTriangle className="w-2.5 h-2.5" />
@@ -363,16 +362,22 @@ export default function CheckItemRow({
               )}
               {photosPack.length > 0 && (
                 <span
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                  style={{
-                    background: 'var(--blue-bg)',
-                    color: 'var(--blue)',
-                    border: '1px solid var(--brd-sub)',
-                  }}
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--blue)' }}
                   title={`${photosPack.length} photo${photosPack.length > 1 ? 's' : ''} pack`}
                 >
                   <Camera className="w-2.5 h-2.5" />
                   {photosPack.length}
+                </span>
+              )}
+              {commentsNote.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--txt-3)' }}
+                  title={`${commentsNote.length} commentaire${commentsNote.length > 1 ? 's' : ''}`}
+                >
+                  <MessageCircle className="w-2.5 h-2.5" />
+                  {commentsNote.length}
                 </span>
               )}
             </span>

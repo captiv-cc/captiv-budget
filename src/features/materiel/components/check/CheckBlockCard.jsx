@@ -193,20 +193,38 @@ export default function CheckBlockCard({
               style={{ color: 'var(--txt)' }}
             >
               <span className="truncate">{block.titre || 'Bloc'}</span>
-              {/* Pastille signalement — écho visuel de CheckItemRow pour
-                  repérer de loin un bloc avec problème(s). */}
+              {/* Pastille signalement — écho visuel de CheckItemRow (style
+                  discret : texte coloré + icône, pas de fond ni bordure). */}
               {signalCount > 0 && (
                 <span
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                  style={{
-                    background: 'var(--orange-bg)',
-                    color: 'var(--orange)',
-                    border: '1px solid var(--brd-sub)',
-                  }}
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--orange)' }}
                   title={`${signalCount} signalement${signalCount > 1 ? 's' : ''} sur ce bloc`}
                 >
                   <AlertTriangle className="w-2.5 h-2.5" />
                   {signalCount}
+                </span>
+              )}
+              {/* Pastille photos pack — repère discret côté bloc. */}
+              {blockPhotosPack.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--blue)' }}
+                  title={`${blockPhotosPack.length} photo${blockPhotosPack.length > 1 ? 's' : ''} pack`}
+                >
+                  <Camera className="w-2.5 h-2.5" />
+                  {blockPhotosPack.length}
+                </span>
+              )}
+              {/* Pastille commentaires notes — repère discret côté bloc. */}
+              {blockCommentsNote.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums"
+                  style={{ color: 'var(--txt-3)' }}
+                  title={`${blockCommentsNote.length} commentaire${blockCommentsNote.length > 1 ? 's' : ''}`}
+                >
+                  <MessageCircle className="w-2.5 h-2.5" />
+                  {blockCommentsNote.length}
                 </span>
               )}
             </h2>
