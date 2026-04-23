@@ -32,6 +32,12 @@
  *                                             (header de bloc). Par défaut false
  *                                             (panneau item élargi).
  *   - emptyLabel : string (optionnel)        message si 0 photo.
+ *   - hideUploader : boolean (optionnel)     si true, cache la checkbox Orig.
+ *                                             ET le bouton "Ajouter". Utile en
+ *                                             mode "preview" au-dessus du bloc
+ *                                             (MAT-23E) où l'ajout se fait via
+ *                                             le menu ⋯ dans une section
+ *                                             éditable dédiée.
  *
  * Pas de gestion d'état photos elle-même : le parent (hook useCheck*Session)
  * est source de vérité. L'uploader appelle `onUpload` → le hook append dans
@@ -70,6 +76,7 @@ export default function CheckPhotosSection({
   onUpdateCaption,
   compact = false,
   emptyLabel = null,
+  hideUploader = false,
 }) {
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -300,53 +307,60 @@ export default function CheckPhotosSection({
 
         <div className="flex-1" />
 
-        {/* Toggle qualité originale (petit, subtil) */}
-        <label
-          className="text-[11px] flex items-center gap-1 cursor-pointer select-none"
-          style={{ color: 'var(--txt-3)' }}
-          title="Préserver la qualité originale (pas de compression). Taille fichier plus grande."
-        >
-          <input
-            type="checkbox"
-            checked={originalQuality}
-            onChange={(e) => setOriginalQuality(e.target.checked)}
-            className="w-3 h-3"
-          />
-          <Sparkles className="w-3 h-3" />
-          Orig.
-        </label>
+        {/* Uploader (Orig. + Ajouter + file input) — caché si hideUploader.
+            Utilisé en mode preview au-dessus du bloc (MAT-23E) : l'ajout
+            se fait via le menu ⋯ dans une section éditable dédiée. */}
+        {!hideUploader && (
+          <>
+            {/* Toggle qualité originale (petit, subtil) */}
+            <label
+              className="text-[11px] flex items-center gap-1 cursor-pointer select-none"
+              style={{ color: 'var(--txt-3)' }}
+              title="Préserver la qualité originale (pas de compression). Taille fichier plus grande."
+            >
+              <input
+                type="checkbox"
+                checked={originalQuality}
+                onChange={(e) => setOriginalQuality(e.target.checked)}
+                className="w-3 h-3"
+              />
+              <Sparkles className="w-3 h-3" />
+              Orig.
+            </label>
 
-        {/* Bouton upload */}
-        <button
-          type="button"
-          onClick={handlePick}
-          disabled={atLimit || uploading}
-          className="text-xs px-2.5 py-1 rounded-md flex items-center gap-1.5 transition"
-          style={{
-            background: atLimit ? 'var(--bg-surf)' : 'var(--blue-bg)',
-            color: atLimit ? 'var(--txt-3)' : 'var(--blue)',
-            border: `1px solid ${atLimit ? 'var(--brd-sub)' : 'var(--blue-brd)'}`,
-            opacity: uploading ? 0.6 : 1,
-            cursor: atLimit || uploading ? 'not-allowed' : 'pointer',
-          }}
-          aria-label="Ajouter une photo"
-        >
-          {uploading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Camera className="w-3.5 h-3.5" />
-          )}
-          {uploading ? 'Envoi…' : atLimit ? 'Limite atteinte' : 'Ajouter'}
-        </button>
+            {/* Bouton upload */}
+            <button
+              type="button"
+              onClick={handlePick}
+              disabled={atLimit || uploading}
+              className="text-xs px-2.5 py-1 rounded-md flex items-center gap-1.5 transition"
+              style={{
+                background: atLimit ? 'var(--bg-surf)' : 'var(--blue-bg)',
+                color: atLimit ? 'var(--txt-3)' : 'var(--blue)',
+                border: `1px solid ${atLimit ? 'var(--brd-sub)' : 'var(--blue-brd)'}`,
+                opacity: uploading ? 0.6 : 1,
+                cursor: atLimit || uploading ? 'not-allowed' : 'pointer',
+              }}
+              aria-label="Ajouter une photo"
+            >
+              {uploading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Camera className="w-3.5 h-3.5" />
+              )}
+              {uploading ? 'Envoi…' : atLimit ? 'Limite atteinte' : 'Ajouter'}
+            </button>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPT_ATTR}
-          multiple
-          className="hidden"
-          onChange={handleFilesSelected}
-        />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPT_ATTR}
+              multiple
+              className="hidden"
+              onChange={handleFilesSelected}
+            />
+          </>
+        )}
       </div>
 
       {/* Grille de vignettes ou empty state ─────────────────────────────── */}

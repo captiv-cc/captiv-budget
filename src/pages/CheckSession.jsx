@@ -177,6 +177,10 @@ function CheckSessionShell({
   loueurs,
   loueursByItem,
   commentsByItem,
+  // MAT-23E : commentaires indexés par block_id (kinds 'probleme' + 'note').
+  // Hook (token / authed) expose déjà la map — défaut vide pour robustesse si
+  // un consommateur legacy oublie de la câbler.
+  commentsByBlock = new Map(),
   progressByBlock,
   attachments,
   // MAT-11 : photos indexées par ancrage. Défauts à des Maps vides pour ne pas
@@ -370,6 +374,7 @@ function CheckSessionShell({
                       items={filteredItemsByBlock.get(b.id) || []}
                       progress={filteredProgressByBlock.get(b.id)}
                       commentsByItem={commentsByItem}
+                      commentsByBlock={commentsByBlock}
                       loueursByItem={loueursByItem}
                       loueurs={loueurs}
                       photosByItem={photosByItem}
