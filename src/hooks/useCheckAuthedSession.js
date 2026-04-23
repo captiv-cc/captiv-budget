@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as CA from '../lib/matosCheckAuthed'
+import * as MP from '../lib/matosItemPhotos'
 import { computeProgressByBlock } from '../lib/matosCheckFilter'
 import { aggregateBilanData, bilanZipFilename } from '../lib/matosBilanData'
 import { uploadBilanArchive } from '../lib/matosCloture'
@@ -89,6 +90,9 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     () => session?.version_loueur_infos || [],
     [session],
   )
+  // MAT-11 : photos = rows matos_item_photos (kind='probleme'|'pack',
+  // ancrage XOR item|block). Shape RPC snake_case — miroir exact du hook token.
+  const photos = useMemo(() => session?.photos || [], [session])
 
   const itemsByBlock = useMemo(() => {
     const map = new Map()
@@ -147,6 +151,11 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     return map
   }, [versionLoueurInfos])
 
+  // MAT-11 : index photos par ancrage (XOR item/block). Les 2 maps sont
+  // disjointes (CHECK DB sur une seule FK non-NULL). Tri chrono ascendant.
+  const photosByItem = useMemo(() => MP.indexPhotosByItem(photos), [photos])
+  const photosByBlock = useMemo(() => MP.indexPhotosByBlock(photos), [photos])
+
   // ─── Patch helpers (optimistic updates) ──────────────────────────────────
   const patchItem = useCallback((itemId, patch) => {
     if (!itemId || !patch) return
@@ -196,7 +205,41 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
       if (!prev) return prev
       const nextItems = prev.items.filter((it) => it.id !== itemId)
       const nextComments = prev.comments.filter((c) => c.item_id !== itemId)
-      return { ...prev, items: nextItems, comments: nextComments }
+      const nextPhotos = (prev.photos || []).filter((p) => p.item_id !== itemId)
+      return { ...prev, items: nextItems, comments: nextComments, photos: nextPhotos }
+    })
+  }, [])
+
+  // MAT-11 : helpers photo (append / remove / patch). Dédup par id (résiste
+  // aux double-appels Realtime + optimistic). Miroir exact du hook token.
+  const appendPhoto = useCallback((newPhoto) => {
+    if (!newPhoto?.id) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      if (existing.some((p) => p.id === newPhoto.id)) return prev
+      return { ...prev, photos: [...existing, newPhoto] }
+    })
+  }, [])
+
+  const removePhoto = useCallback((photoId) => {
+    if (!photoId) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      return { ...prev, photos: existing.filter((p) => p.id !== photoId) }
+    })
+  }, [])
+
+  const patchPhoto = useCallback((photoId, patch) => {
+    if (!photoId || !patch) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      return {
+        ...prev,
+        photos: existing.map((p) => (p.id === photoId ? { ...p, ...patch } : p)),
+      }
     })
   }, [])
 
@@ -302,6 +345,52 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     [removeItem],
   )
 
+  // ─── MAT-11 : Actions photos (authed) ────────────────────────────────────
+  //
+  // Miroir des actions photos token, via les variantes *Authed :
+  //   - identité dérivée de auth.uid() côté RPC (pas de userName envoyé)
+  //   - mêmes garanties XOR ancrage + limite 10 photos/ancre
+  //   - même pipeline image (transcode HEIC, compression conditionnelle)
+  //   - même logique "patch APRÈS succès" (pas de rollback optimiste —
+  //     l'upload est assez long qu'afficher un thumb fantôme confondrait).
+  //
+  // Voir commentaires détaillés dans useCheckTokenSession.js.
+
+  const uploadPhoto = useCallback(
+    async ({ itemId = null, blockId = null, kind, file, caption = null, originalQuality = false }) => {
+      if (!session?.version?.id) throw new Error('Version introuvable')
+      const created = await MP.uploadPhotoAuthed({
+        versionId: session.version.id,
+        itemId,
+        blockId,
+        kind,
+        file,
+        caption,
+        originalQuality,
+      })
+      appendPhoto(created)
+      return created
+    },
+    [session, appendPhoto],
+  )
+
+  const deletePhoto = useCallback(
+    async ({ photoId }) => {
+      await MP.deletePhotoAuthed({ photoId })
+      removePhoto(photoId)
+    },
+    [removePhoto],
+  )
+
+  const updatePhotoCaption = useCallback(
+    async ({ photoId, caption }) => {
+      const result = await MP.updatePhotoCaptionAuthed({ photoId, caption })
+      patchPhoto(photoId, { caption: result?.caption ?? caption })
+      return result
+    },
+    [patchPhoto],
+  )
+
   // ─── Aperçu bilan (aucune écriture) ──────────────────────────────────────
   const preview = useCallback(async () => {
     if (!session) throw new Error('Aucune session chargée')
@@ -388,6 +477,10 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
     // MAT-20 : infos logistique par loueur (read-only côté check)
     versionLoueurInfos,
     infosLogistiqueByLoueur,
+    // MAT-11 : photos (kind='probleme'|'pack', ancrage XOR item|block)
+    photos,
+    photosByItem,
+    photosByBlock,
 
     // Actions
     actions: {
@@ -400,6 +493,10 @@ export function useCheckAuthedSession(versionId, { userName = null } = {}) {
       preview,
       close,
       refetch,
+      // MAT-11
+      uploadPhoto,
+      deletePhoto,
+      updatePhotoCaption,
     },
   }
 }

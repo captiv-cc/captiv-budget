@@ -18,6 +18,8 @@
   "dependencies": {
     "@sentry/react": "^8.0.0",
     "@supabase/supabase-js": "^2.39.0",
+    "browser-image-compression": "^2.0.2",
+    "heic2any": "^0.0.4",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "jszip": "^3.10.1",
@@ -26,6 +28,7 @@
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
     "react-router-dom": "^6.24.0",
+    "yet-another-react-lightbox": "^3.21.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

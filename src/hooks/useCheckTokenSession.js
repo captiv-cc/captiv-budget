@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as CT from '../lib/matosCheckToken'
+import * as MP from '../lib/matosItemPhotos'
 import { computeProgressByBlock } from '../lib/matosCheckFilter'
 import { aggregateBilanData, bilanZipFilename } from '../lib/matosBilanData'
 import { closeEssaisWithArchive } from '../lib/matosCloture'
@@ -107,6 +108,9 @@ export function useCheckTokenSession(token) {
     () => session?.version_loueur_infos || [],
     [session],
   )
+  // MAT-11 : photos = rows de matos_item_photos (kind='probleme'|'pack',
+  // ancrage XOR item_id|block_id). Shape RPC snake_case.
+  const photos = useMemo(() => session?.photos || [], [session])
 
   // Index par block_id → items.
   const itemsByBlock = useMemo(() => {
@@ -177,6 +181,12 @@ export function useCheckTokenSession(token) {
     return map
   }, [versionLoueurInfos])
 
+  // MAT-11 : index photos par ancrage (XOR item/block). Les 2 maps sont
+  // disjointes (une photo a EXACTEMENT un ancrage — CHECK DB). Tri chrono
+  // ascendant pour un affichage stable.
+  const photosByItem = useMemo(() => MP.indexPhotosByItem(photos), [photos])
+  const photosByBlock = useMemo(() => MP.indexPhotosByBlock(photos), [photos])
+
   // ─── Helpers pour patcher `session` localement (optimistic updates) ──────
   //
   // On évite de refetch systématiquement après une action : on patch juste la
@@ -236,7 +246,42 @@ export function useCheckTokenSession(token) {
       if (!prev) return prev
       const nextItems = prev.items.filter((it) => it.id !== itemId)
       const nextComments = prev.comments.filter((c) => c.item_id !== itemId)
-      return { ...prev, items: nextItems, comments: nextComments }
+      const nextPhotos = (prev.photos || []).filter((p) => p.item_id !== itemId)
+      return { ...prev, items: nextItems, comments: nextComments, photos: nextPhotos }
+    })
+  }, [])
+
+  // MAT-11 : helpers photo (append / remove / patch). Suivent le même pattern
+  // que appendComment / removeItem ; dédupliquent par id pour résister aux
+  // double-appels (Realtime + optimistic).
+  const appendPhoto = useCallback((newPhoto) => {
+    if (!newPhoto?.id) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      if (existing.some((p) => p.id === newPhoto.id)) return prev
+      return { ...prev, photos: [...existing, newPhoto] }
+    })
+  }, [])
+
+  const removePhoto = useCallback((photoId) => {
+    if (!photoId) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      return { ...prev, photos: existing.filter((p) => p.id !== photoId) }
+    })
+  }, [])
+
+  const patchPhoto = useCallback((photoId, patch) => {
+    if (!photoId || !patch) return
+    setSession((prev) => {
+      if (!prev) return prev
+      const existing = prev.photos || []
+      return {
+        ...prev,
+        photos: existing.map((p) => (p.id === photoId ? { ...p, ...patch } : p)),
+      }
     })
   }, [])
 
@@ -386,6 +431,92 @@ export function useCheckTokenSession(token) {
     [token, removeItem],
   )
 
+  // ─── MAT-11 : Actions photos ─────────────────────────────────────────────
+  //
+  // Les 3 actions (upload / delete / updateCaption) appellent la variante
+  // *Token* du lib `matosItemPhotos` puis patchent le bundle local pour un
+  // rendu optimiste. Pas de rollback explicite : si la RPC lève, l'action
+  // relance l'erreur (UI affiche un toast) et on n'a rien muté localement
+  // car on patch APRÈS la RPC (les operations photos sont moins instantanées
+  // qu'un toggle — compression + upload storage — donc pas besoin de mirage
+  // optimiste pendant ces quelques secondes, on attend le succès).
+  //
+  // Motivation "patch APRÈS" vs patch AVANT + rollback : l'upload prend
+  // plusieurs secondes (transcode HEIC + compression + upload storage +
+  // insert DB). Pendant ce temps, afficher un thumb "fantôme" qui disparaît
+  // en cas d'erreur serait déroutant. On laisse l'UI afficher un spinner
+  // pendant la promesse, puis on appende le vrai photo row quand tout est OK.
+
+  /**
+   * Upload une photo (problème sur item OU pack sur bloc). L'ancrage est XOR :
+   * soit `itemId` soit `blockId`, jamais les deux (la lib valide et la DB
+   * enforce par CHECK constraint). Appelle `MP.uploadPhotoToken` qui
+   * orchestre :
+   *   1. Validation taille/MIME
+   *   2. Transcode HEIC (toujours) + compression (sauf originalQuality=true)
+   *   3. Upload storage
+   *   4. RPC `check_upload_photo` (insert row + vérifie kind/ownership)
+   *   5. Rollback storage si RPC échoue
+   *
+   * Puis append le row retourné dans `session.photos` pour que le thumb
+   * apparaisse instantanément.
+   */
+  const uploadPhoto = useCallback(
+    async ({ itemId = null, blockId = null, kind, file, caption = null, originalQuality = false }) => {
+      if (!userName) throw new Error('Nom utilisateur requis')
+      if (!session?.version?.id) throw new Error('Version introuvable')
+      const created = await MP.uploadPhotoToken({
+        token,
+        versionId: session.version.id,
+        itemId,
+        blockId,
+        kind,
+        file,
+        userName,
+        caption,
+        originalQuality,
+      })
+      appendPhoto(created)
+      return created
+    },
+    [token, userName, session, appendPhoto],
+  )
+
+  /**
+   * Supprime une photo. La RPC vérifie l'ownership (uploaded_by_name match
+   * case/trim-insensitive) ou renvoie une erreur RLS sinon. Après succès
+   * RPC, la lib tente aussi de supprimer le fichier storage (best-effort,
+   * un orphelin ne casse rien — juste du garbage que le cron pourra purger
+   * plus tard si besoin).
+   */
+  const deletePhoto = useCallback(
+    async ({ photoId }) => {
+      if (!userName) throw new Error('Nom utilisateur requis')
+      await MP.deletePhotoToken({ token, photoId, userName })
+      removePhoto(photoId)
+    },
+    [token, userName, removePhoto],
+  )
+
+  /**
+   * Édite la caption d'une photo (ownership vérifiée côté RPC comme pour
+   * delete). La RPC renvoie `{id, caption}` — on patch le row local.
+   */
+  const updatePhotoCaption = useCallback(
+    async ({ photoId, caption }) => {
+      if (!userName) throw new Error('Nom utilisateur requis')
+      const result = await MP.updatePhotoCaptionToken({
+        token,
+        photoId,
+        caption,
+        userName,
+      })
+      patchPhoto(photoId, { caption: result?.caption ?? caption })
+      return result
+    },
+    [token, userName, patchPhoto],
+  )
+
   /**
    * Prévisualise le bilan (ZIP : PDF global + un PDF par loueur) **sans**
    * clôturer la version. Aucun appel réseau (pas de RPC, pas d'upload) — on
@@ -498,6 +629,10 @@ export function useCheckTokenSession(token) {
     // MAT-20 : infos logistique par loueur (read-only côté token)
     versionLoueurInfos,
     infosLogistiqueByLoueur,
+    // MAT-11 : photos (kind='probleme'|'pack', ancrage XOR item|block)
+    photos,
+    photosByItem,
+    photosByBlock,
 
     // Actions
     actions: {
@@ -510,6 +645,10 @@ export function useCheckTokenSession(token) {
       preview,
       close,
       refetch,
+      // MAT-11
+      uploadPhoto,
+      deletePhoto,
+      updatePhotoCaption,
     },
   }
 }
