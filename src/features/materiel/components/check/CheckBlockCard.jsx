@@ -27,6 +27,7 @@
 import { Check } from 'lucide-react'
 import CheckItemRow from './CheckItemRow'
 import AddItemForm from './AddItemForm'
+import CheckPhotosSection from './CheckPhotosSection'
 
 export default function CheckBlockCard({
   block,
@@ -40,11 +41,22 @@ export default function CheckBlockCard({
   // MAT-19 : liste des loueurs connus de la version, utilisée par AddItemForm
   // pour proposer un loueur à l'additif au moment de l'ajout.
   loueurs = [],
+  // MAT-11 : photos par item (pour les lignes) + photos du bloc (pour la
+  // section pack en tête). Défauts vides pour rester rétro-compatible.
+  photosByItem = null,
+  photosByBlock = null,
+  userName = null,
+  isAdmin = false,
   onToggleItem,
   onAddItem,
   onAddComment,
   onSetRemoved,
   onDeleteAdditif,
+  // MAT-11 : callbacks photos (upload/delete/caption). Si null, tout le bloc
+  // photos (pack + problème) est masqué → ex. mode read-only legacy.
+  onUploadPhoto = null,
+  onDeletePhoto = null,
+  onUpdatePhotoCaption = null,
 }) {
   const { total = 0, checked = 0, ratio = 0, allChecked = false } = progress || {}
   const pct = Math.round(ratio * 100)
@@ -53,6 +65,14 @@ export default function CheckBlockCard({
   // Les additifs apparaissent dans une section dédiée en bas.
   const baseItems = items.filter((it) => !it.added_during_check)
   const additifItems = items.filter((it) => it.added_during_check)
+
+  // MAT-11 : activation des photos. Une seule flag suffit (onUploadPhoto
+  // présent == on est câblé). Les 2 autres callbacks sont implicitement là
+  // aussi si l'appelant respecte l'API du hook.
+  const photosEnabled = Boolean(onUploadPhoto)
+  const packPhotos = photosEnabled
+    ? (photosByBlock?.get(block.id) || [])
+    : []
 
   return (
     <section
@@ -119,6 +139,26 @@ export default function CheckBlockCard({
         </div>
       </header>
 
+      {/* MAT-11 : Section "Photos pack" — rendue en tête du bloc, sous le
+          header, pour documenter le contenu des flight cases (ex. valise
+          optiques). Usage INTERNE (remballe) — pas exportée dans les PDFs
+          loueur. On la cache si non câblée ET si zéro photo (évite le bruit
+          sur les blocs où personne n'a scrollé pour prendre des photos pack). */}
+      {photosEnabled && (
+        <CheckPhotosSection
+          photos={packPhotos}
+          kind="pack"
+          anchor={{ blockId: block.id }}
+          userName={userName}
+          isAdmin={isAdmin}
+          onUpload={onUploadPhoto}
+          onDelete={onDeletePhoto}
+          onUpdateCaption={onUpdatePhotoCaption}
+          compact
+          emptyLabel="Aucune photo pack. Utile pour documenter le contenu d'une valise (remballe)."
+        />
+      )}
+
       {/* Items de base ────────────────────────────────────────────────────── */}
       {baseItems.length === 0 && additifItems.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs" style={{ color: 'var(--txt-3)' }}>
@@ -132,9 +172,15 @@ export default function CheckBlockCard({
               item={it}
               comments={commentsByItem?.get(it.id) || []}
               loueurs={loueursByItem?.get(it.id) || []}
+              photos={photosByItem?.get(it.id) || []}
+              userName={userName}
+              isAdmin={isAdmin}
               onToggle={onToggleItem}
               onAddComment={onAddComment}
               onSetRemoved={onSetRemoved}
+              onUploadPhoto={onUploadPhoto}
+              onDeletePhoto={onDeletePhoto}
+              onUpdatePhotoCaption={onUpdatePhotoCaption}
               // onDeleteAdditif volontairement omis : pas de hard-delete sur
               // les items de base (ils doivent rester pour l'audit & le bilan).
             />
@@ -162,10 +208,16 @@ export default function CheckBlockCard({
                 item={it}
                 comments={commentsByItem?.get(it.id) || []}
                 loueurs={loueursByItem?.get(it.id) || []}
+                photos={photosByItem?.get(it.id) || []}
+                userName={userName}
+                isAdmin={isAdmin}
                 onToggle={onToggleItem}
                 onAddComment={onAddComment}
                 onSetRemoved={onSetRemoved}
                 onDeleteAdditif={onDeleteAdditif}
+                onUploadPhoto={onUploadPhoto}
+                onDeletePhoto={onDeletePhoto}
+                onUpdatePhotoCaption={onUpdatePhotoCaption}
                 showAddedBy
               />
             ))}

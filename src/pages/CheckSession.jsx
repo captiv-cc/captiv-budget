@@ -179,6 +179,10 @@ function CheckSessionShell({
   commentsByItem,
   progressByBlock,
   attachments,
+  // MAT-11 : photos indexées par ancrage. Défauts à des Maps vides pour ne pas
+  // casser le rendu si un consommateur oublie de les câbler.
+  photosByItem = new Map(),
+  photosByBlock = new Map(),
   actions,
   presenceUsers,
   presenceCurrentKey,
@@ -368,11 +372,18 @@ function CheckSessionShell({
                       commentsByItem={commentsByItem}
                       loueursByItem={loueursByItem}
                       loueurs={loueurs}
+                      photosByItem={photosByItem}
+                      photosByBlock={photosByBlock}
+                      userName={userName}
+                      isAdmin={mode === 'authed'}
                       onToggleItem={actions.toggle}
                       onAddItem={actions.addItem}
                       onAddComment={actions.addComment}
                       onSetRemoved={actions.setRemoved}
                       onDeleteAdditif={actions.deleteAdditif}
+                      onUploadPhoto={actions.uploadPhoto}
+                      onDeletePhoto={actions.deletePhoto}
+                      onUpdatePhotoCaption={actions.updatePhotoCaption}
                     />
                   ))}
                 </div>

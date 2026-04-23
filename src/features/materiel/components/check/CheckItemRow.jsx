@@ -32,6 +32,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Ban,
+  Camera,
   Check,
   MessageCircle,
   MoreVertical,
@@ -42,15 +43,28 @@ import {
 import toast from 'react-hot-toast'
 import { confirm, prompt } from '../../../../lib/confirm'
 import LoueurTagList from './LoueurTagList'
+import CheckPhotosSection from './CheckPhotosSection'
 
 export default function CheckItemRow({
   item,
   comments = [],
   loueurs = [],
+  // MAT-11 : photos "problème" ancrées à cet item, tri chrono ASC. Map passée
+  // par CheckBlockCard depuis photosByItem du hook. Default [] si MAT-11 n'est
+  // pas encore poussé (safe fallback).
+  photos = [],
+  // Identité (pour ownership delete/caption) et flag admin (MAT-11D).
+  userName = null,
+  isAdmin = false,
   onToggle,
   onAddComment,
   onSetRemoved,
   onDeleteAdditif,
+  // MAT-11 : callbacks photos (passés depuis actions du hook). Si null, le
+  // bouton Camera est masqué (mode read-only ou session non encore patchée).
+  onUploadPhoto = null,
+  onDeletePhoto = null,
+  onUpdatePhotoCaption = null,
   showAddedBy = false,
 }) {
   // État optimiste du check. Pendant le round-trip RPC, on flippe localement
@@ -58,7 +72,12 @@ export default function CheckItemRow({
   // que `pending` revient à null.
   const [pending, setPending] = useState(null) // null | 'checking' | 'unchecking'
   const [threadOpen, setThreadOpen] = useState(false)
+  // MAT-11 : section photos dépliable indépendante du thread commentaires.
+  // 2 expansions potentielles = 2 états distincts (pas de toggle exclusif).
+  const [photosOpen, setPhotosOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const photoCount = photos.length
+  const photosEnabled = Boolean(onUploadPhoto) // masqué si le hook n'expose pas l'action
 
   const serverChecked = Boolean(item.pre_check_at)
   const isRemoved = Boolean(item.removed_at)
@@ -242,6 +261,27 @@ export default function CheckItemRow({
           {commentCount > 0 && <span className="tabular-nums">{commentCount}</span>}
         </button>
 
+        {/* MAT-11 : Bouton photos (aligné avec commentaires — même pattern
+            d'expansion inline). Masqué si le parent n'a pas câblé l'action
+            (mode read-only p.ex.). L'icône change de couleur quand ≥1
+            photo est présente, pour attirer l'œil sur les items flaggés. */}
+        {photosEnabled && (
+          <button
+            type="button"
+            onClick={() => setPhotosOpen((v) => !v)}
+            className="shrink-0 px-3 flex items-center gap-1.5 text-xs"
+            style={{
+              color: photoCount > 0 ? 'var(--orange)' : 'var(--txt-3)',
+              background: photosOpen ? 'var(--bg-hov)' : 'transparent',
+              borderLeft: '1px solid var(--brd-sub)',
+            }}
+            aria-label="Ouvrir les photos"
+          >
+            <Camera className="w-4 h-4" />
+            {photoCount > 0 && <span className="tabular-nums">{photoCount}</span>}
+          </button>
+        )}
+
         {/* Menu kebab (MAT-10N) — actions secondaires ─────────────── */}
         {(onSetRemoved || (onDeleteAdditif && isAdditif)) && (
           <ItemMenuButton
@@ -262,6 +302,22 @@ export default function CheckItemRow({
         <CommentsThread
           comments={comments}
           onSubmit={(body) => onAddComment({ itemId: item.id, body })}
+        />
+      )}
+
+      {/* MAT-11 : Section photos (dépliée) — même pattern visuel que le
+          thread commentaires mais délimitée par un border-top dédié pour
+          distinguer les deux expansions quand les deux sont ouvertes. */}
+      {photosOpen && photosEnabled && (
+        <CheckPhotosSection
+          photos={photos}
+          kind="probleme"
+          anchor={{ itemId: item.id }}
+          userName={userName}
+          isAdmin={isAdmin}
+          onUpload={onUploadPhoto}
+          onDelete={onDeletePhoto}
+          onUpdateCaption={onUpdatePhotoCaption}
         />
       )}
     </div>
