@@ -282,10 +282,26 @@ function PortalPopover({
       setPos({ left, top: r.bottom + 4 })
     }
     recalc()
-    // Ferme le popover sur scroll extérieur (la position devient obsolète).
+    // Sur scroll extérieur : on suit l'ancre au lieu de fermer. Fermer
+    // posait problème sur mobile : dès que l'utilisateur tape dans le
+    // champ de recherche, le clavier virtuel remonte la viewport (scroll)
+    // et le popover se refermait avant même la saisie. Suivre l'ancre
+    // est plus robuste — si l'ancre quitte la vue, on ferme, sinon on
+    // replace le popover dessous.
     function onScroll(e) {
       if (popRef?.current?.contains(e.target)) return
-      onClose?.()
+      const el = getAnchor()
+      if (!el) {
+        onClose?.()
+        return
+      }
+      const r = el.getBoundingClientRect()
+      // Si l'ancre est hors viewport (au-dessus ou en-dessous), on ferme.
+      if (r.bottom < 0 || r.top > window.innerHeight) {
+        onClose?.()
+        return
+      }
+      recalc()
     }
     function onResize() {
       recalc()

@@ -462,11 +462,15 @@ export default function Block({
               </button>
               {affichageMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-1 z-20 rounded-lg shadow-lg overflow-hidden"
+                  className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-20 rounded-lg shadow-lg overflow-hidden"
                   style={{
                     background: 'var(--bg-elev)',
                     border: '1px solid var(--brd)',
-                    minWidth: '160px',
+                    // Clamp sur mobile : le bouton peut être près du bord
+                    // gauche quand le titre est long. Sans clamp, le minWidth
+                    // pousse le menu hors écran (cf. bug MAT-23C).
+                    minWidth: 'min(160px, calc(100vw - 32px))',
+                    maxWidth: 'calc(100vw - 32px)',
                   }}
                 >
                   {Object.values(MATOS_BLOCK_AFFICHAGES).map((aff) => {

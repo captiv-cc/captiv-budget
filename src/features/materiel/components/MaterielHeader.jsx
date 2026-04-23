@@ -545,9 +545,13 @@ function EssaisDropdown({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
+          className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
           style={{
-            minWidth: '240px',
+            // Sur mobile, on clampe la largeur au viewport pour éviter un
+            // débord horizontal (minWidth 240px + bouton près du bord gauche
+            // = dropdown qui sort à droite). Sur desktop, minWidth s'applique.
+            minWidth: 'min(240px, calc(100vw - 32px))',
+            maxWidth: 'calc(100vw - 32px)',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
@@ -741,9 +745,12 @@ function RenduDropdown({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
+          className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
           style={{
-            minWidth: '260px',
+            // Cf. EssaisDropdown : clamp viewport sur mobile pour éviter un
+            // débord horizontal quand le bouton est près du bord de l'écran.
+            minWidth: 'min(260px, calc(100vw - 32px))',
+            maxWidth: 'calc(100vw - 32px)',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
