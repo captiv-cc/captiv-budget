@@ -31,13 +31,17 @@ import {
   Edit3,
   GripVertical,
   List,
+  MoreHorizontal,
   Package,
   Trash2,
 } from 'lucide-react'
 import { MATOS_BLOCK_AFFICHAGES } from '../../../lib/materiel'
 import { notify } from '../../../lib/notify'
 import { confirm } from '../../../lib/confirm'
+import { useBreakpoint } from '../../../hooks/useBreakpoint'
+import ActionSheet from '../../../components/ActionSheet'
 import ItemRow from './ItemRow'
+import ItemRowCard from './ItemRowCard'
 import BlockItemAdder from './BlockItemAdder'
 
 export default function Block({
@@ -65,6 +69,13 @@ export default function Block({
 
   // Collapse/expand : état local (self-contained). Par défaut, déplié.
   const [collapsed, setCollapsed] = useState(false)
+
+  // Responsive : mobile (<640px) bascule du <table> vers une liste de cartes
+  // (ItemRowCard) et collapse les 3 IconBtn d'actions bloc dans un ⋯
+  // ActionSheet. Desktop/tablet gardent la table classique et les actions en
+  // ligne — comportement d'origine préservé.
+  const bp = useBreakpoint()
+  const isMobile = bp.isMobile
 
   // Drag & drop des items (interne au bloc) : ref pour l'index source
   // (capté au dragStart), state pour l'index survolé (rendu visuel).
@@ -320,23 +331,26 @@ export default function Block({
     >
       {/* Header de bloc — drag source (draggable) + drop target dupliqué
           (les events dragover/drop bubblent déjà vers <section>, mais certains
-          navigateurs avalent les bubbles de drag ; on double la ceinture). */}
+          navigateurs avalent les bubbles de drag ; on double la ceinture).
+          Le drag est désactivé sur mobile : pas de cible visible (pas de
+          grip), et le long-press natif entre en conflit avec le tap usuel. */}
       <header
         className="flex items-center gap-2 px-4 py-2.5"
-        draggable={blockDndEnabled}
-        onDragStart={handleBlockDragStart}
-        onDragOver={handleBlockDragOver}
-        onDragEnter={handleBlockDragEnter}
-        onDrop={handleBlockDrop}
-        onDragEnd={handleBlockDragEndCb}
+        draggable={blockDndEnabled && !isMobile}
+        onDragStart={isMobile ? undefined : handleBlockDragStart}
+        onDragOver={isMobile ? undefined : handleBlockDragOver}
+        onDragEnter={isMobile ? undefined : handleBlockDragEnter}
+        onDrop={isMobile ? undefined : handleBlockDrop}
+        onDragEnd={isMobile ? undefined : handleBlockDragEndCb}
         style={{
           background: 'var(--bg-elev)',
           borderBottom: collapsed ? '1px solid var(--brd)' : '1px solid var(--brd-sub)',
-          cursor: blockDndEnabled ? 'grab' : 'default',
+          cursor: blockDndEnabled && !isMobile ? 'grab' : 'default',
         }}
       >
-        {/* Grip drag handle (affordance visuelle) */}
-        {blockDndEnabled && (
+        {/* Grip drag handle (affordance visuelle). Masqué sur mobile : pas
+            de hover et ça grappille de l'espace précieux pour le titre. */}
+        {blockDndEnabled && !isMobile && (
           <GripVertical
             className="w-3.5 h-3.5 shrink-0"
             style={{ color: 'var(--txt-3)', opacity: 0.5 }}
@@ -483,26 +497,72 @@ export default function Block({
               )}
             </div>
           )}
-          {canEdit && (
+          {canEdit && !isMobile && (
             <IconBtn
               icon={Edit3}
               label="Renommer le bloc"
               onClick={() => setTitleEditing(true)}
             />
           )}
-          {canEdit && (
+          {canEdit && !isMobile && (
             <IconBtn
               icon={Copy}
               label="Dupliquer le bloc"
               onClick={handleDuplicateBlock}
             />
           )}
-          {canEdit && (
+          {canEdit && !isMobile && (
             <IconBtn
               icon={Trash2}
               label="Supprimer le bloc"
               onClick={handleDeleteBlock}
               danger
+            />
+          )}
+          {/* Mobile : un seul trigger ⋯ qui ouvre une bottom sheet avec les
+              3 actions. Évite l'empilement qui écrase le titre du bloc. */}
+          {canEdit && isMobile && (
+            <ActionSheet
+              title="Actions du bloc"
+              align="right"
+              trigger={({ ref, toggle, open }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  onClick={toggle}
+                  aria-label="Actions du bloc"
+                  aria-expanded={open}
+                  className="p-1.5 rounded-md transition-all"
+                  style={{
+                    color: 'var(--txt-3)',
+                    background: open ? 'var(--bg-hov)' : 'transparent',
+                  }}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+              )}
+              actions={[
+                {
+                  id: 'rename',
+                  icon: Edit3,
+                  label: 'Renommer le bloc',
+                  onClick: () => setTitleEditing(true),
+                },
+                {
+                  id: 'duplicate',
+                  icon: Copy,
+                  label: 'Dupliquer le bloc',
+                  onClick: handleDuplicateBlock,
+                },
+                { id: 'sep', type: 'separator' },
+                {
+                  id: 'delete',
+                  icon: Trash2,
+                  label: 'Supprimer le bloc',
+                  variant: 'danger',
+                  onClick: handleDeleteBlock,
+                },
+              ]}
             />
           )}
         </div>
@@ -517,8 +577,14 @@ export default function Block({
         />
       )}
 
-      {/* Table (masquée si replié) */}
-      {!collapsed && (
+      {/* Items — table classique (≥tablet) ou liste de cartes (mobile).
+          - Desktop/tablet : <table> avec overflow-x-auto (scroll résiduel si
+            l'écran est vraiment étroit en tablet portrait). Le DnD y est
+            opérationnel.
+          - Mobile (<640px) : liste <div> de ItemRowCard, pas de table, pas
+            de minWidth. Chaque carte étale ses champs verticalement. Le DnD
+            est désactivé à ce breakpoint (pas de hover, conflits touch). */}
+      {!collapsed && !isMobile && (
       <div className="overflow-x-auto">
         <table
           className="w-full text-xs"
@@ -595,6 +661,36 @@ export default function Block({
           </tbody>
         </table>
       </div>
+      )}
+
+      {!collapsed && isMobile && (
+        <div className="flex flex-col">
+          {items.length === 0 ? (
+            <div
+              className="px-3 py-4 text-center italic text-xs"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Aucun item — ajoute-en un ci-dessous
+            </div>
+          ) : (
+            items.map((item) => (
+              <ItemRowCard
+                key={item.id}
+                item={item}
+                blockAffichage={block.affichage}
+                loueurs={loueursByItem?.get(item.id) || []}
+                loueursById={loueursById}
+                allLoueurs={allLoueurs}
+                orgId={orgId}
+                materielBdd={materielBdd}
+                actions={actions}
+                canEdit={canEdit}
+                detailed={detailed}
+                onDelete={handleDeleteItem}
+              />
+            ))
+          )}
+        </div>
       )}
 
       {/* Footer : add item (masqué si replié) */}

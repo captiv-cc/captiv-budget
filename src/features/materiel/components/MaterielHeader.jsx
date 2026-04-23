@@ -43,8 +43,10 @@ import {
   Eye,
   EyeOff,
   FileSearch,
+  FileText,
   Lock,
   LockOpen,
+  MoreHorizontal,
   Package,
   PackageCheck,
   Plus,
@@ -57,6 +59,8 @@ import {
 // Checklist/Partager). Le ClotureBadge (+ Ré-ouvrir) reste affiché hors
 // dropdown puisqu'il communique l'état clôturé de la version.
 import { MATOS_FLAGS } from '../../../lib/materiel'
+import { useBreakpoint } from '../../../hooks/useBreakpoint'
+import ActionSheet from '../../../components/ActionSheet'
 import VersionSwitcher from './VersionSwitcher'
 import ExportPdfMenu from './ExportPdfMenu'
 
@@ -109,6 +113,78 @@ export default function MaterielHeader({
     (checklistProgress?.post?.total || 0) +
     (checklistProgress?.prod?.total || 0)
 
+  // Responsive : sur mobile, les actions secondaires (Dupliquer, Nouvelle
+  // version, Détails, Export, Photos) basculent dans un menu "Plus" (bottom
+  // sheet via ActionSheet). Les actions primaires visibles en permanence :
+  // VersionSwitcher, dropdowns Essais/Rendu, Récap loueurs.
+  const bp = useBreakpoint()
+  const isMobile = bp.isMobile
+
+  // Construction de la liste d'actions du menu "Plus" sur mobile. Les items
+  // sont filtrés dynamiquement par canEdit / présence de handler.
+  const moreActions = []
+  if (canEdit && activeVersion && onDuplicateVersion) {
+    moreActions.push({
+      id: 'duplicate',
+      icon: Copy,
+      label: 'Dupliquer la version',
+      onClick: onDuplicateVersion,
+    })
+  }
+  if (canEdit && onCreateVersion) {
+    moreActions.push({
+      id: 'create',
+      icon: Plus,
+      label: 'Nouvelle version',
+      onClick: onCreateVersion,
+    })
+  }
+  if (moreActions.length > 0) {
+    moreActions.push({ id: 'sep-version', type: 'separator' })
+  }
+  if (onToggleDetailed) {
+    moreActions.push({
+      id: 'toggle-detailed',
+      icon: detailed ? EyeOff : Eye,
+      label: detailed ? 'Masquer les détails' : 'Afficher les détails',
+      onClick: () => onToggleDetailed?.(!detailed),
+    })
+  }
+  if (activeVersion && onExportGlobal) {
+    moreActions.push({
+      id: 'export-global',
+      icon: FileText,
+      label: 'Exporter PDF (global)',
+      onClick: onExportGlobal,
+    })
+  }
+  if (activeVersion && onExportByLoueur) {
+    moreActions.push({
+      id: 'export-loueur',
+      icon: FileText,
+      label: 'Exporter PDF (par loueur)',
+      onClick: onExportByLoueur,
+    })
+  }
+  if (activeVersion && onExportChecklist) {
+    moreActions.push({
+      id: 'export-checklist',
+      icon: FileText,
+      label: 'Exporter checklist (PDF)',
+      onClick: onExportChecklist,
+    })
+  }
+  if (onOpenPhotos && activeVersion) {
+    moreActions.push({ id: 'sep-photos', type: 'separator' })
+    moreActions.push({
+      id: 'photos',
+      icon: Camera,
+      label: 'Photos',
+      variant: 'primary',
+      onClick: onOpenPhotos,
+    })
+  }
+
   return (
     <div
       className="flex flex-col gap-3 px-5 py-4"
@@ -152,7 +228,7 @@ export default function MaterielHeader({
           canEdit={canEdit}
         />
 
-        {canEdit && activeVersion && (
+        {canEdit && activeVersion && !isMobile && (
           <button
             type="button"
             onClick={onDuplicateVersion}
@@ -177,7 +253,7 @@ export default function MaterielHeader({
           </button>
         )}
 
-        {canEdit && (
+        {canEdit && !isMobile && (
           <button
             type="button"
             onClick={onCreateVersion}
@@ -206,27 +282,31 @@ export default function MaterielHeader({
 
         {/* Actions à droite */}
         <div className="ml-auto flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => onToggleDetailed?.(!detailed)}
-            className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-            style={{
-              background: detailed ? 'var(--blue-bg)' : 'var(--bg-elev)',
-              color: detailed ? 'var(--blue)' : 'var(--txt-2)',
-              border: `1px solid ${detailed ? 'var(--blue)' : 'var(--brd)'}`,
-            }}
-            title={detailed ? 'Masquer les détails (checklist + remarques)' : 'Afficher les détails (checklist + remarques)'}
-          >
-            {detailed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-            Détails
-          </button>
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={() => onToggleDetailed?.(!detailed)}
+              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
+              style={{
+                background: detailed ? 'var(--blue-bg)' : 'var(--bg-elev)',
+                color: detailed ? 'var(--blue)' : 'var(--txt-2)',
+                border: `1px solid ${detailed ? 'var(--blue)' : 'var(--brd)'}`,
+              }}
+              title={detailed ? 'Masquer les détails (checklist + remarques)' : 'Afficher les détails (checklist + remarques)'}
+            >
+              {detailed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              Détails
+            </button>
+          )}
 
-          <ExportPdfMenu
-            onExportGlobal={onExportGlobal}
-            onExportByLoueur={onExportByLoueur}
-            onExportChecklist={onExportChecklist}
-            disabled={!activeVersion}
-          />
+          {!isMobile && (
+            <ExportPdfMenu
+              onExportGlobal={onExportGlobal}
+              onExportByLoueur={onExportByLoueur}
+              onExportChecklist={onExportChecklist}
+              disabled={!activeVersion}
+            />
+          )}
 
           {/* MAT-22 : Dropdown "Essais" unifié — Checklist + Partager +
               Aperçu bilan + Clôturer (avec séparateur entre les groupes).
@@ -288,8 +368,8 @@ export default function MaterielHeader({
               des photos de la version. Même zone d'affordance que "Récap
               loueurs" (deux vues latérales exploratoires). Style "outline"
               pour ne pas voler la vedette au CTA principal Récap qui reste
-              solide. */}
-          {onOpenPhotos && activeVersion && (
+              solide. Sur mobile, l'action est poussée dans le menu "Plus". */}
+          {onOpenPhotos && activeVersion && !isMobile && (
             <button
               type="button"
               onClick={onOpenPhotos}
@@ -332,6 +412,35 @@ export default function MaterielHeader({
             <Users className="w-3 h-3" />
             Récap loueurs
           </button>
+
+          {/* Menu "Plus" — mobile uniquement. Consolide les actions
+              secondaires (Dupliquer, Nouvelle version, Détails, Exports,
+              Photos) en un seul ⋯ trigger qui ouvre une bottom sheet. */}
+          {isMobile && moreActions.length > 0 && (
+            <ActionSheet
+              title="Autres actions"
+              align="right"
+              trigger={({ ref, toggle, open }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  onClick={toggle}
+                  aria-label="Autres actions"
+                  aria-expanded={open}
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
+                  style={{
+                    background: open ? 'var(--bg-hov)' : 'var(--bg-elev)',
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                  }}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                  Plus
+                </button>
+              )}
+              actions={moreActions}
+            />
+          )}
         </div>
       </div>
     </div>
