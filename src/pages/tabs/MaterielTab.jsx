@@ -27,6 +27,7 @@ import { notify } from '../../lib/notify'
 import MaterielHeader from '../../features/materiel/components/MaterielHeader'
 import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
+import MaterielPhotosPanel from '../../features/materiel/components/MaterielPhotosPanel'
 import ExportLoueurModal from '../../features/materiel/components/ExportLoueurModal'
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
 import BilanExportModal from '../../features/materiel/components/BilanExportModal'
@@ -91,6 +92,11 @@ export default function MaterielTab() {
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // MAT-11D : panneau latéral Photos (audit transversal des photos de la
+  // version). Conditionnellement monté (cf. fin du composant) pour que le
+  // hook useCheckAuthedSession dans MaterielPhotosPanel ne se déclenche qu'à
+  // l'ouverture — pas de fetch parasite en background.
+  const [photosPanelOpen, setPhotosPanelOpen] = useState(false)
   // MAT-22 : modale d'export bilan avec choix (global / ZIP / loueur unique)
   // + preview inline. Remplace l'ancien bouton "Aperçu bilan" qui téléchargeait
   // directement le ZIP sans preview.
@@ -431,6 +437,7 @@ export default function MaterielTab() {
         onOpenRecap={() => setRecapOpen(true)}
         onOpenShare={() => setShareOpen(true)}
         onOpenChantierMode={handleOpenChantierMode}
+        onOpenPhotos={() => setPhotosPanelOpen(true)}
         onExportGlobal={handleExportGlobal}
         onExportByLoueur={handleExportByLoueur}
         onExportChecklist={handleExportChecklist}
@@ -529,6 +536,23 @@ export default function MaterielTab() {
         onClose={() => setShareOpen(false)}
         activeVersion={activeVersion}
       />
+
+      {/* MAT-11D : Panneau Photos (slide-over) — monté conditionnellement pour
+          que useCheckAuthedSession à l'intérieur ne se déclenche qu'au premier
+          open. Re-ouvrir = re-fetch frais (désiré en contexte admin d'audit). */}
+      {photosPanelOpen && activeVersionId && (
+        <MaterielPhotosPanel
+          open={photosPanelOpen}
+          onClose={() => setPhotosPanelOpen(false)}
+          versionId={activeVersionId}
+          activeVersionLabel={
+            activeVersion
+              ? `V${activeVersion.numero}${activeVersion.label ? ' — ' + activeVersion.label : ''}`
+              : ''
+          }
+          canEdit={canEdit}
+        />
+      )}
     </div>
   )
 }

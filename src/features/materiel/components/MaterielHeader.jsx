@@ -24,6 +24,8 @@
 //     onRestoreVersion, onRenameVersion, onDeleteVersion
 //   - detailed, onToggleDetailed
 //   - onOpenRecap
+//   - onOpenPhotos : ouvre le panneau latéral Photos (MAT-11D) — optionnel,
+//                    le bouton est masqué si null
 //   - onExportGlobal, onExportByLoueur, onExportChecklist (MAT-7)
 //   - onPreviewBilan, onCloseEssais, onReopenEssais  (MAT-12)
 //   - canEdit
@@ -32,6 +34,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   ChevronDown,
   Circle,
@@ -72,6 +75,9 @@ export default function MaterielHeader({
   onOpenRecap,
   onOpenShare,
   onOpenChantierMode,
+  // MAT-11D : ouvre le panneau "Photos" latéral (audit transversal des
+  // photos de la version). null → bouton masqué (ex. projet sans outil).
+  onOpenPhotos = null,
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
@@ -235,6 +241,34 @@ export default function MaterielHeader({
               canEdit={canEdit}
               onReopen={onReopenEssais}
             />
+          )}
+
+          {/* MAT-11D : bouton "Photos" — ouvre le panneau transversal d'audit
+              des photos de la version. Même zone d'affordance que "Récap
+              loueurs" (deux vues latérales exploratoires). Style "outline"
+              pour ne pas voler la vedette au CTA principal Récap qui reste
+              solide. */}
+          {onOpenPhotos && activeVersion && (
+            <button
+              type="button"
+              onClick={onOpenPhotos}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-all"
+              style={{
+                background: 'transparent',
+                color: 'var(--blue)',
+                border: '1px solid var(--blue)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--blue-bg)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+              title="Voir toutes les photos de la version"
+            >
+              <Camera className="w-3 h-3" />
+              Photos
+            </button>
           )}
 
           <button
