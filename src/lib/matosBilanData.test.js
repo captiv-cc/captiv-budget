@@ -388,3 +388,48 @@ describe('NO_LOUEUR_BUCKET_ID', () => {
     expect(NO_LOUEUR_BUCKET_ID.length).toBeGreaterThan(0)
   })
 })
+
+// ─── MAT-13G : pass-through version_loueur_infos ──────────────────────────
+
+describe('aggregateBilanData — pass-through version_loueur_infos (MAT-13G)', () => {
+  it('propage le tableau version_loueur_infos tel quel depuis session', () => {
+    const session = makeSession()
+    session.version_loueur_infos = [
+      {
+        version_id: 'v1',
+        loueur_id: 'LA',
+        rendu_feedback: 'Feedback pour Lux Camera',
+        pickup_contact: 'Alice',
+      },
+      {
+        version_id: 'v1',
+        loueur_id: 'LB',
+        rendu_feedback: null,
+        pickup_contact: 'Bob',
+      },
+    ]
+    const result = aggregateBilanData(session)
+    expect(Array.isArray(result.version_loueur_infos)).toBe(true)
+    expect(result.version_loueur_infos).toHaveLength(2)
+    expect(result.version_loueur_infos[0].rendu_feedback).toBe('Feedback pour Lux Camera')
+    expect(result.version_loueur_infos[1].loueur_id).toBe('LB')
+  })
+
+  it('renvoie un tableau vide quand le champ est absent', () => {
+    const result = aggregateBilanData(makeSession())
+    expect(result.version_loueur_infos).toEqual([])
+  })
+
+  it('coerce les non-arrays en tableau vide (sécurité)', () => {
+    const session = makeSession()
+    session.version_loueur_infos = 'invalid'
+    const result = aggregateBilanData(session)
+    expect(result.version_loueur_infos).toEqual([])
+  })
+
+  it('inclut version_loueur_infos vide dans le fallback session=null', () => {
+    const result = aggregateBilanData(null)
+    expect(Array.isArray(result.version_loueur_infos)).toBe(true)
+    expect(result.version_loueur_infos).toHaveLength(0)
+  })
+})
