@@ -667,6 +667,10 @@ function RenduHeader({
   const project = session?.project
   const version = session?.version
   const isLight = theme === 'light'
+  // MAT-RESP-CHECK-4 : mobile chip user en initiales (comme CheckHeader).
+  // "Hugo MARTIN" en plein prend trop de largeur à côté du titre projet, de
+  // la puce thème et du chevron presence. Sur mobile on tombe en "HM".
+  const initials = getUserInitials(userName)
   return (
     <header
       className="sticky top-0 z-10 px-4 py-3 md:px-8 border-b"
@@ -721,27 +725,31 @@ function RenduHeader({
           <button
             type="button"
             onClick={onEditName}
-            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            className="shrink-0 text-xs px-2.5 py-1.5 sm:px-3 rounded-md font-medium sm:font-normal"
             style={{
               background: 'var(--bg)',
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
             title="Changer de prénom"
+            aria-label={userName ? `Changer de prénom (actuellement ${userName})` : 'Changer de prénom'}
           >
-            {userName}
+            <span className="hidden sm:inline">{userName}</span>
+            <span className="sm:hidden tabular-nums">{initials}</span>
           </button>
         ) : (
           <span
-            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            className="shrink-0 text-xs px-2.5 py-1.5 sm:px-3 rounded-md font-medium sm:font-normal"
             style={{
               background: 'var(--bg)',
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
-            title={mode === 'authed' ? 'Identifiant CAPTIV' : undefined}
+            title={mode === 'authed' ? `Identifiant CAPTIV — ${userName}` : userName || undefined}
+            aria-label={userName || undefined}
           >
-            {userName}
+            <span className="hidden sm:inline">{userName}</span>
+            <span className="sm:hidden tabular-nums">{initials}</span>
           </span>
         )}
       </div>
@@ -934,17 +942,16 @@ function CloseRenduAction({ version, onOpen, onPreview }) {
             color: 'var(--txt-2)',
             border: '1px solid var(--brd)',
           }}
+          title={isClosed
+            ? 'Met à jour le bon de retour archivé avec l\'état actuel.'
+            : 'Génère un PDF synthétique du retour, archivé dans les documents du projet.'}
         >
           <FileSearch className="w-4 h-4" />
           Aperçu et export du bon de retour
         </button>
       )}
-
-      <p className="text-xs mt-2 text-center" style={{ color: 'var(--txt-3)' }}>
-        {isClosed
-          ? 'Met à jour le bon de retour archivé avec l\'état actuel.'
-          : 'Génère un PDF synthétique du retour, archivé dans les documents du projet.'}
-      </p>
+      {/* MAT-RESP-CHECK-4 : légende retirée (redondante avec le libellé du bouton
+          + le `title`). Gain ~40px de scroll mobile. */}
     </div>
   )
 }
@@ -1223,3 +1230,17 @@ function RenduFeedbackBanner({ scope = 'global', loueurName = null, value, onSav
 
 // MAT-13H : `PreviewPdfModal` supprimé — remplacé par BonRetourExportModal
 // (3 modes global/ZIP/loueur), importé depuis features/materiel/components.
+
+/**
+ * Renvoie les initiales d'un nom pour l'affichage mobile de la puce user.
+ * Miroir strict de `getUserInitials` dans CheckSession — même règle (première
+ * lettre + dernière lettre du nom pour les noms composés, 2 premières lettres
+ * pour un mot seul). Uppercase pour un rendu homogène avec `tabular-nums`.
+ */
+function getUserInitials(name) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}

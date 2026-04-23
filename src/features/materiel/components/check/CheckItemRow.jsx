@@ -137,6 +137,10 @@ export default function CheckItemRow({
   const authorName = isRendu
     ? item.post_check_by_name || null
     : item.pre_check_by_name || null
+  // MAT-RESP-CHECK : timestamp de la coche — utilisé pour rendre la méta
+  // "✓ Camille · il y a 5 min" sous le titre de l'item (plus lisible qu'un
+  // chip à droite qui mangeait la ligne sur mobile).
+  const checkedAt = isRendu ? item.post_check_at : item.pre_check_at
 
   const isRemoved = Boolean(item.removed_at)
   const isAdditif = Boolean(item.added_during_check)
@@ -429,6 +433,23 @@ export default function CheckItemRow({
                   x{item.quantite}
                 </span>
               )}
+              {/* MAT-RESP-CHECK : méta "validé par X · il y a Xmin". Remplace
+                  le chip à droite de la ligne, qui prenait trop de place sur
+                  mobile et dupliquait l'info du checkbox vert. */}
+              {displayChecked && !isRemoved && authorName && (
+                <span
+                  className="text-xs"
+                  style={{ color: 'var(--green)' }}
+                  title={checkedAt ? new Date(checkedAt).toLocaleString('fr-FR') : undefined}
+                >
+                  ✓ {authorName}
+                  {checkedAt && (
+                    <span style={{ color: 'var(--txt-3)' }}>
+                      {' · '}{formatRelativeTime(checkedAt)}
+                    </span>
+                  )}
+                </span>
+              )}
               <RemarqueInline text={item.remarques} />
               <LoueurTagList loueurs={loueurs} />
               {/* MAT-13D — En rendu, on masque le badge "Ajouté par X" : les
@@ -524,22 +545,10 @@ export default function CheckItemRow({
             </span>
           </span>
 
-          {/* Flag pastille (si posé) ─────────────────────────────────── */}
-          {item.flag && !isRemoved && <FlagDot flag={item.flag} />}
-
-          {/* Auteur du check (visible quand coché) ──────────────────── */}
-          {displayChecked && !isRemoved && authorName && (
-            <span
-              className="shrink-0 text-xs px-2 py-1 rounded-md"
-              style={{
-                background: 'var(--bg-surf)',
-                color: 'var(--txt-2)',
-                border: '1px solid var(--brd-sub)',
-              }}
-            >
-              ✓ {authorName}
-            </span>
-          )}
+          {/* MAT-RESP-CHECK : FlagDot et chip "✓ auteur" retirés du corps de
+              la ligne. Le statut coché est déjà rendu par le checkbox vert à
+              gauche ; l'auteur + le timestamp sont affichés dans la méta
+              sous le titre (plus lisible, notamment sur mobile). */}
         </button>
 
         {/* Menu unifié (⋯) — remplace les 3 boutons séparés de MAT-11C ─ */}
@@ -869,28 +878,6 @@ function formatRelativeTime(iso) {
     return `il y a ${m} min`
   }
   return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-}
-
-/* ═══ Flag pastille ═══════════════════════════════════════════════════ */
-
-function FlagDot({ flag }) {
-  const map = {
-    ok: { color: 'var(--green)', bg: 'var(--green-bg)' },
-    attention: { color: 'var(--orange)', bg: 'var(--orange-bg)' },
-    probleme: { color: 'var(--red)', bg: 'var(--red-bg)' },
-  }
-  const style = map[flag]
-  if (!style) return null
-  return (
-    <span
-      className="shrink-0 w-2.5 h-2.5 rounded-full"
-      style={{
-        background: style.color,
-        boxShadow: `0 0 0 3px ${style.bg}`,
-      }}
-      aria-label={`flag ${flag}`}
-    />
-  )
 }
 
 /* ═══ Undo snackbar (MAT-10I) ═════════════════════════════════════════ */

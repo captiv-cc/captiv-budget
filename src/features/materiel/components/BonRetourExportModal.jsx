@@ -23,6 +23,14 @@
 //   - session        : objet session préchargé (requis — fourni par le hook
 //                      `useRenduTokenSession` ou `useRenduAuthedSession`)
 //   - org            : object (organisation — passée au PDF builder pour le footer)
+//
+// Responsive (MAT-RESP-CHECK-5, 2026-04) — miroir strict du fix appliqué à
+// BilanExportModal pour la phase essais. Voir commentaire équivalent dans
+// `BilanExportModal.jsx` pour le rationnel détaillé.
+//   - Desktop (>=sm) : modale centrée 1200×92vh, panneau latéral 320px + iframe
+//     à droite (layout d'origine).
+//   - Mobile (<sm)   : plein écran, body vertical — onglets horizontaux
+//     `ModeTab` + <select> natif pour loueur, iframe PDF en flex-1.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -41,6 +49,7 @@ import {
   buildBonRetourLoueurPdf,
   buildBonRetourZip,
 } from '../matosBonRetourPdf'
+import { useBreakpoint } from '../../../hooks/useBreakpoint'
 
 const MODES = [
   {
@@ -69,6 +78,8 @@ export default function BonRetourExportModal({
   session = null,
   org = null,
 }) {
+  const { isMobile } = useBreakpoint()
+
   // Snapshot dérivé de la session (memoized pour éviter un re-compute à chaque
   // render). null si pas de session — on affiche alors un error state.
   const snapshot = useMemo(() => {
@@ -256,17 +267,28 @@ export default function BonRetourExportModal({
 
       {/* Container */}
       <div
-        className="fixed z-50 flex flex-col overflow-hidden rounded-xl"
-        style={{
-          top: '4vh',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 'min(1200px, 96vw)',
-          height: '92vh',
-          background: 'var(--bg-elev)',
-          border: '1px solid var(--brd)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-        }}
+        className="fixed z-50 flex flex-col overflow-hidden sm:rounded-xl"
+        style={
+          isMobile
+            ? {
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'var(--bg-elev)',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+              }
+            : {
+                top: '4vh',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 'min(1200px, 96vw)',
+                height: '92vh',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+              }
+        }
         role="dialog"
         aria-label="Exporter le bon de retour"
       >
@@ -330,18 +352,31 @@ export default function BonRetourExportModal({
           </button>
         </header>
 
-        {/* Body : [Left panel] [Right preview] */}
-        <div className="flex-1 min-h-0 flex">
-          {/* Left panel */}
+        {/* Body :
+         *   • desktop → [aside 320px] [preview flex-1]
+         *   • mobile  → [aside top, max-height] / [preview below, flex-1]
+         * Miroir strict de BilanExportModal. Les onglets horizontaux compacts
+         * remplacent les radios verticaux verbeux pour libérer de la hauteur
+         * à l'iframe PDF (inutilisable sinon).
+         */}
+        <div className={`flex-1 min-h-0 flex ${isMobile ? 'flex-col' : ''}`}>
+          {/* Left / top panel */}
           <aside
-            className="shrink-0 overflow-y-auto"
-            style={{
-              width: '320px',
-              borderRight: '1px solid var(--brd-sub)',
-              background: 'var(--bg-elev)',
-            }}
+            className={`shrink-0 overflow-y-auto ${isMobile ? 'w-full' : ''}`}
+            style={
+              isMobile
+                ? {
+                    borderBottom: '1px solid var(--brd-sub)',
+                    background: 'var(--bg-elev)',
+                  }
+                : {
+                    width: '320px',
+                    borderRight: '1px solid var(--brd-sub)',
+                    background: 'var(--bg-elev)',
+                  }
+            }
           >
-            <div className="p-4 space-y-4">
+            <div className={isMobile ? 'p-3 space-y-2.5' : 'p-4 space-y-4'}>
               <div>
                 <h3
                   className="text-[11px] font-semibold uppercase tracking-wide mb-2"
@@ -349,18 +384,32 @@ export default function BonRetourExportModal({
                 >
                   Format d&apos;export
                 </h3>
-                <div className="space-y-1.5">
-                  {MODES.map((m) => (
-                    <ModeRadio
-                      key={m.id}
-                      active={mode === m.id}
-                      onClick={() => setMode(m.id)}
-                      icon={m.icon}
-                      label={m.label}
-                      description={m.description}
-                    />
-                  ))}
-                </div>
+                {isMobile ? (
+                  <div className="flex gap-1.5">
+                    {MODES.map((m) => (
+                      <ModeTab
+                        key={m.id}
+                        active={mode === m.id}
+                        onClick={() => setMode(m.id)}
+                        icon={m.icon}
+                        label={m.label}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {MODES.map((m) => (
+                      <ModeRadio
+                        key={m.id}
+                        active={mode === m.id}
+                        onClick={() => setMode(m.id)}
+                        icon={m.icon}
+                        label={m.label}
+                        description={m.description}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Sélecteur loueur (visible en mode "loueur" uniquement) */}
@@ -376,6 +425,24 @@ export default function BonRetourExportModal({
                     <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
                       Aucun loueur disponible.
                     </p>
+                  ) : isMobile ? (
+                    // Mobile : select natif pour minimiser la hauteur
+                    <select
+                      value={selectedLoueurKey || ''}
+                      onChange={(e) => setSelectedLoueurKey(e.target.value)}
+                      className="w-full text-xs px-2.5 py-2 rounded-md"
+                      style={{
+                        background: 'var(--bg-surf)',
+                        border: '1px solid var(--brd)',
+                        color: 'var(--txt)',
+                      }}
+                    >
+                      {loueurOptions.map((opt) => (
+                        <option key={opt.key} value={opt.key}>
+                          {opt.label} ({opt.nItems})
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     <div className="space-y-1">
                       {loueurOptions.map((opt) => (
@@ -517,6 +584,34 @@ function ModeRadio({ active, onClick, icon: Icon, label, description }) {
         <span className="text-[10px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
           {description}
         </span>
+      </span>
+    </button>
+  )
+}
+
+/**
+ * Variante compacte horizontale de `ModeRadio`, utilisée sur mobile. Miroir
+ * strict du composant éponyme dans `BilanExportModal`. Trois onglets équi-
+ * répartis via `flex-1`, icône + label court sans description.
+ */
+function ModeTab({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 flex flex-col items-center gap-1 px-2 py-2 rounded-md transition-all min-w-0"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'var(--bg-surf)',
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd)'}`,
+        color: active ? 'var(--blue)' : 'var(--txt-2)',
+      }}
+    >
+      <Icon className="w-4 h-4 shrink-0" />
+      <span
+        className="text-[10px] font-semibold leading-tight text-center truncate w-full"
+        style={{ color: active ? 'var(--blue)' : 'var(--txt)' }}
+      >
+        {label}
       </span>
     </button>
   )

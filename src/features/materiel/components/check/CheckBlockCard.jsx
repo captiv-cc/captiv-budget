@@ -48,13 +48,21 @@
  *   - Cohérence avec CheckItemRow (MAT-23D) : un seul paradigme "⋯ → section
  *     dépliée" sur TOUTE la checklist, pas deux patterns différents selon
  *     qu'on est sur une ligne ou sur un header de bloc.
- *   - Les photos kind='pack' restent visibles en tête (preview, hideUploader
- *     pour alléger). L'édition se fait via ⋯ → Photos pack (section avec
- *     uploader complet).
- *   - Les blocs peuvent désormais avoir des signalements (photos+comments
- *     kind='probleme') et des notes (comments kind='note'), utiles pour un
- *     message général qui concerne l'ensemble d'un bloc (ex. "valise
- *     abîmée").
+ *   - Les blocs peuvent avoir des signalements (photos+comments kind='probleme')
+ *     et des notes (comments kind='note'), utiles pour un message général qui
+ *     concerne l'ensemble d'un bloc (ex. "valise abîmée").
+ *
+ * MAT-RESP-CHECK (Hugo 2026-04-23) — photos pack : une seule ligne.
+ *   Historiquement la preview en tête était read-only (hideUploader) et une
+ *   entrée "Photos pack" du menu ⋯ ouvrait une seconde section éditable juste
+ *   en dessous — doublon visuel évident (mêmes 4 thumbnails, l'une sans
+ *   l'autre avec "Ajouter"). Désormais :
+ *     • essais : la preview est toujours visible (même 0 photo) et inclut
+ *       l'uploader directement — bouton "Ajouter" dans son propre header.
+ *     • rendu  : preview RO visible uniquement si ≥ 1 photo pack (consultation).
+ *     • L'entrée "Photos pack" du menu ⋯ est retirée dans les 2 phases.
+ *   Le menu ⋯ reste strictement pour Signaler, Notes (et Problèmes essais
+ *   en rendu) — actions qui nécessitent une section dépliée dédiée.
  */
 
 import { useState } from 'react'
@@ -192,17 +200,11 @@ export default function CheckBlockCard({
       badge: signalCount > 0 ? signalCount : null,
       onClick: () => toggleSection('signal'),
     },
-    // Photos pack — visible dans les 2 phases. Editable essais, RO rendu.
-    (!isRendu && (onUploadPhoto || blockPhotosPack.length > 0)) ||
-    (isRendu && blockPhotosPack.length > 0)
-      ? {
-          id: 'pack',
-          icon: Camera,
-          label: isRendu ? 'Photos pack (essais)' : 'Photos pack',
-          badge: blockPhotosPack.length > 0 ? blockPhotosPack.length : null,
-          onClick: () => toggleSection('pack'),
-        }
-      : null,
+    // MAT-RESP-CHECK (Hugo 2026-04-23) : entrée "Photos pack" retirée du menu.
+    // La preview en tête du bloc (voir plus bas) intègre désormais l'uploader
+    // directement — une seule ligne fait tout (consulter + ajouter). Rouvrir
+    // une section dépliée identique en dessous de la preview était un doublon
+    // visuel évident (cf. screenshot).
     // Problèmes essais — RENDU UNIQUEMENT (consultation RO combinée).
     isRendu && blockProblemeEssaisCount > 0
       ? {
@@ -374,14 +376,17 @@ export default function CheckBlockCard({
         )}
       </header>
 
-      {/* MAT-23E : Preview photos pack (view-only, hideUploader=true) ───────
-          Grille des photos pack en tête pour que l'équipe voie le contenu
-          de la valise "d'un coup d'œil". L'ajout se fait via ⋯ → Photos pack
-          (section éditable en essais / consultation RO en rendu). On masque
-          la preview si aucune photo pack : évite un grand espace vide.
-          MAT-13D-bis : preview conservée en rendu aussi (utile pour comparer
-          retour vs initial), mais readOnly (pas d'édition de caption).     */}
-      {photosEnabled && blockPhotosPack.length > 0 && (
+      {/* MAT-RESP-CHECK (Hugo 2026-04-23) : Photos pack en tête du bloc —
+          une seule ligne qui fait tout.
+          • En essais : preview toujours visible (même quand 0 photo) avec
+            l'uploader inline dans le header. Plus besoin de passer par le
+            menu ⋯ pour ajouter la première photo : le bouton "Ajouter" est
+            directement sur la ligne, à côté du compteur.
+          • En rendu : preview visible uniquement quand ≥ 1 photo pack
+            (consultation RO — pas d'intérêt à afficher un empty state en
+            rendu puisqu'on ne peut rien uploader).
+          L'entrée "Photos pack" du menu ⋯ a été retirée (doublon visuel). */}
+      {photosEnabled && (!isRendu || blockPhotosPack.length > 0) && (
         <CheckPhotosSection
           photos={blockPhotosPack}
           kind="pack"
@@ -392,8 +397,12 @@ export default function CheckBlockCard({
           onDelete={onDeletePhoto}
           onUpdateCaption={onUpdatePhotoCaption}
           compact
-          hideUploader
           readOnly={isRendu}
+          emptyLabel={
+            isRendu
+              ? 'Aucune photo pack documentée sur ce bloc pendant les essais.'
+              : 'Aucune photo pack. Documente le contenu du flight case pour que l\'équipe repère ce qui est dedans.'
+          }
         />
       )}
 
@@ -416,25 +425,9 @@ export default function CheckBlockCard({
         />
       )}
 
-      {/* Section photos pack — éditable en essais, READ-ONLY en rendu. */}
-      {expandedSection === 'pack' && (
-        <CheckPhotosSection
-          photos={blockPhotosPack}
-          kind="pack"
-          anchor={{ blockId: block.id }}
-          userName={userName}
-          isAdmin={isAdmin}
-          onUpload={onUploadPhoto}
-          onDelete={onDeletePhoto}
-          onUpdateCaption={onUpdatePhotoCaption}
-          readOnly={isRendu}
-          emptyLabel={
-            isRendu
-              ? 'Aucune photo pack documentée sur ce bloc pendant les essais.'
-              : undefined
-          }
-        />
-      )}
+      {/* MAT-RESP-CHECK : la section dépliée 'pack' a été retirée — la preview
+          en tête (voir plus haut) inclut désormais l'uploader directement, ce
+          qui supprime le doublon visuel (une seule ligne photos pack par bloc). */}
 
       {/* Section problèmes essais — RENDU UNIQUEMENT (consultation RO). */}
       {isRendu && expandedSection === 'probleme-essais' && (

@@ -640,6 +640,10 @@ function CheckHeader({
   const project = session?.project
   const version = session?.version
   const isLight = theme === 'light'
+  // MAT-RESP-CHECK (#8) : sur mobile, le nom complet "Hugo MARTIN" prenait
+  // trop de largeur à côté du titre projet + toggle thème. On affiche les
+  // initiales ("HM") en dessous de sm, le nom plein à partir de sm.
+  const initials = getUserInitials(userName)
   return (
     <header
       className="sticky top-0 z-10 px-4 py-3 md:px-8 border-b"
@@ -694,32 +698,39 @@ function CheckHeader({
         )}
 
         {/* En mode authed, l'identité vient de l'auth Supabase — pas de bouton
-            cliquable pour la modifier. On garde un simple label visuel. */}
+            cliquable pour la modifier. On garde un simple label visuel.
+            MAT-RESP-CHECK (#8) : initiales en <sm, nom plein ≥sm. Le
+            title mobile expose le nom complet en tooltip / aria-label pour
+            l'accessibilité. */}
         {onEditName ? (
           <button
             type="button"
             onClick={onEditName}
-            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            className="shrink-0 text-xs px-2.5 py-1.5 sm:px-3 rounded-md font-medium sm:font-normal"
             style={{
               background: 'var(--bg)',
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
-            title="Changer de prénom"
+            title={userName ? `Changer de prénom — connecté comme ${userName}` : 'Changer de prénom'}
+            aria-label={userName ? `Changer de prénom (actuellement ${userName})` : 'Changer de prénom'}
           >
-            {userName}
+            <span className="hidden sm:inline">{userName}</span>
+            <span className="sm:hidden tabular-nums">{initials}</span>
           </button>
         ) : (
           <span
-            className="shrink-0 text-xs px-3 py-1.5 rounded-md"
+            className="shrink-0 text-xs px-2.5 py-1.5 sm:px-3 rounded-md font-medium sm:font-normal"
             style={{
               background: 'var(--bg)',
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
-            title={mode === 'authed' ? 'Identifiant CAPTIV' : undefined}
+            title={mode === 'authed' ? `Identifiant CAPTIV — ${userName || ''}` : userName || undefined}
+            aria-label={userName || undefined}
           >
-            {userName}
+            <span className="hidden sm:inline">{userName}</span>
+            <span className="sm:hidden tabular-nums">{initials}</span>
           </span>
         )}
       </div>
@@ -989,6 +1000,23 @@ function ClotureConfirmModal({ onConfirm, onCancel, closing, error, isAlreadyClo
       </div>
     </div>
   )
+}
+
+/**
+ * Extrait les initiales d'un nom pour l'affichage mobile condensé du header
+ * (MAT-RESP-CHECK #8). "Hugo MARTIN" → "HM", "Camille" → "C". Le fallback
+ * "?" ne se déclenche que sur chaîne vide / null — jamais en prod puisque
+ * le flow token exige un prénom et le flow authed tombe sur profile.full_name
+ * / email. On normalise en uppercase pour un rendu homogène.
+ */
+function getUserInitials(name) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 /**

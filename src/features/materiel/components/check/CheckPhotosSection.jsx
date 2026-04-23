@@ -497,10 +497,20 @@ export default function CheckPhotosSection({
             </div>
           )}
 
+          {/* MAT-RESP-CHECK (#7) : grille photos responsive.
+              • Mobile (<640px) : flex-row + overflow-x-auto → scroll horizontal
+                avec snap, garde la ligne d'item compacte (pas de pile verticale
+                de 3 rangées qui pousse la suite de la checklist hors viewport).
+              • Desktop (≥640px) : grid auto-fill classique, vignettes cadrées
+                plus larges puisqu'on a la place.
+              Chaque vignette porte `shrink-0 w-20 sm:w-auto` pour préserver sa
+              taille en mode scroll, et reprend 100% de sa cellule en mode grid. */}
           <div
-            className="grid gap-1.5"
+            className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 sm:grid sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0"
             style={{
               gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+              scrollSnapType: 'x mandatory',
+              WebkitOverflowScrolling: 'touch',
             }}
           >
           {photos.map((photo, index) => {
@@ -510,13 +520,14 @@ export default function CheckPhotosSection({
                 key={photo.id}
                 type="button"
                 onClick={() => handleOpenLightbox(index)}
-                className={`relative rounded-md overflow-hidden ${
+                className={`relative rounded-md overflow-hidden shrink-0 w-20 sm:w-auto ${
                   !thumbUrl && urlsLoading ? 'animate-pulse' : ''
                 }`}
                 style={{
                   aspectRatio: '1 / 1',
                   background: 'var(--bg-surf)',
                   border: '1px solid var(--brd-sub)',
+                  scrollSnapAlign: 'start',
                 }}
                 aria-label={
                   photo.caption
