@@ -215,10 +215,13 @@ export default function LoueurDocsPanel({ versionId, canEdit = false }) {
       </header>
 
       {/* ── Upload form ─────────────────────────────────────────────────── */}
+      {/* Layout mobile : stack vertical (titre full-width, puis fichier
+          full-width, puis Envoyer CTA pleine largeur). Sur desktop on
+          retombe sur le flex-wrap horizontal compact d'origine. */}
       {canEdit && (
         <form
           onSubmit={handleUpload}
-          className="px-4 py-3 border-b flex flex-wrap items-center gap-2"
+          className="px-4 py-3 border-b flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2"
           style={{
             borderColor: 'var(--brd)',
             background: 'var(--bg)',
@@ -230,7 +233,7 @@ export default function LoueurDocsPanel({ versionId, canEdit = false }) {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Titre (ex. Devis VDEF LoueurA)"
             disabled={uploading}
-            className="flex-1 min-w-[180px] px-3 py-1.5 rounded-md text-xs"
+            className="w-full sm:flex-1 sm:min-w-[180px] px-3 py-1.5 rounded-md text-xs"
             style={{
               background: 'var(--bg-surf)',
               border: '1px solid var(--brd)',
@@ -238,7 +241,7 @@ export default function LoueurDocsPanel({ versionId, canEdit = false }) {
             }}
           />
           <label
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs cursor-pointer"
+            className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-1.5 rounded-md text-xs cursor-pointer"
             style={{
               background: 'var(--bg-surf)',
               border: '1px solid var(--brd)',
@@ -246,7 +249,7 @@ export default function LoueurDocsPanel({ versionId, canEdit = false }) {
             }}
           >
             <Upload className="w-3 h-3" />
-            <span className="truncate max-w-[180px]">
+            <span className="truncate max-w-[240px] sm:max-w-[180px]">
               {fileName || 'Choisir un fichier…'}
             </span>
             <input
@@ -260,7 +263,7 @@ export default function LoueurDocsPanel({ versionId, canEdit = false }) {
           <button
             type="submit"
             disabled={uploading || !fileName}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold disabled:opacity-40"
+            className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold disabled:opacity-40"
             style={{
               background: 'var(--blue)',
               color: 'white',

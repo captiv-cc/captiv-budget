@@ -228,6 +228,37 @@ export default function MaterielHeader({
           canEdit={canEdit}
         />
 
+        {/* Menu "Plus" — mobile uniquement, placé juste après le
+            VersionSwitcher pour ne pas occuper une ligne seule en bas
+            de la toolbar. Consolide Dupliquer, Nouvelle version, Détails,
+            Exports et Photos (tous masqués sur mobile dans leur emplacement
+            desktop). */}
+        {isMobile && moreActions.length > 0 && (
+          <ActionSheet
+            title="Autres actions"
+            align="left"
+            trigger={({ ref, toggle, open }) => (
+              <button
+                ref={ref}
+                type="button"
+                onClick={toggle}
+                aria-label="Autres actions"
+                aria-expanded={open}
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
+                style={{
+                  background: open ? 'var(--bg-hov)' : 'var(--bg-elev)',
+                  color: 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                }}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                Plus
+              </button>
+            )}
+            actions={moreActions}
+          />
+        )}
+
         {canEdit && activeVersion && !isMobile && (
           <button
             type="button"
@@ -412,35 +443,6 @@ export default function MaterielHeader({
             <Users className="w-3 h-3" />
             Récap loueurs
           </button>
-
-          {/* Menu "Plus" — mobile uniquement. Consolide les actions
-              secondaires (Dupliquer, Nouvelle version, Détails, Exports,
-              Photos) en un seul ⋯ trigger qui ouvre une bottom sheet. */}
-          {isMobile && moreActions.length > 0 && (
-            <ActionSheet
-              title="Autres actions"
-              align="right"
-              trigger={({ ref, toggle, open }) => (
-                <button
-                  ref={ref}
-                  type="button"
-                  onClick={toggle}
-                  aria-label="Autres actions"
-                  aria-expanded={open}
-                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-                  style={{
-                    background: open ? 'var(--bg-hov)' : 'var(--bg-elev)',
-                    color: 'var(--txt-2)',
-                    border: '1px solid var(--brd)',
-                  }}
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                  Plus
-                </button>
-              )}
-              actions={moreActions}
-            />
-          )}
         </div>
       </div>
     </div>

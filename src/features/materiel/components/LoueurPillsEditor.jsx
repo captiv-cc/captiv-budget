@@ -197,16 +197,17 @@ export default function LoueurPillsEditor({
           onClick={() => setDropdownOpen((o) => !o)}
           title="Ajouter un loueur"
           aria-label="Ajouter un loueur"
-          className="inline-flex items-center justify-center rounded-full transition-all"
+          // Tap target : 32×32 sur mobile (quasi-minimum iOS 44 mais
+          // rester visuellement cohérent avec les pills à côté), 20×20
+          // sur desktop pour garder la densité d'origine.
+          className="inline-flex items-center justify-center rounded-full transition-all w-8 h-8 sm:w-5 sm:h-5"
           style={{
-            width: '20px',
-            height: '20px',
             background: dropdownOpen ? 'var(--blue-bg)' : 'var(--bg-elev)',
             color: dropdownOpen ? 'var(--blue)' : 'var(--txt-3)',
             border: '1px dashed var(--brd)',
           }}
         >
-          <Plus className="w-3 h-3" />
+          <Plus className="w-4 h-4 sm:w-3 sm:h-3" />
         </button>
       )}
 
@@ -349,7 +350,11 @@ function LoueurPill({ pillRef, couleur, nom, numeroReference, onClick, canEdit }
       type="button"
       onClick={onClick}
       disabled={!canEdit}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold transition-all"
+      // Tap target : sur mobile, padding généreux + min-height 32px pour
+      // rester confortable au pouce (les pills bord-à-bord peuvent être
+      // difficiles à cibler précisément). Sur desktop on garde la densité
+      // compacte d'origine (px-1.5 py-0.5).
+      className="inline-flex items-center gap-1 px-2 py-1 sm:px-1.5 sm:py-0.5 rounded-full text-[11px] sm:text-[10px] font-semibold transition-all min-h-[32px] sm:min-h-0"
       style={{
         background: alpha(couleur, '22'),
         color: couleur,
@@ -358,7 +363,7 @@ function LoueurPill({ pillRef, couleur, nom, numeroReference, onClick, canEdit }
       }}
       title={numeroReference ? `${nom} · ${numeroReference}` : nom}
     >
-      <CircleDot className="w-2.5 h-2.5" />
+      <CircleDot className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
       <span className="truncate max-w-[90px]">{nom}</span>
       {numeroReference && (
         <span style={{ opacity: 0.75, fontWeight: 600 }}>· {numeroReference}</span>
