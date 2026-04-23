@@ -225,30 +225,9 @@ export function useCheckTokenSession(token) {
     })
   }, [])
 
-  const appendItem = useCallback((newItem) => {
-    if (!newItem?.id) return
-    setSession((prev) => {
-      if (!prev) return prev
-      if (prev.items.some((it) => it.id === newItem.id)) return prev // dedup
-      return { ...prev, items: [...prev.items, newItem] }
-    })
-  }, [])
-
-  // MAT-19 : pousse une ligne pivot `item_loueurs` en local après création d'un
-  // additif avec loueur attribué. Dédupe par `id` si connu (retour RPC), sinon
-  // par couple (item_id, loueur_id) pour rester idempotent en cas de re-render.
-  const appendItemLoueur = useCallback((pivot) => {
-    if (!pivot?.item_id || !pivot?.loueur_id) return
-    setSession((prev) => {
-      if (!prev) return prev
-      const existing = prev.item_loueurs || []
-      if (pivot.id && existing.some((x) => x.id === pivot.id)) return prev
-      if (existing.some(
-        (x) => x.item_id === pivot.item_id && x.loueur_id === pivot.loueur_id,
-      )) return prev
-      return { ...prev, item_loueurs: [...existing, pivot] }
-    })
-  }, [])
+  // MAT-9B-opt : `appendItem` / `appendItemLoueur` ont été retirés — l'action
+  // `addItem` insère désormais directement via `setSession` pour pouvoir gérer
+  // le cycle optimiste (insert temp → swap real → rollback) de façon atomique.
 
   const appendComment = useCallback((newComment) => {
     if (!newComment?.id) return
@@ -314,17 +293,51 @@ export function useCheckTokenSession(token) {
    * pre_check_by_name}` — on merge ces 2 champs dans l'item local. On force
    * aussi `pre_check_by` à null côté client car la RPC le reset (anon token
    * = pas d'uuid auteur, cf. migration).
+   *
+   * MAT-9B-opt : patch local AVANT l'await réseau pour supprimer le lag
+   * perçu sur les clics tactiles (~200-300ms). Sur succès, on resync avec
+   * la réponse serveur (même payload). Sur erreur, on rollback.
    */
   const toggle = useCallback(
     async (itemId) => {
       if (!userName) throw new Error('Nom utilisateur requis')
-      const updated = await CT.toggleCheck({ token, itemId, userName })
-      patchItem(itemId, {
-        pre_check_at: updated?.pre_check_at ?? null,
-        pre_check_by_name: updated?.pre_check_by_name ?? null,
-        pre_check_by: null,
+      // Snapshot pour rollback
+      let prevPatch = null
+      setSession((prev) => {
+        if (!prev) return prev
+        const it = prev.items.find((x) => x.id === itemId)
+        if (!it) return prev
+        prevPatch = {
+          pre_check_at: it.pre_check_at ?? null,
+          pre_check_by_name: it.pre_check_by_name ?? null,
+          pre_check_by: it.pre_check_by ?? null,
+        }
+        const wasChecked = Boolean(it.pre_check_at)
+        const nextItems = prev.items.map((x) =>
+          x.id === itemId
+            ? {
+                ...x,
+                pre_check_at: wasChecked ? null : new Date().toISOString(),
+                pre_check_by_name: wasChecked ? null : userName,
+                pre_check_by: null,
+              }
+            : x,
+        )
+        return { ...prev, items: nextItems }
       })
-      return updated
+
+      try {
+        const updated = await CT.toggleCheck({ token, itemId, userName })
+        patchItem(itemId, {
+          pre_check_at: updated?.pre_check_at ?? null,
+          pre_check_by_name: updated?.pre_check_by_name ?? null,
+          pre_check_by: null,
+        })
+        return updated
+      } catch (err) {
+        if (prevPatch) patchItem(itemId, prevPatch)
+        throw err
+      }
     },
     [token, userName, patchItem],
   )
@@ -340,43 +353,113 @@ export function useCheckTokenSession(token) {
    * dans la même transaction ; on la miroite en local avec `appendItemLoueur`
    * pour que le récap loueur s'actualise instantanément (pas de délai le temps
    * du refetch).
+   *
+   * MAT-9B-opt : insert optimiste avec un id temp (`__opt_<uuid>`) AVANT la
+   * RPC pour faire apparaître l'additif instantanément. Sur succès, on swap
+   * l'item temp + son pivot loueur par les vrais retournés par le serveur.
+   * Sur erreur, on retire le temp (rollback).
    */
   const addItem = useCallback(
     async ({ blockId, designation, quantite = 1, loueurId = null }) => {
       if (!userName) throw new Error('Nom utilisateur requis')
-      const created = await CT.addCheckItem({
-        token,
-        blockId,
-        designation,
-        quantite,
-        userName,
-        loueurId,
+      const tempId = `__opt_${
+        typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()
+      }`
+      const tempPivotId = `${tempId}_pivot`
+      const trimmed = designation.trim()
+
+      // Insert optimiste (item + pivot loueur si fourni) avant la roundtrip.
+      setSession((prev) => {
+        if (!prev) return prev
+        const nextItems = [
+          ...prev.items,
+          {
+            id: tempId,
+            block_id: blockId,
+            designation: trimmed,
+            quantite,
+            added_during_check: true,
+            added_by_name: userName,
+            added_at: new Date().toISOString(),
+            pre_check_at: null,
+            pre_check_by_name: null,
+            flag: null,
+            sort_order: 99999,
+          },
+        ]
+        let nextItemLoueurs = prev.item_loueurs || []
+        if (loueurId) {
+          nextItemLoueurs = [
+            ...nextItemLoueurs,
+            {
+              id: tempPivotId,
+              item_id: tempId,
+              loueur_id: loueurId,
+              numero_reference: null,
+              sort_order: 0,
+            },
+          ]
+        }
+        return { ...prev, items: nextItems, item_loueurs: nextItemLoueurs }
       })
-      appendItem({
-        id: created?.id,
-        block_id: blockId,
-        designation: designation.trim(),
-        quantite,
-        added_during_check: true,
-        added_by_name: userName,
-        added_at: new Date().toISOString(),
-        pre_check_at: null,
-        pre_check_by_name: null,
-        flag: null,
-        sort_order: 99999,
-      })
-      if (created?.item_loueur_id && created?.loueur_id) {
-        appendItemLoueur({
-          id: created.item_loueur_id,
-          item_id: created.id,
-          loueur_id: created.loueur_id,
-          numero_reference: null,
-          sort_order: 0,
+
+      try {
+        const created = await CT.addCheckItem({
+          token,
+          blockId,
+          designation,
+          quantite,
+          userName,
+          loueurId,
         })
+        // Swap temp → real : on remplace l'item temp (et son pivot) par les
+        // rows serveur. Dédupe implicite par id.
+        setSession((prev) => {
+          if (!prev) return prev
+          const nextItems = prev.items
+            .filter((it) => it.id !== tempId)
+            .concat({
+              id: created?.id,
+              block_id: blockId,
+              designation: trimmed,
+              quantite,
+              added_during_check: true,
+              added_by_name: userName,
+              added_at: new Date().toISOString(),
+              pre_check_at: null,
+              pre_check_by_name: null,
+              flag: null,
+              sort_order: 99999,
+            })
+          let nextItemLoueurs = (prev.item_loueurs || []).filter(
+            (il) => il.id !== tempPivotId,
+          )
+          if (created?.item_loueur_id && created?.loueur_id) {
+            nextItemLoueurs = nextItemLoueurs.concat({
+              id: created.item_loueur_id,
+              item_id: created.id,
+              loueur_id: created.loueur_id,
+              numero_reference: null,
+              sort_order: 0,
+            })
+          }
+          return { ...prev, items: nextItems, item_loueurs: nextItemLoueurs }
+        })
+        return created
+      } catch (err) {
+        // Rollback : retirer l'item temp et son pivot éventuel.
+        setSession((prev) => {
+          if (!prev) return prev
+          const nextItems = prev.items.filter((it) => it.id !== tempId)
+          const nextItemLoueurs = (prev.item_loueurs || []).filter(
+            (il) => il.id !== tempPivotId,
+          )
+          return { ...prev, items: nextItems, item_loueurs: nextItemLoueurs }
+        })
+        throw err
       }
-      return created
     },
-    [token, userName, appendItem, appendItemLoueur],
+    [token, userName],
   )
 
   /**
@@ -410,12 +493,31 @@ export function useCheckTokenSession(token) {
   /**
    * Change le flag d'un item. La RPC renvoie `{item_id, flag}`, on merge
    * juste le flag dans l'item local.
+   *
+   * MAT-9B-opt : patch `flag` AVANT l'await. Snapshot du flag précédent
+   * pour rollback en cas d'erreur réseau.
    */
   const setFlag = useCallback(
     async ({ itemId, flag }) => {
-      const updated = await CT.setCheckFlag({ token, itemId, flag })
-      patchItem(itemId, { flag: updated?.flag ?? flag })
-      return updated
+      let prevFlag = null
+      setSession((prev) => {
+        if (!prev) return prev
+        const it = prev.items.find((x) => x.id === itemId)
+        if (!it) return prev
+        prevFlag = it.flag ?? null
+        const nextItems = prev.items.map((x) =>
+          x.id === itemId ? { ...x, flag } : x,
+        )
+        return { ...prev, items: nextItems }
+      })
+      try {
+        const updated = await CT.setCheckFlag({ token, itemId, flag })
+        patchItem(itemId, { flag: updated?.flag ?? flag })
+        return updated
+      } catch (err) {
+        patchItem(itemId, { flag: prevFlag })
+        throw err
+      }
     },
     [token, patchItem],
   )
@@ -425,30 +527,67 @@ export function useCheckTokenSession(token) {
    * `{item_id, removed_at, removed_by_name, removed_reason}`. On patche ces
    * 3 champs. Quand on retire un item coché, on reset aussi le pre_check
    * côté client (un item non-pris ne peut pas être coché).
+   *
+   * MAT-9B-opt : patch AVANT l'await. Snapshot des champs removed_* +
+   * pre_check_* pour rollback propre.
    */
   const setRemoved = useCallback(
     async ({ itemId, removed, reason = null }) => {
       if (removed && !userName) throw new Error('Nom utilisateur requis')
-      const updated = await CT.setItemRemoved({
-        token,
-        itemId,
-        removed,
-        reason,
-        userName,
+      let prevPatch = null
+      setSession((prev) => {
+        if (!prev) return prev
+        const it = prev.items.find((x) => x.id === itemId)
+        if (!it) return prev
+        prevPatch = {
+          removed_at: it.removed_at ?? null,
+          removed_by_name: it.removed_by_name ?? null,
+          removed_reason: it.removed_reason ?? null,
+          pre_check_at: it.pre_check_at ?? null,
+          pre_check_by_name: it.pre_check_by_name ?? null,
+        }
+        const optimisticPatch = removed
+          ? {
+              removed_at: new Date().toISOString(),
+              removed_by_name: userName,
+              removed_reason: (reason || '').trim() || null,
+              pre_check_at: null,
+              pre_check_by_name: null,
+            }
+          : {
+              removed_at: null,
+              removed_by_name: null,
+              removed_reason: null,
+            }
+        const nextItems = prev.items.map((x) =>
+          x.id === itemId ? { ...x, ...optimisticPatch } : x,
+        )
+        return { ...prev, items: nextItems }
       })
-      const patch = {
-        removed_at: updated?.removed_at ?? null,
-        removed_by_name: updated?.removed_by_name ?? null,
-        removed_reason: updated?.removed_reason ?? null,
+
+      try {
+        const updated = await CT.setItemRemoved({
+          token,
+          itemId,
+          removed,
+          reason,
+          userName,
+        })
+        const patch = {
+          removed_at: updated?.removed_at ?? null,
+          removed_by_name: updated?.removed_by_name ?? null,
+          removed_reason: updated?.removed_reason ?? null,
+        }
+        if (removed) {
+          patch.pre_check_at = null
+          patch.pre_check_by_name = null
+        }
+        patchItem(itemId, patch)
+        return updated
+      } catch (err) {
+        if (prevPatch) patchItem(itemId, prevPatch)
+        throw err
       }
-      // Si on vient de retirer, on décoche visuellement l'item pour éviter
-      // la confusion "l'item est retiré mais reste coché".
-      if (removed) {
-        patch.pre_check_at = null
-        patch.pre_check_by_name = null
-      }
-      patchItem(itemId, patch)
-      return updated
     },
     [token, userName, patchItem],
   )

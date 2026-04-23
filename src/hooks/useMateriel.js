@@ -425,10 +425,40 @@ export function useMateriel(projectId) {
     [items, bumpReload],
   )
 
+  // MAT-9B-opt : updateItem patche d'abord le state local (synchrone) pour
+  // éliminer le lag perçu sur les inline edits (label, quantité, remarques…),
+  // puis await le network. En cas d'erreur, bumpReload() refetch la vérité
+  // serveur (rollback implicite).
   const updateItemAction = useCallback(
     async (itemId, fields) => {
-      await M.updateItem(itemId, fields)
-      bumpReload()
+      // Champs whitelistés (miroir de M.updateItem) — on filtre ici aussi
+      // pour ne patcher que ce que le serveur acceptera.
+      const allowed = [
+        'label',
+        'designation',
+        'quantite',
+        'remarques',
+        'flag',
+        'materiel_bdd_id',
+        'block_id',
+        'sort_order',
+      ]
+      const patch = {}
+      for (const k of allowed) if (k in fields) patch[k] = fields[k]
+      if (!Object.keys(patch).length) return
+
+      // Optimistic patch avant la roundtrip.
+      setItems((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
+      )
+
+      try {
+        await M.updateItem(itemId, fields)
+        bumpReload()
+      } catch (err) {
+        bumpReload() // rollback via refetch
+        throw err
+      }
     },
     [bumpReload],
   )
@@ -449,18 +479,54 @@ export function useMateriel(projectId) {
     [bumpReload],
   )
 
+  // MAT-9B-opt : toggleCheck flippe `${type}_check_at` localement avant la
+  // roundtrip. Sur `check` → timestamp ISO + by=null (le serveur rattachera
+  // auth.uid() au refetch). Sur `uncheck` → null/null. bumpReload en fin
+  // resynchronise avec la vérité serveur (pre_check_by_name inclus).
   const toggleCheckAction = useCallback(
     async (itemId, type) => {
-      await M.toggleCheck(itemId, type)
-      bumpReload()
+      const atCol = `${type}_check_at`
+      const byCol = `${type}_check_by`
+      const nowIso = new Date().toISOString()
+
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== itemId) return it
+          const wasChecked = Boolean(it[atCol])
+          return {
+            ...it,
+            [atCol]: wasChecked ? null : nowIso,
+            [byCol]: null,
+          }
+        }),
+      )
+
+      try {
+        await M.toggleCheck(itemId, type)
+        bumpReload()
+      } catch (err) {
+        bumpReload() // rollback
+        throw err
+      }
     },
     [bumpReload],
   )
 
+  // MAT-9B-opt : setFlag patche le `flag` localement (ok/attention/probleme/
+  // null) avant l'UPDATE serveur. Sélecteur de drapeau réactif au clic.
   const setFlagAction = useCallback(
     async (itemId, flag) => {
-      await M.setItemFlag(itemId, flag)
-      bumpReload()
+      setItems((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, flag } : it)),
+      )
+
+      try {
+        await M.setItemFlag(itemId, flag)
+        bumpReload()
+      } catch (err) {
+        bumpReload() // rollback
+        throw err
+      }
     },
     [bumpReload],
   )
