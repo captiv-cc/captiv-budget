@@ -311,8 +311,12 @@ export default function MaterielHeader({
           </button>
         )}
 
-        {/* Actions à droite */}
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
+        {/* Actions à droite. `ml-auto` uniquement à partir de sm : sur
+            mobile, quand ce cluster wrap en ligne 2, `ml-auto` pousserait
+            tout le groupe vers la droite → vide visible devant Essais/
+            Rendu. Sans `ml-auto` sur mobile, le cluster reste aligné à
+            gauche naturellement. */}
+        <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
           {!isMobile && (
             <button
               type="button"
