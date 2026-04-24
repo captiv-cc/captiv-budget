@@ -19,11 +19,16 @@
 //       updateLivrable → patch state local AVANT await
 //       updatePhase    → idem (utile pour les drag dans drawer)
 //
-// LIV-4 (sync planning) AJOUTERA :
+// LIV-4 (sync planning) — ACQUIS :
 //   - création/maj/suppression auto de l'event miroir lors des mutations
-//     d'étapes et de phases
-//   - écoute des changements `events` côté planning pour résynchroniser
-//   - exposition d'un `linkedEventsByEtape` pour l'UI badge "lié au planning"
+//     d'étapes et de phases (forward sync dans `livrables.js`).
+//   - action `backfillEvents` exposée pour réconcilier les étapes/phases
+//     créées sous LIV-3 (event_id=null) en un coup.
+//   - reverse sync (planning → LIV) : helpers `eventPatchToEtapePatch` /
+//     `isEventMirror` dans `livrablesPlanningSync.js` — à composer côté UI
+//     planning (PlanningTab). Pas d'écouteur events ici : le contrat est
+//     que le planning route TOUJOURS les mirror events via `updateEtape` /
+//     `updatePhase`, ce qui re-sync l'event via la forward sync naturelle.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -36,6 +41,7 @@ import {
   listMonteurs,
   sortBySortOrder,
 } from '../lib/livrablesHelpers'
+import { backfillMirrorEvents } from '../lib/livrablesPlanningSync'
 import { supabase } from '../lib/supabase'
 
 export function useLivrables(projectId) {
@@ -549,6 +555,21 @@ export function useLivrables(projectId) {
   // ─── Refresh manuel ─────────────────────────────────────────────────────
   const refresh = useCallback(() => bumpReload(), [bumpReload])
 
+  // ─── Backfill events miroirs (LIV-4) ─────────────────────────────────────
+  // Réconciliation one-shot : crée les events manquants pour toutes les
+  // étapes/phases (is_event=true, event_id=null) du projet. À appeler :
+  //   - après migration de projets créés sous LIV-3 (event_id=null partout)
+  //   - depuis un bouton admin "Réconcilier planning" en cas de désync
+  const backfillEventsAction = useCallback(
+    async () => {
+      if (!projectId) return { etapes: 0, phases: 0 }
+      const result = await backfillMirrorEvents(projectId)
+      bumpReload()
+      return result
+    },
+    [projectId, bumpReload],
+  )
+
   return {
     // État
     loading,
@@ -599,6 +620,8 @@ export function useLivrables(projectId) {
       deletePhase: deletePhaseAction,
       // Duplication cross-project
       duplicateFromProject: duplicateFromProjectAction,
+      // Sync planning (LIV-4)
+      backfillEvents: backfillEventsAction,
       // Misc
       refresh,
     },

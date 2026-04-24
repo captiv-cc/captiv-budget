@@ -32,6 +32,14 @@ import {
   pickAllowed,
   sortBySortOrder,
 } from './livrablesHelpers'
+import {
+  syncEtapeOnCreate,
+  syncEtapeOnUpdate,
+  syncEtapeOnDelete,
+  syncPhaseOnCreate,
+  syncPhaseOnUpdate,
+  syncPhaseOnDelete,
+} from './livrablesPlanningSync'
 
 // Re-export des constantes UI pour faciliter l'import depuis les composants
 // (`import { LIVRABLE_STATUTS } from 'src/lib/livrables'`).
@@ -587,10 +595,11 @@ export async function deleteVersion(versionId) {
 }
 
 // ═══ Mutations — Étapes pipeline ════════════════════════════════════════════
-// Note : LIV-3 ne crée PAS encore les events miroirs. La sync planning
-// bidirectionnelle est l'objet de LIV-4 (lib `livrablesPlanningSync.js`).
-// Les étapes créées ici ont donc `event_id = NULL` même si `is_event=true` ;
-// LIV-4 réconciliera lors de son passage initial.
+// Depuis LIV-4 : chaque mutation appelle `livrablesPlanningSync` pour tenir
+// à jour l'event miroir (insert/update/delete selon is_event et le diff).
+// La sync ne throw JAMAIS : si elle échoue, on log et on continue — l'étape
+// est cohérente côté DB, c'est juste l'event planning qui peut être désynchro,
+// rattrapé par `backfillMirrorEvents` à l'initialisation suivante.
 
 const ETAPE_EDITABLE_FIELDS = [
   'nom',
@@ -609,6 +618,16 @@ export async function addEtape({ livrableId, data: input = {} }) {
   if (!input.date_debut || !input.date_fin) {
     throw new Error('addEtape: date_debut et date_fin requis')
   }
+  // On doit connaître le project_id de l'étape pour créer l'event miroir.
+  // Le livrable_id permet de le récupérer (1 round-trip — mineure).
+  const { data: livrable, error: lErr } = await supabase
+    .from('livrables')
+    .select('project_id')
+    .eq('id', livrableId)
+    .single()
+  if (lErr) throw lErr
+  const projectId = livrable?.project_id
+
   // sort_order auto en queue.
   const { data: siblings, error: sErr } = await supabase
     .from('livrable_etapes')
@@ -629,7 +648,7 @@ export async function addEtape({ livrableId, data: input = {} }) {
     notes: input.notes || null,
     sort_order: input.sort_order ?? nextOrder,
     is_event: input.is_event !== false, // default true
-    // event_id volontairement omis → NULL. LIV-4 cablera la création miroir.
+    // event_id omis → NULL. La sync le posera après création de l'event.
   }
   const { data, error } = await supabase
     .from('livrable_etapes')
@@ -637,6 +656,18 @@ export async function addEtape({ livrableId, data: input = {} }) {
     .select()
     .single()
   if (error) throw error
+
+  // Forward sync → INSERT events + pose etape.event_id.
+  // NB : la fonction recharge data après sync pour renvoyer un objet à jour.
+  if (projectId) {
+    await syncEtapeOnCreate(data, projectId)
+    const { data: refreshed } = await supabase
+      .from('livrable_etapes')
+      .select('*')
+      .eq('id', data.id)
+      .single()
+    return refreshed || data
+  }
   return data
 }
 
@@ -650,13 +681,32 @@ export async function updateEtape(etapeId, fields) {
     .select()
     .single()
   if (error) throw error
+
+  // Forward sync → update / create / delete event miroir selon diff.
+  // Pour connaître le projectId, on remonte via livrable_id (étape → livrable).
+  const { data: livrable } = await supabase
+    .from('livrables')
+    .select('project_id')
+    .eq('id', data.livrable_id)
+    .single()
+  const projectId = livrable?.project_id
+  if (projectId) {
+    await syncEtapeOnUpdate({ etape: data, patch: payload, projectId })
+    // Re-fetch pour renvoyer l'éventuel event_id fraîchement posé.
+    const { data: refreshed } = await supabase
+      .from('livrable_etapes')
+      .select('*')
+      .eq('id', etapeId)
+      .single()
+    return refreshed || data
+  }
   return data
 }
 
 export async function deleteEtape(etapeId) {
-  // LIV-4 ajoutera la suppression cascade de l'event miroir. Pour LIV-3 on
-  // se contente du DELETE de la ligne ; les RLS sur events feront le reste
-  // si jamais l'event_id est posé manuellement (highly unlikely en V1).
+  // Forward sync → supprime AVANT l'event miroir pour ne pas violer le CHECK
+  // `events_source_fk_consistency` (cf. doc de `livrablesPlanningSync`).
+  await syncEtapeOnDelete(etapeId)
   const { error } = await supabase
     .from('livrable_etapes')
     .delete()
@@ -688,7 +738,7 @@ export async function addPhase({ projectId, data: input = {} }) {
     date_fin: input.date_fin,
     couleur: input.couleur || null,
     notes: input.notes || null,
-    // event_id omis → NULL. LIV-4 ajoutera la création miroir multi-jours.
+    // event_id omis → NULL. La sync le posera après création de l'event.
   }
   const { data, error } = await supabase
     .from('projet_phases')
@@ -696,7 +746,16 @@ export async function addPhase({ projectId, data: input = {} }) {
     .select()
     .single()
   if (error) throw error
-  return data
+
+  // Forward sync : toujours créer l'event miroir pour une phase (pas de
+  // flag is_event — voir shouldPhaseHaveEvent dans livrablesPlanningSync).
+  await syncPhaseOnCreate(data, projectId)
+  const { data: refreshed } = await supabase
+    .from('projet_phases')
+    .select('*')
+    .eq('id', data.id)
+    .single()
+  return refreshed || data
 }
 
 export async function updatePhase(phaseId, fields) {
@@ -709,11 +768,23 @@ export async function updatePhase(phaseId, fields) {
     .select()
     .single()
   if (error) throw error
+
+  // Forward sync event miroir.
+  if (data?.project_id) {
+    await syncPhaseOnUpdate({ phase: data, patch: payload, projectId: data.project_id })
+    const { data: refreshed } = await supabase
+      .from('projet_phases')
+      .select('*')
+      .eq('id', phaseId)
+      .single()
+    return refreshed || data
+  }
   return data
 }
 
 export async function deletePhase(phaseId) {
-  // Idem étape : LIV-4 cablera la cascade event miroir. LIV-3 = simple DELETE.
+  // Forward sync : supprime l'event miroir AVANT pour respecter le CHECK DB.
+  await syncPhaseOnDelete(phaseId)
   const { error } = await supabase
     .from('projet_phases')
     .delete()

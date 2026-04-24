@@ -317,7 +317,7 @@ les templates PDF.
 | LIV-1 ✅ | Migration SQL — schéma complet | M | 6 tables + indexes + RLS + policies + sync events. Migration `20260424_liv1_livrables_schema.sql` — à appliquer côté Supabase. |
 | LIV-2 ✅ | Permissions OUTILS.LIVRABLES | S | Déjà fait par anticipation : `OUTILS.LIVRABLES` présent dans `permissions.js` depuis 3A, `outils_catalogue` seed dans `ch3a_permissions.sql`, gating posé dans la migration LIV-1. |
 | LIV-3 ✅ | Lib `livrables.js` + hook `useLivrables` | L | CRUD complet + Realtime + helpers purs (livrablesHelpers.js + 23 tests Vitest). Pas encore de sync planning : LIV-4 cablera les events miroirs. |
-| LIV-4 | Sync bidirectionnelle events (lib `livrablesPlanningSync.js`) | L | Hooks applicatifs, trigger à la création/edit/delete |
+| LIV-4 ✅ | Sync bidirectionnelle events (lib `livrablesPlanningSync.js`) | L | Forward sync étape/phase → event miroir câblée dans `livrables.js` (create/update/delete). Reverse via helpers purs `eventPatchToEtapePatch/Phase` consommés par le planning à LIV-5. `backfillMirrorEvents(projectId)` exposé dans `useLivrables`. 40+ tests Vitest sur helpers purs. |
 | LIV-5 | Page `LivrablesTab` (structure vue liste) | M | Layout, routing, gating permissions, empty state |
 | LIV-6 | CRUD blocs + drag & drop | M | Créer/rename/delete + reorder (pattern MAT-9D) |
 | LIV-7 | CRUD livrables + inline edit + numérotation auto | L | Tous les champs éditables, autocomplete monteur |
@@ -386,8 +386,10 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   feedback) — palette à définir quand on attaque LIV-9.
 - Exact set de statuts — on part de `brief | en_cours | a_valider | valide |
   livre | archive` ; à re-challenger après 2-3 projets réels utilisant LIV.
-- Comportement précis d'un event planning supprimé depuis le planning
-  (détacher vs recréer vs toast) — à trancher à LIV-4.
+- Comportement précis d'un event planning supprimé depuis le planning —
+  **tranché à LIV-4** : la FK `etape.event_id ON DELETE SET NULL` détache
+  automatiquement l'étape (qui reste). Le backfill reposera un miroir au
+  prochain passage. Pas de toast undo à ce stade.
 - UX du bloc collapsed (pattern MAT-9D vs autre ?) — à regarder à LIV-5.
 
 ### 6.3 Risques identifiés
@@ -484,14 +486,79 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   Vitest à lancer côté Hugo (le sandbox est Linux ARM64, ses node_modules
   sont darwin-arm64 — mismatch).
 
-### Prochaine étape — LIV-4 (sync planning bidirectionnelle)
+### Session 2026-04-24 (suite) — LIV-4 (sync planning bidirectionnelle)
 
-Créer `src/lib/livrablesPlanningSync.js` qui s'abonne aux mutations d'étapes
-et de phases dans `useLivrables` pour gérer le miroir events :
-  - création étape `is_event=true` → INSERT events (source='livrable_etape',
-    livrable_etape_id=…), stocker l'event.id dans étape.event_id
-  - update étape (date_debut / date_fin / nom / kind) → UPDATE events miroir
-  - delete étape → DELETE events miroir (toast undo)
-  - inverse : drag d'un event miroir depuis le planning → router vers
-    updateEtape au lieu de updateEvent (handler côté planning)
-Idem phases, avec event multi-jours unique. Voir roadmap §4.3.
+- **LIV-4 ✅** : 4 fichiers livrés (1 nouveau, 3 modifs, 1 test).
+  - `src/lib/livrablesPlanningSync.js` (NOUVEAU, ~450 lignes) : module central
+    qui détient la logique du miroir étape/phase ↔ event.
+    - **Constantes** : `EVENT_SOURCE_{MANUAL,LIVRABLE_ETAPE,PROJET_PHASE}`,
+      `ETAPE_SYNCED_FIELDS`, `PHASE_SYNCED_FIELDS`.
+    - **Helpers purs dates** : `dateToDayStartIso` (YYYY-MM-DD → ISO 00:00Z),
+      `dateToDayEndExclusiveIso` (date → lendemain 00:00Z, convention all_day
+      PL-1), `isoToDate`, `isoExclusiveToDateInclusive` (reverse pour le
+      drag planning).
+    - **Helpers purs classification** : `isEventMirror`, `isEtapeMirrorEvent`,
+      `isPhaseMirrorEvent`.
+    - **Helpers purs couleurs** : `etapeEventColor` (override → kind → slate),
+      `phaseEventColor`.
+    - **Helpers purs payloads** : `buildEtapeEventPayload/Patch`,
+      `buildPhaseEventPayload/Patch`.
+    - **Helpers purs reverse** : `eventPatchToEtapePatch/PhasePatch`
+      (starts_at→date_debut, ends_at exclusif→date_fin inclus, title→nom,
+      color_override→couleur). À consommer par le planning UI au lieu de
+      toucher les events directement.
+    - **Helpers purs diff** : `etapePatchAffectsEvent/PhasePatchAffectsEvent`
+      (fast path : skip sync si seul notes/assignee changent),
+      `shouldEtapeHaveEvent/PhaseHaveEvent`.
+    - **I/O** : `createEventForEtape/Phase` (INSERT events + pose
+      `etape.event_id` symétrique), `updateEventForEtape/Phase` (filtré par
+      livrable_etape_id UNIQUE, plus robuste qu'event_id),
+      `deleteEventForEtape/Phase`.
+    - **Orchestration** : `syncEtapeOnCreate/Update/Delete` (4 cas dans
+      onUpdate : flipToOn → create, flipToOff → delete + null event_id,
+      shouldHave + syncFieldsChanged → update, else noop), idem phases.
+      Erreurs sync → `console.warn` + continue (la CRUD primaire ne throw
+      jamais, le backfill rattrapera).
+    - **Réconciliation** : `backfillMirrorEvents(projectId)` → scan étapes
+      `is_event=true, event_id=null` via jointure `livrables.project_id`
+      + phases `event_id=null` et crée les events manquants. Utile pour les
+      étapes créées sous LIV-3.
+  - `src/lib/livrables.js` : câblage forward. `addEtape/addPhase` appellent
+    `syncOnCreate` après INSERT et re-fetchent pour exposer `event_id`.
+    `updateEtape/updatePhase` appellent `syncOnUpdate` + re-fetch.
+    `deleteEtape/deletePhase` appellent `syncOnDelete` **AVANT** le DELETE
+    (respect du CHECK `events_source_fk_consistency` côté DB — sinon le
+    `ON DELETE SET NULL` laisserait un event `source='livrable_etape'` +
+    `livrable_etape_id=null` qui viole la contrainte).
+  - `src/hooks/useLivrables.js` : expose `backfillEvents` dans l'objet
+    actions, tire `bumpReload` pour rafraîchir après un backfill réussi.
+  - `src/lib/livrablesPlanningSync.test.js` : 40+ tests Vitest sur les
+    helpers purs (dates + round-trip, classification, couleurs, payloads,
+    patches partiels, reverse patches, diff detection, shouldHave).
+- **Contrat suivant** : le planning UI (LIV-5+) devra détecter
+  `event.source in (livrable_etape, projet_phase)` et router les edits vers
+  `updateEtape/updatePhase` via `eventPatchToEtapePatch/PhasePatch`. Pas de
+  listener events dans `useLivrables` — le contrat est "tout passe par les
+  mutations étape/phase côté LIV", le self-echo de l'update event n'a pas
+  besoin de handler séparé.
+- **Validation** : `npm run lint` → 0 erreur sur les 4 fichiers. `node
+  --check` OK. Tests Vitest à lancer côté Hugo (sandbox Linux ARM64 vs
+  darwin-arm64, connu).
+
+### Prochaine étape — LIV-5 (Page LivrablesTab — structure vue liste)
+
+Créer `src/pages/tabs/LivrablesTab.jsx` :
+  - Routing depuis `ProjetLayout` (gated par `OUTILS.LIVRABLES`).
+  - En-tête : compteurs (total / actifs / retard / livrés) via
+    `computeCompteurs`, prochain livrable, filtres (monteur, statut, "Mes
+    livrables").
+  - Vue liste par blocs : header bloc (prefix, nom, couleur, collapse),
+    table livrables (numero, nom, statut, monteur, date_livraison, version).
+  - Empty state (0 bloc → CTA "Créer un bloc").
+  - Gating : mode lecture si `!canEdit('livrables')`.
+  - Responsive : cartes sur mobile (pattern MAT-RESP-1), table sur desktop.
+  - Côté planning : brancher la reverse sync (drag d'un event miroir route
+    vers `updateEtape/updatePhase` via `eventPatchToEtapePatch/PhasePatch`).
+
+Voir roadmap §4.1 pour les composants à extraire + §4.3 pour les handlers
+planning.
