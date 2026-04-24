@@ -316,7 +316,7 @@ les templates PDF.
 |---|---|---|---|
 | LIV-1 ✅ | Migration SQL — schéma complet | M | 6 tables + indexes + RLS + policies + sync events. Migration `20260424_liv1_livrables_schema.sql` — à appliquer côté Supabase. |
 | LIV-2 ✅ | Permissions OUTILS.LIVRABLES | S | Déjà fait par anticipation : `OUTILS.LIVRABLES` présent dans `permissions.js` depuis 3A, `outils_catalogue` seed dans `ch3a_permissions.sql`, gating posé dans la migration LIV-1. |
-| LIV-3 | Lib `livrables.js` + hook `useLivrables` | L | CRUD complet + Realtime + helpers purs |
+| LIV-3 ✅ | Lib `livrables.js` + hook `useLivrables` | L | CRUD complet + Realtime + helpers purs (livrablesHelpers.js + 23 tests Vitest). Pas encore de sync planning : LIV-4 cablera les events miroirs. |
 | LIV-4 | Sync bidirectionnelle events (lib `livrablesPlanningSync.js`) | L | Hooks applicatifs, trigger à la création/edit/delete |
 | LIV-5 | Page `LivrablesTab` (structure vue liste) | M | Layout, routing, gating permissions, empty state |
 | LIV-6 | CRUD blocs + drag & drop | M | Créer/rename/delete + reorder (pattern MAT-9D) |
@@ -447,9 +447,51 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   - Templates métiers comportent déjà des permissions par défaut sur
     `'livrables'` (cf. `ch3a_permissions.sql` lignes 222 et 255).
 
-### Prochaine étape — LIV-3 (data layer)
+### Session 2026-04-24 (suite) — LIV-3 (data layer)
 
-Lib `src/lib/livrables.js` (CRUD config / blocks / livrables / versions /
-étapes / phases) + hook `src/hooks/useLivrables.js` avec Realtime + helpers
-purs (compteurs retard, prochain). Pattern miroir de `useMateriel`.
-Optimistic dès la V1 (pattern MAT-9B-opt). Effort : 2-3 jours.
+- **LIV-3 ✅** : 3 fichiers livrés.
+  - `src/lib/livrablesHelpers.js` (helpers PURS, 0 dépendance Supabase) :
+    constantes UI (statuts, kinds, couleurs), `sortBySortOrder`,
+    `groupLivrablesByBlock`, `indexVersionsByLivrable`, `indexEtapesByLivrable`,
+    `isLivrableEnRetard`, `computeCompteurs` (total/actifs/enRetard/livres/
+    valides/prochain), `listMonteurs` (dedupe interne+externe, tri alpha),
+    `nextLivrableNumero` (préfixe + premier index libre, tolère caractères
+    spéciaux), `pickAllowed`, whitelist `LIVRABLE_EDITABLE_FIELDS`.
+  - `src/lib/livrables.js` (data layer) : `fetchProjectLivrablesBundle` (4
+    round-trips au lieu de 6), CRUD complet sur les 6 tables, soft delete
+    `deleteBlock` avec cascade applicative + `restoreBlock` qui restaure
+    uniquement les livrables tombés ensemble (fenêtre ±5s), `bulkUpdateLivrables`,
+    `duplicateLivrable` et `duplicateFromProject` (blocs + livrables + phases
+    avec options `includeBlocks/Livrables/Phases`).
+  - `src/hooks/useLivrables.js` (orchestration) : pattern miroir useMateriel
+    (bumpReload + lastReloadAtRef + aliveRef), Realtime channel
+    `livrables-collab:${projectId}` (debounce 400ms + mute self-echo 1500ms,
+    filter project_id sur 4 tables, RLS sur les 2 tables jointes), optimistic
+    updates dès la V1 sur updateLivrable / updateBlock / updatePhase /
+    updateVersion / updateEtape / updateConfig / bulkUpdateLivrables /
+    deleteLivrable / deleteVersion / deleteEtape / deletePhase / reorderLivrables.
+  - `src/lib/livrablesHelpers.test.js` : 23 tests Vitest sur les helpers purs
+    (couverture sortBySortOrder, groupBy, indexBy, isLivrableEnRetard avec
+    frontière minuit, computeCompteurs avec sélection prochain, listMonteurs
+    avec dedupe + profile lookup + tri français, nextLivrableNumero avec
+    préfixes case-insensitive et caractères spéciaux échappés, pickAllowed).
+- **Limites volontaires LIV-3** : pas de sync planning. Les étapes et phases
+  sont créées avec `event_id = NULL` même si `is_event=true` — c'est `LIV-4`
+  (`livrablesPlanningSync.js`) qui cablera la création/maj/suppression du
+  miroir bidirectionnel et résoudra rétroactivement les liens manquants.
+- **Validation** : `npm run lint` → 0 erreur sur les 4 fichiers (15 warnings
+  pré-existants ailleurs). `node --check` OK sur les 4 fichiers. Tests
+  Vitest à lancer côté Hugo (le sandbox est Linux ARM64, ses node_modules
+  sont darwin-arm64 — mismatch).
+
+### Prochaine étape — LIV-4 (sync planning bidirectionnelle)
+
+Créer `src/lib/livrablesPlanningSync.js` qui s'abonne aux mutations d'étapes
+et de phases dans `useLivrables` pour gérer le miroir events :
+  - création étape `is_event=true` → INSERT events (source='livrable_etape',
+    livrable_etape_id=…), stocker l'event.id dans étape.event_id
+  - update étape (date_debut / date_fin / nom / kind) → UPDATE events miroir
+  - delete étape → DELETE events miroir (toast undo)
+  - inverse : drag d'un event miroir depuis le planning → router vers
+    updateEtape au lieu de updateEvent (handler côté planning)
+Idem phases, avec event multi-jours unique. Voir roadmap §4.3.
