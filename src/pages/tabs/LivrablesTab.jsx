@@ -1,37 +1,177 @@
-import { CheckSquare, ArrowRight, RefreshCw, Package, CheckCircle2 } from 'lucide-react'
+// ════════════════════════════════════════════════════════════════════════════
+// LivrablesTab — Page "Livrables" d'un projet (LIV-5 — structure vue liste)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Point d'entrée de l'outil Livrables. Orchestre :
+//   - le hook `useLivrables(projectId)` qui porte tout l'état
+//   - les permissions via `useProjectPermissions` (gate read + edit)
+//   - un header local (compteurs basiques + CTA "Nouveau bloc")
+//   - la liste des blocs (vue MVP — carte par bloc, livrables listés en dur)
+//   - empty state propre quand 0 bloc
+//   - loading state
+//
+// Ce fichier remplace l'ancien placeholder "En développement" avec la vraie
+// structure. Le rendu détaillé des livrables (tableau, inline edit, drag
+// & drop…) sera câblé à LIV-6 (blocs CRUD complet) et LIV-7 (livrables CRUD).
+// Ici on fait volontairement minimal : le but de LIV-5 est la plomberie.
+//
+// Gating :
+//   - `canRead` → on tombe sur un écran "accès restreint" si false
+//   - `canEdit` → les CTA de mutation sont masqués si false (mode lecture)
+//
+// Header compteurs : affiche total / actifs / en retard / livrés depuis
+// `compteurs`. Les filtres (monteur, statut, Mes livrables) sont prévus pour
+// LIV-15 (header enrichi) et ne sont pas posés ici.
+// ════════════════════════════════════════════════════════════════════════════
 
-const STATUTS = [
-  { key: 'en_production', label: 'En production', color: 'var(--txt-3)', dot: 'var(--txt-3)' },
-  { key: 'v1_envoyee', label: 'V1 envoyée', color: 'var(--blue)', dot: 'var(--blue)' },
-  { key: 'retours_v1', label: 'Retours V1', color: 'var(--amber)', dot: 'var(--amber)' },
-  { key: 'v2_envoyee', label: 'V2 envoyée', color: 'var(--blue)', dot: 'var(--blue)' },
-  { key: 'retours_v2', label: 'Retours V2', color: 'var(--amber)', dot: 'var(--amber)' },
-  { key: 'valide', label: 'Validé ✓', color: 'var(--green)', dot: 'var(--green)' },
-  { key: 'livre', label: 'Livré ✓✓', color: 'var(--green)', dot: 'var(--green)' },
-]
+import { useParams } from 'react-router-dom'
+import {
+  CheckSquare,
+  Plus,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Lock,
+  Inbox,
+} from 'lucide-react'
+import { useLivrables } from '../../hooks/useLivrables'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { prompt } from '../../lib/confirm'
+import { notify } from '../../lib/notify'
+import { LIVRABLE_STATUTS, LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
 
-const EXEMPLE_LIVRABLES = [
-  { nom: 'Master 4K', format: 'ProRes 422 HQ', duree: '3min20' },
-  { nom: 'Version diffusion web', format: 'H.264', duree: '3min20' },
-  { nom: 'Version 30s Instagram', format: 'H.264 9:16', duree: '30s' },
-  { nom: 'Version sous-titrée FR', format: 'H.264', duree: '3min20' },
-  { nom: 'Musique seule (M&E)', format: 'WAV 48kHz', duree: '3min20' },
-]
-
-const FEATURES = [
-  'Ajout de livrables avec format, durée, résolution et deadline',
-  'Suivi du statut de révision de V1 → Validé → Livré',
-  'Compteur de révisions incluses / réalisées',
-  'Historique des versions avec lien de visionnage (Drive, Frame.io...)',
-  'Notes de retours client par version',
-  'Lien de téléchargement du master final',
-]
+const OUTIL_KEY = 'livrables'
 
 export default function LivrablesTab() {
+  const { id: projectId } = useParams()
+  const { can } = useProjectPermissions(projectId)
+  const canRead = can(OUTIL_KEY, 'read')
+  const canEdit = can(OUTIL_KEY, 'edit')
+
+  const {
+    loading,
+    error,
+    blocks,
+    livrablesByBlock,
+    compteurs,
+    actions,
+  } = useLivrables(canRead ? projectId : null)
+
+  // ─── Accès refusé ─────────────────────────────────────────────────────────
+  if (!canRead) {
+    return <AccessDenied />
+  }
+
+  // ─── Loading spinner plein écran (premier chargement) ─────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full p-12">
+        <div
+          className="w-6 h-6 border-2 rounded-full animate-spin"
+          style={{ borderColor: 'var(--blue)', borderTopColor: 'transparent' }}
+        />
+      </div>
+    )
+  }
+
+  // ─── Erreur fatale (fetch bundle) ─────────────────────────────────────────
+  if (error) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto">
+        <div
+          className="rounded-lg p-4 text-sm"
+          style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
+        >
+          Erreur de chargement : {String(error?.message || error)}
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Rendu principal ──────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-8">
+    <div className="flex flex-col min-h-full">
+      <LivrablesHeader
+        compteurs={compteurs}
+        canEdit={canEdit}
+        onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
+      />
+
+      <div className="p-4 sm:p-6 flex-1">
+        {blocks.length === 0 ? (
+          <EmptyState
+            canEdit={canEdit}
+            onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: 0 })}
+          />
+        ) : (
+          <div className="space-y-4">
+            {blocks.map((block) => (
+              <BlockCard
+                key={block.id}
+                block={block}
+                livrables={livrablesByBlock.get(block.id) || []}
+                canEdit={canEdit}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Handlers
+// ════════════════════════════════════════════════════════════════════════════
+
+async function handleCreateBlock({ actions, nextSortOrder }) {
+  const nom = await prompt({
+    title: 'Nouveau bloc de livrables',
+    message:
+      'Le bloc regroupe des livrables qui partagent un thème (ex : MASTER, AFTERMOVIE, SNACK CONTENT, …). Tu pourras ajouter un préfixe de numérotation plus tard.',
+    placeholder: 'AFTERMOVIE / RÉCAP',
+    confirmLabel: 'Créer le bloc',
+    required: true,
+  })
+  if (!nom) return
+  try {
+    // Couleur par défaut : premier preset qui tourne sur le nombre de blocs.
+    const color = LIVRABLE_BLOCK_COLOR_PRESETS[nextSortOrder % LIVRABLE_BLOCK_COLOR_PRESETS.length]
+    await actions.createBlock({
+      nom: nom.trim(),
+      couleur: color,
+      sort_order: nextSortOrder,
+    })
+    notify.success('Bloc créé')
+  } catch (err) {
+    notify.error('Création impossible : ' + (err?.message || err))
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sous-composants
+// ════════════════════════════════════════════════════════════════════════════
+
+function LivrablesHeader({ compteurs, canEdit, onCreateBlock }) {
+  const stats = [
+    { key: 'total', label: 'Total', value: compteurs.total, icon: CheckSquare, color: 'var(--txt-2)' },
+    { key: 'actifs', label: 'Actifs', value: compteurs.actifs, icon: Clock, color: 'var(--blue)' },
+    {
+      key: 'retard',
+      label: 'En retard',
+      value: compteurs.enRetard,
+      icon: AlertTriangle,
+      color: compteurs.enRetard > 0 ? 'var(--red)' : 'var(--txt-3)',
+    },
+    { key: 'livres', label: 'Livrés', value: compteurs.livres, icon: CheckCircle2, color: 'var(--green)' },
+  ]
+  return (
+    <div
+      className="px-4 sm:px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center gap-3"
+      style={{ borderColor: 'var(--brd)', background: 'var(--bg-surf)' }}
+    >
+      {/* Titre */}
+      <div className="flex items-center gap-3 shrink-0">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center"
           style={{ background: 'var(--green-bg)' }}
@@ -42,130 +182,199 @@ export default function LivrablesTab() {
           <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
             Livrables
           </h1>
-          <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-            Suivi des livrables et révisions client
+          <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+            Post-production — versions, retours, deadlines
           </p>
         </div>
-        <span
-          className="ml-auto text-xs px-3 py-1 rounded-full font-medium"
-          style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
+      </div>
+
+      {/* Compteurs */}
+      <div className="flex items-center gap-2 sm:gap-3 sm:ml-6 overflow-x-auto">
+        {stats.map((s) => {
+          const Icon = s.icon
+          return (
+            <div
+              key={s.key}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0"
+              style={{ background: 'var(--bg-elev)' }}
+              title={s.label}
+            >
+              <Icon className="w-3.5 h-3.5" style={{ color: s.color }} />
+              <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--txt)' }}>
+                {s.value}
+              </span>
+              <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                {s.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* CTA */}
+      <div className="flex-1" />
+      {canEdit && (
+        <button
+          type="button"
+          onClick={onCreateBlock}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0"
+          style={{ background: 'var(--green)', color: '#fff' }}
         >
-          En développement
+          <Plus className="w-4 h-4" />
+          Nouveau bloc
+        </button>
+      )}
+    </div>
+  )
+}
+
+function BlockCard({ block, livrables, canEdit }) {
+  const color = block.couleur || '#94a3b8'
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    >
+      {/* Header du bloc */}
+      <div
+        className="px-4 py-3 flex items-center gap-3"
+        style={{
+          background: 'var(--bg-elev)',
+          borderBottom: '1px solid var(--brd)',
+        }}
+      >
+        <div
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ background: color }}
+        />
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
+          {block.nom || 'Bloc sans nom'}
+        </h2>
+        {block.prefixe && (
+          <span
+            className="text-[11px] font-mono px-2 py-0.5 rounded"
+            style={{ background: 'var(--bg-2)', color: 'var(--txt-3)' }}
+          >
+            {block.prefixe}
+          </span>
+        )}
+        <span
+          className="text-[11px] ml-auto"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {livrables.length} livrable{livrables.length > 1 ? 's' : ''}
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Aperçu de ce qui sera construit */}
+      {/* Contenu : liste livrables (MVP — LIV-7 la rendra éditable) */}
+      {livrables.length === 0 ? (
         <div
-          className="rounded-xl p-5"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+          className="p-4 text-center text-xs"
+          style={{ color: 'var(--txt-3)' }}
         >
-          <div className="flex items-center gap-2 mb-4">
-            <Package className="w-4 h-4" style={{ color: 'var(--green)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-              Fonctionnalités à venir
-            </h3>
-          </div>
-          <ul className="space-y-2">
-            {FEATURES.map((f, i) => (
+          Aucun livrable dans ce bloc.
+          {canEdit && <span className="ml-1">Ajoute-en à LIV-7.</span>}
+        </div>
+      ) : (
+        <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
+          {livrables.map((l) => {
+            const statut = LIVRABLE_STATUTS[l.statut]
+            return (
               <li
-                key={i}
-                className="flex items-start gap-2 text-xs"
-                style={{ color: 'var(--txt-2)' }}
+                key={l.id}
+                className="px-4 py-2.5 flex items-center gap-3 text-sm"
+                style={{ borderColor: 'var(--brd-sub)' }}
               >
-                <CheckCircle2
-                  className="w-3.5 h-3.5 shrink-0 mt-0.5"
-                  style={{ color: 'var(--green)', opacity: 0.7 }}
-                />
-                {f}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Cycle de révision */}
-        <div
-          className="rounded-xl p-5"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <RefreshCw className="w-4 h-4" style={{ color: 'var(--blue)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-              Cycle de révision
-            </h3>
-          </div>
-          <div className="space-y-1.5">
-            {STATUTS.map((s, i) => (
-              <div key={s.key} className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.dot }} />
-                <span className="text-xs" style={{ color: s.color }}>
-                  {s.label}
-                </span>
-                {i < STATUTS.length - 1 && (
-                  <ArrowRight className="w-3 h-3 ml-auto" style={{ color: 'var(--brd)' }} />
+                {l.numero && (
+                  <span
+                    className="text-[11px] font-mono shrink-0"
+                    style={{ color: 'var(--txt-3)' }}
+                  >
+                    {l.numero}
+                  </span>
                 )}
-              </div>
-            ))}
-          </div>
-        </div>
+                <span className="truncate" style={{ color: 'var(--txt)' }}>
+                  {l.nom || '— sans nom —'}
+                </span>
+                {l.format && (
+                  <span className="text-xs shrink-0" style={{ color: 'var(--txt-3)' }}>
+                    {l.format}
+                  </span>
+                )}
+                {statut && (
+                  <span
+                    className="ml-auto text-[11px] px-2 py-0.5 rounded-full shrink-0"
+                    style={{ background: statut.bg, color: statut.color }}
+                  >
+                    {statut.label}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
 
-        {/* Aperçu du tableau de livrables */}
-        <div
-          className="md:col-span-2 rounded-xl p-5"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-        >
-          <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--txt)' }}>
-            Aperçu — tableau des livrables
-          </h3>
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{ border: '1px solid var(--brd-sub)', opacity: 0.6 }}
-          >
-            {/* Header */}
-            <div
-              className="grid text-[10px] font-bold uppercase tracking-wider px-4 py-2"
-              style={{
-                gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                background: 'var(--bg-elev)',
-                color: 'var(--txt-3)',
-              }}
-            >
-              <span>Livrable</span>
-              <span>Format</span>
-              <span>Durée</span>
-              <span>Révisions</span>
-              <span>Statut</span>
-            </div>
-            {EXEMPLE_LIVRABLES.map((l, i) => (
-              <div
-                key={i}
-                className="grid items-center px-4 py-2.5 text-xs"
-                style={{
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                  borderTop: '1px solid var(--brd-sub)',
-                  color: 'var(--txt-2)',
-                }}
-              >
-                <span className="font-medium" style={{ color: 'var(--txt)' }}>
-                  {l.nom}
-                </span>
-                <span>{l.format}</span>
-                <span>{l.duree}</span>
-                <span>0 / 2</span>
-                <span
-                  className="text-[11px] px-2 py-0.5 rounded-full w-fit"
-                  style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
-                >
-                  En production
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] mt-3 text-center" style={{ color: 'var(--txt-3)' }}>
-            Exemple fictif — les données réelles s&apos;afficheront ici
-          </p>
-        </div>
+function EmptyState({ canEdit, onCreateBlock }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+      <div
+        className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+        style={{ background: 'var(--green-bg)' }}
+      >
+        <Inbox className="w-7 h-7" style={{ color: 'var(--green)' }} />
       </div>
+      <h2
+        className="text-base font-semibold mb-1"
+        style={{ color: 'var(--txt)' }}
+      >
+        Aucun bloc de livrables
+      </h2>
+      <p
+        className="text-sm mb-5 max-w-md"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Les livrables sont regroupés par blocs thématiques (ex : AFTERMOVIE,
+        SNACK CONTENT). Crée ton premier bloc pour commencer.
+      </p>
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={onCreateBlock}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium"
+          style={{ background: 'var(--green)', color: '#fff' }}
+        >
+          <Plus className="w-4 h-4" />
+          Créer un bloc
+        </button>
+      ) : (
+        <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+          Tu es en lecture seule sur cet outil.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function AccessDenied() {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+      <div
+        className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+        style={{ background: 'var(--bg-2)' }}
+      >
+        <Lock className="w-7 h-7" style={{ color: 'var(--txt-3)' }} />
+      </div>
+      <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--txt)' }}>
+        Accès restreint
+      </h2>
+      <p className="text-sm max-w-md" style={{ color: 'var(--txt-3)' }}>
+        Tu n&apos;as pas les permissions pour consulter les livrables de ce projet.
+        Demande l&apos;accès à un administrateur.
+      </p>
     </div>
   )
 }
