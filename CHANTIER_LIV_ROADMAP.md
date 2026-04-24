@@ -318,8 +318,8 @@ les templates PDF.
 | LIV-2 ✅ | Permissions OUTILS.LIVRABLES | S | Déjà fait par anticipation : `OUTILS.LIVRABLES` présent dans `permissions.js` depuis 3A, `outils_catalogue` seed dans `ch3a_permissions.sql`, gating posé dans la migration LIV-1. |
 | LIV-3 ✅ | Lib `livrables.js` + hook `useLivrables` | L | CRUD complet + Realtime + helpers purs (livrablesHelpers.js + 23 tests Vitest). Pas encore de sync planning : LIV-4 cablera les events miroirs. |
 | LIV-4 ✅ | Sync bidirectionnelle events (lib `livrablesPlanningSync.js`) | L | Forward sync étape/phase → event miroir câblée dans `livrables.js` (create/update/delete). Reverse via helpers purs `eventPatchToEtapePatch/Phase` consommés par le planning à LIV-5. `backfillMirrorEvents(projectId)` exposé dans `useLivrables`. 40+ tests Vitest sur helpers purs. |
-| LIV-5 | Page `LivrablesTab` (structure vue liste) | M | Layout, routing, gating permissions, empty state |
-| LIV-6 | CRUD blocs + drag & drop | M | Créer/rename/delete + reorder (pattern MAT-9D) |
+| LIV-5 ✅ | Page `LivrablesTab` (structure vue liste) | M | Page gated `useProjectPermissions`, header 4 compteurs + CTA `Nouveau bloc`, liste `BlockCard` (pastille / préfixe / livrables avec pill statut), empty state Inbox + création bloc câblée via `prompt()` → `actions.createBlock` (rotation couleurs preset). Commit `ab903b1`. |
+| LIV-6 ✅ | CRUD blocs + drag & drop | M | `LivrableBlockCard` + `LivrableBlockList` extraits dans `features/livrables/components/`. Rename inline, popover palette couleur, édition préfixe (uppercase, max 4 car), suppression soft + toast undo 5 s (`restoreBlock`), collapse/expand, drag & drop HTML5 natif (pattern MAT-9D). Fix bug popover clipping (`overflow-hidden` → `rounded-t-xl` sur header). |
 | LIV-7 | CRUD livrables + inline edit + numérotation auto | L | Tous les champs éditables, autocomplete monteur |
 | LIV-8 | Table versions + UI historique | M | Modal avec timeline, add/edit/delete version |
 | LIV-9 | Étapes — CRUD + events planning | L | Slide-over pipeline, event miroir kind='delivery' |
@@ -545,20 +545,101 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   --check` OK. Tests Vitest à lancer côté Hugo (sandbox Linux ARM64 vs
   darwin-arm64, connu).
 
-### Prochaine étape — LIV-5 (Page LivrablesTab — structure vue liste)
+### Session 2026-04-24 (suite) — LIV-5 (Page LivrablesTab — structure vue liste)
 
-Créer `src/pages/tabs/LivrablesTab.jsx` :
-  - Routing depuis `ProjetLayout` (gated par `OUTILS.LIVRABLES`).
-  - En-tête : compteurs (total / actifs / retard / livrés) via
-    `computeCompteurs`, prochain livrable, filtres (monteur, statut, "Mes
-    livrables").
-  - Vue liste par blocs : header bloc (prefix, nom, couleur, collapse),
-    table livrables (numero, nom, statut, monteur, date_livraison, version).
-  - Empty state (0 bloc → CTA "Créer un bloc").
-  - Gating : mode lecture si `!canEdit('livrables')`.
-  - Responsive : cartes sur mobile (pattern MAT-RESP-1), table sur desktop.
-  - Côté planning : brancher la reverse sync (drag d'un event miroir route
-    vers `updateEtape/updatePhase` via `eventPatchToEtapePatch/PhasePatch`).
+- **LIV-5 ✅** : 1 fichier entièrement réécrit (`src/pages/tabs/LivrablesTab.jsx`,
+  ~340 lignes, remplace le placeholder de 171 lignes).
+  - **Gating permissions** : `useProjectPermissions(projectId).can('livrables',
+    ...)`. `canRead=false` → écran `AccessDenied` (icône Lock + texte d'aide).
+    `canEdit=false` → CTA masqués (mode lecture). `projectId` passé à
+    `useLivrables` conditionnellement (`canRead ? projectId : null`).
+  - **Header** (`LivrablesHeader` sous-composant) : icône CheckSquare + titre
+    "Livrables" + 4 compteurs (Total / Actifs / En retard / Livrés — icônes
+    CheckCircle2 / Clock / AlertTriangle + couleur contextuelle) + CTA
+    "Nouveau bloc".
+  - **Liste des blocs** (`BlockCard` sous-composant) : pastille couleur 8px
+    (`style={{ background: bloc.couleur }}`), nom + préfixe, compteur de
+    livrables ; corps : liste verticale des livrables avec `numero` en mono +
+    `nom` + pill de statut (via `LIVRABLE_STATUTS` de `livrablesHelpers`).
+    Mode lecture cache les menus d'action.
+  - **Empty state** : icône Inbox + h2 "Aucun bloc encore" + paragraphe d'aide
+    + CTA "Créer un bloc" (si `canEdit`).
+  - **États annexes** : loading spinner, error screen (icône AlertTriangle +
+    message), AccessDenied (icône Lock + explication "demande l'accès à un
+    admin").
+  - **Création de bloc câblée** : `handleCreateBlock(actions, nextSortOrder)`
+    utilise le helper `prompt()` de `src/lib/confirm.js` (titre "Nouveau bloc",
+    message explicatif avec exemples MASTER / AFTERMOVIE / SNACK CONTENT,
+    placeholder "AFTERMOVIE / RÉCAP", required:true). Appelle
+    `actions.createBlock({ nom, couleur, sort_order })` avec rotation des
+    couleurs depuis `LIVRABLE_BLOCK_COLOR_PRESETS`.
+- **Hors scope LIV-5, remis à plus tard** :
+  - **Reverse sync planning** (drag event miroir → `updateEtape` via
+    `eventPatchToEtapePatch`) : à câbler côté PlanningTab quand LIV-9 existera,
+    pas dans LivrablesTab.
+  - **Filtres** (monteur / statut / Mes livrables) : LIV-15.
+  - **Édition / suppression / drag&drop des blocs** : LIV-6 (juste en dessous).
+  - **Table livrables inline editable** : LIV-7.
+  - **Responsive cards sur mobile** : pris en compte dans LIV-7 quand l'UI
+    livrable sera dense. Pour l'instant la liste actuelle est déjà fluide en
+    mobile (pas de table horizontale).
+- **Validation** : `npx eslint src/pages/tabs/LivrablesTab.jsx` → 0 warning
+  (après fix : retrait imports `useCallback`/`useState` non utilisés +
+  échappement de 2 apostrophes dans le texte AccessDenied). Pas de Vitest
+  sur ce fichier (UI).
 
-Voir roadmap §4.1 pour les composants à extraire + §4.3 pour les handlers
-planning.
+### Session 2026-04-24 (suite) — LIV-6 (CRUD blocs + drag & drop)
+
+- **LIV-6 ✅** : extraction architecturale + CRUD blocs complet.
+  - **Nouveaux fichiers** :
+    - `src/features/livrables/components/LivrableBlockCard.jsx` (~470 lignes) :
+      carte d'un bloc. Porte rename inline (click titre → input → Enter / Esc),
+      popover palette couleur (5×2 grid des `LIVRABLE_BLOCK_COLOR_PRESETS`),
+      édition préfixe inline (max 4 car, uppercase auto, champ "+ préfixe" si
+      vide), menu `...` (Renommer / Préfixe / Couleur / Supprimer), collapse/
+      expand via chevron, handle GripVertical pour drag & drop, suppression
+      soft avec toast custom `react-hot-toast` qui expose un bouton **Annuler**
+      pendant 5 s → `actions.restoreBlock(block.id)`.
+    - `src/features/livrables/components/LivrableBlockList.jsx` (~80 lignes) :
+      orchestre la liste et capte le drag & drop inter-blocs. Pattern
+      strictement miroir de `features/materiel/components/BlockList` :
+      `dragBlockIdx` ref pour l'index source, `dragOverBlockIdx` state pour
+      l'outline bleu, `handleReorderBlocks(from, to)` = splice + `actions.reorderBlocks(orderedIds)`.
+  - **`LivrablesTab.jsx`** : réduit de 95 lignes, délègue au nouveau `LivrableBlockList`.
+  - **Drag & drop** : HTML5 natif (pas d'installation `@dnd-kit`, aligné avec
+    MAT-9D). Header du bloc est à la fois drag-source (`draggable`) et
+    drop-target. `setData('text/plain', ...)` requis pour Firefox.
+- **Bug fix en live** : le popover du menu `...` était clippé par
+  `overflow-hidden` sur la `<section>` (seuls Renommer + Préfixe visibles,
+  Couleur + Supprimer masqués). Correction : retrait d'overflow-hidden +
+  ajout de `rounded-t-xl` sur le `<header>` pour préserver les coins arrondis
+  supérieurs du bg-elev. Le popover Actions et la palette couleur s'étendent
+  maintenant librement.
+- **Hors scope LIV-6** :
+  - Drag & drop des livrables dans un bloc → LIV-11.
+  - Corbeille UI (voir les blocs soft-deleted) → LIV-20.
+  - Duplication de bloc → pas dans la roadmap (pas demandé côté blocs —
+    seule la duplication de livrable est prévue à LIV-12).
+- **Validation** : `npx eslint` → 0 warning sur les 3 fichiers (`LivrablesTab`
+  + 2 nouveaux). Smoke test manuel côté Hugo OK après fix popover.
+
+### Prochaine étape — LIV-7 (CRUD livrables + inline edit + numérotation auto)
+
+Créer le rendu fin des livrables dans `LivrableBlockCard` (ou extraire
+`LivrableRow` en sous-composant) :
+  - **Ajout de livrable** : ligne "+ Nouveau livrable" en bas de chaque bloc →
+    `actions.createLivrable({ block_id, nom: '' })` avec numérotation auto
+    via `nextLivrableNumero(block.prefixe, livrables)` (helper déjà dispo).
+  - **Édition inline** de chaque champ : `numero` (override manuel possible),
+    `nom`, `format`, `duree`, `version_label`, `statut` (select), `monteur`
+    (autocomplete profiles + champ libre externe), `date_livraison` (date
+    picker), `lien_frame`, `lien_drive`, `notes`.
+  - **Responsive** : table sur desktop (aligné), cards sur mobile (pattern
+    MAT-RESP-1).
+  - **Actions par ligne** : menu `...` → Dupliquer (LIV-12), Supprimer (soft).
+  - **Statut** : pill cliquable avec popover des 6 statuts (brief / en_cours /
+    a_valider / valide / livre / archive).
+
+Voir roadmap §4.2 pour les actions `useLivrables` à câbler (`createLivrable`,
+`updateLivrable`, `deleteLivrable`, `duplicateLivrable` — tous déjà prêts
+depuis LIV-3).

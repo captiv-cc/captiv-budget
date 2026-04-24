@@ -1,27 +1,22 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrablesTab — Page "Livrables" d'un projet (LIV-5 — structure vue liste)
+// LivrablesTab — Page "Livrables" d'un projet (LIV-5 → LIV-6)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Point d'entrée de l'outil Livrables. Orchestre :
 //   - le hook `useLivrables(projectId)` qui porte tout l'état
 //   - les permissions via `useProjectPermissions` (gate read + edit)
 //   - un header local (compteurs basiques + CTA "Nouveau bloc")
-//   - la liste des blocs (vue MVP — carte par bloc, livrables listés en dur)
+//   - la liste des blocs via `LivrableBlockList` (drag & drop + CRUD via LIV-6)
 //   - empty state propre quand 0 bloc
 //   - loading state
 //
-// Ce fichier remplace l'ancien placeholder "En développement" avec la vraie
-// structure. Le rendu détaillé des livrables (tableau, inline edit, drag
-// & drop…) sera câblé à LIV-6 (blocs CRUD complet) et LIV-7 (livrables CRUD).
-// Ici on fait volontairement minimal : le but de LIV-5 est la plomberie.
+// LIV-5 a posé la plomberie. LIV-6 a extrait `LivrableBlockCard` + ajouté le
+// CRUD blocs (rename inline, couleur, préfixe, delete + undo, drag & drop).
+// Le rendu détaillé des livrables (tableau, inline edit) arrive à LIV-7.
 //
 // Gating :
 //   - `canRead` → on tombe sur un écran "accès restreint" si false
 //   - `canEdit` → les CTA de mutation sont masqués si false (mode lecture)
-//
-// Header compteurs : affiche total / actifs / en retard / livrés depuis
-// `compteurs`. Les filtres (monteur, statut, Mes livrables) sont prévus pour
-// LIV-15 (header enrichi) et ne sont pas posés ici.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useParams } from 'react-router-dom'
@@ -38,7 +33,8 @@ import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { prompt } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
-import { LIVRABLE_STATUTS, LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
+import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
+import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
 
 const OUTIL_KEY = 'livrables'
 
@@ -104,16 +100,12 @@ export default function LivrablesTab() {
             onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: 0 })}
           />
         ) : (
-          <div className="space-y-4">
-            {blocks.map((block) => (
-              <BlockCard
-                key={block.id}
-                block={block}
-                livrables={livrablesByBlock.get(block.id) || []}
-                canEdit={canEdit}
-              />
-            ))}
-          </div>
+          <LivrableBlockList
+            blocks={blocks}
+            livrablesByBlock={livrablesByBlock}
+            actions={actions}
+            canEdit={canEdit}
+          />
         )}
       </div>
     </div>
@@ -223,96 +215,6 @@ function LivrablesHeader({ compteurs, canEdit, onCreateBlock }) {
           <Plus className="w-4 h-4" />
           Nouveau bloc
         </button>
-      )}
-    </div>
-  )
-}
-
-function BlockCard({ block, livrables, canEdit }) {
-  const color = block.couleur || '#94a3b8'
-  return (
-    <div
-      className="rounded-xl overflow-hidden"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
-    >
-      {/* Header du bloc */}
-      <div
-        className="px-4 py-3 flex items-center gap-3"
-        style={{
-          background: 'var(--bg-elev)',
-          borderBottom: '1px solid var(--brd)',
-        }}
-      >
-        <div
-          className="w-2.5 h-2.5 rounded-full shrink-0"
-          style={{ background: color }}
-        />
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
-          {block.nom || 'Bloc sans nom'}
-        </h2>
-        {block.prefixe && (
-          <span
-            className="text-[11px] font-mono px-2 py-0.5 rounded"
-            style={{ background: 'var(--bg-2)', color: 'var(--txt-3)' }}
-          >
-            {block.prefixe}
-          </span>
-        )}
-        <span
-          className="text-[11px] ml-auto"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          {livrables.length} livrable{livrables.length > 1 ? 's' : ''}
-        </span>
-      </div>
-
-      {/* Contenu : liste livrables (MVP — LIV-7 la rendra éditable) */}
-      {livrables.length === 0 ? (
-        <div
-          className="p-4 text-center text-xs"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          Aucun livrable dans ce bloc.
-          {canEdit && <span className="ml-1">Ajoute-en à LIV-7.</span>}
-        </div>
-      ) : (
-        <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
-          {livrables.map((l) => {
-            const statut = LIVRABLE_STATUTS[l.statut]
-            return (
-              <li
-                key={l.id}
-                className="px-4 py-2.5 flex items-center gap-3 text-sm"
-                style={{ borderColor: 'var(--brd-sub)' }}
-              >
-                {l.numero && (
-                  <span
-                    className="text-[11px] font-mono shrink-0"
-                    style={{ color: 'var(--txt-3)' }}
-                  >
-                    {l.numero}
-                  </span>
-                )}
-                <span className="truncate" style={{ color: 'var(--txt)' }}>
-                  {l.nom || '— sans nom —'}
-                </span>
-                {l.format && (
-                  <span className="text-xs shrink-0" style={{ color: 'var(--txt-3)' }}>
-                    {l.format}
-                  </span>
-                )}
-                {statut && (
-                  <span
-                    className="ml-auto text-[11px] px-2 py-0.5 rounded-full shrink-0"
-                    style={{ background: statut.bg, color: statut.color }}
-                  >
-                    {statut.label}
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
       )}
     </div>
   )
