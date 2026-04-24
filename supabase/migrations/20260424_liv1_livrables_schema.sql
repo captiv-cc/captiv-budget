@@ -51,6 +51,20 @@
 
 BEGIN;
 
+-- ── 0. Cleanup ancien schéma livrables (héritage migration_v2.sql) ─────────
+-- migration_v2.sql avait posé une version minimale de `livrables` et
+-- `livrable_versions` (deadline / responsable_id / nb_revisions / lien_final…)
+-- jamais branchée à une UI. Le nouveau schéma du chantier LIV est trop
+-- différent pour une migration en place (pas de blocks, statuts différents,
+-- soft delete absent, FK projet_membres → profiles…). On drop CASCADE pour
+-- repartir propre — sans perte applicative puisque rien n'écrivait dessus.
+--
+-- IMPORTANT : si tu as commencé à utiliser ces tables (peu probable mais
+-- vérifier dans Supabase Studio avant de jouer la migration), exporter avant.
+DROP TABLE IF EXISTS livrable_versions CASCADE;
+DROP TABLE IF EXISTS livrables          CASCADE;
+
+
 -- ── 1. projet_livrable_config : en-tête livrables (1-1 avec projet) ─────────
 -- Reproduit le bloc "haut de page" des templates Excel : nom client, logo,
 -- producteur post-prod, période de tournage en label texte (ex "21-24 août
