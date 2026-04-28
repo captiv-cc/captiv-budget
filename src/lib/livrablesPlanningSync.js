@@ -48,10 +48,21 @@ export const EVENT_SOURCE_PROJET_PHASE   = 'projet_phase'
 
 /**
  * Champs d'une étape qui impactent l'event miroir. Si une update ne touche
- * aucun de ces champs (ex : on change `notes` uniquement), inutile de
- * re-syncer le planning — c'est le fast path.
+ * aucun de ces champs, inutile de re-syncer le planning — c'est le fast path.
+ *
+ * LIV-9 : ajout de `event_type_id` (sync `events.type_id`) et `notes`
+ * (sync `events.description`). Désormais `notes` impacte le planning, donc
+ * le fast-path "notes only" est levé.
  */
-export const ETAPE_SYNCED_FIELDS = ['nom', 'kind', 'date_debut', 'date_fin', 'couleur']
+export const ETAPE_SYNCED_FIELDS = [
+  'nom',
+  'kind',
+  'event_type_id',
+  'date_debut',
+  'date_fin',
+  'couleur',
+  'notes',
+]
 
 /** Idem pour les phases. */
 export const PHASE_SYNCED_FIELDS = ['nom', 'kind', 'date_debut', 'date_fin', 'couleur']
@@ -167,6 +178,8 @@ export function buildEtapeEventPayload(etape, projectId) {
   return {
     project_id:        projectId,
     title:             etape.nom || 'Étape livrable',
+    description:       etape.notes || null, // LIV-9 — notes étape → description event
+    type_id:           etape.event_type_id || null, // LIV-9 — type direct (au lieu de mapping)
     starts_at:         dateToDayStartIso(etape.date_debut),
     ends_at:           dateToDayEndExclusiveIso(etape.date_fin),
     all_day:           true,
@@ -199,9 +212,11 @@ export function buildPhaseEventPayload(phase, projectId) {
 export function buildEtapeEventPatch(etape) {
   if (!etape) return {}
   const patch = {}
-  if (etape.nom !== undefined)        patch.title          = etape.nom || 'Étape livrable'
-  if (etape.date_debut !== undefined) patch.starts_at      = dateToDayStartIso(etape.date_debut)
-  if (etape.date_fin !== undefined)   patch.ends_at        = dateToDayEndExclusiveIso(etape.date_fin)
+  if (etape.nom !== undefined)           patch.title       = etape.nom || 'Étape livrable'
+  if (etape.notes !== undefined)         patch.description = etape.notes || null
+  if (etape.event_type_id !== undefined) patch.type_id     = etape.event_type_id || null
+  if (etape.date_debut !== undefined)    patch.starts_at   = dateToDayStartIso(etape.date_debut)
+  if (etape.date_fin !== undefined)      patch.ends_at     = dateToDayEndExclusiveIso(etape.date_fin)
   if (etape.kind !== undefined || etape.couleur !== undefined) {
     patch.color_override = etapeEventColor(etape)
   }

@@ -322,7 +322,7 @@ les templates PDF.
 | LIV-6 ✅ | CRUD blocs + drag & drop | M | `LivrableBlockCard` + `LivrableBlockList` extraits dans `features/livrables/components/`. Rename inline, popover palette couleur, édition préfixe (uppercase, max 4 car), suppression soft + toast undo 5 s (`restoreBlock`), collapse/expand, drag & drop HTML5 natif (pattern MAT-9D). Fix bug popover clipping (`overflow-hidden` → `rounded-t-xl` sur header). |
 | LIV-7 ✅ | CRUD livrables + inline edit + numérotation auto | L | `LivrableRow` (desktop table) + `LivrableRowCard` (mobile) + `LivrableStatutPill` popover extraits dans `features/livrables/components/`. Inline edit tous les champs (numero, nom, format, durée, statut, monteur texte libre, date livraison, liens Frame/Drive, notes). Auto-numero géré serveur via `nextLivrableNumero`. Menu `...` par ligne (Dupliquer, Modifier Frame/Drive, Notes, Supprimer soft + toast undo 5s). Footer "+ Nouveau livrable" par bloc. Responsive pattern MAT-RESP-1 (`useBreakpoint`). Autocomplete monteur (profiles) = report plus tard. |
 | LIV-8 ✅ | Table versions + UI historique | M | Drawer right-side `LivrableVersionsDrawer` + `VersionStatutPill` (4 statuts) + badge `VersionsTrigger`/`VersionsBadge` (desktop col 90 px / mobile chip ligne 4). Liste desc, inline edit tous champs (numero_label, date_envoi, lien_frame, statut_validation, feedback_client). Suppression physique (pas de soft delete). Side effect addVersion : reset livrable à `a_valider` + maj `version_label`. |
-| LIV-9 | Étapes — CRUD + events planning | L | Slide-over pipeline, event miroir kind='delivery' |
+| LIV-9 ✅ | Étapes — CRUD + events planning | L | Onglet "Étapes" du `LivrableDetailsDrawer` (refonte LIV-8 → tabs Versions / Étapes). `LivrableEtapeCard` (inline edit, toggle ↔ 1jour/plage, toggle 👁️ planning, dropdown type via `event_types` org). `LivrableEtapesPanel` (liste asc + form création nom + date obligatoires). Sync planning enrichie : `description = etape.notes`, `type_id = etape.event_type_id` (passe directement le type d'event de l'org). Migration : `livrable_etapes.assignee_external` + `event_type_id`. |
 | LIV-10 | Phases projet — CRUD + events multi-jours | M | Drawer gestion phases, events continus |
 | LIV-11 | Drag & drop livrables dans bloc | S | Pattern MAT-9C |
 | LIV-12 | Duplication livrable (variante) | S | Bouton "Dupliquer" → copie dans même bloc |
@@ -865,19 +865,98 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   Parse-check `@babel/parser` OK. Build/test Vitest non exécutés (rollup
   module natif manquant en sandbox).
 
-### Prochaine étape — LIV-9 (Étapes pipeline + events planning miroir)
+### Session 2026-04-28 (suite) — LIV-9 (Étapes pipeline + events planning)
 
-Créer le pipeline de production de chaque livrable (kind ∈ production / da /
-montage / sound / delivery / feedback / autre) :
-  - **UI** : section déroulante par livrable (drawer ou inline ?), liste
-    d'étapes avec date_debut / date_fin / responsable / kind. Affichage
-    horizontal (mini-Gantt) ou vertical (liste) → à arbitrer.
-  - **Events miroir** : chaque étape avec `is_event=true` génère un event
-    planning automatique via `livrablesPlanningSync.js` (déjà câblé en
-    LIV-4). Test côté `PlanningTab` que les events apparaissent bien.
-  - **Actions** `addEtape / updateEtape / deleteEtape` déjà exposées par
-    `useLivrables`.
-  - **Couleurs** : palette `LIVRABLE_ETAPE_KINDS` déjà définie dans
-    `livrablesHelpers`.
+- **LIV-9 ✅** : pipeline post-prod par livrable + sync events. Refonte du
+  drawer LIV-8 en système de tabs `Versions | Étapes`.
+  - **Migration SQL** (`20260428_liv9_etape_assignee_external.sql`) :
+    - `livrable_etapes.assignee_external text` — pendant texte libre du
+      `assignee_profile_id` (cf. pattern LIV-7).
+    - `livrable_etapes.event_type_id uuid REFERENCES event_types(id)` —
+      remplace l'enum `kind` figé pour le dropdown UI. Permet d'utiliser
+      TOUS les types planning de l'org (Dérush, Étalonnage, VFX/compositing,
+      types custom…) au lieu des 7 kinds fixes. Index partiel sur les
+      étapes typées.
+  - **Refonte du drawer** :
+    - `LivrableVersionsDrawer.jsx` (LIV-8) supprimé.
+    - `LivrableDetailsDrawer.jsx` (nouveau) : header + tabs `Versions |
+      Étapes` (avec compteurs) + body avec panel switché. Sous-titre
+      dynamique selon l'onglet actif. `initialTab` passé en prop pour
+      ouvrir directement sur Étapes (utilisable plus tard).
+    - `LivrableVersionsPanel.jsx` (extrait du drawer LIV-8) : contient
+      désormais juste le contenu Versions (liste + footer + VersionCard).
+      Toute la logique sync livrable ↔ versions est conservée.
+    - `LivrableEtapesPanel.jsx` (nouveau) : panel Étapes — liste verticale
+      asc (date_debut), empty state, form de création inline en footer.
+    - `EventTypeSelect.jsx` (nouveau, ~150 lignes) : pendant des
+      `LivrableStatutPill` / `VersionStatutPill` mais peuplé via les
+      `event_types` de l'org. Pill cliquable + popover via `PopoverFloat`,
+      option "— Aucun type —" en tête, scrollable (max-height 320 px).
+      **Pourquoi un composant custom au lieu d'un `<select>` natif** :
+      le rendu cross-browser du `<select>` avec background-image custom
+      + `appearance: none` était buggé (le dropdown ouvert empilait les
+      options avec le styling pastel et dupliquait le chevron). Pattern
+      custom = visuel propre + cohérent avec le reste du feature.
+    - `LivrableEtapeCard.jsx` (nouveau, ~290 lignes) : carte par étape
+      avec inline edit. Layout :
+      - Ligne 1 : nom inline + `EventTypeSelect` (event_types) + toggle 👁️
+        `is_event` + 🗑️ supprimer.
+      - Ligne 2 : icône calendar/range + dates avec toggle ↔ 1jour/plage.
+        Mode 1 jour = un seul input ; mode plage = 2 inputs avec clamp si
+        fin < début. Le toggle ↔ aligne `date_fin` sur `date_debut` quand
+        on revient en 1 jour. Badge "hors planning" si `is_event=false`.
+      - Ligne 3 : `MonteurAvatar` (initiales) + input `assignee_external`.
+      - Ligne 4 : textarea notes (resize-y).
+      - Bordure latérale teintée selon `event_type.color` (cohérence avec
+        le bloc planning miroir). Opacité 0.7 si étape hors planning.
+    - `VersionStatutPill.jsx` (LIV-8) reste tel quel.
+  - **Form de création** (`EtapeQuickAdd` interne au panel) : 2 champs
+    requis `nom` + `date_debut` (pas de pré-remplissage à `today` —
+    décision UX Hugo : forcer la saisie consciente). Dropdown type =
+    eventTypes de l'org, défaut = premier type non-archivé. Mode 1 jour
+    par défaut (date_fin = date_debut). Bouton "Ajouter" désactivé tant
+    que les 2 requis ne sont pas remplis. Submit = saisie en rafale
+    (refocus l'input nom après reset).
+  - **Sync planning enrichie** (`livrablesPlanningSync.js`) :
+    - `ETAPE_SYNCED_FIELDS` étendu avec `event_type_id` + `notes`.
+    - `buildEtapeEventPayload` : ajout `type_id` (= etape.event_type_id) +
+      `description` (= etape.notes). Plus besoin de mapping figé kind →
+      slug → type_id : on passe directement le `event_type_id` choisi
+      par l'utilisateur. Cohérence parfaite entre la card étape et le
+      bloc planning (même couleur, même libellé).
+    - `buildEtapeEventPatch` : propage les changements `event_type_id` et
+      `notes` vers `events.type_id` et `events.description`.
+  - **Plumberie** : `LivrablesTab` charge `listEventTypes()` au mount
+    (org-scoped via RLS) et passe `eventTypes` au drawer. Le hook
+    `useLivrables` n'est pas modifié — event_types reste un load
+    secondaire isolé (1 query, ~20 lignes).
+  - **Bug fix EventEditorModal date_fin** : observé pendant les tests
+    (event mirror affiche `date_fin + 1 jour` à cause de la convention
+    all_day exclusive de PL-1). Hors scope LIV-9 — task `PL-FIX-1` créé
+    pour traitement dédié (affecte tous les events all_day, pas
+    seulement les étapes mirror).
+- **Hors scope LIV-9 (reporté)** :
+  - Mini-Gantt horizontal des étapes → reporté (liste verticale suffit
+    en MVP).
+  - Autocomplete responsable (profiles) → ticket dédié au même titre que
+    monteur LIV-7.
+  - Lien étape → version (ex : "V1 livré le X") → si le besoin émerge.
+- **Validation** : ESLint clean sur les 6 fichiers (0 warning, 0 error).
+  Parse-check `@babel/parser` OK. Sync planning testable côté Hugo
+  (rollup module natif manquant en sandbox).
 
-Voir roadmap §5 pour le schéma `livrable_etapes` et la sync planning.
+### Prochaine étape — LIV-10 (Phases projet — CRUD + events multi-jours)
+
+Créer la couche "phases projet" (au-dessus des étapes étapes-livrables) :
+  - **Schéma déjà prêt** (LIV-1) : `projet_phases` avec `kind` enum
+    (`prod / tournage / montage / delivery / off / autre`), `date_debut`,
+    `date_fin`, `couleur`, `is_event`. Plus haut niveau qu'une étape :
+    couvre tout le projet, pas un livrable particulier.
+  - **UI** : où afficher ? Section dédiée dans `LivrablesTab` (en haut, au
+    dessus des blocs de livrables) ? Ou onglet propre ? À arbitrer.
+  - **Events miroir** : `livrablesPlanningSync` gère déjà les phases
+    (helpers `buildPhaseEventPayload`, `syncPhaseOnCreate`, etc.). Pareil
+    que pour les étapes : enrichir avec `description = phase.notes` ?
+    Phase n'a pas de `notes` actuellement — à ajouter si besoin.
+  - **Couleurs** : `PROJET_PHASE_KINDS` déjà défini dans helpers.
+  - **Reverse sync** : déjà prévu (cf. §planning sync). À tester.

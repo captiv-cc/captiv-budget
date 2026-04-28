@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrablesTab — Page "Livrables" d'un projet (LIV-5 → LIV-8)
+// LivrablesTab — Page "Livrables" d'un projet (LIV-5 → LIV-9)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Point d'entrée de l'outil Livrables. Orchestre :
@@ -7,22 +7,23 @@
 //   - les permissions via `useProjectPermissions` (gate read + edit)
 //   - un header local (compteurs basiques + CTA "Nouveau bloc")
 //   - la liste des blocs via `LivrableBlockList` (drag & drop + CRUD via LIV-6)
-//   - le drawer historique des versions (LIV-8) — un seul drawer global, ouvert
-//     pour le livrable courant (`versionsDrawerLivrable`)
+//   - le drawer details (LIV-8 versions + LIV-9 étapes) — un seul drawer
+//     global avec tabs, ouvert pour le livrable courant
+//     (`detailsDrawerLivrable`)
 //   - empty state propre quand 0 bloc
 //   - loading state
 //
 // LIV-5 a posé la plomberie. LIV-6 a extrait `LivrableBlockCard` + ajouté le
 // CRUD blocs. LIV-7 a ajouté le rendu détaillé des livrables (table + cards).
-// LIV-8 ajoute le drawer "Historique des versions" déclenché par le badge
-// versions de chaque ligne.
+// LIV-8 a ajouté le drawer historique des versions. LIV-9 ajoute l'onglet
+// Étapes (pipeline + events miroir) au même drawer.
 //
 // Gating :
 //   - `canRead` → on tombe sur un écran "accès restreint" si false
 //   - `canEdit` → les CTA de mutation sont masqués si false (mode lecture)
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   CheckSquare,
@@ -38,8 +39,9 @@ import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { prompt } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
+import { listEventTypes } from '../../lib/planning'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
-import LivrableVersionsDrawer from '../../features/livrables/components/LivrableVersionsDrawer'
+import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
 
 const OUTIL_KEY = 'livrables'
 
@@ -55,29 +57,60 @@ export default function LivrablesTab() {
     blocks,
     livrablesByBlock,
     versionsByLivrable,
+    etapesByLivrable,
     compteurs,
     actions,
   } = useLivrables(canRead ? projectId : null)
 
-  // ─── Drawer "Historique des versions" (LIV-8) ────────────────────────────
+  // ─── Event types pour l'onglet Étapes du drawer (LIV-9) ──────────────────
+  // org-scoped via RLS, chargés une fois au mount. Si l'utilisateur édite la
+  // liste depuis l'admin, on rechargera au prochain mount du tab — pas de
+  // realtime ici (overkill).
+  const [eventTypes, setEventTypes] = useState([])
+  useEffect(() => {
+    if (!canRead) return
+    let cancelled = false
+    listEventTypes()
+      .then((types) => {
+        if (!cancelled) setEventTypes(types || [])
+      })
+      .catch((err) => {
+        // Pas bloquant — le drawer affichera "(aucun type)" et l'étape sera
+        // créée sans type_id (event miroir hérite du défaut côté planning).
+        notify.error('Chargement types événement : ' + (err?.message || err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canRead])
+
+  // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
   // updates realtime / optimistic — on ré-extrait l'objet depuis blocks.
-  const [versionsDrawerLivrableId, setVersionsDrawerLivrableId] = useState(null)
-  const versionsDrawerLivrable = useMemo(() => {
-    if (!versionsDrawerLivrableId) return null
+  // `initialTab` permet d'ouvrir le drawer directement sur Versions ou Étapes.
+  const [detailsDrawerLivrableId, setDetailsDrawerLivrableId] = useState(null)
+  const [detailsDrawerInitialTab, setDetailsDrawerInitialTab] = useState('versions')
+  const detailsDrawerLivrable = useMemo(() => {
+    if (!detailsDrawerLivrableId) return null
     for (const block of blocks) {
       const arr = livrablesByBlock?.get(block.id) || []
-      const found = arr.find((l) => l.id === versionsDrawerLivrableId)
+      const found = arr.find((l) => l.id === detailsDrawerLivrableId)
       if (found) return found
     }
     return null
-  }, [versionsDrawerLivrableId, blocks, livrablesByBlock])
+  }, [detailsDrawerLivrableId, blocks, livrablesByBlock])
   const handleOpenVersions = useCallback((livrable) => {
     if (!livrable?.id) return
-    setVersionsDrawerLivrableId(livrable.id)
+    setDetailsDrawerInitialTab('versions')
+    setDetailsDrawerLivrableId(livrable.id)
   }, [])
-  const handleCloseVersionsDrawer = useCallback(() => {
-    setVersionsDrawerLivrableId(null)
+  const handleOpenEtapes = useCallback((livrable) => {
+    if (!livrable?.id) return
+    setDetailsDrawerInitialTab('etapes')
+    setDetailsDrawerLivrableId(livrable.id)
+  }, [])
+  const handleCloseDetailsDrawer = useCallback(() => {
+    setDetailsDrawerLivrableId(null)
   }, [])
 
   // ─── Accès refusé ─────────────────────────────────────────────────────────
@@ -131,24 +164,33 @@ export default function LivrablesTab() {
             blocks={blocks}
             livrablesByBlock={livrablesByBlock}
             versionsByLivrable={versionsByLivrable}
+            etapesByLivrable={etapesByLivrable}
             actions={actions}
             canEdit={canEdit}
             onOpenVersions={handleOpenVersions}
+            onOpenEtapes={handleOpenEtapes}
           />
         )}
       </div>
 
-      {/* Drawer historique des versions (LIV-8) */}
-      <LivrableVersionsDrawer
-        livrable={versionsDrawerLivrable}
+      {/* Drawer details (LIV-8 versions + LIV-9 étapes) */}
+      <LivrableDetailsDrawer
+        livrable={detailsDrawerLivrable}
         versions={
-          versionsDrawerLivrable
-            ? versionsByLivrable?.get(versionsDrawerLivrable.id) || []
+          detailsDrawerLivrable
+            ? versionsByLivrable?.get(detailsDrawerLivrable.id) || []
             : []
         }
+        etapes={
+          detailsDrawerLivrable
+            ? etapesByLivrable?.get(detailsDrawerLivrable.id) || []
+            : []
+        }
+        eventTypes={eventTypes}
         actions={actions}
         canEdit={canEdit}
-        onClose={handleCloseVersionsDrawer}
+        onClose={handleCloseDetailsDrawer}
+        initialTab={detailsDrawerInitialTab}
       />
     </div>
   )

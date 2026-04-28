@@ -30,6 +30,7 @@ import {
   ExternalLink,
   History,
   Link2,
+  ListTodo,
   MoreHorizontal,
   StickyNote,
   Trash2,
@@ -49,9 +50,11 @@ export default function LivrableRowCard({
   canEdit = true,
   onDelete,
   onEditNotes,
-  // LIV-8 — versions
+  // LIV-8 — versions / LIV-9 — étapes
   versions = [],
+  etapes = [],
   onOpenVersions,
+  onOpenEtapes,
 }) {
   // Badge version (cf. LivrableRow desktop pour la logique exacte)
   const latestVersionLabel = useMemo(() => {
@@ -68,6 +71,7 @@ export default function LivrableRowCard({
     return best?.numero_label || null
   }, [versions])
   const versionsCount = versions?.length || 0
+  const etapesCount = etapes?.length || 0
   // ─── États locaux ────────────────────────────────────────────────────────
   const [numero, setNumero] = useState(livrable.numero || '')
   const [nom, setNom] = useState(livrable.nom || '')
@@ -163,16 +167,16 @@ export default function LivrableRowCard({
 
   return (
     <div
-      className="px-3 py-3 flex flex-col gap-2"
+      className="px-3 py-2.5 flex flex-col gap-1.5"
       style={{ borderBottom: '1px solid var(--brd-sub)' }}
     >
-      {/* Ligne 1 : (dot retard) numero + nom + menu ⋯ */}
-      <div className="flex items-start gap-2">
+      {/* Ligne 1 : (dot retard) numero + nom (alignés à gauche) + menu ⋯ */}
+      <div className="flex items-center gap-2">
         {enRetard && (
           <span
             aria-label="En retard"
             title="Livrable en retard"
-            className="inline-block w-2 h-2 rounded-full mt-1.5 shrink-0"
+            className="inline-block w-2 h-2 rounded-full shrink-0"
             style={{ background: 'var(--red)' }}
           />
         )}
@@ -184,8 +188,8 @@ export default function LivrableRowCard({
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
           disabled={!canEdit}
           placeholder="—"
-          className="bg-transparent focus:outline-none text-[11px] font-mono w-14 shrink-0"
-          style={{ color: 'var(--txt-3)' }}
+          className="bg-transparent focus:outline-none text-[11px] font-mono shrink-0"
+          style={{ color: 'var(--txt-3)', width: '32px' }}
         />
         <input
           type="text"
@@ -195,7 +199,7 @@ export default function LivrableRowCard({
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
           disabled={!canEdit}
           placeholder="Nom du livrable…"
-          className="flex-1 bg-transparent focus:outline-none text-sm font-medium"
+          className="flex-1 min-w-0 bg-transparent focus:outline-none text-sm font-semibold text-left"
           style={{ color: 'var(--txt)' }}
         />
         {canEdit && (
@@ -296,8 +300,9 @@ export default function LivrableRowCard({
         />
       </div>
 
-      {/* Ligne 4 : liens + badge versions */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Ligne 4 : tous les chips (liens + détails + notes) sur une seule
+          ligne avec wrap. Plus dense que 3 lignes labellées. */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         <LinkChip
           label="Frame"
           url={livrable.lien_frame}
@@ -310,32 +315,75 @@ export default function LivrableRowCard({
           onEdit={() => handleEditLink('lien_drive', 'Drive')}
           canEdit={canEdit}
         />
-        <span className="ml-auto">
-          <VersionsBadge
-            label={latestVersionLabel}
-            count={versionsCount}
-            onClick={() => onOpenVersions?.(livrable)}
-            canEdit={canEdit}
-          />
-        </span>
+        <span style={{ width: 1, height: 14, background: 'var(--brd-sub)' }} />
+        <VersionsBadge
+          label={latestVersionLabel}
+          count={versionsCount}
+          onClick={() => onOpenVersions?.(livrable)}
+          canEdit={canEdit}
+        />
+        <EtapesBadge
+          count={etapesCount}
+          onClick={() => onOpenEtapes?.(livrable)}
+          canEdit={canEdit}
+        />
+        <NotesChip
+          value={notes}
+          onClick={() => onEditNotes?.(livrable)}
+          canEdit={canEdit}
+        />
       </div>
-
-      {/* Notes (toujours visible — c'est l'atout du format card) */}
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        onBlur={() => saveField('notes', notes.trim())}
-        disabled={!canEdit}
-        placeholder="Notes…"
-        rows={2}
-        className="w-full bg-transparent focus:outline-none text-xs resize-none rounded px-2 py-1"
-        style={{
-          color: 'var(--txt-2)',
-          border: '1px solid var(--brd-sub)',
-          background: 'var(--bg-elev)',
-        }}
-      />
     </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// NotesChip — chip compact pour les notes (mobile, sur la ligne des chips)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Style aligné avec les autres chips de la ligne (Frame/Drive, badges) pour
+// rester homogène. Click → ouvre `uiPrompt({ multiline: true })` (handler
+// parent identique à desktop).
+//   - vide & canEdit   → chip dashed "+ note"
+//   - rempli           → chip plein "Note" (icône + indicateur de présence)
+//   - vide & read-only → caché
+
+function NotesChip({ value, onClick, canEdit }) {
+  const hasNote = Boolean((value || '').trim())
+
+  if (!hasNote) {
+    if (!canEdit) return null
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+        title="Ajouter une note interne"
+      >
+        <StickyNote className="w-3 h-3" />+ note
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={canEdit ? onClick : undefined}
+      disabled={!canEdit}
+      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--bg-2)',
+        color: 'var(--txt-2)',
+        cursor: canEdit ? 'pointer' : 'default',
+      }}
+      title={canEdit ? 'Cliquer pour éditer la note' : (value || '').trim()}
+    >
+      <StickyNote className="w-3 h-3 shrink-0" />
+      Note
+    </button>
   )
 }
 
@@ -377,6 +425,45 @@ function VersionsBadge({ label, count, onClick, canEdit }) {
       {count > 1 && (
         <span className="text-[10px] opacity-75 font-normal">({count})</span>
       )}
+    </button>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EtapesBadge — badge cliquable pour ouvrir le drawer onglet Étapes (LIV-9)
+// ════════════════════════════════════════════════════════════════════════════
+
+function EtapesBadge({ count, onClick, canEdit }) {
+  if (!count) {
+    if (!canEdit) return null
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+        title="Ajouter une étape"
+      >
+        <ListTodo className="w-3 h-3" />+ étape
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--green-bg)',
+        color: 'var(--green)',
+      }}
+      title={`${count} étape${count > 1 ? 's' : ''}`}
+    >
+      <ListTodo className="w-3 h-3 shrink-0" />
+      <span className="font-mono">{count}</span>
     </button>
   )
 }

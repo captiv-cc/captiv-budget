@@ -15,9 +15,11 @@
 //   - blocks              : Array<livrable_blocks> triés par sort_order
 //   - livrablesByBlock    : Map<blockId, livrable[]>
 //   - versionsByLivrable  : Map<livrableId, version[]> (LIV-8)
+//   - etapesByLivrable    : Map<livrableId, etape[]>   (LIV-9)
 //   - actions             : objet actions de useLivrables
 //   - canEdit             : booléen
-//   - onOpenVersions      : (livrable) => void (LIV-8 — drawer historique)
+//   - onOpenVersions      : (livrable) => void (drawer onglet Versions)
+//   - onOpenEtapes        : (livrable) => void (drawer onglet Étapes)
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useRef, useState } from 'react'
@@ -28,9 +30,11 @@ export default function LivrableBlockList({
   blocks = [],
   livrablesByBlock,
   versionsByLivrable,
+  etapesByLivrable,
   actions,
   canEdit = true,
   onOpenVersions,
+  onOpenEtapes,
 }) {
   // Drag & drop : ref pour l'index source (capté au dragStart), state pour
   // l'index survolé (rendu visuel). Pattern MAT-9D.
@@ -65,7 +69,9 @@ export default function LivrableBlockList({
           block={block}
           livrables={livrablesByBlock?.get(block.id) || []}
           versionsByLivrable={versionsByLivrable}
+          etapesByLivrable={etapesByLivrable}
           onOpenVersions={onOpenVersions}
+          onOpenEtapes={onOpenEtapes}
           actions={actions}
           canEdit={canEdit}
           isDragOver={dragOverBlockIdx === idx}

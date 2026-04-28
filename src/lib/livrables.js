@@ -604,9 +604,11 @@ export async function deleteVersion(versionId) {
 const ETAPE_EDITABLE_FIELDS = [
   'nom',
   'kind',
+  'event_type_id',     // LIV-9 — type planning (remplace l'enum kind côté UI)
   'date_debut',
   'date_fin',
   'assignee_profile_id',
+  'assignee_external', // LIV-9 — pendant texte libre du `assignee_profile_id`
   'couleur',
   'notes',
   'sort_order',
@@ -641,9 +643,11 @@ export async function addEtape({ livrableId, data: input = {} }) {
     livrable_id: livrableId,
     nom: input.nom?.trim() || 'Nouvelle étape',
     kind: input.kind || 'autre',
+    event_type_id: input.event_type_id || null, // LIV-9
     date_debut: input.date_debut,
     date_fin: input.date_fin,
     assignee_profile_id: input.assignee_profile_id || null,
+    assignee_external: input.assignee_external?.trim() || null, // LIV-9
     couleur: input.couleur || null,
     notes: input.notes || null,
     sort_order: input.sort_order ?? nextOrder,

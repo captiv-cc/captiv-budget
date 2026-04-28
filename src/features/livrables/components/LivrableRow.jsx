@@ -41,6 +41,7 @@ import {
   GripVertical,
   History,
   Link2,
+  ListTodo,
   MoreHorizontal,
   StickyNote,
   Trash2,
@@ -60,9 +61,11 @@ export default function LivrableRow({
   canEdit = true,
   onDelete,
   onEditNotes,
-  // LIV-8 — versions
+  // LIV-8 — versions / LIV-9 — étapes (même drawer, 2 onglets)
   versions = [],
+  etapes = [],
   onOpenVersions,
+  onOpenEtapes,
   // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
   // éviter un refacto plus tard)
   isDragOver = false,
@@ -88,6 +91,7 @@ export default function LivrableRow({
     return best?.numero_label || null
   }, [versions])
   const versionsCount = versions?.length || 0
+  const etapesCount = etapes?.length || 0
   // ─── États locaux (inline edit) ──────────────────────────────────────────
   const [numero, setNumero] = useState(livrable.numero || '')
   const [nom, setNom] = useState(livrable.nom || '')
@@ -305,14 +309,21 @@ export default function LivrableRow({
         />
       </td>
 
-      {/* Versions (badge cliquable → ouvre drawer historique) */}
-      <td className="px-2 py-1.5 align-middle" style={{ width: '90px' }}>
-        <VersionsTrigger
-          label={latestVersionLabel}
-          count={versionsCount}
-          onClick={() => onOpenVersions?.(livrable)}
-          canEdit={canEdit}
-        />
+      {/* Détails — 2 badges : versions + étapes (LIV-8 + LIV-9) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '130px' }}>
+        <div className="flex items-center gap-1">
+          <VersionsTrigger
+            label={latestVersionLabel}
+            count={versionsCount}
+            onClick={() => onOpenVersions?.(livrable)}
+            canEdit={canEdit}
+          />
+          <EtapesTrigger
+            count={etapesCount}
+            onClick={() => onOpenEtapes?.(livrable)}
+            canEdit={canEdit}
+          />
+        </div>
       </td>
 
       {/* Monteur (avatar + texte libre MVP) */}
@@ -468,6 +479,52 @@ function VersionsTrigger({ label, count, onClick, canEdit }) {
           ({count})
         </span>
       )}
+    </button>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EtapesTrigger — badge cliquable pour ouvrir le drawer onglet Étapes (LIV-9)
+// ════════════════════════════════════════════════════════════════════════════
+
+function EtapesTrigger({ count, onClick, canEdit }) {
+  if (!count) {
+    if (!canEdit) {
+      return (
+        <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
+          —
+        </span>
+      )
+    }
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+        title="Ajouter une étape"
+      >
+        <ListTodo className="w-3 h-3" />
+        étape
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--green-bg)',
+        color: 'var(--green)',
+      }}
+      title={`${count} étape${count > 1 ? 's' : ''} — cliquer pour voir le pipeline`}
+    >
+      <ListTodo className="w-3 h-3 shrink-0" />
+      <span className="font-mono">{count}</span>
     </button>
   )
 }

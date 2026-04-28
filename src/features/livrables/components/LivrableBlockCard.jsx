@@ -60,9 +60,11 @@ export default function LivrableBlockCard({
   livrables = [],
   actions,
   canEdit = true,
-  // LIV-8 — versions
-  versionsByLivrable, // Map<livrableId, version[]>
-  onOpenVersions,     // (livrable) => void
+  // LIV-8 — versions / LIV-9 — étapes
+  versionsByLivrable,  // Map<livrableId, version[]>
+  etapesByLivrable,    // Map<livrableId, etape[]>
+  onOpenVersions,      // (livrable) => void
+  onOpenEtapes,        // (livrable) => void
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -591,7 +593,7 @@ export default function LivrableBlockCard({
       {/* ─── Corps : liste des livrables (desktop table / mobile cards) ───── */}
       {!collapsed && !isMobile && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs" style={{ minWidth: '1050px' }}>
+          <table className="w-full text-xs" style={{ minWidth: '1090px' }}>
             <thead>
               <tr
                 style={{
@@ -606,7 +608,7 @@ export default function LivrableBlockCard({
                 <Th width="90px">Format</Th>
                 <Th width="70px">Durée</Th>
                 <Th width="108px">Statut</Th>
-                <Th width="90px">Versions</Th>
+                <Th width="130px">Détails</Th>
                 <Th width="130px">Monteur</Th>
                 <Th width="132px">Livraison</Th>
                 <Th width="112px">Liens</Th>
@@ -634,7 +636,9 @@ export default function LivrableBlockCard({
                     onDelete={handleDeleteLivrable}
                     onEditNotes={handleEditNotes}
                     versions={versionsByLivrable?.get(l.id) || []}
+                    etapes={etapesByLivrable?.get(l.id) || []}
                     onOpenVersions={onOpenVersions}
+                    onOpenEtapes={onOpenEtapes}
                   />
                 ))
               )}
@@ -662,7 +666,9 @@ export default function LivrableBlockCard({
                 onDelete={handleDeleteLivrable}
                 onEditNotes={handleEditNotes}
                 versions={versionsByLivrable?.get(l.id) || []}
+                etapes={etapesByLivrable?.get(l.id) || []}
                 onOpenVersions={onOpenVersions}
+                onOpenEtapes={onOpenEtapes}
               />
             ))
           )}
