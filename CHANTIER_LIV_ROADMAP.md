@@ -323,8 +323,8 @@ les templates PDF.
 | LIV-7 ✅ | CRUD livrables + inline edit + numérotation auto | L | `LivrableRow` (desktop table) + `LivrableRowCard` (mobile) + `LivrableStatutPill` popover extraits dans `features/livrables/components/`. Inline edit tous les champs (numero, nom, format, durée, statut, monteur texte libre, date livraison, liens Frame/Drive, notes). Auto-numero géré serveur via `nextLivrableNumero`. Menu `...` par ligne (Dupliquer, Modifier Frame/Drive, Notes, Supprimer soft + toast undo 5s). Footer "+ Nouveau livrable" par bloc. Responsive pattern MAT-RESP-1 (`useBreakpoint`). Autocomplete monteur (profiles) = report plus tard. |
 | LIV-8 ✅ | Table versions + UI historique | M | Drawer right-side `LivrableVersionsDrawer` + `VersionStatutPill` (4 statuts) + badge `VersionsTrigger`/`VersionsBadge` (desktop col 90 px / mobile chip ligne 4). Liste desc, inline edit tous champs (numero_label, date_envoi, lien_frame, statut_validation, feedback_client). Suppression physique (pas de soft delete). Side effect addVersion : reset livrable à `a_valider` + maj `version_label`. |
 | LIV-9 ✅ | Étapes — CRUD + events planning | L | Onglet "Étapes" du `LivrableDetailsDrawer` (refonte LIV-8 → tabs Versions / Étapes). `LivrableEtapeCard` (inline edit, toggle ↔ 1jour/plage, toggle 👁️ planning, dropdown type via `event_types` org). `LivrableEtapesPanel` (liste asc + form création nom + date obligatoires). Sync planning enrichie : `description = etape.notes`, `type_id = etape.event_type_id` (passe directement le type d'event de l'org). Migration : `livrable_etapes.assignee_external` + `event_type_id`. |
-| LIV-10 | Phases projet — CRUD + events multi-jours | M | Drawer gestion phases, events continus |
-| LIV-11 | Drag & drop livrables dans bloc | S | Pattern MAT-9C |
+| LIV-10 ⊘ | Phases projet — CRUD + events multi-jours | M | **Skip — hors scope Livrables** : les phases projet sont projet-level (couvrent tout le projet, pas un livrable). Pas leur place dans LivrablesTab. À déplacer vers un futur ticket "Header projet" ou "Dashboard projet" si besoin. La donnée est déjà visible dans le planning via `is_event=true` + `livrablesPlanningSync`. |
+| LIV-11 ✅ | Drag & drop livrables dans bloc | S | Pattern miroir MAT-9C / LIV-6. Câblage dans `LivrableBlockCard` (orchestrateur DnD) : `dragLivrableIdx` ref + `dragOverLivrableIdx` state + `handleReorderLivrables` → `actions.reorderLivrables(orderedIds)` (déjà optimistic côté hook). Props DnD déjà acceptées par `LivrableRow` depuis LIV-7. Désactivé sur mobile (cards). |
 | LIV-12 | Duplication livrable (variante) | S | Bouton "Dupliquer" → copie dans même bloc |
 | LIV-13 | Duplication cross-project | M | Modal "Dupliquer depuis projet X" (blocs + livrables + phases) |
 | LIV-14 | Bulk edit (sélection multiple) | M | Checkbox sur lignes + barre d'action batch |
@@ -945,18 +945,60 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   Parse-check `@babel/parser` OK. Sync planning testable côté Hugo
   (rollup module natif manquant en sandbox).
 
-### Prochaine étape — LIV-10 (Phases projet — CRUD + events multi-jours)
+### Session 2026-04-28 (suite) — LIV-10 SKIP + LIV-11 (DnD livrables)
 
-Créer la couche "phases projet" (au-dessus des étapes étapes-livrables) :
-  - **Schéma déjà prêt** (LIV-1) : `projet_phases` avec `kind` enum
-    (`prod / tournage / montage / delivery / off / autre`), `date_debut`,
-    `date_fin`, `couleur`, `is_event`. Plus haut niveau qu'une étape :
-    couvre tout le projet, pas un livrable particulier.
-  - **UI** : où afficher ? Section dédiée dans `LivrablesTab` (en haut, au
-    dessus des blocs de livrables) ? Ou onglet propre ? À arbitrer.
-  - **Events miroir** : `livrablesPlanningSync` gère déjà les phases
-    (helpers `buildPhaseEventPayload`, `syncPhaseOnCreate`, etc.). Pareil
-    que pour les étapes : enrichir avec `description = phase.notes` ?
-    Phase n'a pas de `notes` actuellement — à ajouter si besoin.
-  - **Couleurs** : `PROJET_PHASE_KINDS` déjà défini dans helpers.
-  - **Reverse sync** : déjà prévu (cf. §planning sync). À tester.
+- **LIV-10 ⊘ (skip)** : remise en cause du scope par Hugo pendant la
+  rétrospective LIV-9. Les phases projet (`projet_phases`) sont
+  **projet-level**, pas livrable-level. Pas leur place dans `LivrablesTab` :
+  un monteur en train de bosser son Teaser n'a pas besoin qu'on lui
+  rappelle "le projet est en phase Pré-prod" dans le drawer livrable.
+  - La donnée existe en DB (LIV-1) et le sync planning fonctionne déjà
+    (`buildPhaseEventPayload`, `syncPhaseOnCreate` dans
+    `livrablesPlanningSync`). Donc même sans UI dédiée, les phases
+    génèrent leurs events miroir.
+  - **À reprendre plus tard** dans un ticket dédié "Header projet" /
+    "Dashboard projet" / "Vue d'ensemble" (potentiellement une mini-frise
+    horizontale 80 px sous le titre projet, ou un swimlane "Phases" dans
+    PlanningTab).
+- **LIV-11 ✅** : drag & drop livrables dans un bloc.
+  - **Câblage dans `LivrableBlockCard`** uniquement (~50 lignes) :
+    - `dragLivrableIdx` ref pour l'index source (capté au dragStart)
+    - `dragOverLivrableIdx` state pour l'outline bleu
+    - `handleReorderLivrables(fromIdx, toIdx)` : splice local de la liste
+      `livrables` du bloc + appel à `actions.reorderLivrables(orderedIds)`
+      (déjà optimistic côté hook depuis LIV-3 — patch instantané du state
+      `setLivrables` puis persist).
+    - Props DnD passées à chaque `LivrableRow` dans le `livrables.map(…)`.
+  - **DnD désactivé sur mobile** (cards) : `livrableDndEnabled = canEdit
+    && !isMobile`. Un utilisateur tactile n'a pas de souris pour drag,
+    donc on cache le grip et on désactive les listeners. Réorganisation
+    mobile = à venir si besoin (drawer dédié ou move via menu ⋯).
+  - **Pattern strictement miroir** de :
+    - `LivrableBlockList` (DnD blocs, LIV-6)
+    - `BlockList` matériel (DnD blocs, MAT-9D)
+    - `MateriauxTable` (DnD items dans bloc, MAT-9C)
+  - `LivrableRow` acceptait déjà les props DnD (`isDragOver`, `onDragStart`,
+    `onDragOver`, `onDrop`, `onDragEnd`) depuis LIV-7 — neutres tant que le
+    parent ne les câblait pas. Câblage 100 % du côté `LivrableBlockCard`,
+    pas besoin de toucher à `LivrableRow`.
+- **Validation** : ESLint clean sur `LivrableBlockCard.jsx` (0 warning).
+  Parse-check `@babel/parser` OK. Test fonctionnel à faire côté Hugo
+  (drag d'un livrable du haut du bloc vers le bas → outline bleu sur la
+  ligne survolée → drop → reorder persisté + sort_order mis à jour).
+
+### Prochaine étape — LIV-12 (Duplication livrable — variante)
+
+Le menu `⋯` de chaque ligne livrable expose déjà un bouton "Dupliquer"
+qui appelle `actions.duplicateLivrable(livrable.id)`. Cette action
+duplique le livrable avec `nom: "${src.nom} (copie)"` (cf.
+`src/lib/livrables.js` ligne 510). À vérifier :
+  - Que le livrable dupliqué apparaît bien à côté de l'original.
+  - Que le `numero` est régénéré (auto-incrément du préfixe bloc).
+  - Que les versions et étapes sont **dupliquées aussi** ou créées
+    vierges ? À arbitrer avec Hugo (probablement vierges — la "variante"
+    réutilise la structure mais redémarre à V0 / 0 étape).
+  - Que le drag & drop / sort_order place bien le doublon en queue (ou
+    juste après l'original ?).
+
+Si tout est déjà OK, ticket = juste valider. Sinon ajuster `duplicateLivrable`
+côté lib + tests rapides.

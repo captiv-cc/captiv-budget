@@ -324,7 +324,38 @@ export default function LivrableBlockCard({
     [actions, canEdit],
   )
 
-  // ─── Drag & drop (HTML5 natif, pattern MAT-9D) ────────────────────────────
+  // ─── Drag & drop livrables dans le bloc (LIV-11, pattern miroir MAT-9D) ──
+  // Pendant pour les rows livrables du DnD blocs déjà câblé en LIV-6 :
+  //   - `dragLivrableIdx` ref → index source capté au dragStart
+  //   - `dragOverLivrableIdx` state → index survolé pour l'outline bleu
+  //   - `handleReorderLivrables` → splice local + persist via
+  //     `actions.reorderLivrables(orderedIds)` (déjà optimistic côté hook).
+  // DnD désactivé sur mobile (cards) — l'utilisateur n'a pas de souris.
+  const livrableDndEnabled = canEdit && !isMobile
+  const dragLivrableIdx = useRef(null)
+  const [dragOverLivrableIdx, setDragOverLivrableIdx] = useState(null)
+
+  const handleReorderLivrables = useCallback(
+    async (fromIdx, toIdx) => {
+      if (fromIdx === toIdx) return
+      if (fromIdx < 0 || toIdx < 0) return
+      if (fromIdx >= livrables.length || toIdx >= livrables.length) return
+
+      const next = livrables.slice()
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      const orderedIds = next.map((l) => l.id)
+
+      try {
+        await actions.reorderLivrables(orderedIds)
+      } catch (err) {
+        notify.error('Erreur réorganisation : ' + (err?.message || err))
+      }
+    },
+    [actions, livrables],
+  )
+
+  // ─── Drag & drop blocs (HTML5 natif, pattern MAT-9D, déjà LIV-6) ─────────
   const blockDndEnabled = canEdit && Boolean(onBlockDragStart)
 
   const handleBlockDragStart = blockDndEnabled
@@ -627,7 +658,7 @@ export default function LivrableBlockCard({
                   </td>
                 </tr>
               ) : (
-                livrables.map((l) => (
+                livrables.map((l, idx) => (
                   <LivrableRow
                     key={l.id}
                     livrable={l}
@@ -639,6 +670,41 @@ export default function LivrableBlockCard({
                     etapes={etapesByLivrable?.get(l.id) || []}
                     onOpenVersions={onOpenVersions}
                     onOpenEtapes={onOpenEtapes}
+                    isDragOver={dragOverLivrableIdx === idx}
+                    onDragStart={
+                      livrableDndEnabled
+                        ? () => {
+                            dragLivrableIdx.current = idx
+                          }
+                        : undefined
+                    }
+                    onDragOver={
+                      livrableDndEnabled
+                        ? () => setDragOverLivrableIdx(idx)
+                        : undefined
+                    }
+                    onDrop={
+                      livrableDndEnabled
+                        ? () => {
+                            if (
+                              dragLivrableIdx.current !== null &&
+                              dragLivrableIdx.current !== idx
+                            ) {
+                              handleReorderLivrables(dragLivrableIdx.current, idx)
+                            }
+                            dragLivrableIdx.current = null
+                            setDragOverLivrableIdx(null)
+                          }
+                        : undefined
+                    }
+                    onDragEnd={
+                      livrableDndEnabled
+                        ? () => {
+                            dragLivrableIdx.current = null
+                            setDragOverLivrableIdx(null)
+                          }
+                        : undefined
+                    }
                   />
                 ))
               )}
