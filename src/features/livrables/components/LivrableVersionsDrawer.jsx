@@ -1,0 +1,546 @@
+// ════════════════════════════════════════════════════════════════════════════
+// LivrableVersionsDrawer — drawer right-side de l'historique des versions (LIV-8)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Slide-over (520px desktop / plein écran mobile) qui affiche l'historique
+// des versions d'un livrable et permet de :
+//   - lister les versions par ordre desc (sort_order desc → la dernière en haut)
+//   - éditer inline tous les champs (numero_label, date_envoi, lien_frame,
+//     statut_validation via VersionStatutPill, feedback_client en textarea)
+//   - supprimer une version (suppression physique avec confirm — pas de soft
+//     delete sur ce schéma)
+//   - ajouter une nouvelle version : auto numero_label `V${n+1}`, statut
+//     'en_attente' par défaut. Side effect : reset du livrable parent à
+//     `statut: 'a_valider'` + `version_label: numero_label` (cf. LIV-8 §3
+//     spec — une nouvelle version remet le livrable en attente de validation).
+//
+// Pattern :
+//   - backdrop semi-transparent + slide-over (calqué sur LoueurRecapPanel)
+//   - close on backdrop click / Escape / bouton X
+//   - rendu via React (pas de portal — on est déjà au niveau racine de
+//     LivrablesTab, pas d'ancêtre overflow:auto)
+//
+// Props :
+//   - livrable      : livrable courant (objet ou null = drawer fermé)
+//   - versions      : Array<livrable_version> filtré sur livrable.id
+//   - actions       : objet `useLivrables.actions`
+//   - canEdit       : booléen
+//   - onClose       : () => void
+// ════════════════════════════════════════════════════════════════════════════
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Calendar,
+  ExternalLink,
+  History,
+  Link2,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react'
+import {
+  LIVRABLE_VERSION_STATUTS,
+  computeLivrableStatutFromVersions,
+} from '../../../lib/livrablesHelpers'
+import { confirm, prompt as uiPrompt } from '../../../lib/confirm'
+import { notify } from '../../../lib/notify'
+import VersionStatutPill from './VersionStatutPill'
+
+export default function LivrableVersionsDrawer({
+  livrable,
+  versions = [],
+  actions,
+  canEdit = true,
+  onClose,
+}) {
+  const open = Boolean(livrable)
+
+  // ─── Escape pour fermer ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!open) return undefined
+    function onKey(e) {
+      if (e.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  // ─── Versions triées DESC (la plus récente en haut) ──────────────────────
+  const ordered = useMemo(() => {
+    return versions
+      .slice()
+      .sort((a, b) => (b?.sort_order ?? 0) - (a?.sort_order ?? 0))
+  }, [versions])
+
+  // ─── Helper : sync statut livrable depuis une liste simulée de versions ──
+  // Centralise la règle "le livrable suit la version la plus récente" :
+  //   - si version la plus récente est `valide` → livrable `valide`
+  //   - sinon → livrable `a_valider`
+  //   - on n'écrase JAMAIS un statut terminé (`livre`, `archive`)
+  // Patch combiné pour économiser un round-trip réseau quand on a aussi un
+  // `version_label` à mettre à jour (cas addVersion).
+  const syncLivrableStatut = useCallback(
+    async (simulatedVersions, extraPatch = {}) => {
+      if (!livrable) return
+      const targetStatut = computeLivrableStatutFromVersions(
+        livrable,
+        simulatedVersions,
+      )
+      const patch = { ...extraPatch }
+      if (targetStatut && targetStatut !== livrable.statut) {
+        patch.statut = targetStatut
+      }
+      if (Object.keys(patch).length === 0) return
+      try {
+        await actions.updateLivrable(livrable.id, patch)
+      } catch (err) {
+        notify.error('Sync livrable échoué : ' + (err?.message || err))
+      }
+    },
+    [actions, livrable],
+  )
+
+  // ─── Ajout d'une version ─────────────────────────────────────────────────
+  const [adding, setAdding] = useState(false)
+  const handleAddVersion = useCallback(async () => {
+    if (!canEdit || !livrable || adding) return
+    setAdding(true)
+    try {
+      const created = await actions.addVersion(livrable.id, {})
+      // Side effect : on ajoute la nouvelle version (statut_validation par
+      // défaut 'en_attente') à la liste simulée puis on calcule le target.
+      // Résultat attendu : livrable repasse à `a_valider` (sauf si livré).
+      // On profite du même round-trip pour mettre à jour `version_label`.
+      const nextLabel = created?.numero_label || livrable.version_label || null
+      const simulated = [...versions, created].filter(Boolean)
+      await syncLivrableStatut(simulated, { version_label: nextLabel })
+    } catch (err) {
+      notify.error('Création version impossible : ' + (err?.message || err))
+    } finally {
+      setAdding(false)
+    }
+  }, [actions, adding, canEdit, livrable, versions, syncLivrableStatut])
+
+  if (!open) return null
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(0,0,0,0.35)' }}
+        onClick={onClose}
+        aria-hidden
+      />
+
+      {/* Slide-over */}
+      <aside
+        className="fixed top-0 right-0 h-full z-50 flex flex-col"
+        style={{
+          width: 'min(560px, 100vw)',
+          background: 'var(--bg-elev)',
+          borderLeft: '1px solid var(--brd)',
+          boxShadow: '-10px 0 30px rgba(0,0,0,0.2)',
+        }}
+        role="dialog"
+        aria-label={`Historique versions — ${livrable?.nom || 'Livrable'}`}
+      >
+        {/* Header */}
+        <header
+          className="flex items-center gap-3 px-5 py-4"
+          style={{ borderBottom: '1px solid var(--brd-sub)' }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: 'var(--blue-bg)' }}
+          >
+            <History className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2
+              className="text-base font-bold truncate"
+              style={{ color: 'var(--txt)' }}
+            >
+              Historique — {livrable?.nom || livrable?.numero || 'Livrable'}
+            </h2>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {ordered.length === 0
+                ? 'Aucune version envoyée pour le moment'
+                : `${ordered.length} version${ordered.length > 1 ? 's' : ''} envoyée${ordered.length > 1 ? 's' : ''}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fermer"
+            title="Fermer (Escape)"
+            className="p-1.5 rounded-md transition-all"
+            style={{ color: 'var(--txt-3)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </header>
+
+        {/* Liste des versions */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {ordered.length === 0 ? (
+            <EmptyVersions canEdit={canEdit} onAdd={handleAddVersion} adding={adding} />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {ordered.map((v) => (
+                <VersionCard
+                  key={v.id}
+                  version={v}
+                  versions={versions}
+                  actions={actions}
+                  canEdit={canEdit}
+                  onSyncLivrable={syncLivrableStatut}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer : ajouter une nouvelle version */}
+        {canEdit && ordered.length > 0 && (
+          <footer
+            className="px-4 py-3"
+            style={{
+              borderTop: '1px solid var(--brd-sub)',
+              background: 'var(--bg-surf)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleAddVersion}
+              disabled={adding}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                background: adding ? 'var(--bg-hov)' : 'var(--blue-bg)',
+                color: 'var(--blue)',
+                opacity: adding ? 0.6 : 1,
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Nouvelle version
+            </button>
+            <p
+              className="text-[11px] text-center mt-2"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Repassera le livrable en « À valider ».
+            </p>
+          </footer>
+        )}
+      </aside>
+    </>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EmptyVersions — état vide avec CTA
+// ════════════════════════════════════════════════════════════════════════════
+
+function EmptyVersions({ canEdit, onAdd, adding }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center py-12 px-6 rounded-lg"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px dashed var(--brd-sub)',
+      }}
+    >
+      <History
+        className="w-8 h-8 mb-3 opacity-30"
+        style={{ color: 'var(--txt-3)' }}
+      />
+      <p className="text-sm font-medium mb-1" style={{ color: 'var(--txt-2)' }}>
+        Aucune version envoyée
+      </p>
+      <p className="text-xs mb-4 max-w-xs" style={{ color: 'var(--txt-3)' }}>
+        Ajoute une première version quand tu envoies un cut au client. Tu pourras
+        tracer les retours et suivre le statut de validation.
+      </p>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium"
+          style={{
+            background: 'var(--blue-bg)',
+            color: 'var(--blue)',
+            opacity: adding ? 0.6 : 1,
+          }}
+        >
+          <Plus className="w-4 h-4" />
+          Première version
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VersionCard — carte d'une version (inline edit tous champs)
+// ════════════════════════════════════════════════════════════════════════════
+
+function VersionCard({ version, versions = [], actions, canEdit, onSyncLivrable }) {
+  // États locaux pour inline edit
+  const [numeroLabel, setNumeroLabel] = useState(version.numero_label || '')
+  const [dateEnvoi, setDateEnvoi] = useState(version.date_envoi || '')
+  const [feedback, setFeedback] = useState(version.feedback_client || '')
+
+  useEffect(() => setNumeroLabel(version.numero_label || ''), [version.numero_label])
+  useEffect(() => setDateEnvoi(version.date_envoi || ''), [version.date_envoi])
+  useEffect(() => setFeedback(version.feedback_client || ''), [version.feedback_client])
+
+  const saveField = useCallback(
+    async (field, value, { nullIfEmpty = true } = {}) => {
+      if (!canEdit) return
+      const current = version[field] ?? (nullIfEmpty ? null : '')
+      const nextValue =
+        nullIfEmpty && (value === '' || value == null) ? null : value
+      if (nextValue === current) return
+      try {
+        await actions.updateVersion(version.id, { [field]: nextValue })
+      } catch (err) {
+        notify.error('Erreur sauvegarde : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, version],
+  )
+
+  const handleStatutChange = useCallback(
+    async (next) => {
+      if (!canEdit || next === version.statut_validation) return
+      try {
+        await actions.updateVersion(version.id, { statut_validation: next })
+        // Side effect : on simule l'update local pour calculer le statut
+        // cible du livrable via `computeLivrableStatutFromVersions`. Ici la
+        // règle est : on suit la version la plus récente. Si on édite une
+        // version intermédiaire, le statut du livrable peut changer (la
+        // version la plus récente reste prioritaire).
+        const simulated = versions.map((v) =>
+          v.id === version.id ? { ...v, statut_validation: next } : v,
+        )
+        await onSyncLivrable?.(simulated)
+      } catch (err) {
+        notify.error('Erreur statut version : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, version.id, version.statut_validation, versions, onSyncLivrable],
+  )
+
+  const handleEditLink = useCallback(async () => {
+    if (!canEdit) return
+    const next = await uiPrompt({
+      title: 'Lien Frame.io de la version',
+      message: 'Colle l\'URL Frame.io (laisse vide pour retirer).',
+      placeholder: 'https://app.frame.io/…',
+      initialValue: version.lien_frame || '',
+      confirmLabel: 'Enregistrer',
+    })
+    if (next === null) return
+    try {
+      await actions.updateVersion(version.id, {
+        lien_frame: next.trim() || null,
+      })
+    } catch (err) {
+      notify.error('Erreur lien : ' + (err?.message || err))
+    }
+  }, [actions, canEdit, version])
+
+  const handleDelete = useCallback(async () => {
+    if (!canEdit) return
+    const ok = await confirm({
+      title: `Supprimer la version "${version.numero_label || 'sans label'}" ?`,
+      message:
+        'Suppression définitive (pas de corbeille pour les versions). Le livrable lui-même reste intact.',
+      confirmLabel: 'Supprimer',
+      cancelLabel: 'Annuler',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await actions.deleteVersion(version.id)
+      // Side effect : si on supprime la version la plus récente, le statut
+      // du livrable doit suivre la nouvelle "plus récente" restante.
+      const simulated = versions.filter((v) => v.id !== version.id)
+      await onSyncLivrable?.(simulated)
+      notify.success('Version supprimée')
+    } catch (err) {
+      notify.error('Erreur suppression : ' + (err?.message || err))
+    }
+  }, [actions, canEdit, version.id, version.numero_label, versions, onSyncLivrable])
+
+  const statut =
+    LIVRABLE_VERSION_STATUTS[version.statut_validation] ||
+    LIVRABLE_VERSION_STATUTS.en_attente
+
+  return (
+    <article
+      className="rounded-lg p-3 flex flex-col gap-2.5"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        // Bordure latérale teintée selon le statut pour scan visuel rapide
+        borderLeft: `3px solid ${statut.color}`,
+      }}
+    >
+      {/* Ligne 1 : numero_label + date + statut + delete */}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={numeroLabel}
+          onChange={(e) => setNumeroLabel(e.target.value)}
+          onBlur={() =>
+            saveField('numero_label', numeroLabel.trim(), { nullIfEmpty: false })
+          }
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          disabled={!canEdit}
+          placeholder="V?"
+          className="bg-transparent focus:outline-none text-sm font-bold font-mono w-20 shrink-0"
+          style={{
+            color: 'var(--txt)',
+            cursor: canEdit ? 'text' : 'default',
+          }}
+        />
+
+        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--txt-3)' }}>
+          <Calendar className="w-3 h-3" />
+          <input
+            type="date"
+            value={dateEnvoi}
+            onChange={(e) => setDateEnvoi(e.target.value)}
+            onBlur={() => saveField('date_envoi', dateEnvoi)}
+            disabled={!canEdit}
+            className="bg-transparent focus:outline-none"
+            style={{
+              color: dateEnvoi ? 'var(--txt-2)' : 'var(--txt-3)',
+              cursor: canEdit ? 'text' : 'default',
+            }}
+          />
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <VersionStatutPill
+            value={version.statut_validation}
+            onChange={handleStatutChange}
+            canEdit={canEdit}
+            size="xs"
+            align="right"
+          />
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              aria-label="Supprimer la version"
+              className="p-1 rounded shrink-0"
+              style={{ color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--red-bg)'
+                e.currentTarget.style.color = 'var(--red)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Ligne 2 : lien Frame */}
+      <div>
+        {version.lien_frame ? (
+          <div className="flex items-center gap-2">
+            <a
+              href={version.lien_frame}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs px-2 py-1 rounded"
+              style={{
+                background: 'var(--blue-bg)',
+                color: 'var(--blue)',
+                fontWeight: 500,
+                maxWidth: '100%',
+              }}
+              title={version.lien_frame}
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" />
+              <span className="truncate">{shortUrl(version.lien_frame)}</span>
+            </a>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={handleEditLink}
+                className="text-[11px] underline"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Modifier
+              </button>
+            )}
+          </div>
+        ) : canEdit ? (
+          <button
+            type="button"
+            onClick={handleEditLink}
+            className="flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-dashed"
+            style={{
+              borderColor: 'var(--brd-sub)',
+              color: 'var(--txt-3)',
+            }}
+          >
+            <Link2 className="w-3 h-3" />
+            Ajouter un lien Frame.io
+          </button>
+        ) : null}
+      </div>
+
+      {/* Ligne 3 : feedback client (textarea inline) */}
+      <textarea
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        onBlur={() => saveField('feedback_client', feedback.trim())}
+        disabled={!canEdit}
+        placeholder="Feedback client / retours…"
+        rows={2}
+        className="w-full bg-transparent focus:outline-none text-xs resize-y rounded px-2 py-1.5"
+        style={{
+          color: 'var(--txt-2)',
+          border: '1px solid var(--brd-sub)',
+          background: 'var(--bg-elev)',
+          minHeight: '48px',
+        }}
+      />
+    </article>
+  )
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Raccourcit une URL pour l'affichage dans une chip (host + path court). */
+function shortUrl(url) {
+  if (!url) return ''
+  try {
+    const u = new URL(url)
+    const host = u.host.replace(/^www\./, '')
+    const path = u.pathname
+    if (path.length <= 20) return host + path
+    return host + path.slice(0, 18) + '…'
+  } catch {
+    // URL invalide → on tronque brutalement
+    return url.length > 36 ? url.slice(0, 34) + '…' : url
+  }
+}

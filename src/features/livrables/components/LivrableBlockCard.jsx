@@ -60,6 +60,9 @@ export default function LivrableBlockCard({
   livrables = [],
   actions,
   canEdit = true,
+  // LIV-8 — versions
+  versionsByLivrable, // Map<livrableId, version[]>
+  onOpenVersions,     // (livrable) => void
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -588,7 +591,7 @@ export default function LivrableBlockCard({
       {/* ─── Corps : liste des livrables (desktop table / mobile cards) ───── */}
       {!collapsed && !isMobile && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs" style={{ minWidth: '960px' }}>
+          <table className="w-full text-xs" style={{ minWidth: '1050px' }}>
             <thead>
               <tr
                 style={{
@@ -603,6 +606,7 @@ export default function LivrableBlockCard({
                 <Th width="90px">Format</Th>
                 <Th width="70px">Durée</Th>
                 <Th width="108px">Statut</Th>
+                <Th width="90px">Versions</Th>
                 <Th width="130px">Monteur</Th>
                 <Th width="132px">Livraison</Th>
                 <Th width="112px">Liens</Th>
@@ -613,7 +617,7 @@ export default function LivrableBlockCard({
               {livrables.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-4 text-center italic"
                     style={{ color: 'var(--txt-3)' }}
                   >
@@ -629,6 +633,8 @@ export default function LivrableBlockCard({
                     canEdit={canEdit}
                     onDelete={handleDeleteLivrable}
                     onEditNotes={handleEditNotes}
+                    versions={versionsByLivrable?.get(l.id) || []}
+                    onOpenVersions={onOpenVersions}
                   />
                 ))
               )}
@@ -655,6 +661,8 @@ export default function LivrableBlockCard({
                 canEdit={canEdit}
                 onDelete={handleDeleteLivrable}
                 onEditNotes={handleEditNotes}
+                versions={versionsByLivrable?.get(l.id) || []}
+                onOpenVersions={onOpenVersions}
               />
             ))
           )}

@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrableRow — ligne table desktop d'un livrable (LIV-7)
+// LivrableRow — ligne table desktop d'un livrable (LIV-7 + LIV-8)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Ligne <tr> avec inline edit de tous les champs affichés. L'édition se fait
@@ -7,8 +7,8 @@
 // ItemRow). Le hook `useLivrables.updateLivrable` est déjà optimistic →
 // aucun flicker sur les renvois serveur.
 //
-// Colonnes :
-//   [grip] [numero] [nom] [format] [durée] [statut] [monteur] [date] [liens] [⋯]
+// Colonnes (LIV-8 : ajout colonne Versions entre Statut et Monteur) :
+//   [grip] [numero] [nom] [format] [durée] [statut] [versions] [monteur] [date] [liens] [⋯]
 //
 // Polish LIV-7 :
 //   - Pastille rouge dot devant le numero si livrable en retard (date dépassée
@@ -34,11 +34,12 @@
 //     parent ne les câble pas)
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Copy,
   ExternalLink,
   GripVertical,
+  History,
   Link2,
   MoreHorizontal,
   StickyNote,
@@ -59,6 +60,9 @@ export default function LivrableRow({
   canEdit = true,
   onDelete,
   onEditNotes,
+  // LIV-8 — versions
+  versions = [],
+  onOpenVersions,
   // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
   // éviter un refacto plus tard)
   isDragOver = false,
@@ -67,6 +71,23 @@ export default function LivrableRow({
   onDrop,
   onDragEnd,
 }) {
+  // Label de la version la plus récente (sort_order desc) — affiché dans le
+  // badge trigger du drawer historique. On ne se fie pas à `livrable.version_label`
+  // qui est dénormalisé et peut désync après édition manuelle d'une version.
+  const latestVersionLabel = useMemo(() => {
+    if (!versions || versions.length === 0) return null
+    let best = null
+    let bestOrder = -Infinity
+    for (const v of versions) {
+      const o = v?.sort_order ?? 0
+      if (o > bestOrder) {
+        bestOrder = o
+        best = v
+      }
+    }
+    return best?.numero_label || null
+  }, [versions])
+  const versionsCount = versions?.length || 0
   // ─── États locaux (inline edit) ──────────────────────────────────────────
   const [numero, setNumero] = useState(livrable.numero || '')
   const [nom, setNom] = useState(livrable.nom || '')
@@ -284,6 +305,16 @@ export default function LivrableRow({
         />
       </td>
 
+      {/* Versions (badge cliquable → ouvre drawer historique) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '90px' }}>
+        <VersionsTrigger
+          label={latestVersionLabel}
+          count={versionsCount}
+          onClick={() => onOpenVersions?.(livrable)}
+          canEdit={canEdit}
+        />
+      </td>
+
       {/* Monteur (avatar + texte libre MVP) */}
       <td className="px-2 py-1.5 align-middle" style={{ width: '130px' }}>
         <div className="flex items-center gap-1.5">
@@ -383,6 +414,61 @@ export default function LivrableRow({
         )}
       </td>
     </tr>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VersionsTrigger — badge cliquable pour ouvrir le drawer historique (LIV-8)
+// ════════════════════════════════════════════════════════════════════════════
+
+function VersionsTrigger({ label, count, onClick, canEdit }) {
+  // 0 versions → bouton dashed "+ version" (lecture aussi : "—")
+  if (!count) {
+    if (!canEdit) {
+      return (
+        <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
+          —
+        </span>
+      )
+    }
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+        title="Ajouter une version"
+      >
+        <History className="w-3 h-3" />
+        version
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--blue-bg)',
+        color: 'var(--blue)',
+      }}
+      title={`${count} version${count > 1 ? 's' : ''} — cliquer pour voir l'historique`}
+    >
+      <History className="w-3 h-3 shrink-0" />
+      <span className="font-mono">{label || `V${count}`}</span>
+      {count > 1 && (
+        <span
+          className="text-[10px] opacity-75 font-normal"
+          style={{ marginLeft: 1 }}
+        >
+          ({count})
+        </span>
+      )}
+    </button>
   )
 }
 

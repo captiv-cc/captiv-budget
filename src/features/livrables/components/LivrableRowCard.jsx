@@ -24,10 +24,11 @@
 // Props : mêmes que LivrableRow (sans DnD — désactivé sur mobile).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Copy,
   ExternalLink,
+  History,
   Link2,
   MoreHorizontal,
   StickyNote,
@@ -48,7 +49,25 @@ export default function LivrableRowCard({
   canEdit = true,
   onDelete,
   onEditNotes,
+  // LIV-8 — versions
+  versions = [],
+  onOpenVersions,
 }) {
+  // Badge version (cf. LivrableRow desktop pour la logique exacte)
+  const latestVersionLabel = useMemo(() => {
+    if (!versions || versions.length === 0) return null
+    let best = null
+    let bestOrder = -Infinity
+    for (const v of versions) {
+      const o = v?.sort_order ?? 0
+      if (o > bestOrder) {
+        bestOrder = o
+        best = v
+      }
+    }
+    return best?.numero_label || null
+  }, [versions])
+  const versionsCount = versions?.length || 0
   // ─── États locaux ────────────────────────────────────────────────────────
   const [numero, setNumero] = useState(livrable.numero || '')
   const [nom, setNom] = useState(livrable.nom || '')
@@ -277,7 +296,7 @@ export default function LivrableRowCard({
         />
       </div>
 
-      {/* Ligne 4 : liens */}
+      {/* Ligne 4 : liens + badge versions */}
       <div className="flex items-center gap-2 flex-wrap">
         <LinkChip
           label="Frame"
@@ -291,6 +310,14 @@ export default function LivrableRowCard({
           onEdit={() => handleEditLink('lien_drive', 'Drive')}
           canEdit={canEdit}
         />
+        <span className="ml-auto">
+          <VersionsBadge
+            label={latestVersionLabel}
+            count={versionsCount}
+            onClick={() => onOpenVersions?.(livrable)}
+            canEdit={canEdit}
+          />
+        </span>
       </div>
 
       {/* Notes (toujours visible — c'est l'atout du format card) */}
@@ -309,6 +336,48 @@ export default function LivrableRowCard({
         }}
       />
     </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VersionsBadge — badge cliquable pour ouvrir le drawer historique (LIV-8)
+// ════════════════════════════════════════════════════════════════════════════
+
+function VersionsBadge({ label, count, onClick, canEdit }) {
+  if (!count) {
+    if (!canEdit) return null
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+        }}
+        title="Ajouter une version"
+      >
+        <History className="w-3 h-3" />+ version
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--blue-bg)',
+        color: 'var(--blue)',
+      }}
+      title={`${count} version${count > 1 ? 's' : ''}`}
+    >
+      <History className="w-3 h-3 shrink-0" />
+      <span className="font-mono">{label || `V${count}`}</span>
+      {count > 1 && (
+        <span className="text-[10px] opacity-75 font-normal">({count})</span>
+      )}
+    </button>
   )
 }
 

@@ -420,6 +420,41 @@ export function listMonteurs(livrables = [], profilesById = new Map()) {
 // ─── Numérotation auto ──────────────────────────────────────────────────────
 
 /**
+ * Calcule le statut cible d'un livrable en fonction de ses versions (LIV-8).
+ * Règle :
+ *   - Si le livrable est dans un statut terminé (`livre` ou `archive`), on
+ *     ne touche pas — l'utilisateur a fait une action explicite à respecter.
+ *   - Si aucune version → pas de changement (on rend `livrable.statut` tel quel).
+ *   - Sinon, on regarde la version la plus récente (`sort_order` max) :
+ *       - `statut_validation === 'valide'`  → livrable cible = `valide`
+ *       - sinon                              → livrable cible = `a_valider`
+ *
+ * Cas d'usage : appelé après chaque addVersion / updateVersion (statut) /
+ * deleteVersion pour synchroniser le statut du livrable parent.
+ *
+ * @param {Object} livrable        - { statut, ... }
+ * @param {Array}  versions        - versions du livrable (peut être vide)
+ * @returns {string} le statut cible (peut être identique au statut courant)
+ */
+export function computeLivrableStatutFromVersions(livrable, versions = []) {
+  if (!livrable) return null
+  if (LIVRABLE_STATUTS_TERMINES.has(livrable.statut)) return livrable.statut
+  if (!versions || versions.length === 0) return livrable.statut
+
+  let latest = null
+  let maxOrder = -Infinity
+  for (const v of versions) {
+    const o = v?.sort_order ?? 0
+    if (o > maxOrder) {
+      maxOrder = o
+      latest = v
+    }
+  }
+  if (!latest) return livrable.statut
+  return latest.statut_validation === 'valide' ? 'valide' : 'a_valider'
+}
+
+/**
  * Calcule le prochain `numero` auto pour un livrable d'un bloc donné.
  * Pattern : préfixe du bloc + premier index libre (>= 1).
  *

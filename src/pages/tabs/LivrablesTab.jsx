@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrablesTab — Page "Livrables" d'un projet (LIV-5 → LIV-6)
+// LivrablesTab — Page "Livrables" d'un projet (LIV-5 → LIV-8)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Point d'entrée de l'outil Livrables. Orchestre :
@@ -7,18 +7,22 @@
 //   - les permissions via `useProjectPermissions` (gate read + edit)
 //   - un header local (compteurs basiques + CTA "Nouveau bloc")
 //   - la liste des blocs via `LivrableBlockList` (drag & drop + CRUD via LIV-6)
+//   - le drawer historique des versions (LIV-8) — un seul drawer global, ouvert
+//     pour le livrable courant (`versionsDrawerLivrable`)
 //   - empty state propre quand 0 bloc
 //   - loading state
 //
 // LIV-5 a posé la plomberie. LIV-6 a extrait `LivrableBlockCard` + ajouté le
-// CRUD blocs (rename inline, couleur, préfixe, delete + undo, drag & drop).
-// Le rendu détaillé des livrables (tableau, inline edit) arrive à LIV-7.
+// CRUD blocs. LIV-7 a ajouté le rendu détaillé des livrables (table + cards).
+// LIV-8 ajoute le drawer "Historique des versions" déclenché par le badge
+// versions de chaque ligne.
 //
 // Gating :
 //   - `canRead` → on tombe sur un écran "accès restreint" si false
 //   - `canEdit` → les CTA de mutation sont masqués si false (mode lecture)
 // ════════════════════════════════════════════════════════════════════════════
 
+import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   CheckSquare,
@@ -35,6 +39,7 @@ import { prompt } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
+import LivrableVersionsDrawer from '../../features/livrables/components/LivrableVersionsDrawer'
 
 const OUTIL_KEY = 'livrables'
 
@@ -49,9 +54,31 @@ export default function LivrablesTab() {
     error,
     blocks,
     livrablesByBlock,
+    versionsByLivrable,
     compteurs,
     actions,
   } = useLivrables(canRead ? projectId : null)
+
+  // ─── Drawer "Historique des versions" (LIV-8) ────────────────────────────
+  // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
+  // updates realtime / optimistic — on ré-extrait l'objet depuis blocks.
+  const [versionsDrawerLivrableId, setVersionsDrawerLivrableId] = useState(null)
+  const versionsDrawerLivrable = useMemo(() => {
+    if (!versionsDrawerLivrableId) return null
+    for (const block of blocks) {
+      const arr = livrablesByBlock?.get(block.id) || []
+      const found = arr.find((l) => l.id === versionsDrawerLivrableId)
+      if (found) return found
+    }
+    return null
+  }, [versionsDrawerLivrableId, blocks, livrablesByBlock])
+  const handleOpenVersions = useCallback((livrable) => {
+    if (!livrable?.id) return
+    setVersionsDrawerLivrableId(livrable.id)
+  }, [])
+  const handleCloseVersionsDrawer = useCallback(() => {
+    setVersionsDrawerLivrableId(null)
+  }, [])
 
   // ─── Accès refusé ─────────────────────────────────────────────────────────
   if (!canRead) {
@@ -103,11 +130,26 @@ export default function LivrablesTab() {
           <LivrableBlockList
             blocks={blocks}
             livrablesByBlock={livrablesByBlock}
+            versionsByLivrable={versionsByLivrable}
             actions={actions}
             canEdit={canEdit}
+            onOpenVersions={handleOpenVersions}
           />
         )}
       </div>
+
+      {/* Drawer historique des versions (LIV-8) */}
+      <LivrableVersionsDrawer
+        livrable={versionsDrawerLivrable}
+        versions={
+          versionsDrawerLivrable
+            ? versionsByLivrable?.get(versionsDrawerLivrable.id) || []
+            : []
+        }
+        actions={actions}
+        canEdit={canEdit}
+        onClose={handleCloseVersionsDrawer}
+      />
     </div>
   )
 }

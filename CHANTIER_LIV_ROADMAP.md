@@ -321,7 +321,7 @@ les templates PDF.
 | LIV-5 ✅ | Page `LivrablesTab` (structure vue liste) | M | Page gated `useProjectPermissions`, header 4 compteurs + CTA `Nouveau bloc`, liste `BlockCard` (pastille / préfixe / livrables avec pill statut), empty state Inbox + création bloc câblée via `prompt()` → `actions.createBlock` (rotation couleurs preset). Commit `ab903b1`. |
 | LIV-6 ✅ | CRUD blocs + drag & drop | M | `LivrableBlockCard` + `LivrableBlockList` extraits dans `features/livrables/components/`. Rename inline, popover palette couleur, édition préfixe (uppercase, max 4 car), suppression soft + toast undo 5 s (`restoreBlock`), collapse/expand, drag & drop HTML5 natif (pattern MAT-9D). Fix bug popover clipping (`overflow-hidden` → `rounded-t-xl` sur header). |
 | LIV-7 ✅ | CRUD livrables + inline edit + numérotation auto | L | `LivrableRow` (desktop table) + `LivrableRowCard` (mobile) + `LivrableStatutPill` popover extraits dans `features/livrables/components/`. Inline edit tous les champs (numero, nom, format, durée, statut, monteur texte libre, date livraison, liens Frame/Drive, notes). Auto-numero géré serveur via `nextLivrableNumero`. Menu `...` par ligne (Dupliquer, Modifier Frame/Drive, Notes, Supprimer soft + toast undo 5s). Footer "+ Nouveau livrable" par bloc. Responsive pattern MAT-RESP-1 (`useBreakpoint`). Autocomplete monteur (profiles) = report plus tard. |
-| LIV-8 | Table versions + UI historique | M | Modal avec timeline, add/edit/delete version |
+| LIV-8 ✅ | Table versions + UI historique | M | Drawer right-side `LivrableVersionsDrawer` + `VersionStatutPill` (4 statuts) + badge `VersionsTrigger`/`VersionsBadge` (desktop col 90 px / mobile chip ligne 4). Liste desc, inline edit tous champs (numero_label, date_envoi, lien_frame, statut_validation, feedback_client). Suppression physique (pas de soft delete). Side effect addVersion : reset livrable à `a_valider` + maj `version_label`. |
 | LIV-9 | Étapes — CRUD + events planning | L | Slide-over pipeline, event miroir kind='delivery' |
 | LIV-10 | Phases projet — CRUD + events multi-jours | M | Drawer gestion phases, events continus |
 | LIV-11 | Drag & drop livrables dans bloc | S | Pattern MAT-9C |
@@ -763,21 +763,121 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   du `node_modules` (machine Mac M1 côté user, sandbox Linux ARM64). `npm
   install` éviterait l'écrasement d'`node_modules` côté Mac, donc skip.
 
-### Prochaine étape — LIV-8 (Table versions + UI historique)
+### Session 2026-04-28 — LIV-8 (Drawer historique des versions)
 
-Créer le modal "Historique des versions" pour chaque livrable :
-  - **Trigger UI** : bouton/lien "v1, v2, …" cliquable sur la ligne (desktop)
-    ou dans la card mobile → ouvre un modal/drawer.
-  - **Timeline** : liste triée des versions (`livrables_versions` ?) avec
-    `numero_version`, `date`, `lien` (frame/drive), `commentaire`, `auteur`.
-  - **Actions** : ajouter version (form inline), éditer commentaire/lien d'une
-    version existante, supprimer (soft ou hard à valider). Actions
-    `addVersion / updateVersion / deleteVersion` déjà exposées par
-    `useLivrables` (cf. LIV-3) — câblage UI pur.
-  - **Statut vs version** : une nouvelle version remet-elle le statut à
-    `a_valider` ? → à trancher avec Hugo.
-  - **Responsive** : drawer plein écran mobile / modal centered desktop
-    (réutiliser pattern des modals déjà existants dans `shared/components`).
+- **LIV-8 ✅** : drawer right-side "Historique des versions" + badge trigger
+  par ligne. Inline edit tous champs sur chaque carte version, addVersion
+  reset le livrable parent à `a_valider`.
+  - **Nouveaux fichiers** :
+    - `src/features/livrables/components/VersionStatutPill.jsx` (~120 lignes) :
+      pendant de `LivrableStatutPill` pour les 4 statuts version
+      (`en_attente / retours_a_integrer / valide / rejete`). Réutilise
+      `LIVRABLE_VERSION_STATUTS` + `PopoverFloat`.
+    - `src/features/livrables/components/LivrableVersionsDrawer.jsx`
+      (~430 lignes) : slide-over right-side (560 px desktop / plein écran
+      mobile via `min(560px, 100vw)`). Pattern calqué sur `LoueurRecapPanel`
+      (matériel) : backdrop semi-transparent + `<aside fixed top-0 right-0>`
+      + close on backdrop / Escape / bouton X.
+      - Header : icône `History`, titre `Historique — {nom livrable}`,
+        sous-titre `N versions envoyées`, bouton X.
+      - Liste : versions triées sort_order DESC (récente en haut). Empty
+        state custom avec CTA "Première version" si zéro.
+      - **`VersionCard`** (composant interne) : carte par version avec
+        bordure latérale teintée selon `statut_validation.color` pour scan
+        visuel rapide. Layout 3 lignes : numero_label + date_envoi +
+        VersionStatutPill + bouton trash | chip lien Frame.io (avec edit
+        inline via uiPrompt) | textarea feedback_client (rows=2,
+        resize-y). Inline edit sur tous les champs (`saveField` helper
+        identique à `LivrableRow`). Suppression physique avec confirm
+        (pas de soft delete sur ce schéma — voir migration LIV-1).
+      - Footer : bouton "+ Nouvelle version" qui appelle
+        `actions.addVersion(livrableId, {})`. Auto-numero_label `V${n+1}`
+        côté serveur. **Side effect** : `actions.updateLivrable(livrable.id,
+        { statut: 'a_valider', version_label: created.numero_label })` —
+        sens métier : envoyer une nouvelle version remet le livrable en
+        attente de validation. Sous-titre du bouton : "Repassera le
+        livrable en « À valider »".
+      - Helper `shortUrl(url)` : tronque pour affichage dans la chip
+        (host + path court).
+  - **Trigger badge** :
+    - `LivrableRow.jsx` : nouvelle colonne "Versions" entre Statut (108 px)
+      et Monteur (130 px), largeur 90 px. `minWidth` table 960 → 1050 px.
+      `colSpan` empty state 10 → 11. Composant interne `VersionsTrigger` :
+      label de la version `sort_order` max + compteur `(n)` si > 1, sinon
+      bouton dashed "+ version" si `canEdit && count === 0`. Calcul du
+      label via `useMemo` sur `versions` (pas `livrable.version_label` qui
+      peut désync après édition manuelle d'une version).
+    - `LivrableRowCard.jsx` (mobile) : `VersionsBadge` placé en fin de
+      ligne 4 (`ml-auto`) à droite des chips Frame/Drive. Même logique
+      d'affichage.
+  - **Plumberie** :
+    - `LivrableBlockCard.jsx` accepte `versionsByLivrable: Map` et
+      `onOpenVersions: (livrable) => void`. Passe à `LivrableRow` et
+      `LivrableRowCard` avec `versions={versionsByLivrable.get(l.id) || []}`.
+    - `LivrableBlockList.jsx` : passage transparent des deux props.
+    - `LivrablesTab.jsx` : state local `versionsDrawerLivrableId`. On stocke
+      l'ID (pas l'objet) pour rester sync avec realtime/optimistic — l'objet
+      est ré-extrait à chaque render via `useMemo` qui itère `blocks` +
+      `livrablesByBlock`. Render du `LivrableVersionsDrawer` à plein niveau
+      (en dehors du conteneur des blocs) avec `versions` filtré sur
+      `livrable.id`.
+- **Décisions UX retenues** (alignées avec Hugo) :
+  - Drawer right-side > modal (le tableau livrables reste visible derrière).
+  - Ordre desc (la plus récente en haut).
+  - Reset statut `a_valider` + maj `version_label` à l'ajout.
+  - Tout inline (pas de form séparé) — cohérent avec la table livrables.
+  - Composant `VersionStatutPill` dédié plutôt que générique
+    (sur-engineering reporté ; on extrait quand on aura un 3e usage).
+- **Sync bidirectionnelle livrable ↔ versions** (extension demandée par
+  Hugo pendant la phase de test) :
+  - Helper pur `computeLivrableStatutFromVersions(livrable, versions)` dans
+    `livrablesHelpers.js`. Règle :
+    - Si `livrable.statut` ∈ {`livre`, `archive`} → on ne touche PAS (action
+      explicite de l'utilisateur à respecter).
+    - Sinon, si aucune version → `livrable.statut` (pas de changement).
+    - Sinon, on prend la version la plus récente (`sort_order` max) :
+      - `statut_validation === 'valide'` → cible `valide`
+      - sinon → cible `a_valider`
+  - Helper local `syncLivrableStatut(simulatedVersions, extraPatch)` dans
+    `LivrableVersionsDrawer` : appelle le helper pur sur la liste simulée,
+    diff avec `livrable.statut`, et update via `actions.updateLivrable` en
+    un seul round-trip combiné avec `extraPatch` (cas addVersion :
+    `version_label` change aussi).
+  - Déclenché à 3 endroits :
+    - **addVersion** : version créée incluse dans la liste simulée → cible
+      `a_valider` (la nouvelle version est en `en_attente` par défaut).
+    - **updateVersion(statut_validation)** : version simulée avec le nouveau
+      statut. Si la version éditée est la plus récente et passe à `valide`
+      → livrable `valide` ; sinon → `a_valider`.
+    - **deleteVersion** : on retire la version supprimée de la liste
+      simulée. Si la dernière version restante est `valide` → livrable
+      reste `valide` ; sinon → `a_valider`.
+  - Smoke test du helper validé sur 7 cas (statut terminé respecté, pas de
+    versions, version unique valide/rejetée, mix valide+en_attente, etc.).
+- **Hors scope LIV-8** :
+  - Filtre "afficher uniquement les versions à valider" → reporté à
+    LIV-15 (filtres globaux).
+  - Indicateur "version en cours" sur la card (les rows déjà colorées par
+    bordure).
+  - Comparaison side-by-side de 2 versions → pas demandé, peut-être plus
+    tard si besoin.
+- **Validation** : ESLint clean sur les 7 fichiers concernés (0 warning).
+  Parse-check `@babel/parser` OK. Build/test Vitest non exécutés (rollup
+  module natif manquant en sandbox).
 
-Voir roadmap §4.2 pour le schéma exact de `livrables_versions` et les props
-des actions `useLivrables`.
+### Prochaine étape — LIV-9 (Étapes pipeline + events planning miroir)
+
+Créer le pipeline de production de chaque livrable (kind ∈ production / da /
+montage / sound / delivery / feedback / autre) :
+  - **UI** : section déroulante par livrable (drawer ou inline ?), liste
+    d'étapes avec date_debut / date_fin / responsable / kind. Affichage
+    horizontal (mini-Gantt) ou vertical (liste) → à arbitrer.
+  - **Events miroir** : chaque étape avec `is_event=true` génère un event
+    planning automatique via `livrablesPlanningSync.js` (déjà câblé en
+    LIV-4). Test côté `PlanningTab` que les events apparaissent bien.
+  - **Actions** `addEtape / updateEtape / deleteEtape` déjà exposées par
+    `useLivrables`.
+  - **Couleurs** : palette `LIVRABLE_ETAPE_KINDS` déjà définie dans
+    `livrablesHelpers`.
+
+Voir roadmap §5 pour le schéma `livrable_etapes` et la sync planning.
