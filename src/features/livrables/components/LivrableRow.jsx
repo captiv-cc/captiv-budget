@@ -1,0 +1,482 @@
+// ════════════════════════════════════════════════════════════════════════════
+// LivrableRow — ligne table desktop d'un livrable (LIV-7)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Ligne <tr> avec inline edit de tous les champs affichés. L'édition se fait
+// sur `onBlur` (ou Enter) pour coller au pattern des autres outils (cf.
+// ItemRow). Le hook `useLivrables.updateLivrable` est déjà optimistic →
+// aucun flicker sur les renvois serveur.
+//
+// Colonnes :
+//   [grip] [numero] [nom] [format] [durée] [statut] [monteur] [date] [liens] [⋯]
+//
+// Polish LIV-7 :
+//   - Pastille rouge dot devant le numero si livrable en retard (date dépassée
+//     et statut non terminé), via `isLivrableEnRetard` (livrablesHelpers).
+//   - Format : dropdown `FormatSelect` (presets 16:9/9:16/1:1/4:5/5:4/4:3 +
+//     "Autre…" → texte libre).
+//   - Durée : `DurationInput` guidé (parse mm:ss / hh:mm:ss / nombre seul).
+//   - Monteur : `MonteurAvatar` (initiale colorée, hash stable) + input texte
+//     libre sur `assignee_external`. Autocomplete profiles → ticket dédié.
+//   - Menu `⋯` rendu via `PopoverFloat` (createPortal) pour échapper au
+//     `overflow-x-auto` du wrapper table (sinon clipping en bas).
+//
+// Liens frame / drive : affichés sous forme de chips cliquables.
+//   - URL vide & canEdit  → chip "+ Frame" / "+ Drive" (edit via menu ⋯)
+//   - URL présente        → chip "Frame ↗" (click ouvre window.open)
+//
+// Le menu ⋯ fournit : Dupliquer, Modifier Frame, Modifier Drive, Notes,
+// Supprimer. Les "Modifier Frame/Drive" lancent un `prompt()` typé URL.
+//
+// Props :
+//   - livrable, actions, canEdit, onDelete, onEditNotes
+//   - isDragOver, onDragStart/Over/Drop/End (LIV-11 — neutres tant que le
+//     parent ne les câble pas)
+// ════════════════════════════════════════════════════════════════════════════
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Copy,
+  ExternalLink,
+  GripVertical,
+  Link2,
+  MoreHorizontal,
+  StickyNote,
+  Trash2,
+} from 'lucide-react'
+import { notify } from '../../../lib/notify'
+import { prompt as uiPrompt } from '../../../lib/confirm'
+import { isLivrableEnRetard } from '../../../lib/livrablesHelpers'
+import LivrableStatutPill from './LivrableStatutPill'
+import FormatSelect from './FormatSelect'
+import DurationInput from './DurationInput'
+import MonteurAvatar from './MonteurAvatar'
+import PopoverFloat from './PopoverFloat'
+
+export default function LivrableRow({
+  livrable,
+  actions,
+  canEdit = true,
+  onDelete,
+  onEditNotes,
+  // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
+  // éviter un refacto plus tard)
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}) {
+  // ─── États locaux (inline edit) ──────────────────────────────────────────
+  const [numero, setNumero] = useState(livrable.numero || '')
+  const [nom, setNom] = useState(livrable.nom || '')
+  const [monteur, setMonteur] = useState(livrable.assignee_external || '')
+  const [dateLivraison, setDateLivraison] = useState(livrable.date_livraison || '')
+
+  useEffect(() => setNumero(livrable.numero || ''), [livrable.numero])
+  useEffect(() => setNom(livrable.nom || ''), [livrable.nom])
+  useEffect(() => setMonteur(livrable.assignee_external || ''), [livrable.assignee_external])
+  useEffect(() => setDateLivraison(livrable.date_livraison || ''), [livrable.date_livraison])
+
+  // ─── Save helper ─────────────────────────────────────────────────────────
+  const saveField = useCallback(
+    async (field, value, { nullIfEmpty = true } = {}) => {
+      if (!canEdit) return
+      const current = livrable[field] ?? (nullIfEmpty ? null : '')
+      const nextValue =
+        nullIfEmpty && (value === '' || value == null) ? null : value
+      if (nextValue === current) return
+      try {
+        await actions.updateLivrable(livrable.id, { [field]: nextValue })
+      } catch (err) {
+        notify.error('Erreur sauvegarde : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, livrable],
+  )
+
+  const handleStatutChange = useCallback(
+    async (next) => {
+      if (!canEdit) return
+      if (next === livrable.statut) return
+      try {
+        await actions.updateLivrable(livrable.id, { statut: next })
+      } catch (err) {
+        notify.error('Erreur statut : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, livrable.id, livrable.statut],
+  )
+
+  // ─── Menu ⋯ ──────────────────────────────────────────────────────────────
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuAnchorRef = useRef(null)
+
+  const handleDuplicate = useCallback(async () => {
+    setMenuOpen(false)
+    if (!canEdit) return
+    try {
+      await actions.duplicateLivrable(livrable.id)
+      notify.success('Livrable dupliqué')
+    } catch (err) {
+      notify.error('Duplication impossible : ' + (err?.message || err))
+    }
+  }, [actions, canEdit, livrable.id])
+
+  const handleEditLink = useCallback(
+    async (field, label) => {
+      setMenuOpen(false)
+      if (!canEdit) return
+      const next = await uiPrompt({
+        title: `Lien ${label}`,
+        message: `Colle l'URL ${label} (laisse vide pour retirer).`,
+        placeholder: 'https://…',
+        initialValue: livrable[field] || '',
+        confirmLabel: 'Enregistrer',
+      })
+      if (next === null) return
+      try {
+        await actions.updateLivrable(livrable.id, { [field]: next.trim() || null })
+      } catch (err) {
+        notify.error('Erreur lien : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, livrable],
+  )
+
+  const handleDelete = useCallback(() => {
+    setMenuOpen(false)
+    if (!canEdit) return
+    onDelete?.(livrable)
+  }, [canEdit, livrable, onDelete])
+
+  // ─── DnD wiring ─────────────────────────────────────────────────────────
+  const dndEnabled = canEdit && Boolean(onDragStart)
+
+  // ─── Indicateur retard ──────────────────────────────────────────────────
+  const enRetard = isLivrableEnRetard(livrable)
+
+  return (
+    <tr
+      draggable={dndEnabled}
+      onDragStart={
+        dndEnabled
+          ? (e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              try {
+                e.dataTransfer.setData('text/plain', `livrable:${livrable.id}`)
+              } catch {
+                /* legacy */
+              }
+              onDragStart?.()
+            }
+          : undefined
+      }
+      onDragOver={
+        dndEnabled
+          ? (e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              onDragOver?.()
+            }
+          : undefined
+      }
+      onDrop={
+        dndEnabled
+          ? (e) => {
+              e.preventDefault()
+              onDrop?.()
+            }
+          : undefined
+      }
+      onDragEnd={dndEnabled ? onDragEnd : undefined}
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: isDragOver ? 'var(--bg-hov)' : 'transparent',
+        outline: isDragOver ? '2px solid var(--blue)' : 'none',
+        outlineOffset: isDragOver ? '-2px' : 0,
+        transition: 'background 120ms ease',
+      }}
+    >
+      {/* Grip */}
+      <td
+        className="px-1 py-1.5 align-middle text-center select-none"
+        style={{
+          width: '20px',
+          color: 'var(--txt-3)',
+          cursor: dndEnabled ? 'grab' : 'default',
+        }}
+      >
+        {dndEnabled && <GripVertical className="w-3 h-3 mx-auto opacity-40" />}
+      </td>
+
+      {/* Numero (avec dot rouge si en retard) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '70px' }}>
+        <div className="flex items-center gap-1.5">
+          {enRetard && (
+            <span
+              aria-label="En retard"
+              title="Livrable en retard"
+              className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ background: 'var(--red)' }}
+            />
+          )}
+          <input
+            type="text"
+            value={numero}
+            onChange={(e) => setNumero(e.target.value)}
+            onBlur={() => saveField('numero', numero.trim(), { nullIfEmpty: false })}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            disabled={!canEdit}
+            placeholder="—"
+            className="flex-1 min-w-0 bg-transparent focus:outline-none text-[11px] font-mono"
+            style={{
+              color: 'var(--txt-3)',
+              cursor: canEdit ? 'text' : 'default',
+            }}
+          />
+        </div>
+      </td>
+
+      {/* Nom */}
+      <td className="px-2 py-1.5 align-middle">
+        <input
+          type="text"
+          value={nom}
+          onChange={(e) => setNom(e.target.value)}
+          onBlur={() => saveField('nom', nom.trim(), { nullIfEmpty: false })}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          disabled={!canEdit}
+          placeholder="Nom du livrable…"
+          className="w-full bg-transparent focus:outline-none text-sm"
+          style={{
+            color: 'var(--txt)',
+            cursor: canEdit ? 'text' : 'default',
+          }}
+        />
+      </td>
+
+      {/* Format (presets dropdown) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '90px' }}>
+        <FormatSelect
+          value={livrable.format || ''}
+          onChange={(next) => saveField('format', next, { nullIfEmpty: true })}
+          canEdit={canEdit}
+        />
+      </td>
+
+      {/* Durée (input guidé) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '70px' }}>
+        <DurationInput
+          value={livrable.duree || ''}
+          onCommit={(next) => saveField('duree', next, { nullIfEmpty: true })}
+          canEdit={canEdit}
+        />
+      </td>
+
+      {/* Statut */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '108px' }}>
+        <LivrableStatutPill
+          value={livrable.statut}
+          onChange={handleStatutChange}
+          canEdit={canEdit}
+          size="sm"
+        />
+      </td>
+
+      {/* Monteur (avatar + texte libre MVP) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '130px' }}>
+        <div className="flex items-center gap-1.5">
+          <MonteurAvatar name={monteur} size="sm" />
+          <input
+            type="text"
+            value={monteur}
+            onChange={(e) => setMonteur(e.target.value)}
+            onBlur={() => saveField('assignee_external', monteur.trim())}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            disabled={!canEdit}
+            placeholder="—"
+            className="flex-1 min-w-0 bg-transparent focus:outline-none text-xs"
+            style={{ color: 'var(--txt-2)' }}
+          />
+        </div>
+      </td>
+
+      {/* Date livraison */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '132px' }}>
+        <input
+          type="date"
+          value={dateLivraison}
+          onChange={(e) => setDateLivraison(e.target.value)}
+          onBlur={() => saveField('date_livraison', dateLivraison)}
+          disabled={!canEdit}
+          className="w-full bg-transparent focus:outline-none text-xs"
+          style={{
+            color: enRetard
+              ? 'var(--red)'
+              : dateLivraison
+                ? 'var(--txt-2)'
+                : 'var(--txt-3)',
+            cursor: canEdit ? 'text' : 'default',
+          }}
+        />
+      </td>
+
+      {/* Liens (Frame + Drive) */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '112px' }}>
+        <div className="flex items-center gap-1">
+          <LinkChip
+            label="Frame"
+            url={livrable.lien_frame}
+            onEdit={() => handleEditLink('lien_frame', 'Frame.io')}
+            canEdit={canEdit}
+          />
+          <LinkChip
+            label="Drive"
+            url={livrable.lien_drive}
+            onEdit={() => handleEditLink('lien_drive', 'Drive')}
+            canEdit={canEdit}
+          />
+        </div>
+      </td>
+
+      {/* Menu ⋯ (portal pour échapper à overflow-x-auto) */}
+      <td className="px-1 py-1.5 align-middle" style={{ width: '32px' }}>
+        {canEdit && (
+          <>
+            <button
+              ref={menuAnchorRef}
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-label="Actions livrable"
+              className="p-1 rounded"
+              style={{ color: 'var(--txt-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hov)'
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            <PopoverFloat
+              anchorRef={menuAnchorRef}
+              open={menuOpen}
+              onClose={() => setMenuOpen(false)}
+              align="right"
+            >
+              <RowActionMenu
+                onDuplicate={handleDuplicate}
+                onEditFrame={() => handleEditLink('lien_frame', 'Frame.io')}
+                onEditDrive={() => handleEditLink('lien_drive', 'Drive')}
+                onEditNotes={() => {
+                  setMenuOpen(false)
+                  onEditNotes?.(livrable)
+                }}
+                onDelete={handleDelete}
+              />
+            </PopoverFloat>
+          </>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Chip lien (Frame / Drive)
+// ════════════════════════════════════════════════════════════════════════════
+
+function LinkChip({ label, url, onEdit, canEdit }) {
+  const hasUrl = Boolean(url)
+  if (!hasUrl) {
+    if (!canEdit) return null
+    return (
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-dashed"
+        style={{
+          borderColor: 'var(--brd-sub)',
+          color: 'var(--txt-3)',
+          cursor: 'pointer',
+        }}
+        title={`Ajouter un lien ${label}`}
+      >
+        <Link2 className="w-3 h-3" />
+        {label}
+      </button>
+    )
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded"
+      style={{
+        background: 'var(--blue-bg)',
+        color: 'var(--blue)',
+        fontWeight: 500,
+      }}
+      title={url}
+    >
+      <ExternalLink className="w-3 h-3" />
+      {label}
+    </a>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Menu actions row
+// ════════════════════════════════════════════════════════════════════════════
+
+function RowActionMenu({
+  onDuplicate,
+  onEditFrame,
+  onEditDrive,
+  onEditNotes,
+  onDelete,
+}) {
+  return (
+    <div
+      className="rounded-lg shadow-lg overflow-hidden"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd)',
+        minWidth: '200px',
+      }}
+    >
+      <MenuRow icon={Copy} label="Dupliquer" onClick={onDuplicate} />
+      <MenuRow icon={Link2} label="Lien Frame.io" onClick={onEditFrame} />
+      <MenuRow icon={Link2} label="Lien Drive" onClick={onEditDrive} />
+      <MenuRow icon={StickyNote} label="Notes" onClick={onEditNotes} />
+      <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
+        <MenuRow icon={Trash2} label="Supprimer" onClick={onDelete} danger />
+      </div>
+    </div>
+  )
+}
+
+function MenuRow({ icon: Icon, label, onClick, danger = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
+      style={{ color: danger ? 'var(--red)' : 'var(--txt)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--bg-hov)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+    >
+      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <span className="flex-1">{label}</span>
+    </button>
+  )
+}

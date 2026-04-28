@@ -1,13 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrableBlockCard — carte d'un bloc de livrables (LIV-6 CRUD)
+// LivrableBlockCard — carte d'un bloc de livrables (LIV-6 blocs + LIV-7 rows)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Un bloc regroupe des livrables autour d'un thème (MASTER, AFTERMOVIE, SNACK
 // CONTENT…). Ce composant affiche l'header du bloc (pastille couleur, nom,
-// préfixe, compteur, actions) + la liste MVP des livrables. Le rendu fin des
-// livrables (inline edit, versions, étapes) arrive à LIV-7.
+// préfixe, compteur, actions) + la liste éditable des livrables via
+// `LivrableRow` (desktop) ou `LivrableRowCard` (mobile), plus un footer
+// "+ Nouveau livrable".
 //
-// LIV-6 cable la partie CRUD blocs :
+// LIV-6 — CRUD blocs :
 //   - Édition inline du nom (click titre → input → Enter valide / Escape annule)
 //   - Édition inline du préfixe (max 4 char, uppercase auto)
 //   - Changement de couleur (popover palette depuis LIVRABLE_BLOCK_COLOR_PRESETS)
@@ -15,6 +16,13 @@
 //   - Collapse / expand de la liste des livrables
 //   - Drag & drop : handle GripVertical + outline bleu sur le bloc survolé
 //     (pattern MAT-9D HTML5 natif — pas de dépendance @dnd-kit)
+//
+// LIV-7 — CRUD livrables :
+//   - Table desktop / cards mobile (pattern MAT-RESP-1)
+//   - Création via footer (auto-numero côté serveur)
+//   - Suppression soft avec toast "Annuler" 5 s (restaureLivrable)
+//   - Édition des notes via prompt multiline
+//   - (Drag & drop des livrables reste à brancher en LIV-11)
 //
 // Props :
 //   - block               : livrable_blocks
@@ -35,13 +43,17 @@ import {
   GripVertical,
   MoreHorizontal,
   Palette,
+  Plus,
   Trash2,
   Type,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { LIVRABLE_BLOCK_COLOR_PRESETS, LIVRABLE_STATUTS } from '../../../lib/livrablesHelpers'
-import { confirm } from '../../../lib/confirm'
+import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../../lib/livrablesHelpers'
+import { confirm, prompt as uiPrompt } from '../../../lib/confirm'
 import { notify } from '../../../lib/notify'
+import { useBreakpoint } from '../../../hooks/useBreakpoint'
+import LivrableRow from './LivrableRow'
+import LivrableRowCard from './LivrableRowCard'
 
 export default function LivrableBlockCard({
   block,
@@ -202,6 +214,110 @@ export default function LivrableBlockCard({
 
   // ─── Collapse / expand (local, self-contained) ────────────────────────────
   const [collapsed, setCollapsed] = useState(false)
+
+  // ─── Layout responsive (MAT-RESP-1) ──────────────────────────────────────
+  const bp = useBreakpoint()
+  const isMobile = bp.isMobile
+
+  // ─── Création livrable (footer — saisie rapide en rafale) ────────────────
+  // Pattern aligné sur `BlockItemAdder` (matériel) en simplifié : input
+  // toujours visible avec placeholder, Entrée commit + reset + garde le focus
+  // pour permettre la saisie en rafale. Pas de catalogue de livrables côté
+  // DB → pas de dropdown de suggestions, juste l'input direct.
+  const [creating, setCreating] = useState(false)
+  const handleCreateLivrable = useCallback(
+    async (nom = '') => {
+      if (!canEdit || creating) return
+      setCreating(true)
+      try {
+        // Si nom vide, le serveur met "Nouveau livrable" par défaut.
+        await actions.createLivrable({
+          blockId: block.id,
+          data: { nom: (nom || '').trim() },
+        })
+      } catch (err) {
+        notify.error('Création impossible : ' + (err?.message || err))
+      } finally {
+        setCreating(false)
+      }
+    },
+    [actions, block.id, canEdit, creating],
+  )
+
+  // ─── Suppression livrable avec toast undo ────────────────────────────────
+  const handleDeleteLivrable = useCallback(
+    async (livrable) => {
+      if (!canEdit || !livrable) return
+      const ok = await confirm({
+        title: `Supprimer "${livrable.nom || livrable.numero || 'ce livrable'}" ?`,
+        message: 'Tu pourras restaurer pendant 5 secondes.',
+        confirmLabel: 'Supprimer',
+        cancelLabel: 'Annuler',
+        danger: true,
+      })
+      if (!ok) return
+      try {
+        await actions.deleteLivrable(livrable.id)
+        toast.custom(
+          (t) => (
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg"
+              style={{
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt)',
+              }}
+            >
+              <Trash2 className="w-4 h-4" style={{ color: 'var(--red)' }} />
+              <span className="text-sm">Livrable supprimé</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  toast.dismiss(t.id)
+                  try {
+                    await actions.restoreLivrable(livrable.id)
+                    notify.success('Livrable restauré')
+                  } catch (err) {
+                    notify.error('Erreur restauration : ' + (err?.message || err))
+                  }
+                }}
+                className="text-sm font-medium px-2 py-1 rounded"
+                style={{ color: 'var(--blue)', background: 'var(--blue-bg)' }}
+              >
+                Annuler
+              </button>
+            </div>
+          ),
+          { duration: 5000 },
+        )
+      } catch (err) {
+        notify.error('Erreur suppression : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit],
+  )
+
+  // ─── Édition notes (prompt multiline) ────────────────────────────────────
+  const handleEditNotes = useCallback(
+    async (livrable) => {
+      if (!canEdit || !livrable) return
+      const next = await uiPrompt({
+        title: `Notes — ${livrable.nom || livrable.numero || 'Livrable'}`,
+        message: 'Notes internes (non partagées avec le client).',
+        multiline: true,
+        initialValue: livrable.notes || '',
+        placeholder: 'Ex : retours client, briefs DA, points d\'attention…',
+        confirmLabel: 'Enregistrer',
+      })
+      if (next === null) return
+      try {
+        await actions.updateLivrable(livrable.id, { notes: next.trim() || null })
+      } catch (err) {
+        notify.error('Erreur notes : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit],
+  )
 
   // ─── Drag & drop (HTML5 natif, pattern MAT-9D) ────────────────────────────
   const blockDndEnabled = canEdit && Boolean(onBlockDragStart)
@@ -469,59 +585,212 @@ export default function LivrableBlockCard({
         )}
       </header>
 
-      {/* ─── Corps : liste des livrables (MVP — LIV-7 rendra éditable) ────── */}
-      {!collapsed &&
-        (livrables.length === 0 ? (
-          <div
-            className="p-4 text-center text-xs"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            Aucun livrable dans ce bloc.
-            {canEdit && <span className="ml-1">Arrive à LIV-7.</span>}
-          </div>
-        ) : (
-          <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
-            {livrables.map((l) => {
-              const statut = LIVRABLE_STATUTS[l.statut]
-              return (
-                <li
-                  key={l.id}
-                  className="px-4 py-2.5 flex items-center gap-3 text-sm"
-                  style={{ borderColor: 'var(--brd-sub)' }}
-                >
-                  {l.numero && (
-                    <span
-                      className="text-[11px] font-mono shrink-0"
-                      style={{ color: 'var(--txt-3)' }}
-                    >
-                      {l.numero}
-                    </span>
-                  )}
-                  <span className="truncate" style={{ color: 'var(--txt)' }}>
-                    {l.nom || '— sans nom —'}
-                  </span>
-                  {l.format && (
-                    <span
-                      className="text-xs shrink-0"
-                      style={{ color: 'var(--txt-3)' }}
-                    >
-                      {l.format}
-                    </span>
-                  )}
-                  {statut && (
-                    <span
-                      className="ml-auto text-[11px] px-2 py-0.5 rounded-full shrink-0"
-                      style={{ background: statut.bg, color: statut.color }}
-                    >
-                      {statut.label}
-                    </span>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        ))}
+      {/* ─── Corps : liste des livrables (desktop table / mobile cards) ───── */}
+      {!collapsed && !isMobile && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs" style={{ minWidth: '960px' }}>
+            <thead>
+              <tr
+                style={{
+                  borderBottom: '1px solid var(--brd-sub)',
+                  background: 'var(--bg-elev)',
+                  color: 'var(--txt-3)',
+                }}
+              >
+                <Th width="20px" />
+                <Th width="70px">N°</Th>
+                <Th>Nom</Th>
+                <Th width="90px">Format</Th>
+                <Th width="70px">Durée</Th>
+                <Th width="108px">Statut</Th>
+                <Th width="130px">Monteur</Th>
+                <Th width="132px">Livraison</Th>
+                <Th width="112px">Liens</Th>
+                <Th width="32px" />
+              </tr>
+            </thead>
+            <tbody>
+              {livrables.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={10}
+                    className="px-3 py-4 text-center italic"
+                    style={{ color: 'var(--txt-3)' }}
+                  >
+                    Aucun livrable — ajoute-en un ci-dessous.
+                  </td>
+                </tr>
+              ) : (
+                livrables.map((l) => (
+                  <LivrableRow
+                    key={l.id}
+                    livrable={l}
+                    actions={actions}
+                    canEdit={canEdit}
+                    onDelete={handleDeleteLivrable}
+                    onEditNotes={handleEditNotes}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!collapsed && isMobile && (
+        <div className="flex flex-col">
+          {livrables.length === 0 ? (
+            <div
+              className="px-3 py-4 text-center italic text-xs"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Aucun livrable — ajoute-en un ci-dessous.
+            </div>
+          ) : (
+            livrables.map((l) => (
+              <LivrableRowCard
+                key={l.id}
+                livrable={l}
+                actions={actions}
+                canEdit={canEdit}
+                onDelete={handleDeleteLivrable}
+                onEditNotes={handleEditNotes}
+              />
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Footer : add livrable inline (masqué si replié ou read-only) */}
+      {!collapsed && canEdit && (
+        <footer
+          className="px-3 py-1.5"
+          style={{
+            borderTop: '1px solid var(--brd-sub)',
+            background: 'var(--bg-surf)',
+          }}
+        >
+          <LivrableQuickAdd
+            disabled={creating}
+            onAdd={handleCreateLivrable}
+          />
+        </footer>
+      )}
     </section>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LivrableQuickAdd — input inline pour créer un livrable en rafale
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Pattern aligné sur `BlockItemAdder` (matériel) en version simplifiée :
+//   - placeholder "+ Nouveau livrable" (icône Plus à gauche)
+//   - focus → l'input s'éclaircit, prêt à recevoir le nom
+//   - Entrée (avec contenu) → `onAdd(nom)` + reset l'input + garde le focus
+//     (saisie en rafale)
+//   - Entrée (vide) → `onAdd('')` puis blur (= ligne par défaut "Nouveau
+//     livrable", utile si on veut juste une ligne vide à remplir plus tard)
+//   - Escape → reset + blur
+//   - blur → reset (pas de soumission)
+// ════════════════════════════════════════════════════════════════════════════
+
+function LivrableQuickAdd({ disabled = false, onAdd }) {
+  const [value, setValue] = useState('')
+  const [focused, setFocused] = useState(false)
+  const inputRef = useRef(null)
+
+  const handleSubmit = useCallback(async () => {
+    const nom = value.trim()
+    setValue('')
+    try {
+      await onAdd?.(nom)
+    } catch {
+      // l'appelant notifie
+    }
+    // Garde le focus pour saisie en rafale (uniquement si l'utilisateur
+    // a tapé un nom — sinon on laisse blur naturel après Entrée vide).
+    if (nom && inputRef.current) {
+      // Petit setTimeout pour laisser React rerender avant le focus.
+      setTimeout(() => inputRef.current?.focus(), 0)
+    }
+  }, [onAdd, value])
+
+  // Click sur le wrapper (Plus icon ou zone vide à droite) → focus l'input.
+  // On utilise un <div> au lieu d'un <button> pour éviter d'imbriquer un
+  // <input> dans un <button> (invalide HTML5).
+  return (
+    <div
+      onMouseDown={(e) => {
+        // Empêche le blur si on clique en dehors de l'input mais dans la zone
+        // (l'icône Plus par exemple). On focus l'input à la place.
+        if (e.target !== inputRef.current) {
+          e.preventDefault()
+          inputRef.current?.focus()
+        }
+      }}
+      className="w-full flex items-center gap-2 px-2 py-1 rounded transition-colors"
+      style={{
+        background: focused ? 'var(--bg-hov)' : 'transparent',
+        cursor: 'text',
+      }}
+    >
+      <Plus
+        className="w-3.5 h-3.5 shrink-0"
+        style={{ color: focused || value ? 'var(--blue)' : 'var(--txt-3)' }}
+        aria-hidden="true"
+      />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false)
+          // On reset à la perte de focus pour que l'état de retour soit
+          // propre (placeholder visible). Pas de submission ici.
+          setValue('')
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            handleSubmit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            setValue('')
+            inputRef.current?.blur()
+          }
+        }}
+        disabled={disabled}
+        placeholder="Nouveau livrable… (Entrée pour valider)"
+        className="flex-1 bg-transparent focus:outline-none text-xs"
+        style={{
+          color: focused || value ? 'var(--blue)' : 'var(--txt-3)',
+          fontWeight: 500,
+          opacity: disabled ? 0.5 : 1,
+        }}
+      />
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Header cell helper (desktop table)
+// ════════════════════════════════════════════════════════════════════════════
+
+function Th({ children, width, align = 'left' }) {
+  return (
+    <th
+      className="px-2 py-2 font-medium uppercase tracking-wider text-[10px]"
+      style={{
+        width,
+        textAlign: align,
+        color: 'var(--txt-3)',
+      }}
+    >
+      {children}
+    </th>
   )
 }
 

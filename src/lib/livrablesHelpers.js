@@ -90,6 +90,167 @@ export const LIVRABLE_BLOCK_COLOR_PRESETS = [
   '#64748b', // slate
 ]
 
+/**
+ * Ratios de format proposés en presets. Le 7e choix UI (« Autre… ») bascule
+ * sur un input texte libre, ce qui couvre les cas exotiques (4096x2048,
+ * letterbox custom, etc.). On stocke toujours la chaîne brute dans
+ * `livrables.format`.
+ */
+export const LIVRABLE_FORMATS = ['16:9', '9:16', '1:1', '4:5', '5:4', '4:3']
+
+// ─── Durée — parser / formatter ─────────────────────────────────────────────
+
+/**
+ * Parse une saisie utilisateur de durée en chaîne normalisée.
+ * Règles :
+ *   - vide → { ok: true, normalized: null }
+ *   - 1-2 chiffres seuls           → secondes (`00:XX`)
+ *   - 3 chiffres seuls (`MSS`)     → `0M:SS`        (ex `130` → `01:30`)
+ *   - 4 chiffres seuls (`MMSS`)    → `MM:SS`        (ex `0130` → `01:30`)
+ *   - 5 chiffres seuls (`HMMSS`)   → `H:MM:SS`
+ *   - 6 chiffres seuls (`HHMMSS`)  → `HH:MM:SS`
+ *   - `M:SS` / `MM:SS`             → `MM:SS`
+ *   - `H:MM:SS` / `HH:MM:SS`       → `HH:MM:SS`
+ * Validation : segments minutes/secondes ∈ [0..59]. Le premier segment
+ * (heures, ou minutes si pas d'heures) est libre (jusqu'à 99).
+ *
+ * @param {string|null|undefined} raw
+ * @returns {{ ok: boolean, normalized: string|null, error?: string }}
+ */
+export function parseDuree(raw) {
+  if (raw == null) return { ok: true, normalized: null }
+  const s = String(raw).trim()
+  if (s === '') return { ok: true, normalized: null }
+
+  // Saisie purement numérique (pas de `:`) → on déduit le format selon la
+  // longueur, en padant à gauche si besoin.
+  if (/^\d+$/.test(s)) {
+    const pad2 = (n) => String(n).padStart(2, '0')
+    if (s.length <= 2) {
+      // 0-99 secondes → mm:ss (rejette > 59)
+      const sec = parseInt(s, 10)
+      if (sec > 59) return { ok: false, normalized: null, error: 'Secondes > 59' }
+      return { ok: true, normalized: `00:${pad2(sec)}` }
+    }
+    if (s.length === 3) {
+      const m = parseInt(s.slice(0, 1), 10)
+      const sec = parseInt(s.slice(1), 10)
+      if (sec > 59) return { ok: false, normalized: null, error: 'Secondes > 59' }
+      return { ok: true, normalized: `${pad2(m)}:${pad2(sec)}` }
+    }
+    if (s.length === 4) {
+      const m = parseInt(s.slice(0, 2), 10)
+      const sec = parseInt(s.slice(2), 10)
+      if (sec > 59) return { ok: false, normalized: null, error: 'Secondes > 59' }
+      return { ok: true, normalized: `${pad2(m)}:${pad2(sec)}` }
+    }
+    if (s.length === 5) {
+      const h = parseInt(s.slice(0, 1), 10)
+      const m = parseInt(s.slice(1, 3), 10)
+      const sec = parseInt(s.slice(3), 10)
+      if (m > 59 || sec > 59) return { ok: false, normalized: null, error: 'Min/sec > 59' }
+      return { ok: true, normalized: `${pad2(h)}:${pad2(m)}:${pad2(sec)}` }
+    }
+    if (s.length === 6) {
+      const h = parseInt(s.slice(0, 2), 10)
+      const m = parseInt(s.slice(2, 4), 10)
+      const sec = parseInt(s.slice(4), 10)
+      if (m > 59 || sec > 59) return { ok: false, normalized: null, error: 'Min/sec > 59' }
+      return { ok: true, normalized: `${pad2(h)}:${pad2(m)}:${pad2(sec)}` }
+    }
+    return { ok: false, normalized: null, error: 'Trop de chiffres' }
+  }
+
+  // Saisie avec `:`
+  const segs = s.split(':')
+  if (segs.length === 2) {
+    const [m, sec] = segs
+    if (!/^\d{1,2}$/.test(m) || !/^\d{1,2}$/.test(sec)) {
+      return { ok: false, normalized: null, error: 'Format mm:ss attendu' }
+    }
+    const mn = parseInt(m, 10)
+    const sn = parseInt(sec, 10)
+    if (sn > 59) return { ok: false, normalized: null, error: 'Secondes > 59' }
+    return {
+      ok: true,
+      normalized: `${String(mn).padStart(2, '0')}:${String(sn).padStart(2, '0')}`,
+    }
+  }
+  if (segs.length === 3) {
+    const [h, m, sec] = segs
+    if (!/^\d{1,2}$/.test(h) || !/^\d{1,2}$/.test(m) || !/^\d{1,2}$/.test(sec)) {
+      return { ok: false, normalized: null, error: 'Format hh:mm:ss attendu' }
+    }
+    const hn = parseInt(h, 10)
+    const mn = parseInt(m, 10)
+    const sn = parseInt(sec, 10)
+    if (mn > 59 || sn > 59) return { ok: false, normalized: null, error: 'Min/sec > 59' }
+    return {
+      ok: true,
+      normalized: `${String(hn).padStart(2, '0')}:${String(mn).padStart(2, '0')}:${String(sn).padStart(2, '0')}`,
+    }
+  }
+  return { ok: false, normalized: null, error: 'Format mm:ss ou hh:mm:ss' }
+}
+
+/**
+ * Convertit une durée normalisée en nombre total de secondes (utile pour les
+ * stats / tris). Renvoie null si vide ou invalide.
+ */
+export function dureeToSeconds(normalized) {
+  if (!normalized) return null
+  const segs = String(normalized).split(':').map((x) => parseInt(x, 10))
+  if (segs.some((x) => Number.isNaN(x))) return null
+  if (segs.length === 2) return segs[0] * 60 + segs[1]
+  if (segs.length === 3) return segs[0] * 3600 + segs[1] * 60 + segs[2]
+  return null
+}
+
+// ─── Avatar monteur — couleur déterministe ─────────────────────────────────
+
+/**
+ * Hash (djb2) ultra-simple sur une chaîne. Stable cross-run, suffisant pour
+ * dériver une couleur d'avatar.
+ */
+function hashStr(s) {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
+/**
+ * Palette de fonds d'avatar (10 teintes). Volontairement contrastée vis-à-vis
+ * de `--bg-elev` en dark mode et lisible en clair (texte blanc sur fond mid).
+ */
+export const MONTEUR_AVATAR_COLORS = [
+  '#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444',
+  '#0ea5e9', '#10b981', '#ec4899', '#f97316', '#6366f1',
+]
+
+/**
+ * Renvoie initiales (1-2 lettres uppercase) + couleur de fond stable pour un
+ * nom de monteur (texte libre ou nom complet d'un profile).
+ *
+ * @param {string|null} name
+ * @returns {{ initials: string, color: string } | null} - null si pas de nom
+ */
+export function monteurAvatar(name) {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return null
+  // Initiales : première lettre du premier et du dernier mot.
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  let initials = ''
+  if (parts.length === 1) {
+    initials = parts[0].slice(0, 2).toUpperCase()
+  } else {
+    initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  const color = MONTEUR_AVATAR_COLORS[hashStr(trimmed.toLowerCase()) % MONTEUR_AVATAR_COLORS.length]
+  return { initials, color }
+}
+
 // ─── Tri & groupBy ──────────────────────────────────────────────────────────
 
 /**

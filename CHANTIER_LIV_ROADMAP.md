@@ -320,7 +320,7 @@ les templates PDF.
 | LIV-4 ✅ | Sync bidirectionnelle events (lib `livrablesPlanningSync.js`) | L | Forward sync étape/phase → event miroir câblée dans `livrables.js` (create/update/delete). Reverse via helpers purs `eventPatchToEtapePatch/Phase` consommés par le planning à LIV-5. `backfillMirrorEvents(projectId)` exposé dans `useLivrables`. 40+ tests Vitest sur helpers purs. |
 | LIV-5 ✅ | Page `LivrablesTab` (structure vue liste) | M | Page gated `useProjectPermissions`, header 4 compteurs + CTA `Nouveau bloc`, liste `BlockCard` (pastille / préfixe / livrables avec pill statut), empty state Inbox + création bloc câblée via `prompt()` → `actions.createBlock` (rotation couleurs preset). Commit `ab903b1`. |
 | LIV-6 ✅ | CRUD blocs + drag & drop | M | `LivrableBlockCard` + `LivrableBlockList` extraits dans `features/livrables/components/`. Rename inline, popover palette couleur, édition préfixe (uppercase, max 4 car), suppression soft + toast undo 5 s (`restoreBlock`), collapse/expand, drag & drop HTML5 natif (pattern MAT-9D). Fix bug popover clipping (`overflow-hidden` → `rounded-t-xl` sur header). |
-| LIV-7 | CRUD livrables + inline edit + numérotation auto | L | Tous les champs éditables, autocomplete monteur |
+| LIV-7 ✅ | CRUD livrables + inline edit + numérotation auto | L | `LivrableRow` (desktop table) + `LivrableRowCard` (mobile) + `LivrableStatutPill` popover extraits dans `features/livrables/components/`. Inline edit tous les champs (numero, nom, format, durée, statut, monteur texte libre, date livraison, liens Frame/Drive, notes). Auto-numero géré serveur via `nextLivrableNumero`. Menu `...` par ligne (Dupliquer, Modifier Frame/Drive, Notes, Supprimer soft + toast undo 5s). Footer "+ Nouveau livrable" par bloc. Responsive pattern MAT-RESP-1 (`useBreakpoint`). Autocomplete monteur (profiles) = report plus tard. |
 | LIV-8 | Table versions + UI historique | M | Modal avec timeline, add/edit/delete version |
 | LIV-9 | Étapes — CRUD + events planning | L | Slide-over pipeline, event miroir kind='delivery' |
 | LIV-10 | Phases projet — CRUD + events multi-jours | M | Drawer gestion phases, events continus |
@@ -623,23 +623,161 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
 - **Validation** : `npx eslint` → 0 warning sur les 3 fichiers (`LivrablesTab`
   + 2 nouveaux). Smoke test manuel côté Hugo OK après fix popover.
 
-### Prochaine étape — LIV-7 (CRUD livrables + inline edit + numérotation auto)
+### Session 2026-04-24 (suite) — LIV-7 (CRUD livrables + inline edit + numérotation auto)
 
-Créer le rendu fin des livrables dans `LivrableBlockCard` (ou extraire
-`LivrableRow` en sous-composant) :
-  - **Ajout de livrable** : ligne "+ Nouveau livrable" en bas de chaque bloc →
-    `actions.createLivrable({ block_id, nom: '' })` avec numérotation auto
-    via `nextLivrableNumero(block.prefixe, livrables)` (helper déjà dispo).
-  - **Édition inline** de chaque champ : `numero` (override manuel possible),
-    `nom`, `format`, `duree`, `version_label`, `statut` (select), `monteur`
-    (autocomplete profiles + champ libre externe), `date_livraison` (date
-    picker), `lien_frame`, `lien_drive`, `notes`.
-  - **Responsive** : table sur desktop (aligné), cards sur mobile (pattern
-    MAT-RESP-1).
-  - **Actions par ligne** : menu `...` → Dupliquer (LIV-12), Supprimer (soft).
-  - **Statut** : pill cliquable avec popover des 6 statuts (brief / en_cours /
-    a_valider / valide / livre / archive).
+- **LIV-7 ✅** : édition fine des livrables. Pattern responsive MAT-RESP-1
+  (table desktop / cards mobile), inline edit tous champs, statut pill
+  popover, auto-numero serveur.
+  - **Nouveaux fichiers** :
+    - `src/features/livrables/components/LivrableStatutPill.jsx` (~130 lignes) :
+      pill cliquable + popover des 6 statuts (`brief / en_cours / a_valider /
+      valide / livre / archive`). Réutilise `LIVRABLE_STATUTS` de
+      `livrablesHelpers`. Props `value / onChange / canEdit / size ('xs'|'sm') /
+      align ('left'|'right')`. Click-outside via listener `mousedown` global
+      scopé au ref container. Check mark pour le statut actif. Composant à
+      vocation réutilisable (LIV-17 widgets, LIV-15 filtres…).
+    - `src/features/livrables/components/LivrableRow.jsx` (~350 lignes) :
+      ligne `<tr>` desktop avec inline edit. Colonnes : grip 20 / numero 70 /
+      nom flex / format 90 / duree 70 / statut 108 / monteur 130 / date 132 /
+      liens 112 / menu 32 (≈ 960 px total). Helper `saveField(field, value)`
+      unifié : bail-out si inchangé, sinon `actions.updateLivrable`. Monteur =
+      texte libre sur `assignee_external` (autocomplete profiles reporté). Liens
+      via `<LinkChip>` : placeholder pointillé "+ Frame" / "+ Drive" si vide et
+      canEdit, chip coloré `ExternalLink` si URL. Menu `⋯` : Dupliquer, Lien
+      Frame.io, Lien Drive, Notes, Supprimer (danger). Props DnD acceptés mais
+      neutres — câblage réel en LIV-11.
+    - `src/features/livrables/components/LivrableRowCard.jsx` (~360 lignes) :
+      carte mobile. Layout : L1 numero + nom + ⋯ / L2 statut pill + format ·
+      durée / L3 monteur + date / L4 liens chips / L5 notes textarea 2 rows
+      toujours visible. Même helper `saveField` que LivrableRow.
+  - **`LivrableBlockCard.jsx`** : switch responsif via `useBreakpoint()`,
+    table desktop (`overflow-x-auto` + `minWidth 960px`) ou liste de cards
+    mobile. Footer "+ Nouveau livrable" (icône `Plus`) si `canEdit`.
+    Handlers : `handleCreateLivrable` (crée avec `nom: ''` — numero auto via
+    `actions.createLivrable` qui appelle `nextLivrableNumero` côté hook),
+    `handleDeleteLivrable` (confirm → soft delete → `toast.custom` avec
+    bouton **Annuler** 5 s → `actions.restoreLivrable`), `handleEditNotes`
+    (`uiPrompt` multiline, triggered depuis menu `⋯`). Helper `<Th>` ajouté
+    en bas du fichier pour uniformiser les en-têtes de table.
+  - **UX notes** :
+    - Notes non affichées dans la table desktop (trop long) — edit via
+      `uiPrompt({ multiline: true })`. Visibles en textarea inline sur card
+      mobile.
+    - Inline edit pattern uniforme : `onBlur` OU `Enter` commit, `Escape`
+      annule. Optimistic update assuré par `useLivrables.updateLivrable`
+      (patche le state avant `await`).
+    - Soft delete pattern MAT-10I : `actions.deleteLivrable(id)` +
+      `toast.custom` avec callback **Annuler** qui dismiss le toast et
+      relance `restoreLivrable`.
+- **Polish LIV-7 (intégré au même ticket)** : 4 itérations UX sur la table
+  livrables, post-validation visuelle initiale.
+  - **Bug fix** : menu `⋯` (et popover statut) clippés en bas par le wrapper
+    `overflow-x-auto` de la table — la spec CSS force `overflow-y: auto` sur
+    l'autre axe quand un axe est ≠ `visible`. Correction : tous les popovers
+    de ligne sont rendus via `createPortal` sur `document.body` avec
+    `position: fixed`, position calculée à partir du
+    `getBoundingClientRect()` de l'ancre + listeners scroll/resize pour
+    recalc ou close. Pattern extrait dans `PopoverFloat.jsx` (réutilisé par
+    `LivrableStatutPill`, `LivrableRow.menu`, `LivrableRowCard.menu`,
+    `FormatSelect`). Pattern aligné sur `LoueurPillsEditor` (matériel).
+  - **Nouveaux helpers** dans `livrablesHelpers.js` :
+    - `LIVRABLE_FORMATS = ['16:9', '9:16', '1:1', '4:5', '5:4', '4:3']`
+      (presets dropdown, + choix "Autre…" pour texte libre côté UI).
+    - `parseDuree(raw) → { ok, normalized, error? }` : parse souple des
+      saisies utilisateur :
+      - vide → `null`
+      - 1-2 chiffres → secondes (`00:XX`, refuse > 59)
+      - 3-6 chiffres → `MM:SS` ou `HH:MM:SS` selon longueur
+      - `M:SS` / `MM:SS` → normalisé sur 2 chiffres
+      - `H:MM:SS` / `HH:MM:SS` → idem
+      - validation : segments min/sec ∈ [0..59]
+    - `dureeToSeconds(normalized) → number|null` (utile stats LIV-15/17 ; pas
+      de migration DB nécessaire, conversion à la volée).
+    - `monteurAvatar(name) → { initials, color }|null` : initiales 1-2 lettres
+      uppercase (1 mot → 2 premières lettres ; 2+ mots → première lettre du
+      premier et du dernier mot) + couleur stable hash djb2 dans une palette
+      de 10 teintes (`MONTEUR_AVATAR_COLORS`).
+  - **Nouveaux composants** :
+    - `PopoverFloat.jsx` (~110 lignes) : helper portal + position fixed + listeners
+      scroll/resize/mousedown. Props `anchorRef / open / onClose / align /
+      offsetY / children`. N'embarque pas de styling — le contenu fournit son
+      propre look.
+    - `MonteurAvatar.jsx` (~35 lignes) : pastille initiale colorée 20×20 ou
+      24×24. Renvoie `null` si nom vide. API stable : ajouter `profile.avatar_url`
+      plus tard ne cassera rien.
+    - `FormatSelect.jsx` (~165 lignes) : dropdown des `LIVRABLE_FORMATS` +
+      "Autre…" (bascule sur input texte libre) + "Effacer" (si valeur déjà
+      saisie). Utilise `PopoverFloat` pour échapper à `overflow-x-auto`.
+    - `DurationInput.jsx` (~95 lignes) : input texte qui appelle `parseDuree`
+      à `onBlur`/`Enter`, normalise avant commit. Erreur affichée en
+      border-bottom rouge dashed + `title` (tooltip natif). `Escape` revert.
+  - **Intégrations** :
+    - `LivrableRow.jsx` : pastille rouge (`var(--red)`, dot 1.5×1.5) à gauche
+      du `numero` si `isLivrableEnRetard(livrable) === true`. Cellule
+      `Livraison` passe en rouge si retard. Format → `<FormatSelect>`. Durée
+      → `<DurationInput>`. Cellule monteur a maintenant `<MonteurAvatar>` à
+      gauche de l'input. Menu `⋯` rendu via `<PopoverFloat>` au lieu de
+      `position: absolute`.
+    - `LivrableRowCard.jsx` : dot rouge 2×2 en début de ligne 1 si retard.
+      Date passe en rouge si retard. Format/Durée/Avatar/Menu : mêmes
+      remplacements que desktop.
+    - `LivrableStatutPill.jsx` : popover déplacé dans `<PopoverFloat>`. API
+      inchangée pour l'extérieur.
+  - **Saisie rapide en rafale** (`LivrableQuickAdd`, inline dans
+    `LivrableBlockCard.jsx`) : le footer "+ Nouveau livrable" passe d'un
+    bouton `(click → ligne avec nom 'Nouveau livrable' à effacer)` à un
+    input inline (icône `Plus` + placeholder `Nouveau livrable… (Entrée pour
+    valider)`). Pattern aligné sur `BlockItemAdder` (matériel) en version
+    simplifiée (pas de catalogue côté livrables) :
+    - Click sur la zone (icône / vide à droite) → focus l'input.
+    - Entrée (avec contenu) → `actions.createLivrable({ data: { nom } })` +
+      reset l'input + garde le focus → saisie en rafale possible.
+    - Entrée (vide) → crée une ligne avec le default serveur "Nouveau
+      livrable" (cas pratique : l'utilisateur préfère poser une ligne vide
+      à remplir plus tard).
+    - Escape → reset + blur. Blur naturel → reset.
+    - Wrapping `<div onMouseDown>` au lieu de `<button>` pour éviter
+      l'imbrication input-dans-button (invalide HTML5). `e.preventDefault()`
+      sur `mouseDown` hors-input pour ne pas voler le focus.
+- **Validation polish** : ESLint clean (0 warning sur 8 fichiers concernés).
+  Parse-check `@babel/parser` OK sur les 7 fichiers JSX + 1 helper. Smoke
+  test des helpers via dynamic import :
+  - `parseDuree('1:30') → 01:30`, `parseDuree('130') → 01:30`,
+    `parseDuree('45') → 00:45`, `parseDuree('01:30:00') → 01:30:00`,
+    `parseDuree('99:99') → erreur Secondes > 59`,
+    `parseDuree('60') → erreur Secondes > 59`,
+    `parseDuree('abc') → erreur format`.
+  - `dureeToSeconds('01:30') = 90`, `dureeToSeconds('01:30:00') = 5400`.
+  - `monteurAvatar('Hugo') = { initials: 'HU', color: '#10b981' }`,
+    `monteurAvatar('Marie Dupont') = { initials: 'MD', color: '#0ea5e9' }`.
+- **Hors scope LIV-7** (reporté) :
+  - **Autocomplete monteur** (profiles du projet) → ticket de suite. MVP =
+    texte libre sur `assignee_external`.
+  - **Drag & drop livrables** → LIV-11.
+  - **Duplication livrable** → LIV-12 (bouton déjà présent dans le menu,
+    câblé à `actions.duplicateLivrable` qui existe mais sera consolidé à
+    LIV-12).
+- **Validation** : ESLint clean sur les 4 fichiers (0 warning, 0 error).
+  Parse-check via `@babel/parser` (plugins: `['jsx']`) OK. Build/test Vitest
+  non exécutés — rollup module natif `@rollup/rollup-linux-arm64-gnu` absent
+  du `node_modules` (machine Mac M1 côté user, sandbox Linux ARM64). `npm
+  install` éviterait l'écrasement d'`node_modules` côté Mac, donc skip.
 
-Voir roadmap §4.2 pour les actions `useLivrables` à câbler (`createLivrable`,
-`updateLivrable`, `deleteLivrable`, `duplicateLivrable` — tous déjà prêts
-depuis LIV-3).
+### Prochaine étape — LIV-8 (Table versions + UI historique)
+
+Créer le modal "Historique des versions" pour chaque livrable :
+  - **Trigger UI** : bouton/lien "v1, v2, …" cliquable sur la ligne (desktop)
+    ou dans la card mobile → ouvre un modal/drawer.
+  - **Timeline** : liste triée des versions (`livrables_versions` ?) avec
+    `numero_version`, `date`, `lien` (frame/drive), `commentaire`, `auteur`.
+  - **Actions** : ajouter version (form inline), éditer commentaire/lien d'une
+    version existante, supprimer (soft ou hard à valider). Actions
+    `addVersion / updateVersion / deleteVersion` déjà exposées par
+    `useLivrables` (cf. LIV-3) — câblage UI pur.
+  - **Statut vs version** : une nouvelle version remet-elle le statut à
+    `a_valider` ? → à trancher avec Hugo.
+  - **Responsive** : drawer plein écran mobile / modal centered desktop
+    (réutiliser pattern des modals déjà existants dans `shared/components`).
+
+Voir roadmap §4.2 pour le schéma exact de `livrables_versions` et les props
+des actions `useLivrables`.
