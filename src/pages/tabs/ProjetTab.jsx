@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
+import LivrablesProjectWidget from '../../features/livrables/components/LivrablesProjectWidget'
 import {
   Save,
   Plus,
@@ -376,16 +377,6 @@ function ReadView({
 
   const hasPlanning = planningSpecs.length > 0 || planningChips.length > 0
 
-  let livrables = []
-  try {
-    livrables = Array.isArray(project.livrables_json)
-      ? project.livrables_json
-      : JSON.parse(project.livrables_json || '[]')
-  } catch {
-    livrables = []
-  }
-  livrables = livrables.filter((l) => l.nom || l.format || l.duree || l.livraison)
-
   // Combien de blocs prennent la colonne gauche (col-span-2) ? Nécessaire
   // pour qu'Équipe (col-span-1, latérale) span exactement le bon nombre de
   // rows et ne crée pas de trou sous le Hero. NB : `lg:row-span-full` ne
@@ -394,9 +385,9 @@ function ReadView({
   //   - Hero (toujours)
   //   - AdminFooter (canEdit)
   //   - Identité (toujours)
-  //   - Livrables card OU empty link (sauf si !canSeeLivrables ET pas de livrables)
+  //   - Widget Livrables (LIV-17) — si canSeeLivrables
   //   - Note de prod (canEdit && project.note_prod)
-  const showLivrablesBlock = livrables.length > 0 || canSeeLivrables
+  const showLivrablesBlock = canSeeLivrables
   const leftRowCount =
     1 + // Hero
     (canEdit ? 1 : 0) + // AdminFooter
@@ -563,55 +554,16 @@ function ReadView({
         )}
       </SectionCard>
 
-      {/* ── LIVRABLES ────────────────────────────────────────────────────── */}
-      {/* Si l'utilisateur n'a pas accès à l'outil "livrables" et qu'il n'y en
-          a pas, on masque complètement le bloc (pas de teasing inutile). */}
-      {livrables.length === 0 && !canSeeLivrables ? null : livrables.length === 0 ? (
-        <Link
-          to={`/projets/${project.id}/livrables`}
-          className="lg:col-span-2 flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/40 text-xs text-gray-500 hover:text-blue-700 transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <FileText className="w-3.5 h-3.5 text-gray-400" />
-            Aucun livrable défini
-          </span>
-          <span className="font-medium">Voir →</span>
-        </Link>
-      ) : (
-        <SectionCard
-          icon={<FileText className="w-4 h-4" />}
-          title={`Livrables (${livrables.length})`}
+      {/* ── LIVRABLES (LIV-17) ───────────────────────────────────────────── */}
+      {/* Widget self-contained qui fait son propre fetch via useLivrables.
+          Affiche bandeau "Prochain", 3 compteurs + top 3 prochains livrables.
+          Empty state intégré si 0 livrable. Masqué si pas de droits sur
+          l'outil. */}
+      {canSeeLivrables && (
+        <LivrablesProjectWidget
+          projectId={project.id}
           className="lg:col-span-2"
-          action={
-            <Link
-              to={`/projets/${project.id}/livrables`}
-              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Voir tout →
-            </Link>
-          }
-        >
-          <ul className="space-y-1.5">
-            {livrables.map((l, i) => (
-              <li key={l.id || i} className="flex items-center gap-3 text-sm">
-                <span className="text-xs text-gray-400 font-mono w-5 shrink-0">{i + 1}.</span>
-                <span className="text-gray-800 font-medium">
-                  {l.nom || <span className="italic text-gray-400">Sans nom</span>}
-                </span>
-                <span className="text-gray-400">·</span>
-                <span className="text-xs text-gray-500">
-                  {[l.format, l.duree].filter(Boolean).join(' — ') || '—'}
-                </span>
-                {l.livraison && (
-                  <>
-                    <span className="text-gray-400">·</span>
-                    <span className="text-xs text-gray-500">Livraison {l.livraison}</span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
+        />
       )}
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
