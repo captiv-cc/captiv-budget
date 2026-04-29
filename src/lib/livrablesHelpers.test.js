@@ -22,7 +22,9 @@ import {
   computeCompteurs,
   computeLivrableStatutFromVersions,
   dureeToSeconds,
+  filterLivrables,
   groupLivrablesByBlock,
+  hasActiveFilter,
   indexEtapesByLivrable,
   indexVersionsByLivrable,
   isLivrableEnRetard,
@@ -180,7 +182,7 @@ describe('listMonteurs', () => {
 
   it('résout les profile names via profilesById', () => {
     const profilesById = new Map([
-      ['p1', { id: 'p1', prenom: 'Hugo', nom: 'Mat' }],
+      ['p1', { id: 'p1', full_name: 'Hugo Mat' }],
     ])
     const res = listMonteurs([{ assignee_profile_id: 'p1' }], profilesById)
     expect(res[0].label).toBe('Hugo Mat')
@@ -195,8 +197,8 @@ describe('listMonteurs', () => {
 
   it('trie alphabétiquement (insensible casse + français)', () => {
     const profilesById = new Map([
-      ['p1', { id: 'p1', prenom: 'Bernard', nom: '' }],
-      ['p2', { id: 'p2', prenom: 'Albert', nom: '' }],
+      ['p1', { id: 'p1', full_name: 'Bernard' }],
+      ['p2', { id: 'p2', full_name: 'Albert' }],
     ])
     const res = listMonteurs(
       [{ assignee_profile_id: 'p1' }, { assignee_profile_id: 'p2' }],
@@ -477,5 +479,164 @@ describe('MONTEUR_AVATAR_COLORS', () => {
     for (const c of MONTEUR_AVATAR_COLORS) {
       expect(c).toMatch(/^#[0-9a-fA-F]{6}$/)
     }
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-15 — filterLivrables / hasActiveFilter
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('filterLivrables', () => {
+  // Dataset commun : 5 livrables couvrant les axes statut/format/monteur/bloc/retard.
+  const LS = [
+    {
+      id: '1',
+      statut: 'brief',
+      format: '16:9',
+      block_id: 'bA',
+      assignee_profile_id: 'pHugo',
+      assignee_external: null,
+      date_livraison: null,
+    },
+    {
+      id: '2',
+      statut: 'en_cours',
+      format: '9:16',
+      block_id: 'bA',
+      assignee_profile_id: null,
+      assignee_external: 'Alice',
+      date_livraison: '2020-01-01', // en retard (avant FAKE_NOW)
+    },
+    {
+      id: '3',
+      statut: 'a_valider',
+      format: null,
+      block_id: 'bB',
+      assignee_profile_id: null,
+      assignee_external: null,
+      date_livraison: '2030-01-01', // futur
+    },
+    {
+      id: '4',
+      statut: 'livre',
+      format: '16:9',
+      block_id: 'bA',
+      assignee_profile_id: 'pBob',
+      assignee_external: null,
+      date_livraison: '2020-01-01', // ancien mais livré → pas en retard
+    },
+    {
+      id: '5',
+      statut: 'archive',
+      format: '1:1',
+      block_id: 'bB',
+      assignee_profile_id: null,
+      assignee_external: 'Charlie',
+      date_livraison: null,
+    },
+  ]
+
+  it('renvoie tous les livrables si aucun filtre', () => {
+    expect(filterLivrables(LS, {}).length).toBe(LS.length)
+  })
+
+  it('filtre par statut (multi)', () => {
+    const set = new Set(['brief', 'a_valider'])
+    expect(filterLivrables(LS, { statuts: set }).map((l) => l.id)).toEqual(['1', '3'])
+  })
+
+  it('filtre par format avec __none__ pour les sans-format', () => {
+    expect(
+      filterLivrables(LS, { formats: new Set(['__none__']) }).map((l) => l.id),
+    ).toEqual(['3'])
+    expect(
+      filterLivrables(LS, { formats: new Set(['16:9']) }).map((l) => l.id),
+    ).toEqual(['1', '4'])
+  })
+
+  it('filtre par bloc', () => {
+    expect(filterLivrables(LS, { blockIds: new Set(['bB']) }).map((l) => l.id)).toEqual([
+      '3',
+      '5',
+    ])
+  })
+
+  it('filtre par monteur (key profile + external + __none__)', () => {
+    // Profile Hugo → seul livrable 1
+    expect(
+      filterLivrables(LS, { monteurs: new Set(['p:pHugo']) }).map((l) => l.id),
+    ).toEqual(['1'])
+    // External "Alice" → seul livrable 2
+    expect(
+      filterLivrables(LS, { monteurs: new Set(['x:alice']) }).map((l) => l.id),
+    ).toEqual(['2'])
+    // __none__ → livrable 3 (ni profile ni external)
+    expect(
+      filterLivrables(LS, { monteurs: new Set(['__none__']) }).map((l) => l.id),
+    ).toEqual(['3'])
+    // Combo profile + external
+    expect(
+      filterLivrables(LS, { monteurs: new Set(['p:pHugo', 'x:charlie']) })
+        .map((l) => l.id)
+        .sort(),
+    ).toEqual(['1', '5'])
+  })
+
+  it('filtre par enRetard (statuts terminés exclus)', () => {
+    const out = filterLivrables(LS, { enRetard: true }, { now: FAKE_NOW })
+    // Seul livrable 2 : date passée + statut non terminé.
+    // livrable 4 (livré) exclu malgré date passée.
+    expect(out.map((l) => l.id)).toEqual(['2'])
+  })
+
+  it('filtre par mesLivrables avec ctx.userId', () => {
+    expect(
+      filterLivrables(LS, { mesLivrables: true }, { userId: 'pHugo' }).map((l) => l.id),
+    ).toEqual(['1'])
+    // Sans userId → 0 résultats
+    expect(filterLivrables(LS, { mesLivrables: true }, {}).length).toBe(0)
+  })
+
+  it('combine plusieurs filtres en intersection (ET logique)', () => {
+    // Statut brief OU a_valider, ET bloc bA → seul livrable 1
+    const out = filterLivrables(LS, {
+      statuts: new Set(['brief', 'a_valider']),
+      blockIds: new Set(['bA']),
+    })
+    expect(out.map((l) => l.id)).toEqual(['1'])
+  })
+
+  it('Set vide est ignoré (équivalent à pas de filtre)', () => {
+    expect(
+      filterLivrables(LS, { statuts: new Set() }).length,
+    ).toBe(LS.length)
+  })
+})
+
+describe('hasActiveFilter', () => {
+  it('false si filters vide ou tous Sets vides + bools off', () => {
+    expect(hasActiveFilter({})).toBe(false)
+    expect(
+      hasActiveFilter({
+        statuts: new Set(),
+        monteurs: new Set(),
+        formats: new Set(),
+        blockIds: new Set(),
+        enRetard: false,
+        mesLivrables: false,
+      }),
+    ).toBe(false)
+  })
+
+  it('true dès qu un Set a un élément', () => {
+    expect(hasActiveFilter({ statuts: new Set(['brief']) })).toBe(true)
+    expect(hasActiveFilter({ monteurs: new Set(['p:abc']) })).toBe(true)
+    expect(hasActiveFilter({ formats: new Set(['16:9']) })).toBe(true)
+    expect(hasActiveFilter({ blockIds: new Set(['b1']) })).toBe(true)
+  })
+
+  it('true dès qu un toggle bool est activé', () => {
+    expect(hasActiveFilter({ enRetard: true })).toBe(true)
+    expect(hasActiveFilter({ mesLivrables: true })).toBe(true)
   })
 })

@@ -24,7 +24,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
   CheckSquare,
   Plus,
@@ -36,13 +36,21 @@ import {
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { useAuth } from '../../contexts/AuthContext'
 import { prompt } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
-import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
+import {
+  LIVRABLE_BLOCK_COLOR_PRESETS,
+  filterLivrables,
+  hasActiveFilter,
+  listMonteurs,
+} from '../../lib/livrablesHelpers'
 import { listEventTypes } from '../../lib/planning'
+import { listOrgProfiles, indexProfilesById } from '../../lib/profiles'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
 import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
 import BulkActionBar from '../../features/livrables/components/BulkActionBar'
+import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
 
 const OUTIL_KEY = 'livrables'
 
@@ -51,6 +59,9 @@ export default function LivrablesTab() {
   const { can } = useProjectPermissions(projectId)
   const canRead = can(OUTIL_KEY, 'read')
   const canEdit = can(OUTIL_KEY, 'edit')
+  const { profile, org } = useAuth()
+  const userId = profile?.id || null
+  const orgId = org?.id || null
 
   const {
     loading,
@@ -84,6 +95,102 @@ export default function LivrablesTab() {
       cancelled = true
     }
   }, [canRead])
+
+  // ─── Profiles de l'org (LIV-15 — autocomplete monteur) ──────────────────
+  // Chargés une fois quand l'orgId est connu. On garde la Map indexée pour
+  // éviter de la recalculer à chaque render des lignes.
+  const [profiles, setProfiles] = useState([])
+  useEffect(() => {
+    if (!canRead || !orgId) return
+    let cancelled = false
+    listOrgProfiles({ orgId })
+      .then((list) => {
+        if (!cancelled) setProfiles(list || [])
+      })
+      .catch((err) => {
+        // Non-bloquant — l'input bascule sur texte libre seul.
+        notify.error('Chargement profils : ' + (err?.message || err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canRead, orgId])
+  const profilesById = useMemo(() => indexProfilesById(profiles), [profiles])
+
+  // ─── LIV-15 — Filtres (state synchro URL params) ────────────────────────
+  // Format URL : ?statut=brief,en_cours&monteur=p:abc,x:hugo&format=16:9,__none__
+  //              &bloc=<uuid>,<uuid>&retard=1&mes=1
+  // Persistant à travers reloads, partageable. Pas de stockage côté client.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => {
+    const splitSet = (val) => {
+      if (!val) return new Set()
+      return new Set(val.split(',').filter(Boolean))
+    }
+    return {
+      statuts: splitSet(searchParams.get('statut')),
+      monteurs: splitSet(searchParams.get('monteur')),
+      formats: splitSet(searchParams.get('format')),
+      blockIds: splitSet(searchParams.get('bloc')),
+      enRetard: searchParams.get('retard') === '1',
+      mesLivrables: searchParams.get('mes') === '1',
+    }
+  }, [searchParams])
+
+  const handleFiltersChange = useCallback(
+    (next) => {
+      const params = new URLSearchParams(searchParams)
+      // Sets → joined string ; vide → on retire la clé.
+      const writeSet = (key, set) => {
+        if (set && set.size > 0) {
+          params.set(key, Array.from(set).join(','))
+        } else {
+          params.delete(key)
+        }
+      }
+      writeSet('statut', next.statuts)
+      writeSet('monteur', next.monteurs)
+      writeSet('format', next.formats)
+      writeSet('bloc', next.blockIds)
+      if (next.enRetard) params.set('retard', '1')
+      else params.delete('retard')
+      if (next.mesLivrables) params.set('mes', '1')
+      else params.delete('mes')
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  // Liste des monteurs distincts pour la barre de filtres.
+  const allLivrablesFlat = useMemo(() => {
+    if (!livrablesByBlock) return []
+    const out = []
+    for (const arr of livrablesByBlock.values()) out.push(...arr)
+    return out
+  }, [livrablesByBlock])
+  const monteursList = useMemo(
+    () => listMonteurs(allLivrablesFlat, profilesById),
+    [allLivrablesFlat, profilesById],
+  )
+
+  // Application des filtres : on construit `filteredLivrablesByBlock` qui
+  // remplace `livrablesByBlock` en aval. Si aucun filtre actif, on passe
+  // directement la Map originale (pas de copie inutile).
+  const filteredLivrablesByBlock = useMemo(() => {
+    if (!livrablesByBlock || !hasActiveFilter(filters)) return livrablesByBlock
+    const next = new Map()
+    for (const [blockId, arr] of livrablesByBlock.entries()) {
+      const filtered = filterLivrables(arr, filters, { userId })
+      next.set(blockId, filtered)
+    }
+    return next
+  }, [livrablesByBlock, filters, userId])
+
+  // Compteurs basés sur la liste FILTRÉE (réactivité aux filtres pour
+  // afficher "X actifs après filtre" — cohérent avec l'UX).
+  // Hmm, mais compteurs header sont déjà calculés sur la liste complète via
+  // useLivrables. On les laisse globaux pour ne pas perdre le repère "total
+  // projet". Si tu veux qu'ils suivent les filtres, à arbitrer.
 
   // ─── LIV-14 — Bulk select (sélection multiple cross-blocs) ──────────────
   // Set des IDs livrables sélectionnés. Vidé à chaque changement de projet.
@@ -226,6 +333,17 @@ export default function LivrablesTab() {
         onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
       />
 
+      {/* Barre de filtres (LIV-15) — visible si au moins 1 bloc */}
+      {blocks.length > 0 && (
+        <LivrablesFilterBar
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          blocks={blocks}
+          monteurs={monteursList}
+          canFilterMes={Boolean(userId)}
+        />
+      )}
+
       <div className="p-4 sm:p-6 flex-1">
         {blocks.length === 0 ? (
           <EmptyState
@@ -235,7 +353,7 @@ export default function LivrablesTab() {
         ) : (
           <LivrableBlockList
             blocks={blocks}
-            livrablesByBlock={livrablesByBlock}
+            livrablesByBlock={filteredLivrablesByBlock}
             versionsByLivrable={versionsByLivrable}
             etapesByLivrable={etapesByLivrable}
             actions={actions}
@@ -245,6 +363,8 @@ export default function LivrablesTab() {
             selectedIds={selectedIds}
             onToggleSelect={canEdit ? handleToggleSelect : undefined}
             onSelectBlock={canEdit ? handleSelectBlock : undefined}
+            profiles={profiles}
+            profilesById={profilesById}
           />
         )}
       </div>

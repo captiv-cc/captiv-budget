@@ -53,7 +53,7 @@ import { isLivrableEnRetard } from '../../../lib/livrablesHelpers'
 import LivrableStatutPill from './LivrableStatutPill'
 import FormatSelect from './FormatSelect'
 import DurationInput from './DurationInput'
-import MonteurAvatar from './MonteurAvatar'
+import MonteurInput from './MonteurInput'
 import PopoverFloat from './PopoverFloat'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
 import Checkbox from './Checkbox'
@@ -72,6 +72,9 @@ export default function LivrableRow({
   // LIV-14 — bulk select
   selected = false,
   onToggleSelect,
+  // LIV-15 — autocomplete monteur
+  profiles = [],
+  profilesById = null,
   // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
   // éviter un refacto plus tard)
   isDragOver = false,
@@ -101,12 +104,10 @@ export default function LivrableRow({
   // ─── États locaux (inline edit) ──────────────────────────────────────────
   const [numero, setNumero] = useState(livrable.numero || '')
   const [nom, setNom] = useState(livrable.nom || '')
-  const [monteur, setMonteur] = useState(livrable.assignee_external || '')
   const [dateLivraison, setDateLivraison] = useState(livrable.date_livraison || '')
 
   useEffect(() => setNumero(livrable.numero || ''), [livrable.numero])
   useEffect(() => setNom(livrable.nom || ''), [livrable.nom])
-  useEffect(() => setMonteur(livrable.assignee_external || ''), [livrable.assignee_external])
   useEffect(() => setDateLivraison(livrable.date_livraison || ''), [livrable.date_livraison])
 
   // ─── Save helper ─────────────────────────────────────────────────────────
@@ -137,6 +138,25 @@ export default function LivrableRow({
       }
     },
     [actions, canEdit, livrable.id, livrable.statut],
+  )
+
+  // Save unifié pour MonteurInput (LIV-15) — patch les 2 champs en un appel.
+  const handleMonteurCommit = useCallback(
+    async ({ profileId, external }) => {
+      if (!canEdit) return
+      const currentP = livrable.assignee_profile_id || null
+      const currentX = livrable.assignee_external || null
+      if (currentP === profileId && currentX === external) return
+      try {
+        await actions.updateLivrable(livrable.id, {
+          assignee_profile_id: profileId,
+          assignee_external: external,
+        })
+      } catch (err) {
+        notify.error('Erreur sauvegarde : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, livrable.id, livrable.assignee_profile_id, livrable.assignee_external],
   )
 
   // ─── Menu ⋯ ──────────────────────────────────────────────────────────────
@@ -357,22 +377,16 @@ export default function LivrableRow({
         </div>
       </td>
 
-      {/* Monteur (avatar + texte libre MVP) */}
+      {/* Monteur — autocomplete profile + texte libre (LIV-15) */}
       <td className="px-2 py-1.5 align-middle" style={{ width: '130px' }}>
-        <div className="flex items-center gap-1.5">
-          <MonteurAvatar name={monteur} size="sm" />
-          <input
-            type="text"
-            value={monteur}
-            onChange={(e) => setMonteur(e.target.value)}
-            onBlur={() => saveField('assignee_external', monteur.trim())}
-            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            disabled={!canEdit}
-            placeholder="—"
-            className="flex-1 min-w-0 bg-transparent focus:outline-none text-xs"
-            style={{ color: 'var(--txt-2)' }}
-          />
-        </div>
+        <MonteurInput
+          profileId={livrable.assignee_profile_id || null}
+          external={livrable.assignee_external || null}
+          profiles={profiles}
+          profilesById={profilesById}
+          canEdit={canEdit}
+          onCommit={handleMonteurCommit}
+        />
       </td>
 
       {/* Date livraison */}

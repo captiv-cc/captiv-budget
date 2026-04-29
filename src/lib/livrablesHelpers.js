@@ -385,7 +385,7 @@ export function computeCompteurs(livrables = [], now = new Date()) {
  *   - assignee_external   (texte libre) → entrée brute
  *
  * @param {Array} livrables
- * @param {Map<string, Object>} [profilesById] - Map id → {id, nom, prenom...}
+ * @param {Map<string, Object>} [profilesById] - Map id → {id, full_name, email, ...}
  * @returns {Array<{ key: string, label: string, profile?: Object, isExternal: boolean }>}
  */
 export function listMonteurs(livrables = [], profilesById = new Map()) {
@@ -396,9 +396,7 @@ export function listMonteurs(livrables = [], profilesById = new Map()) {
       if (!seen.has(key)) {
         const profile = profilesById.get(l.assignee_profile_id)
         const fullName = profile
-          ? [profile.prenom, profile.nom].filter(Boolean).join(' ').trim() ||
-            profile.email ||
-            'Membre inconnu'
+          ? (profile.full_name || profile.email || 'Membre inconnu')
           : 'Membre'
         seen.set(key, { key, label: fullName, profile: profile || null, isExternal: false })
       }
@@ -485,6 +483,88 @@ export function nextLivrableNumero(block, blockLivrables = []) {
   let n = 1
   while (used.has(n)) n++
   return `${prefix}${n}`
+}
+
+// ─── Filtres (LIV-15) ────────────────────────────────────────────────────────
+
+/**
+ * Filtre une liste de livrables selon un objet `filters`. Toutes les clés
+ * sont optionnelles ; absentes/vides → pas de filtrage sur cet axe.
+ *
+ * @param {Array}  livrables
+ * @param {Object} filters
+ * @param {Set<string>}  [filters.statuts]      - multi-select sur `livrable.statut`
+ * @param {Set<string>}  [filters.monteurs]     - keys retournées par `listMonteurs`
+ *                                                (`p:<profileId>` ou `x:<lower(label)>`)
+ * @param {Set<string>}  [filters.formats]      - multi-select sur `livrable.format`
+ * @param {Set<string>}  [filters.blockIds]     - multi-select sur `livrable.block_id`
+ * @param {boolean}      [filters.enRetard]     - true → seulement les en retard
+ * @param {boolean}      [filters.mesLivrables] - true → seulement les livrables
+ *                                                où `assignee_profile_id === ctx.userId`
+ * @param {Object} [ctx]
+ * @param {string} [ctx.userId] - id du user courant (pour `mesLivrables`)
+ * @param {Date}   [ctx.now]    - fixé pour les tests temporels
+ * @returns {Array} nouveau tableau filtré (pure)
+ */
+export function filterLivrables(livrables = [], filters = {}, ctx = {}) {
+  const {
+    statuts,
+    monteurs,
+    formats,
+    blockIds,
+    enRetard,
+    mesLivrables,
+  } = filters
+  const { userId, now } = ctx
+
+  return livrables.filter((l) => {
+    if (!l) return false
+    // Statut (multi)
+    if (statuts && statuts.size > 0 && !statuts.has(l.statut)) return false
+    // Format (multi) — null → match seulement si "Aucun" est dans le filtre
+    if (formats && formats.size > 0) {
+      const fKey = l.format || '__none__'
+      if (!formats.has(fKey)) return false
+    }
+    // Bloc (multi)
+    if (blockIds && blockIds.size > 0 && !blockIds.has(l.block_id)) return false
+    // Monteur — match sur `assignee_profile_id` OU `assignee_external` :
+    // les keys du Set sont au format `p:<id>` ou `x:<lower(label)>`.
+    if (monteurs && monteurs.size > 0) {
+      const profileKey = l.assignee_profile_id ? `p:${l.assignee_profile_id}` : null
+      const externalKey = l.assignee_external
+        ? `x:${l.assignee_external.trim().toLowerCase()}`
+        : null
+      // Cas spécial "Aucun monteur" → key '__none__' si ni profile ni external
+      const noneKey = !profileKey && !externalKey ? '__none__' : null
+      if (
+        (!profileKey || !monteurs.has(profileKey)) &&
+        (!externalKey || !monteurs.has(externalKey)) &&
+        (!noneKey || !monteurs.has(noneKey))
+      ) {
+        return false
+      }
+    }
+    // En retard (date_livraison < today + statut non terminé)
+    if (enRetard && !isLivrableEnRetard(l, now)) return false
+    // Mes livrables (lié au user courant via assignee_profile_id)
+    if (mesLivrables && (!userId || l.assignee_profile_id !== userId)) return false
+    return true
+  })
+}
+
+/**
+ * Filtre actif si au moins un critère est défini (Set non vide ou bool true).
+ * Utilisé pour afficher le bouton "Effacer les filtres".
+ */
+export function hasActiveFilter(filters = {}) {
+  if (filters.statuts && filters.statuts.size > 0) return true
+  if (filters.monteurs && filters.monteurs.size > 0) return true
+  if (filters.formats && filters.formats.size > 0) return true
+  if (filters.blockIds && filters.blockIds.size > 0) return true
+  if (filters.enRetard) return true
+  if (filters.mesLivrables) return true
+  return false
 }
 
 // ─── Validation / sanitization ──────────────────────────────────────────────

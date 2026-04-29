@@ -72,6 +72,9 @@ export default function LivrableBlockCard({
   selectedIds,         // Set<string> (sélection cross-blocs)
   onToggleSelect,      // (livrableId, { shiftKey }) => void
   onSelectBlock,       // (livrableIdsOfBlock, allSelected) => void
+  // LIV-15 — autocomplete monteur
+  profiles = [],       // Array<profile> de l'org
+  profilesById = null, // Map<id, profile>
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -721,6 +724,8 @@ export default function LivrableBlockCard({
                     onOpenVersions={onOpenVersions}
                     onOpenEtapes={onOpenEtapes}
                     selected={selectedIds?.has(l.id) || false}
+                    profiles={profiles}
+                    profilesById={profilesById}
                     onToggleSelect={
                       onToggleSelect
                         ? (opts) => onToggleSelect(l.id, opts || {})
@@ -792,6 +797,8 @@ export default function LivrableBlockCard({
                 onOpenVersions={onOpenVersions}
                 onOpenEtapes={onOpenEtapes}
                 selected={selectedIds?.has(l.id) || false}
+                profiles={profiles}
+                profilesById={profilesById}
                 onToggleSelect={
                   onToggleSelect
                     ? (opts) => onToggleSelect(l.id, opts || {})

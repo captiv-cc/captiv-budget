@@ -39,6 +39,9 @@ export default function LivrableBlockList({
   selectedIds,
   onToggleSelect,
   onSelectBlock,
+  // LIV-15 — autocomplete monteur
+  profiles = [],
+  profilesById = null,
 }) {
   // Drag & drop : ref pour l'index source (capté au dragStart), state pour
   // l'index survolé (rendu visuel). Pattern MAT-9D.
@@ -79,6 +82,8 @@ export default function LivrableBlockList({
           selectedIds={selectedIds}
           onToggleSelect={onToggleSelect}
           onSelectBlock={onSelectBlock}
+          profiles={profiles}
+          profilesById={profilesById}
           actions={actions}
           canEdit={canEdit}
           isDragOver={dragOverBlockIdx === idx}
