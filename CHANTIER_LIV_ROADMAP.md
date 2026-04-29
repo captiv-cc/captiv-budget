@@ -326,7 +326,7 @@ les templates PDF.
 | LIV-10 ⊘ | Phases projet — CRUD + events multi-jours | M | **Skip — hors scope Livrables** : les phases projet sont projet-level (couvrent tout le projet, pas un livrable). Pas leur place dans LivrablesTab. À déplacer vers un futur ticket "Header projet" ou "Dashboard projet" si besoin. La donnée est déjà visible dans le planning via `is_event=true` + `livrablesPlanningSync`. |
 | LIV-11 ✅ | Drag & drop livrables dans bloc | S | Pattern miroir MAT-9C / LIV-6. Câblage dans `LivrableBlockCard` (orchestrateur DnD) : `dragLivrableIdx` ref + `dragOverLivrableIdx` state + `handleReorderLivrables` → `actions.reorderLivrables(orderedIds)` (déjà optimistic côté hook). Props DnD déjà acceptées par `LivrableRow` depuis LIV-7. Désactivé sur mobile (cards). |
 | LIV-12 | Duplication livrable (variante) | S | Bouton "Dupliquer" → copie dans même bloc |
-| LIV-13 | Duplication cross-project | M | Modal "Dupliquer depuis projet X" (blocs + livrables + phases) |
+| LIV-13 ✅ | Duplication cross-project | M | `DuplicateToProjectModal` générique (mode `livrable` ou `bloc`) — recherche projet cible + sélecteur bloc (livrable) ou suffixe `(copie)` auto sur conflit nom (bloc). Lib : `duplicateLivrableToProject` + `duplicateBlockToProject` + `listAccessibleProjects` + `listBlocksForProject`. Versions/étapes feuille blanche ; `devis_lot_id` non copié (cross-project sans sens). Pas d'optimistic — visible au prochain mount du projet cible. |
 | LIV-14 | Bulk edit (sélection multiple) | M | Checkbox sur lignes + barre d'action batch |
 | LIV-15 | Filtres (monteur, statut, Mes livrables) | S | Header LIV, persistence localStorage |
 | LIV-16 | Compteurs retard + prochain (header LIV) | S | En-tête LivrablesTab |

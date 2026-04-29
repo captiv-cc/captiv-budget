@@ -40,6 +40,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  CopyPlus,
   GripVertical,
   MoreHorizontal,
   Palette,
@@ -54,6 +55,7 @@ import { notify } from '../../../lib/notify'
 import { useBreakpoint } from '../../../hooks/useBreakpoint'
 import LivrableRow from './LivrableRow'
 import LivrableRowCard from './LivrableRowCard'
+import DuplicateToProjectModal from './DuplicateToProjectModal'
 
 export default function LivrableBlockCard({
   block,
@@ -150,6 +152,9 @@ export default function LivrableBlockCard({
   // ─── Menu (...) actions bloc ──────────────────────────────────────────────
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
+
+  // LIV-13 — modal duplication cross-project (locale au bloc)
+  const [dupModalOpen, setDupModalOpen] = useState(false)
   useEffect(() => {
     if (!menuOpen) return undefined
     function onDoc(e) {
@@ -614,7 +619,20 @@ export default function LivrableBlockCard({
                   setMenuOpen(false)
                   setColorMenuOpen(true)
                 }}
+                onDuplicateToProject={() => {
+                  setMenuOpen(false)
+                  setDupModalOpen(true)
+                }}
                 onDelete={handleDelete}
+              />
+            )}
+            {dupModalOpen && (
+              <DuplicateToProjectModal
+                mode="bloc"
+                source={{ id: block.id, label: block.nom || 'Sans nom' }}
+                currentProjectId={block.project_id}
+                actions={actions}
+                onClose={() => setDupModalOpen(false)}
               />
             )}
           </div>
@@ -914,19 +932,32 @@ function ColorPalette({ currentColor, onPick }) {
 // Menu (...) actions bloc
 // ════════════════════════════════════════════════════════════════════════════
 
-function BlockActionMenu({ onRename, onEditPrefix, onEditColor, onDelete }) {
+function BlockActionMenu({
+  onRename,
+  onEditPrefix,
+  onEditColor,
+  onDuplicateToProject,
+  onDelete,
+}) {
   return (
     <div
       className="absolute right-0 top-full mt-1 z-20 rounded-lg shadow-lg overflow-hidden"
       style={{
         background: 'var(--bg-elev)',
         border: '1px solid var(--brd)',
-        minWidth: '180px',
+        minWidth: '220px',
       }}
     >
       <MenuRow icon={Type} label="Renommer" onClick={onRename} />
       <MenuRow icon={Type} label="Préfixe" onClick={onEditPrefix} />
       <MenuRow icon={Palette} label="Couleur" onClick={onEditColor} />
+      <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
+        <MenuRow
+          icon={CopyPlus}
+          label="Dupliquer dans un autre projet…"
+          onClick={onDuplicateToProject}
+        />
+      </div>
       <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
         <MenuRow icon={Trash2} label="Supprimer" onClick={onDelete} danger />
       </div>

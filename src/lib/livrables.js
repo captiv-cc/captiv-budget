@@ -524,6 +524,212 @@ export async function duplicateLivrable(livrableId) {
   })
 }
 
+// ═══ LIV-13 — Duplication cross-project ════════════════════════════════════
+
+/**
+ * Liste les projets de l'org auxquels l'utilisateur a accès en lecture.
+ * RLS filtre côté DB — pas besoin de check perm côté client.
+ *
+ * @param {Object} opts
+ * @param {string} opts.orgId             - org courante
+ * @param {string} [opts.excludeProjectId] - exclure ce projet (souvent le projet courant)
+ * @returns {Promise<Array<{id, title, status, types_projet}>>}
+ */
+export async function listAccessibleProjects({ orgId, excludeProjectId } = {}) {
+  if (!orgId) throw new Error('listAccessibleProjects: orgId requis')
+  let q = supabase
+    .from('projects')
+    .select('id, title, status, types_projet')
+    .eq('org_id', orgId)
+    .order('updated_at', { ascending: false })
+  if (excludeProjectId) q = q.neq('id', excludeProjectId)
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Liste les blocs livrables (non supprimés) d'un projet — utile pour le
+ * sélecteur de bloc cible dans la modal de duplication cross-project.
+ */
+export async function listBlocksForProject(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('livrable_blocks')
+    .select('id, nom, prefixe, couleur, sort_order')
+    .eq('project_id', projectId)
+    .is('deleted_at', null)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Duplique un livrable vers un autre projet.
+ * Reset feuille blanche : statut → brief, version_label/date/liens → null,
+ * versions et étapes NON dupliquées (cohérent avec duplicateLivrable
+ * same-project). Le devis_lot_id N'est PAS copié — il pointerait sur un lot
+ * d'un autre projet, ce qui n'a pas de sens métier.
+ *
+ * @param {string} srcLivrableId
+ * @param {string} targetProjectId
+ * @param {Object} [opts]
+ * @param {string} [opts.targetBlockId] - bloc cible. Si absent : 1er bloc actif
+ *                                        du projet, ou bloc "Importé" auto-créé.
+ */
+export async function duplicateLivrableToProject(
+  srcLivrableId,
+  targetProjectId,
+  { targetBlockId } = {},
+) {
+  if (!srcLivrableId) throw new Error('duplicateLivrableToProject: srcLivrableId requis')
+  if (!targetProjectId) throw new Error('duplicateLivrableToProject: targetProjectId requis')
+
+  // 1. Source.
+  const { data: src, error: srcErr } = await supabase
+    .from('livrables')
+    .select('*')
+    .eq('id', srcLivrableId)
+    .single()
+  if (srcErr) throw srcErr
+
+  // 2. Bloc cible : si fourni, vérifie qu'il appartient au projet cible.
+  let blockId = targetBlockId
+  if (blockId) {
+    const { data: blk, error: bErr } = await supabase
+      .from('livrable_blocks')
+      .select('id, project_id')
+      .eq('id', blockId)
+      .single()
+    if (bErr) throw bErr
+    if (blk.project_id !== targetProjectId) {
+      throw new Error('targetBlockId n\'appartient pas au projet cible')
+    }
+  } else {
+    // Pas de bloc fourni → premier bloc actif, sinon on crée "Importé".
+    const { data: existing } = await supabase
+      .from('livrable_blocks')
+      .select('id')
+      .eq('project_id', targetProjectId)
+      .is('deleted_at', null)
+      .order('sort_order', { ascending: true })
+      .limit(1)
+    if (existing && existing.length > 0) {
+      blockId = existing[0].id
+    } else {
+      const newBlock = await createBlock({
+        projectId: targetProjectId,
+        nom: 'Importé',
+        couleur: '#94a3b8', // slate-400 neutre
+      })
+      blockId = newBlock.id
+    }
+  }
+
+  // 3. Crée le livrable dans le bloc cible (feuille blanche).
+  return createLivrable({
+    blockId,
+    projectId: targetProjectId,
+    data: {
+      nom: `${src.nom} (copie)`,
+      format: src.format,
+      duree: src.duree,
+      version_label: null,
+      statut: 'brief',
+      projet_dav: src.projet_dav,
+      assignee_profile_id: src.assignee_profile_id,
+      assignee_external: src.assignee_external,
+      date_livraison: null,
+      lien_frame: null,
+      lien_drive: null,
+      // devis_lot_id NON copié — pas pertinent cross-project.
+      notes: src.notes,
+    },
+  })
+}
+
+/**
+ * Duplique un bloc entier vers un autre projet : crée le nouveau bloc + tous
+ * ses livrables actifs (chacun en feuille blanche). Si le nom du bloc est
+ * déjà pris dans le projet cible, on suffixe avec "(copie)" ou "(copie N)".
+ *
+ * @param {string} srcBlockId
+ * @param {string} targetProjectId
+ * @returns {Promise<{block, livrablesCount}>}
+ */
+export async function duplicateBlockToProject(srcBlockId, targetProjectId) {
+  if (!srcBlockId) throw new Error('duplicateBlockToProject: srcBlockId requis')
+  if (!targetProjectId) throw new Error('duplicateBlockToProject: targetProjectId requis')
+
+  // 1. Source bloc.
+  const { data: src, error: bErr } = await supabase
+    .from('livrable_blocks')
+    .select('*')
+    .eq('id', srcBlockId)
+    .single()
+  if (bErr) throw bErr
+
+  // 2. Détermine un nom non-conflictuel dans le projet cible.
+  const { data: existing } = await supabase
+    .from('livrable_blocks')
+    .select('nom')
+    .eq('project_id', targetProjectId)
+    .is('deleted_at', null)
+  const existingNames = new Set((existing || []).map((b) => b.nom))
+  let nom = src.nom || 'Sans nom'
+  if (existingNames.has(nom)) {
+    let candidate = `${nom} (copie)`
+    let i = 2
+    while (existingNames.has(candidate)) {
+      candidate = `${nom} (copie ${i++})`
+    }
+    nom = candidate
+  }
+
+  // 3. Crée le nouveau bloc avec mêmes préfixe/couleur.
+  const newBlock = await createBlock({
+    projectId: targetProjectId,
+    nom,
+    prefixe: src.prefixe,
+    couleur: src.couleur,
+  })
+
+  // 4. Récupère les livrables actifs du bloc source, ordonnés.
+  const { data: livrables, error: lErr } = await supabase
+    .from('livrables')
+    .select('*')
+    .eq('block_id', srcBlockId)
+    .is('deleted_at', null)
+    .order('sort_order', { ascending: true })
+  if (lErr) throw lErr
+
+  // 5. Crée chaque livrable dans le nouveau bloc (feuille blanche).
+  // Boucle séquentielle pour éviter les conflits de numérotation auto.
+  for (const liv of livrables || []) {
+    await createLivrable({
+      blockId: newBlock.id,
+      projectId: targetProjectId,
+      data: {
+        nom: liv.nom, // pas de "(copie)" — bloc différent, pas de conflit
+        format: liv.format,
+        duree: liv.duree,
+        version_label: null,
+        statut: 'brief',
+        projet_dav: liv.projet_dav,
+        assignee_profile_id: liv.assignee_profile_id,
+        assignee_external: liv.assignee_external,
+        date_livraison: null,
+        lien_frame: null,
+        lien_drive: null,
+        // devis_lot_id NON copié — cross-project.
+        notes: liv.notes,
+      },
+    })
+  }
+
+  return { block: newBlock, livrablesCount: (livrables || []).length }
+}
+
 // ═══ Mutations — Versions historisées ═══════════════════════════════════════
 
 const VERSION_EDITABLE_FIELDS = [

@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Copy,
+  CopyPlus,
   ExternalLink,
   History,
   Link2,
@@ -43,6 +44,7 @@ import FormatSelect from './FormatSelect'
 import DurationInput from './DurationInput'
 import MonteurAvatar from './MonteurAvatar'
 import PopoverFloat from './PopoverFloat'
+import DuplicateToProjectModal from './DuplicateToProjectModal'
 
 export default function LivrableRowCard({
   livrable,
@@ -119,6 +121,9 @@ export default function LivrableRowCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuAnchorRef = useRef(null)
 
+  // LIV-13 — modal duplication cross-project (locale au card)
+  const [dupModalOpen, setDupModalOpen] = useState(false)
+
   const handleDuplicate = useCallback(async () => {
     setMenuOpen(false)
     if (!canEdit) return
@@ -129,6 +134,12 @@ export default function LivrableRowCard({
       notify.error('Duplication impossible : ' + (err?.message || err))
     }
   }, [actions, canEdit, livrable.id])
+
+  const handleOpenDupModal = useCallback(() => {
+    setMenuOpen(false)
+    if (!canEdit) return
+    setDupModalOpen(true)
+  }, [canEdit])
 
   const handleEditLink = useCallback(
     async (field, label) => {
@@ -222,12 +233,25 @@ export default function LivrableRowCard({
             >
               <CardActionMenu
                 onDuplicate={handleDuplicate}
+                onDuplicateToProject={handleOpenDupModal}
                 onEditFrame={() => handleEditLink('lien_frame', 'Frame.io')}
                 onEditDrive={() => handleEditLink('lien_drive', 'Drive')}
                 onEditNotes={handleOpenNotes}
                 onDelete={handleDelete}
               />
             </PopoverFloat>
+            {dupModalOpen && (
+              <DuplicateToProjectModal
+                mode="livrable"
+                source={{
+                  id: livrable.id,
+                  label: livrable.nom || livrable.numero || 'Livrable',
+                }}
+                currentProjectId={livrable.project_id}
+                actions={actions}
+                onClose={() => setDupModalOpen(false)}
+              />
+            )}
           </>
         )}
       </div>
@@ -514,6 +538,7 @@ function LinkChip({ label, url, onEdit, canEdit }) {
 
 function CardActionMenu({
   onDuplicate,
+  onDuplicateToProject,
   onEditFrame,
   onEditDrive,
   onEditNotes,
@@ -525,10 +550,15 @@ function CardActionMenu({
       style={{
         background: 'var(--bg-elev)',
         border: '1px solid var(--brd)',
-        minWidth: '200px',
+        minWidth: '220px',
       }}
     >
       <MenuRow icon={Copy} label="Dupliquer" onClick={onDuplicate} />
+      <MenuRow
+        icon={CopyPlus}
+        label="Dupliquer dans un autre projet…"
+        onClick={onDuplicateToProject}
+      />
       <MenuRow icon={Link2} label="Lien Frame.io" onClick={onEditFrame} />
       <MenuRow icon={Link2} label="Lien Drive" onClick={onEditDrive} />
       <MenuRow icon={StickyNote} label="Notes" onClick={onEditNotes} />

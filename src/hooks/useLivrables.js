@@ -391,6 +391,24 @@ export function useLivrables(projectId) {
     [bumpReload],
   )
 
+  // LIV-13 — Duplication cross-project. Pas d'optimistic update : le livrable
+  // créé est dans un AUTRE projet, donc invisible dans la liste courante. Le
+  // hook du projet cible (s'il est ouvert dans un autre onglet) le verra via
+  // realtime. Sinon, visible au prochain mount du projet cible.
+  const duplicateLivrableToProjectAction = useCallback(
+    async (livrableId, targetProjectId, opts) => {
+      return L.duplicateLivrableToProject(livrableId, targetProjectId, opts)
+    },
+    [],
+  )
+
+  const duplicateBlockToProjectAction = useCallback(
+    async (blockId, targetProjectId) => {
+      return L.duplicateBlockToProject(blockId, targetProjectId)
+    },
+    [],
+  )
+
   const bulkUpdateLivrablesAction = useCallback(
     async (livrableIds, fields) => {
       // Optimistic patch sur tous les ids ciblés.
@@ -605,6 +623,8 @@ export function useLivrables(projectId) {
       restoreLivrable: restoreLivrableAction,
       reorderLivrables: reorderLivrablesAction,
       duplicateLivrable: duplicateLivrableAction,
+      duplicateLivrableToProject: duplicateLivrableToProjectAction, // LIV-13
+      duplicateBlockToProject: duplicateBlockToProjectAction, // LIV-13
       bulkUpdateLivrables: bulkUpdateLivrablesAction,
       // Versions
       addVersion: addVersionAction,
