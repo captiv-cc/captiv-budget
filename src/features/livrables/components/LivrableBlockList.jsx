@@ -35,6 +35,10 @@ export default function LivrableBlockList({
   canEdit = true,
   onOpenVersions,
   onOpenEtapes,
+  // LIV-14 — bulk select
+  selectedIds,
+  onToggleSelect,
+  onSelectBlock,
 }) {
   // Drag & drop : ref pour l'index source (capté au dragStart), state pour
   // l'index survolé (rendu visuel). Pattern MAT-9D.
@@ -72,6 +76,9 @@ export default function LivrableBlockList({
           etapesByLivrable={etapesByLivrable}
           onOpenVersions={onOpenVersions}
           onOpenEtapes={onOpenEtapes}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
+          onSelectBlock={onSelectBlock}
           actions={actions}
           canEdit={canEdit}
           isDragOver={dragOverBlockIdx === idx}

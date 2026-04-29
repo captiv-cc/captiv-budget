@@ -18,6 +18,7 @@
 //   - open          : booléen (parent contrôle)
 //   - onClose       : () => void — appelé en clic-outside / scroll out
 //   - align         : 'left' | 'right' (par rapport au bord de l'ancre)
+//   - placement     : 'bottom' | 'top' (défaut 'bottom') — sens d'ouverture
 //   - offsetY       : px entre l'ancre et le popover (défaut 4)
 //   - children      : contenu du popover
 //
@@ -34,6 +35,7 @@ export default function PopoverFloat({
   open,
   onClose,
   align = 'left',
+  placement = 'bottom',
   offsetY = 4,
   children,
 }) {
@@ -55,8 +57,18 @@ export default function PopoverFloat({
         onClose?.()
         return
       }
-      // Position de base : juste sous l'ancre, alignée selon `align`.
-      const next = { top: r.bottom + offsetY }
+      // Position verticale selon placement :
+      //   - 'bottom' : popover sous l'ancre (top = ancre.bottom + offset)
+      //   - 'top'    : popover au-dessus (bottom = viewport.h - ancre.top + offset)
+      // Pour 'top' on utilise `bottom:` au lieu de `top:` pour que le popover
+      // s'étende vers le haut depuis sa base. Ça évite de devoir mesurer la
+      // hauteur du popover (qui n'est pas encore montée au moment du calcul).
+      const next = {}
+      if (placement === 'top') {
+        next.bottom = Math.max(8, window.innerHeight - r.top + offsetY)
+      } else {
+        next.top = r.bottom + offsetY
+      }
       if (align === 'right') {
         next.right = Math.max(8, window.innerWidth - r.right)
       } else {
@@ -71,7 +83,7 @@ export default function PopoverFloat({
       window.removeEventListener('scroll', recalc, true)
       window.removeEventListener('resize', recalc)
     }
-  }, [open, anchorRef, align, offsetY, onClose])
+  }, [open, anchorRef, align, placement, offsetY, onClose])
 
   // Click outside (ne ferme PAS si clic sur l'ancre — c'est elle qui toggle).
   useEffect(() => {
@@ -93,6 +105,7 @@ export default function PopoverFloat({
       style={{
         position: 'fixed',
         top: pos.top,
+        bottom: pos.bottom,
         left: pos.left,
         right: pos.right,
         zIndex: 9999,

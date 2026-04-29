@@ -42,6 +42,7 @@ import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../lib/livrablesHelpers'
 import { listEventTypes } from '../../lib/planning'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
 import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
+import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 
 const OUTIL_KEY = 'livrables'
 
@@ -83,6 +84,78 @@ export default function LivrablesTab() {
       cancelled = true
     }
   }, [canRead])
+
+  // ─── LIV-14 — Bulk select (sélection multiple cross-blocs) ──────────────
+  // Set des IDs livrables sélectionnés. Vidé à chaque changement de projet.
+  // `lastClickedId` mémorise le dernier livrable cliqué pour la sélection
+  // shift+click (range entre 2 cliques).
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [lastClickedId, setLastClickedId] = useState(null)
+
+  // Reset à chaque changement de projet (sécurité — sinon ids fantôme).
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setLastClickedId(null)
+  }, [projectId])
+
+  // Construit la liste à plat de tous les livrables ordonnés (par bloc puis
+  // sort_order intra-bloc). Utilisée pour le shift+click range.
+  const flatLivrableIds = useMemo(() => {
+    if (!blocks || !livrablesByBlock) return []
+    const ids = []
+    for (const block of blocks) {
+      const blockLivrables = livrablesByBlock.get(block.id) || []
+      for (const l of blockLivrables) ids.push(l.id)
+    }
+    return ids
+  }, [blocks, livrablesByBlock])
+
+  const handleToggleSelect = useCallback(
+    (id, { shiftKey } = {}) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        // Range shift+click : on coche/décoche tous les ids entre lastClickedId
+        // et id (inclusif), en prenant l'état cible = !next.has(id).
+        if (shiftKey && lastClickedId && lastClickedId !== id) {
+          const fromIdx = flatLivrableIds.indexOf(lastClickedId)
+          const toIdx = flatLivrableIds.indexOf(id)
+          if (fromIdx >= 0 && toIdx >= 0) {
+            const [start, end] =
+              fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx]
+            const rangeIds = flatLivrableIds.slice(start, end + 1)
+            // Coche tous (cohérent avec le pattern "shift étend la sélection")
+            for (const rid of rangeIds) next.add(rid)
+            return next
+          }
+        }
+        // Toggle simple
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+      setLastClickedId(id)
+    },
+    [flatLivrableIds, lastClickedId],
+  )
+
+  const handleSelectBlock = useCallback((blockLivrableIds, allSelected) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        // Tous → on décoche tous
+        for (const id of blockLivrableIds) next.delete(id)
+      } else {
+        // Aucun ou partiel → on coche tous
+        for (const id of blockLivrableIds) next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+    setLastClickedId(null)
+  }, [])
 
   // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
@@ -169,9 +242,19 @@ export default function LivrablesTab() {
             canEdit={canEdit}
             onOpenVersions={handleOpenVersions}
             onOpenEtapes={handleOpenEtapes}
+            selectedIds={selectedIds}
+            onToggleSelect={canEdit ? handleToggleSelect : undefined}
+            onSelectBlock={canEdit ? handleSelectBlock : undefined}
           />
         )}
       </div>
+
+      {/* Bandeau d'actions bulk (LIV-14) — apparaît si 1+ sélectionné */}
+      <BulkActionBar
+        selectedIds={selectedIds}
+        actions={actions}
+        onClearSelection={handleClearSelection}
+      />
 
       {/* Drawer details (LIV-8 versions + LIV-9 étapes) */}
       <LivrableDetailsDrawer

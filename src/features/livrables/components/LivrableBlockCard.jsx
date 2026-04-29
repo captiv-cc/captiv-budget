@@ -56,6 +56,7 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint'
 import LivrableRow from './LivrableRow'
 import LivrableRowCard from './LivrableRowCard'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
+import Checkbox from './Checkbox'
 
 export default function LivrableBlockCard({
   block,
@@ -67,6 +68,10 @@ export default function LivrableBlockCard({
   etapesByLivrable,    // Map<livrableId, etape[]>
   onOpenVersions,      // (livrable) => void
   onOpenEtapes,        // (livrable) => void
+  // LIV-14 — bulk select
+  selectedIds,         // Set<string> (sélection cross-blocs)
+  onToggleSelect,      // (livrableId, { shiftKey }) => void
+  onSelectBlock,       // (livrableIdsOfBlock, allSelected) => void
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -228,6 +233,21 @@ export default function LivrableBlockCard({
   // ─── Layout responsive (MAT-RESP-1) ──────────────────────────────────────
   const bp = useBreakpoint()
   const isMobile = bp.isMobile
+
+  // ─── LIV-14 — état checkbox "tout le bloc" ──────────────────────────────
+  // 'all' si tous les livrables du bloc sont sélectionnés, 'partial' si
+  // certains seulement, 'none' si aucun. Calculé via les ids du bloc et
+  // selectedIds passé en prop.
+  const blockSelectionState = (() => {
+    if (!selectedIds || livrables.length === 0) return 'none'
+    let count = 0
+    for (const l of livrables) {
+      if (selectedIds.has(l.id)) count++
+    }
+    if (count === 0) return 'none'
+    if (count === livrables.length) return 'all'
+    return 'partial'
+  })()
 
   // ─── Création livrable (footer — saisie rapide en rafale) ────────────────
   // Pattern aligné sur `BlockItemAdder` (matériel) en simplifié : input
@@ -458,6 +478,17 @@ export default function LivrableBlockCard({
           )}
         </button>
 
+        {/* LIV-14 — checkbox "Tout le bloc" (état tri : none/partial/all) */}
+        {canEdit && onSelectBlock && livrables.length > 0 && (
+          <BlockCheckbox
+            state={blockSelectionState}
+            onToggle={() => {
+              const ids = livrables.map((l) => l.id)
+              onSelectBlock?.(ids, blockSelectionState === 'all')
+            }}
+          />
+        )}
+
         {/* Pastille couleur — click ouvre la palette */}
         <div ref={colorMenuRef} className="relative shrink-0">
           <button
@@ -642,7 +673,7 @@ export default function LivrableBlockCard({
       {/* ─── Corps : liste des livrables (desktop table / mobile cards) ───── */}
       {!collapsed && !isMobile && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs" style={{ minWidth: '1090px' }}>
+          <table className="w-full text-xs" style={{ minWidth: '1114px' }}>
             <thead>
               <tr
                 style={{
@@ -651,6 +682,7 @@ export default function LivrableBlockCard({
                   color: 'var(--txt-3)',
                 }}
               >
+                <Th width="24px" />
                 <Th width="20px" />
                 <Th width="70px">N°</Th>
                 <Th>Nom</Th>
@@ -668,7 +700,7 @@ export default function LivrableBlockCard({
               {livrables.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-3 py-4 text-center italic"
                     style={{ color: 'var(--txt-3)' }}
                   >
@@ -688,6 +720,12 @@ export default function LivrableBlockCard({
                     etapes={etapesByLivrable?.get(l.id) || []}
                     onOpenVersions={onOpenVersions}
                     onOpenEtapes={onOpenEtapes}
+                    selected={selectedIds?.has(l.id) || false}
+                    onToggleSelect={
+                      onToggleSelect
+                        ? (opts) => onToggleSelect(l.id, opts || {})
+                        : undefined
+                    }
                     isDragOver={dragOverLivrableIdx === idx}
                     onDragStart={
                       livrableDndEnabled
@@ -753,6 +791,12 @@ export default function LivrableBlockCard({
                 etapes={etapesByLivrable?.get(l.id) || []}
                 onOpenVersions={onOpenVersions}
                 onOpenEtapes={onOpenEtapes}
+                selected={selectedIds?.has(l.id) || false}
+                onToggleSelect={
+                  onToggleSelect
+                    ? (opts) => onToggleSelect(l.id, opts || {})
+                    : undefined
+                }
               />
             ))
           )}
@@ -931,6 +975,31 @@ function ColorPalette({ currentColor, onPick }) {
 // ════════════════════════════════════════════════════════════════════════════
 // Menu (...) actions bloc
 // ════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════
+// BlockCheckbox — checkbox "Tout le bloc" avec état tri (LIV-14)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Trois états visuels :
+//   - 'none'    : aucun livrable du bloc sélectionné → checkbox vide
+//   - 'partial' : certains sélectionnés → checkbox indeterminate (HTML5)
+//   - 'all'     : tous sélectionnés → checkbox pleine
+//
+// Click :
+//   - 'none' / 'partial' → coche tous les livrables du bloc
+//   - 'all'              → décoche tous
+
+function BlockCheckbox({ state, onToggle }) {
+  return (
+    <Checkbox
+      checked={state === 'all'}
+      indeterminate={state === 'partial'}
+      onClick={onToggle}
+      size="md"
+      ariaLabel="Sélectionner / désélectionner tout le bloc"
+    />
+  )
+}
 
 function BlockActionMenu({
   onRename,

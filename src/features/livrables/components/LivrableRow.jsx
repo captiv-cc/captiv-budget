@@ -56,6 +56,7 @@ import DurationInput from './DurationInput'
 import MonteurAvatar from './MonteurAvatar'
 import PopoverFloat from './PopoverFloat'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
+import Checkbox from './Checkbox'
 
 export default function LivrableRow({
   livrable,
@@ -68,6 +69,9 @@ export default function LivrableRow({
   etapes = [],
   onOpenVersions,
   onOpenEtapes,
+  // LIV-14 — bulk select
+  selected = false,
+  onToggleSelect,
   // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
   // éviter un refacto plus tard)
   isDragOver = false,
@@ -234,6 +238,22 @@ export default function LivrableRow({
         transition: 'background 120ms ease',
       }}
     >
+      {/* Checkbox sélection (LIV-14) — visible au hover OR si sélectionnée */}
+      <td
+        className="px-1 py-1.5 align-middle text-center select-none"
+        style={{ width: '24px' }}
+      >
+        {canEdit && onToggleSelect && (
+          <Checkbox
+            checked={selected}
+            onClick={(e) => onToggleSelect?.({ shiftKey: e.shiftKey })}
+            subtle
+            size="sm"
+            ariaLabel={selected ? 'Désélectionner' : 'Sélectionner'}
+          />
+        )}
+      </td>
+
       {/* Grip */}
       <td
         className="px-1 py-1.5 align-middle text-center select-none"

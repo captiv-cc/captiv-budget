@@ -45,6 +45,7 @@ import DurationInput from './DurationInput'
 import MonteurAvatar from './MonteurAvatar'
 import PopoverFloat from './PopoverFloat'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
+import Checkbox from './Checkbox'
 
 export default function LivrableRowCard({
   livrable,
@@ -57,6 +58,9 @@ export default function LivrableRowCard({
   etapes = [],
   onOpenVersions,
   onOpenEtapes,
+  // LIV-14 — bulk select
+  selected = false,
+  onToggleSelect,
 }) {
   // Badge version (cf. LivrableRow desktop pour la logique exacte)
   const latestVersionLabel = useMemo(() => {
@@ -181,8 +185,17 @@ export default function LivrableRowCard({
       className="px-3 py-2.5 flex flex-col gap-1.5"
       style={{ borderBottom: '1px solid var(--brd-sub)' }}
     >
-      {/* Ligne 1 : (dot retard) numero + nom (alignés à gauche) + menu ⋯ */}
+      {/* Ligne 1 : checkbox + (dot retard) numero + nom + menu ⋯ */}
       <div className="flex items-center gap-2">
+        {canEdit && onToggleSelect && (
+          <Checkbox
+            checked={selected}
+            onClick={(e) => onToggleSelect?.({ shiftKey: e.shiftKey })}
+            subtle
+            size="sm"
+            ariaLabel={selected ? 'Désélectionner' : 'Sélectionner'}
+          />
+        )}
         {enRetard && (
           <span
             aria-label="En retard"
