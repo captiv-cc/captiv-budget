@@ -219,7 +219,7 @@ export async function upsertConfig(projectId, fields = {}) {
 
 // ═══ Mutations — Blocks ═════════════════════════════════════════════════════
 
-const BLOCK_EDITABLE_FIELDS = ['nom', 'prefixe', 'couleur', 'sort_order']
+const BLOCK_EDITABLE_FIELDS = ['nom', 'prefixe', 'couleur', 'sort_order', 'devis_lot_id']
 
 export async function createBlock({ projectId, nom, prefixe = null, couleur = null, sortOrder }) {
   if (!projectId) throw new Error('createBlock: projectId requis')
@@ -1182,4 +1182,98 @@ export async function listUpcomingLivrables({
     project_title: l.projects?.title || null,
   }))
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-19 — Lien devis Niveau 1 (pointeur livrable.devis_lot_id)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Liste les lots d'un projet pour le sélecteur "Lier à un lot…" dans le menu
+ * livrable. On exclut les lots archivés (l'utilisateur ne devrait plus
+ * pointer vers eux). Tri par `sort_order` ASC.
+ *
+ * @param {string} projectId
+ * @returns {Promise<Array<{ id, title, sort_order, archived }>>}
+ */
+export async function listProjectLots(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('devis_lots')
+    .select('id, title, sort_order, archived')
+    .eq('project_id', projectId)
+    .or('archived.is.null,archived.eq.false')
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Pour la génération du PDF d'un devis : récupère les livrables du projet
+ * qui doivent apparaître dans la section "Livrable(s) :" du PDF.
+ *
+ * Règle (cf. LIV-19B) — filtrage **au niveau du bloc** (un bloc = un thème
+ * commercial = un lot, tous ses livrables partagent le même rattachement) :
+ *   - livrables des blocs avec `block.devis_lot_id === lotId`  → spécifiques
+ *   - livrables des blocs avec `block.devis_lot_id IS NULL`    → génériques,
+ *                                                                  apparaissent sur
+ *                                                                  tous les devis
+ *   - livrables des autres blocs (lié à un autre lot)          → exclus
+ *
+ * On exclut les supprimés (`deleted_at IS NULL`) et les archivés
+ * (`statut !== 'archive'`). On garde les `livre` car ils restent légitimes
+ * comme livrables vendus, même si déjà délivrés à la signature du devis.
+ *
+ * Tri : par `numero` en mode naturel (gère bien `A1 < A2 < A10`, les
+ * livrables sans numero atterrissent à la fin). Cohérent avec ce que le
+ * client lira sur le PDF : 1, 2, 3 dans l'ordre numérique, pas l'ordre
+ * d'affichage interne LIV (qui peut être réorganisé via drag & drop).
+ *
+ * @param {string} projectId
+ * @param {string|null} lotId   - id du lot du devis (peut être null en mono-lot
+ *                                ou si le devis est non rattaché)
+ * @returns {Promise<Array>}
+ */
+export async function listLivrablesForDevisPdf(projectId, lotId = null) {
+  if (!projectId) return []
+
+  // 1. Récupère tous les blocs du projet pour identifier ceux qui matchent.
+  const { data: blocks, error: errBlocks } = await supabase
+    .from('livrable_blocks')
+    .select('id, devis_lot_id')
+    .eq('project_id', projectId)
+    .is('deleted_at', null)
+  if (errBlocks) throw errBlocks
+
+  const validBlockIds = new Set(
+    (blocks || [])
+      .filter((b) => !b.devis_lot_id || (lotId && b.devis_lot_id === lotId))
+      .map((b) => b.id),
+  )
+  if (!validBlockIds.size) return []
+
+  // 2. Liste les livrables des blocs valides.
+  const { data: livs, error: errLivs } = await supabase
+    .from('livrables')
+    .select('id, numero, nom, format, duree, statut, sort_order, block_id')
+    .eq('project_id', projectId)
+    .is('deleted_at', null)
+    .neq('statut', 'archive')
+    .in('block_id', Array.from(validBlockIds))
+  if (errLivs) throw errLivs
+
+  const filtered = livs || []
+  if (!filtered.length) return []
+
+  // Tri par numero, ordre naturel ("A1" < "A2" < "A10"). Sans-numero à la fin.
+  filtered.sort((a, b) => {
+    const na = (a.numero || '').trim()
+    const nb = (b.numero || '').trim()
+    if (!na && !nb) return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    if (!na) return 1
+    if (!nb) return -1
+    return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' })
+  })
+  return filtered
+}
+
 

@@ -45,6 +45,8 @@ export default function LivrableBlockList({
   // LIV-16 — marqueur "prochain" + highlight scroll-to
   prochainId = null,
   highlightedLivrableId = null,
+  // LIV-19 — lots du projet pour le sélecteur "Lier à un lot"
+  lots = [],
 }) {
   // Drag & drop : ref pour l'index source (capté au dragStart), state pour
   // l'index survolé (rendu visuel). Pattern MAT-9D.
@@ -89,6 +91,7 @@ export default function LivrableBlockList({
           profilesById={profilesById}
           prochainId={prochainId}
           highlightedLivrableId={highlightedLivrableId}
+          lots={lots}
           actions={actions}
           canEdit={canEdit}
           isDragOver={dragOverBlockIdx === idx}

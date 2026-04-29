@@ -38,6 +38,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   CopyPlus,
@@ -45,6 +46,7 @@ import {
   MoreHorizontal,
   Palette,
   Plus,
+  Tag,
   Trash2,
   Type,
 } from 'lucide-react'
@@ -57,6 +59,7 @@ import LivrableRow from './LivrableRow'
 import LivrableRowCard from './LivrableRowCard'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
 import Checkbox from './Checkbox'
+import PopoverFloat from './PopoverFloat'
 
 export default function LivrableBlockCard({
   block,
@@ -78,6 +81,8 @@ export default function LivrableBlockCard({
   // LIV-16 — marqueur "prochain" + highlight scroll-to
   prochainId = null,
   highlightedLivrableId = null,
+  // LIV-19 — lots du projet pour le sélecteur "Lier à un lot"
+  lots = [],
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -163,9 +168,31 @@ export default function LivrableBlockCard({
   // ─── Menu (...) actions bloc ──────────────────────────────────────────────
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
+  const menuButtonRef = useRef(null)
 
   // LIV-13 — modal duplication cross-project (locale au bloc)
   const [dupModalOpen, setDupModalOpen] = useState(false)
+
+  // LIV-19 — sous-menu "Lier à un lot…" (un bloc → un lot devis)
+  // L'ancre du popover dépend du déclencheur : entrée du menu ⋯ → ancre sur
+  // le bouton menu (à droite), tag inline du header → ancre sur le tag. Sinon
+  // le popover apparaîtrait toujours à droite, loin du tag cliqué.
+  const [lotMenuAnchor, setLotMenuAnchor] = useState(null) // 'menu' | 'tag' | null
+  const tagButtonRef = useRef(null)
+  const handleLinkLot = useCallback(
+    async (lotId) => {
+      setLotMenuAnchor(null)
+      if (!canEdit) return
+      const next = lotId || null
+      if ((block.devis_lot_id || null) === next) return
+      try {
+        await actions.updateBlock(block.id, { devis_lot_id: next })
+      } catch (err) {
+        notify.error('Erreur lien lot : ' + (err?.message || err))
+      }
+    },
+    [actions, canEdit, block.id, block.devis_lot_id],
+  )
   useEffect(() => {
     if (!menuOpen) return undefined
     function onDoc(e) {
@@ -614,6 +641,31 @@ export default function LivrableBlockCard({
           </button>
         ) : null}
 
+        {/* Tag lot devis (LIV-19) — affiché si bloc lié à un lot */}
+        {block.devis_lot_id &&
+          (() => {
+            const lot = lots.find((l) => l.id === block.devis_lot_id)
+            if (!lot) return null
+            return (
+              <button
+                ref={tagButtonRef}
+                type="button"
+                onClick={() => canEdit && setLotMenuAnchor('tag')}
+                disabled={!canEdit}
+                className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded shrink-0 transition-colors"
+                style={{
+                  background: 'var(--bg-2)',
+                  color: 'var(--txt-3)',
+                  cursor: canEdit ? 'pointer' : 'default',
+                }}
+                title={canEdit ? 'Cliquer pour changer de lot' : `Lot : ${lot.title}`}
+              >
+                <Tag className="w-3 h-3" />
+                <span className="truncate max-w-[120px]">{lot.title}</span>
+              </button>
+            )
+          })()}
+
         {/* Compteur livrables */}
         <span
           className="text-[11px] ml-auto px-2 py-0.5 rounded-full shrink-0"
@@ -626,6 +678,7 @@ export default function LivrableBlockCard({
         {canEdit && (
           <div ref={menuRef} className="relative shrink-0">
             <button
+              ref={menuButtonRef}
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="Actions bloc"
@@ -660,9 +713,33 @@ export default function LivrableBlockCard({
                   setMenuOpen(false)
                   setDupModalOpen(true)
                 }}
+                onLinkLot={() => {
+                  setMenuOpen(false)
+                  setLotMenuAnchor('menu')
+                }}
+                hasLots={lots.length > 0}
+                currentLot={
+                  block.devis_lot_id
+                    ? lots.find((l) => l.id === block.devis_lot_id)
+                    : null
+                }
                 onDelete={handleDelete}
               />
             )}
+            {/* Sous-popover "Lier à un lot" (LIV-19) — ancre dynamique :
+                 menu ⋯ ou tag du header selon le déclencheur. */}
+            <PopoverFloat
+              anchorRef={lotMenuAnchor === 'tag' ? tagButtonRef : menuButtonRef}
+              open={Boolean(lotMenuAnchor)}
+              onClose={() => setLotMenuAnchor(null)}
+              align={lotMenuAnchor === 'tag' ? 'left' : 'right'}
+            >
+              <BlockLotPickerMenu
+                lots={lots}
+                currentLotId={block.devis_lot_id || null}
+                onPick={handleLinkLot}
+              />
+            </PopoverFloat>
             {dupModalOpen && (
               <DuplicateToProjectModal
                 mode="bloc"
@@ -1020,6 +1097,9 @@ function BlockActionMenu({
   onEditPrefix,
   onEditColor,
   onDuplicateToProject,
+  onLinkLot,
+  hasLots,
+  currentLot,
   onDelete,
 }) {
   return (
@@ -1028,12 +1108,22 @@ function BlockActionMenu({
       style={{
         background: 'var(--bg-elev)',
         border: '1px solid var(--brd)',
-        minWidth: '220px',
+        minWidth: '240px',
       }}
     >
       <MenuRow icon={Type} label="Renommer" onClick={onRename} />
       <MenuRow icon={Type} label="Préfixe" onClick={onEditPrefix} />
       <MenuRow icon={Palette} label="Couleur" onClick={onEditColor} />
+      {/* LIV-19 — lien vers un lot du devis (caché si aucun lot dans le projet) */}
+      {hasLots && (
+        <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
+          <MenuRow
+            icon={Tag}
+            label={currentLot ? `Lot : ${currentLot.title}` : 'Lier à un lot…'}
+            onClick={onLinkLot}
+          />
+        </div>
+      )}
       <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
         <MenuRow
           icon={CopyPlus}
@@ -1044,6 +1134,68 @@ function BlockActionMenu({
       <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
         <MenuRow icon={Trash2} label="Supprimer" onClick={onDelete} danger />
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BlockLotPickerMenu — picker des lots du projet (LIV-19)
+// ════════════════════════════════════════════════════════════════════════════
+
+function BlockLotPickerMenu({ lots = [], currentLotId, onPick }) {
+  return (
+    <div
+      className="rounded-lg shadow-lg overflow-hidden"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd)',
+        minWidth: '220px',
+        maxHeight: '320px',
+        overflowY: 'auto',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onPick(null)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
+        style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-hov)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+        }}
+      >
+        <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+          {!currentLotId && <Check className="w-3 h-3" style={{ color: 'var(--green)' }} />}
+        </span>
+        <span className="flex-1">— Aucun lot (générique) —</span>
+      </button>
+      {lots.length > 0 && <div style={{ borderTop: '1px solid var(--brd-sub)' }} />}
+      {lots.map((lot) => {
+        const active = lot.id === currentLotId
+        return (
+          <button
+            key={lot.id}
+            type="button"
+            onClick={() => onPick(lot.id)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
+            style={{ color: 'var(--txt)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+              {active && <Check className="w-3 h-3" style={{ color: 'var(--green)' }} />}
+            </span>
+            <Tag className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+            <span className="flex-1 truncate">{lot.title || 'Sans titre'}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }

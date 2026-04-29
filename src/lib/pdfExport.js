@@ -6,6 +6,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { calcLine, calcSynthese, fmtEur, TAUX_DEFAUT } from './cotisations'
 import { getBlocInfo } from './blocs'
+import { listLivrablesForDevisPdf } from './livrables'
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -95,11 +96,14 @@ const LABELS_C2 = {
 
 // ─── Export principal ─────────────────────────────────────────────────────────
 export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DEFAUT) {
-  const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl] = await Promise.all([
+  const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl, livrablesPdf] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
     loadImageDataUrl('/captiv-banner.png'),
+    // LIV-19 — livrables réels du projet filtrés par lot du devis (génériques
+    // sans lot inclus). Si erreur, on retombe silencieusement sur [].
+    listLivrablesForDevisPdf(project?.id, devis?.lot_id || null).catch(() => []),
   ])
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -318,14 +322,18 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     p2y += 3.4
   }
 
-  // Col 3 : Tableur livrables
+  // Col 3 : Tableur livrables (LIV-19B — basé sur la table livrables réelle,
+  // filtré par devis_lot_id du devis courant + livrables génériques NULL).
+  // Si 0 livrable filtré → la section est complètement cachée (pas de
+  // titre, pas d'espace réservé).
   let p3y = y
-  txt('Livrable(s) :', c3X, p3y, { size: 6, color: C.gray })
-  p3y += 3.4
-  const livsJson = project?.livrables_json || []
-  if (livsJson.length > 0) {
-    livsJson.slice(0, 8).forEach((liv, i) => {
-      const parts = [`#${i + 1} | ${liv.nom || ''}`]
+  if (livrablesPdf && livrablesPdf.length > 0) {
+    txt('Livrable(s) :', c3X, p3y, { size: 6, color: C.gray })
+    p3y += 3.4
+    livrablesPdf.slice(0, 8).forEach((liv, i) => {
+      const numero = (liv.numero || '').toString().trim()
+      const prefix = numero ? `${numero}` : `#${i + 1}`
+      const parts = [`${prefix} | ${liv.nom || ''}`]
       if (liv.format) parts.push(liv.format)
       if (liv.duree) parts.push(liv.duree)
       doc.splitTextToSize(parts.join(' | '), c3W).forEach((l) => {
@@ -333,9 +341,6 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
         p3y += 3.1
       })
     })
-  } else {
-    txt('TBD', c3X, p3y, { size: 6, color: C.gray })
-    p3y += 3.1
   }
 
   y = Math.max(p1y, p2y, p3y) + 4

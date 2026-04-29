@@ -50,6 +50,7 @@ import {
 } from '../../lib/livrablesHelpers'
 import { listEventTypes } from '../../lib/planning'
 import { listOrgProfiles, indexProfilesById } from '../../lib/profiles'
+import { listProjectLots } from '../../lib/livrables'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
 import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
 import BulkActionBar from '../../features/livrables/components/BulkActionBar'
@@ -119,6 +120,26 @@ export default function LivrablesTab() {
     }
   }, [canRead, orgId])
   const profilesById = useMemo(() => indexProfilesById(profiles), [profiles])
+
+  // ─── Lots du projet (LIV-19 — pointeur livrable.devis_lot_id) ────────────
+  // Chargés une fois au mount du tab. Si Hugo crée un nouveau lot pendant
+  // qu'il édite ses livrables, il faudra recharger via remount — overkill
+  // pour V1.
+  const [lots, setLots] = useState([])
+  useEffect(() => {
+    if (!canRead || !projectId) return
+    let cancelled = false
+    listProjectLots(projectId)
+      .then((list) => {
+        if (!cancelled) setLots(list || [])
+      })
+      .catch((err) => {
+        notify.error('Chargement lots : ' + (err?.message || err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canRead, projectId])
 
   // ─── LIV-15 — Filtres (state synchro URL params) ────────────────────────
   // Format URL : ?statut=brief,en_cours&monteur=p:abc,x:hugo&format=16:9,__none__
@@ -438,6 +459,7 @@ export default function LivrablesTab() {
             onSelectBlock={canEdit ? handleSelectBlock : undefined}
             profiles={profiles}
             profilesById={profilesById}
+            lots={lots}
             prochainId={prochainId}
             highlightedLivrableId={highlightedLivrableId}
           />
