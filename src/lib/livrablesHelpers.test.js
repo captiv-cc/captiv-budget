@@ -10,16 +10,28 @@
  *   - listMonteurs (dedupe interne + externe + tri alpha + profile lookup)
  *   - nextLivrableNumero (préfixe + index libre + matching insensible casse)
  *   - pickAllowed
+ *   — LIV-7 / LIV-8 / LIV-9 (LIV-9.1) :
+ *   - parseDuree (parsing souple mm:ss / hh:mm:ss / nombre seul)
+ *   - dureeToSeconds (conversion en secondes)
+ *   - monteurAvatar (initiales + couleur stable hash)
+ *   - computeLivrableStatutFromVersions (sync statut livrable depuis versions)
+ *   - LIVRABLE_FORMATS / MONTEUR_AVATAR_COLORS (constantes export)
  */
 import { describe, it, expect } from 'vitest'
 import {
   computeCompteurs,
+  computeLivrableStatutFromVersions,
+  dureeToSeconds,
   groupLivrablesByBlock,
   indexEtapesByLivrable,
   indexVersionsByLivrable,
   isLivrableEnRetard,
   listMonteurs,
+  LIVRABLE_FORMATS,
+  monteurAvatar,
+  MONTEUR_AVATAR_COLORS,
   nextLivrableNumero,
+  parseDuree,
   pickAllowed,
   sortBySortOrder,
 } from './livrablesHelpers.js'
@@ -251,5 +263,219 @@ describe('pickAllowed', () => {
   it('préserve null et undefined si la clé est listée et présente', () => {
     expect(pickAllowed({ a: null }, ['a'])).toEqual({ a: null })
     expect(pickAllowed({ a: undefined }, ['a'])).toEqual({ a: undefined })
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-7 — parseDuree / dureeToSeconds (helpers durée)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('parseDuree', () => {
+  it('renvoie null pour vide / null / undefined', () => {
+    expect(parseDuree('')).toEqual({ ok: true, normalized: null })
+    expect(parseDuree(null)).toEqual({ ok: true, normalized: null })
+    expect(parseDuree(undefined)).toEqual({ ok: true, normalized: null })
+    expect(parseDuree('   ')).toEqual({ ok: true, normalized: null })
+  })
+
+  it('1-2 chiffres = secondes (mm:ss avec mm=00)', () => {
+    expect(parseDuree('5')).toMatchObject({ ok: true, normalized: '00:05' })
+    expect(parseDuree('45')).toMatchObject({ ok: true, normalized: '00:45' })
+    expect(parseDuree('0')).toMatchObject({ ok: true, normalized: '00:00' })
+  })
+
+  it('refuse > 59 secondes en saisie 1-2 chiffres', () => {
+    const r = parseDuree('60')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/Secondes/)
+  })
+
+  it('3 chiffres = MSS', () => {
+    expect(parseDuree('130')).toMatchObject({ ok: true, normalized: '01:30' })
+    expect(parseDuree('905')).toMatchObject({ ok: true, normalized: '09:05' })
+  })
+
+  it('4 chiffres = MMSS', () => {
+    expect(parseDuree('0130')).toMatchObject({ ok: true, normalized: '01:30' })
+    expect(parseDuree('1230')).toMatchObject({ ok: true, normalized: '12:30' })
+  })
+
+  it('5 chiffres = HMMSS', () => {
+    expect(parseDuree('13030')).toMatchObject({ ok: true, normalized: '01:30:30' })
+  })
+
+  it('6 chiffres = HHMMSS', () => {
+    expect(parseDuree('013030')).toMatchObject({ ok: true, normalized: '01:30:30' })
+  })
+
+  it('refuse > 6 chiffres', () => {
+    expect(parseDuree('1234567').ok).toBe(false)
+  })
+
+  it('format mm:ss → normalisé sur 2 chiffres', () => {
+    expect(parseDuree('1:30')).toMatchObject({ ok: true, normalized: '01:30' })
+    expect(parseDuree('01:30')).toMatchObject({ ok: true, normalized: '01:30' })
+    expect(parseDuree('99:59')).toMatchObject({ ok: true, normalized: '99:59' })
+  })
+
+  it('format hh:mm:ss → normalisé', () => {
+    expect(parseDuree('1:30:00')).toMatchObject({ ok: true, normalized: '01:30:00' })
+    expect(parseDuree('01:30:45')).toMatchObject({ ok: true, normalized: '01:30:45' })
+  })
+
+  it('refuse minutes / secondes > 59 sur format avec :', () => {
+    expect(parseDuree('99:99').ok).toBe(false)
+    expect(parseDuree('1:99').ok).toBe(false)
+    expect(parseDuree('1:60:00').ok).toBe(false)
+  })
+
+  it('refuse les chaînes invalides', () => {
+    expect(parseDuree('abc').ok).toBe(false)
+    expect(parseDuree('1m30').ok).toBe(false)
+    expect(parseDuree('1:30:00:00').ok).toBe(false)
+  })
+})
+
+describe('dureeToSeconds', () => {
+  it('null/vide → null', () => {
+    expect(dureeToSeconds(null)).toBeNull()
+    expect(dureeToSeconds('')).toBeNull()
+    expect(dureeToSeconds(undefined)).toBeNull()
+  })
+
+  it('mm:ss → secondes', () => {
+    expect(dureeToSeconds('00:30')).toBe(30)
+    expect(dureeToSeconds('01:30')).toBe(90)
+    expect(dureeToSeconds('99:59')).toBe(99 * 60 + 59)
+  })
+
+  it('hh:mm:ss → secondes', () => {
+    expect(dureeToSeconds('01:30:00')).toBe(5400)
+    expect(dureeToSeconds('00:00:01')).toBe(1)
+    expect(dureeToSeconds('02:30:45')).toBe(2 * 3600 + 30 * 60 + 45)
+  })
+
+  it('format invalide → null', () => {
+    expect(dureeToSeconds('abc')).toBeNull()
+    expect(dureeToSeconds('1:2:3:4')).toBeNull()
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-7 — monteurAvatar (initiales + couleur stable)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('monteurAvatar', () => {
+  it('renvoie null pour vide / null / undefined', () => {
+    expect(monteurAvatar('')).toBeNull()
+    expect(monteurAvatar(null)).toBeNull()
+    expect(monteurAvatar(undefined)).toBeNull()
+    expect(monteurAvatar('   ')).toBeNull()
+  })
+
+  it('1 mot → 2 premières lettres uppercase', () => {
+    expect(monteurAvatar('Hugo').initials).toBe('HU')
+    expect(monteurAvatar('Sam').initials).toBe('SA')
+    expect(monteurAvatar('A').initials).toBe('A')
+  })
+
+  it('2+ mots → première lettre du premier + dernier mot', () => {
+    expect(monteurAvatar('Marie Dupont').initials).toBe('MD')
+    expect(monteurAvatar('Jean-Paul Sartre').initials).toBe('JS')
+    expect(monteurAvatar('Anne Marie Lopez').initials).toBe('AL')
+  })
+
+  it('couleur stable pour le même nom', () => {
+    const a = monteurAvatar('Hugo')
+    const b = monteurAvatar('Hugo')
+    expect(a.color).toBe(b.color)
+  })
+
+  it('couleur insensible à la casse / aux espaces autour', () => {
+    expect(monteurAvatar('Hugo').color).toBe(monteurAvatar('hugo').color)
+    expect(monteurAvatar('Hugo').color).toBe(monteurAvatar('  Hugo  ').color)
+  })
+
+  it('couleur tirée de MONTEUR_AVATAR_COLORS', () => {
+    const a = monteurAvatar('Logan')
+    expect(MONTEUR_AVATAR_COLORS).toContain(a.color)
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-8 — computeLivrableStatutFromVersions
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('computeLivrableStatutFromVersions', () => {
+  const liv = (statut) => ({ id: 'l1', statut })
+  const v = (sort_order, statut_validation) => ({ id: 'v' + sort_order, sort_order, statut_validation })
+
+  it('null si livrable null', () => {
+    expect(computeLivrableStatutFromVersions(null, [])).toBeNull()
+  })
+
+  it('respecte les statuts terminés (livre, archive)', () => {
+    expect(computeLivrableStatutFromVersions(liv('livre'), [v(1, 'rejete')])).toBe('livre')
+    expect(computeLivrableStatutFromVersions(liv('archive'), [v(1, 'en_attente')])).toBe('archive')
+  })
+
+  it('garde le statut courant si aucune version', () => {
+    expect(computeLivrableStatutFromVersions(liv('brief'), [])).toBe('brief')
+    expect(computeLivrableStatutFromVersions(liv('en_cours'), null)).toBe('en_cours')
+  })
+
+  it('version la plus récente valide → livrable valide', () => {
+    expect(
+      computeLivrableStatutFromVersions(liv('a_valider'), [
+        v(1, 'rejete'),
+        v(2, 'valide'),
+      ]),
+    ).toBe('valide')
+  })
+
+  it('version la plus récente non valide → livrable a_valider', () => {
+    expect(
+      computeLivrableStatutFromVersions(liv('valide'), [
+        v(1, 'valide'),
+        v(2, 'en_attente'),
+      ]),
+    ).toBe('a_valider')
+
+    expect(
+      computeLivrableStatutFromVersions(liv('en_cours'), [v(1, 'rejete')]),
+    ).toBe('a_valider')
+
+    expect(
+      computeLivrableStatutFromVersions(liv('brief'), [v(1, 'retours_a_integrer')]),
+    ).toBe('a_valider')
+  })
+
+  it('seul sort_order détermine "la plus récente" (pas l\'ordre du tableau)', () => {
+    // V2 (sort 2) en_attente, V1 (sort 1) valide → suit V2 → a_valider
+    expect(
+      computeLivrableStatutFromVersions(liv('valide'), [
+        v(2, 'en_attente'), // en premier dans le tableau mais sort_order plus haut
+        v(1, 'valide'),
+      ]),
+    ).toBe('a_valider')
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-7 / LIV-9 — Constantes exportées
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('LIVRABLE_FORMATS', () => {
+  it('contient les 6 ratios attendus', () => {
+    expect(LIVRABLE_FORMATS).toEqual(['16:9', '9:16', '1:1', '4:5', '5:4', '4:3'])
+  })
+})
+
+describe('MONTEUR_AVATAR_COLORS', () => {
+  it('contient au moins 8 couleurs hex valides', () => {
+    expect(MONTEUR_AVATAR_COLORS.length).toBeGreaterThanOrEqual(8)
+    for (const c of MONTEUR_AVATAR_COLORS) {
+      expect(c).toMatch(/^#[0-9a-fA-F]{6}$/)
+    }
   })
 })
