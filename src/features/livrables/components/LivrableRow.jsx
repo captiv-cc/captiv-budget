@@ -75,6 +75,9 @@ export default function LivrableRow({
   // LIV-15 — autocomplete monteur
   profiles = [],
   profilesById = null,
+  // LIV-16 — marqueur "prochain" + highlight scroll-to depuis le header
+  isProchain = false,
+  isHighlighted = false,
   // DnD (LIV-11 — non câblé en LIV-7 mais on accepte les props pour
   // éviter un refacto plus tard)
   isDragOver = false,
@@ -250,12 +253,23 @@ export default function LivrableRow({
           : undefined
       }
       onDragEnd={dndEnabled ? onDragEnd : undefined}
+      data-livrable-id={livrable.id}
       style={{
         borderBottom: '1px solid var(--brd-sub)',
-        background: isDragOver ? 'var(--bg-hov)' : 'transparent',
-        outline: isDragOver ? '2px solid var(--blue)' : 'none',
-        outlineOffset: isDragOver ? '-2px' : 0,
-        transition: 'background 120ms ease',
+        background: isHighlighted
+          ? 'var(--orange-bg)'
+          : isDragOver
+            ? 'var(--bg-hov)'
+            : 'transparent',
+        outline: isDragOver
+          ? '2px solid var(--blue)'
+          : isHighlighted
+            ? '2px solid var(--orange)'
+            : 'none',
+        outlineOffset: isDragOver || isHighlighted ? '-2px' : 0,
+        // Transition lente pour laisser un "flash" visible quand on retire la
+        // surbrillance (orange-bg → transparent en 600ms).
+        transition: 'background 600ms ease-out, outline-color 600ms ease-out',
       }}
     >
       {/* Checkbox sélection (LIV-14) — visible au hover OR si sélectionnée */}
@@ -286,7 +300,7 @@ export default function LivrableRow({
         {dndEnabled && <GripVertical className="w-3 h-3 mx-auto opacity-40" />}
       </td>
 
-      {/* Numero (avec dot rouge si en retard) */}
+      {/* Numero (avec dot rouge si en retard, dot orange si "prochain") */}
       <td className="px-2 py-1.5 align-middle" style={{ width: '70px' }}>
         <div className="flex items-center gap-1.5">
           {enRetard && (
@@ -295,6 +309,14 @@ export default function LivrableRow({
               title="Livrable en retard"
               className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
               style={{ background: 'var(--red)' }}
+            />
+          )}
+          {isProchain && !enRetard && (
+            <span
+              aria-label="Prochain livrable"
+              title="Prochain livrable à venir"
+              className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ background: 'var(--orange)' }}
             />
           )}
           <input

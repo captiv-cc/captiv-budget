@@ -75,6 +75,9 @@ export default function LivrableBlockCard({
   // LIV-15 — autocomplete monteur
   profiles = [],       // Array<profile> de l'org
   profilesById = null, // Map<id, profile>
+  // LIV-16 — marqueur "prochain" + highlight scroll-to
+  prochainId = null,
+  highlightedLivrableId = null,
   // Drag & drop wiring (depuis LivrableBlockList)
   isDragOver = false,
   onBlockDragStart,
@@ -726,6 +729,8 @@ export default function LivrableBlockCard({
                     selected={selectedIds?.has(l.id) || false}
                     profiles={profiles}
                     profilesById={profilesById}
+                    isProchain={prochainId === l.id}
+                    isHighlighted={highlightedLivrableId === l.id}
                     onToggleSelect={
                       onToggleSelect
                         ? (opts) => onToggleSelect(l.id, opts || {})
@@ -799,6 +804,8 @@ export default function LivrableBlockCard({
                 selected={selectedIds?.has(l.id) || false}
                 profiles={profiles}
                 profilesById={profilesById}
+                isProchain={prochainId === l.id}
+                isHighlighted={highlightedLivrableId === l.id}
                 onToggleSelect={
                   onToggleSelect
                     ? (opts) => onToggleSelect(l.id, opts || {})

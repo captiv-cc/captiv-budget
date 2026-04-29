@@ -23,6 +23,7 @@ import {
   computeLivrableStatutFromVersions,
   dureeToSeconds,
   filterLivrables,
+  formatDateRelative,
   groupLivrablesByBlock,
   hasActiveFilter,
   indexEtapesByLivrable,
@@ -610,6 +611,50 @@ describe('filterLivrables', () => {
     expect(
       filterLivrables(LS, { statuts: new Set() }).length,
     ).toBe(LS.length)
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-16 — formatDateRelative
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('formatDateRelative', () => {
+  // FAKE_NOW = 2026-04-24 (jeudi)
+  it('vide / null / invalide → ""', () => {
+    expect(formatDateRelative(null, FAKE_NOW)).toBe('')
+    expect(formatDateRelative('', FAKE_NOW)).toBe('')
+    expect(formatDateRelative('not-a-date', FAKE_NOW)).toBe('')
+  })
+
+  it('même jour → "Aujourd\'hui"', () => {
+    expect(formatDateRelative('2026-04-24', FAKE_NOW)).toBe("Aujourd'hui")
+  })
+
+  it('J+1 → "Demain", J-1 → "Hier"', () => {
+    expect(formatDateRelative('2026-04-25', FAKE_NOW)).toBe('Demain')
+    expect(formatDateRelative('2026-04-23', FAKE_NOW)).toBe('Hier')
+  })
+
+  it('2 à 6 jours → "dans X j" / "il y a X j"', () => {
+    expect(formatDateRelative('2026-04-26', FAKE_NOW)).toBe('dans 2 j')
+    expect(formatDateRelative('2026-04-30', FAKE_NOW)).toBe('dans 6 j')
+    expect(formatDateRelative('2026-04-22', FAKE_NOW)).toBe('il y a 2 j')
+    expect(formatDateRelative('2026-04-18', FAKE_NOW)).toBe('il y a 6 j')
+  })
+
+  it('7 à 27 jours → "dans X sem." / "il y a X sem."', () => {
+    expect(formatDateRelative('2026-05-01', FAKE_NOW)).toBe('dans 1 sem.')
+    expect(formatDateRelative('2026-05-08', FAKE_NOW)).toBe('dans 2 sem.')
+    expect(formatDateRelative('2026-04-17', FAKE_NOW)).toBe('il y a 1 sem.')
+  })
+
+  it('>= 28 jours → date absolue "le JJ/MM"', () => {
+    expect(formatDateRelative('2026-06-15', FAKE_NOW)).toBe('le 15/06')
+    expect(formatDateRelative('2026-01-15', FAKE_NOW)).toBe('le 15/01')
+  })
+
+  it('autre année → "le JJ/MM/AAAA"', () => {
+    expect(formatDateRelative('2027-06-15', FAKE_NOW)).toBe('le 15/06/2027')
   })
 })
 

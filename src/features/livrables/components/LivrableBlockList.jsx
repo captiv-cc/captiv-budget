@@ -42,6 +42,9 @@ export default function LivrableBlockList({
   // LIV-15 — autocomplete monteur
   profiles = [],
   profilesById = null,
+  // LIV-16 — marqueur "prochain" + highlight scroll-to
+  prochainId = null,
+  highlightedLivrableId = null,
 }) {
   // Drag & drop : ref pour l'index source (capté au dragStart), state pour
   // l'index survolé (rendu visuel). Pattern MAT-9D.
@@ -84,6 +87,8 @@ export default function LivrableBlockList({
           onSelectBlock={onSelectBlock}
           profiles={profiles}
           profilesById={profilesById}
+          prochainId={prochainId}
+          highlightedLivrableId={highlightedLivrableId}
           actions={actions}
           canEdit={canEdit}
           isDragOver={dragOverBlockIdx === idx}

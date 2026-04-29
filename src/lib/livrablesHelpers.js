@@ -485,6 +485,53 @@ export function nextLivrableNumero(block, blockLivrables = []) {
   return `${prefix}${n}`
 }
 
+// ─── Date relative (LIV-16) ─────────────────────────────────────────────────
+
+/**
+ * Formate une date ISO (YYYY-MM-DD) en string relatif court, lisible en
+ * français. Comparaison à minuit local pour rester cohérent avec
+ * `isLivrableEnRetard` (qui considère la frontière minuit, pas l'heure).
+ *
+ * Règles :
+ *   - même jour            → "Aujourd'hui"
+ *   - J+1                  → "Demain"
+ *   - J-1                  → "Hier"
+ *   - 2 à 6 jours           → "dans X j" / "il y a X j"
+ *   - 7 à 27 jours          → "dans X sem." / "il y a X sem." (arrondi)
+ *   - >= 28 jours           → "le JJ/MM" (ou "le JJ/MM/AAAA" si autre année)
+ *   - null / invalide       → ""
+ *
+ * @param {string|null} dateISO
+ * @param {Date} [now=new Date()]
+ * @returns {string}
+ */
+export function formatDateRelative(dateISO, now = new Date()) {
+  if (!dateISO) return ''
+  const due = new Date(dateISO + 'T00:00:00')
+  if (Number.isNaN(due.getTime())) return ''
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const diffMs = due.getTime() - today.getTime()
+  const diffDays = Math.round(diffMs / (24 * 60 * 60 * 1000))
+  if (diffDays === 0) return "Aujourd'hui"
+  if (diffDays === 1) return 'Demain'
+  if (diffDays === -1) return 'Hier'
+  const abs = Math.abs(diffDays)
+  if (abs >= 2 && abs <= 6) {
+    return diffDays > 0 ? `dans ${abs} j` : `il y a ${abs} j`
+  }
+  if (abs >= 7 && abs <= 27) {
+    const weeks = Math.round(abs / 7)
+    return diffDays > 0 ? `dans ${weeks} sem.` : `il y a ${weeks} sem.`
+  }
+  // Date absolue (DD/MM ou DD/MM/YYYY si autre année)
+  const dd = String(due.getDate()).padStart(2, '0')
+  const mm = String(due.getMonth() + 1).padStart(2, '0')
+  if (due.getFullYear() !== now.getFullYear()) {
+    return `le ${dd}/${mm}/${due.getFullYear()}`
+  }
+  return `le ${dd}/${mm}`
+}
+
 // ─── Filtres (LIV-15) ────────────────────────────────────────────────────────
 
 /**

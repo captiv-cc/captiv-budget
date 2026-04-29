@@ -23,7 +23,7 @@
 //   - `canEdit` → les CTA de mutation sont masqués si false (mode lecture)
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
   CheckSquare,
@@ -33,6 +33,8 @@ import {
   Clock,
   Lock,
   Inbox,
+  ArrowRight,
+  Eraser,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -42,6 +44,7 @@ import { notify } from '../../lib/notify'
 import {
   LIVRABLE_BLOCK_COLOR_PRESETS,
   filterLivrables,
+  formatDateRelative,
   hasActiveFilter,
   listMonteurs,
 } from '../../lib/livrablesHelpers'
@@ -161,6 +164,39 @@ export default function LivrablesTab() {
     [searchParams, setSearchParams],
   )
 
+  // ─── LIV-16 — Quick filters depuis les compteurs du header ──────────────
+  // Helpers pour reset complet ou appliquer un preset (statuts ou enRetard).
+  // Le pattern : un click toggle l'état (activer si pas déjà actif, sinon
+  // désactiver complètement le filtre correspondant).
+  const handleClearAllFilters = useCallback(() => {
+    handleFiltersChange({
+      statuts: new Set(),
+      monteurs: new Set(),
+      formats: new Set(),
+      blockIds: new Set(),
+      enRetard: false,
+      mesLivrables: false,
+    })
+  }, [handleFiltersChange])
+
+  const handleToggleEnRetard = useCallback(() => {
+    handleFiltersChange({ ...filters, enRetard: !filters.enRetard })
+  }, [filters, handleFiltersChange])
+
+  const handleTogglePresetStatuts = useCallback(
+    (presetKeys) => {
+      // Actif si filters.statuts === exactement ce preset
+      const isActive =
+        filters.statuts.size === presetKeys.length &&
+        presetKeys.every((k) => filters.statuts.has(k))
+      handleFiltersChange({
+        ...filters,
+        statuts: isActive ? new Set() : new Set(presetKeys),
+      })
+    },
+    [filters, handleFiltersChange],
+  )
+
   // Liste des monteurs distincts pour la barre de filtres.
   const allLivrablesFlat = useMemo(() => {
     if (!livrablesByBlock) return []
@@ -264,6 +300,38 @@ export default function LivrablesTab() {
     setLastClickedId(null)
   }, [])
 
+  // ─── LIV-16 — Highlight & scroll vers un livrable (chip "Prochain") ─────
+  // Le chip header click déclenche : scroll smooth vers la ligne concernée +
+  // flash bg orange ~1.5 s pour identifier le livrable en contexte. Ne pas
+  // ouvrir le drawer (ça masquerait le contexte qu'on veut justement montrer).
+  const [highlightedLivrableId, setHighlightedLivrableId] = useState(null)
+  const highlightTimerRef = useRef(null)
+  const handleHighlightLivrable = useCallback((livrable) => {
+    const id = livrable?.id
+    if (!id) return
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setHighlightedLivrableId(id)
+    // Scroll après le prochain frame pour laisser React rendre le DOM si la
+    // ligne vient d'être révélée (changement de filtre, expand bloc...).
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-livrable-id="${id}"]`)
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    })
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedLivrableId(null)
+      highlightTimerRef.current = null
+    }, 1800)
+  }, [])
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    },
+    [],
+  )
+  const prochainId = compteurs?.prochain?.id || null
+
   // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
   // updates realtime / optimistic — on ré-extrait l'objet depuis blocks.
@@ -331,6 +399,11 @@ export default function LivrablesTab() {
         compteurs={compteurs}
         canEdit={canEdit}
         onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
+        filters={filters}
+        onClearAllFilters={handleClearAllFilters}
+        onToggleEnRetard={handleToggleEnRetard}
+        onTogglePresetStatuts={handleTogglePresetStatuts}
+        onHighlightLivrable={handleHighlightLivrable}
       />
 
       {/* Barre de filtres (LIV-15) — visible si au moins 1 bloc */}
@@ -365,6 +438,8 @@ export default function LivrablesTab() {
             onSelectBlock={canEdit ? handleSelectBlock : undefined}
             profiles={profiles}
             profilesById={profilesById}
+            prochainId={prochainId}
+            highlightedLivrableId={highlightedLivrableId}
           />
         )}
       </div>
@@ -431,18 +506,75 @@ async function handleCreateBlock({ actions, nextSortOrder }) {
 // Sous-composants
 // ════════════════════════════════════════════════════════════════════════════
 
-function LivrablesHeader({ compteurs, canEdit, onCreateBlock }) {
+// Statuts considérés "actifs" — preset du chip "Actifs" du header (LIV-16).
+// Doit rester aligné avec `LIVRABLE_STATUTS_ACTIFS` (livrablesHelpers.js).
+const HEADER_ACTIFS_PRESET = ['brief', 'en_cours', 'a_valider', 'valide']
+const HEADER_LIVRES_PRESET = ['livre']
+
+function LivrablesHeader({
+  compteurs,
+  canEdit,
+  onCreateBlock,
+  filters,
+  onClearAllFilters,
+  onToggleEnRetard,
+  onTogglePresetStatuts,
+  onHighlightLivrable,
+}) {
+  // Détection des presets actifs (filtre statuts === preset exact).
+  const statuts = filters?.statuts || new Set()
+  const isActifsActive =
+    statuts.size === HEADER_ACTIFS_PRESET.length &&
+    HEADER_ACTIFS_PRESET.every((k) => statuts.has(k))
+  const isLivresActive =
+    statuts.size === HEADER_LIVRES_PRESET.length &&
+    HEADER_LIVRES_PRESET.every((k) => statuts.has(k))
+  const isRetardActive = Boolean(filters?.enRetard)
+
+  // Le chip "Total" se comporte comme un eraser : il efface tous les filtres
+  // mais n'affiche pas d'état actif (c'est une action, pas un filtre).
   const stats = [
-    { key: 'total', label: 'Total', value: compteurs.total, icon: CheckSquare, color: 'var(--txt-2)' },
-    { key: 'actifs', label: 'Actifs', value: compteurs.actifs, icon: Clock, color: 'var(--blue)' },
+    {
+      key: 'total',
+      label: 'Total',
+      value: compteurs.total,
+      icon: CheckSquare,
+      color: 'var(--txt-2)',
+      bg: 'var(--bg-2)',
+      onClick: onClearAllFilters,
+      active: false,
+      eraser: hasActiveFilter(filters),
+    },
+    {
+      key: 'actifs',
+      label: 'Actifs',
+      value: compteurs.actifs,
+      icon: Clock,
+      color: 'var(--blue)',
+      bg: 'var(--blue-bg)',
+      onClick: () => onTogglePresetStatuts(HEADER_ACTIFS_PRESET),
+      active: isActifsActive,
+    },
     {
       key: 'retard',
       label: 'En retard',
       value: compteurs.enRetard,
       icon: AlertTriangle,
       color: compteurs.enRetard > 0 ? 'var(--red)' : 'var(--txt-3)',
+      bg: 'var(--red-bg)',
+      onClick: onToggleEnRetard,
+      active: isRetardActive,
     },
-    { key: 'livres', label: 'Livrés', value: compteurs.livres, icon: CheckCircle2, color: 'var(--green)' },
+    {
+      key: 'livres',
+      label: 'Livrés',
+      value: compteurs.livres,
+      icon: CheckCircle2,
+      color: 'var(--green)',
+      bg: 'var(--green-bg)',
+      onClick: () => onTogglePresetStatuts(HEADER_LIVRES_PRESET),
+      active: isLivresActive,
+    },
   ]
   return (
     <div
@@ -467,27 +599,54 @@ function LivrablesHeader({ compteurs, canEdit, onCreateBlock }) {
         </div>
       </div>
 
-      {/* Compteurs */}
+      {/* Compteurs cliquables (LIV-16) */}
       <div className="flex items-center gap-2 sm:gap-3 sm:ml-6 overflow-x-auto">
         {stats.map((s) => {
           const Icon = s.icon
+          const ActiveIcon = s.eraser ? Eraser : Icon
+          const isInteractive = Boolean(s.onClick)
           return (
-            <div
+            <button
               key={s.key}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0"
-              style={{ background: 'var(--bg-elev)' }}
-              title={s.label}
+              type="button"
+              onClick={s.onClick || undefined}
+              disabled={!isInteractive}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
+              style={{
+                background: s.active ? s.bg : 'var(--bg-elev)',
+                border: `1px solid ${s.active ? s.color : 'transparent'}`,
+                cursor: isInteractive ? 'pointer' : 'default',
+              }}
+              title={
+                s.eraser
+                  ? 'Effacer tous les filtres'
+                  : s.active
+                    ? `Désactiver le filtre ${s.label}`
+                    : `Filtrer : ${s.label}`
+              }
             >
-              <Icon className="w-3.5 h-3.5" style={{ color: s.color }} />
-              <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--txt)' }}>
+              <ActiveIcon
+                className="w-3.5 h-3.5"
+                style={{ color: s.active || s.eraser ? s.color : s.color }}
+              />
+              <span
+                className="text-xs font-semibold tabular-nums"
+                style={{ color: s.active ? s.color : 'var(--txt)' }}
+              >
                 {s.value}
               </span>
-              <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+              <span
+                className="text-[11px]"
+                style={{ color: s.active ? s.color : 'var(--txt-3)' }}
+              >
                 {s.label}
               </span>
-            </div>
+            </button>
           )
         })}
+
+        {/* Chip "Prochain" — livrable le plus proche dans le futur (LIV-16) */}
+        <ProchainChip prochain={compteurs.prochain} onOpen={onHighlightLivrable} />
       </div>
 
       {/* CTA */}
@@ -504,6 +663,59 @@ function LivrablesHeader({ compteurs, canEdit, onCreateBlock }) {
         </button>
       )}
     </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ProchainChip — chip "prochain livrable à venir" (LIV-16)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Affiche `numero · dateRelative` du livrable non terminé le plus proche dans
+// le futur. Click → ouvre le drawer Versions de ce livrable. Si aucun livrable
+// à venir → chip grisé "Aucun à venir" non cliquable.
+// ════════════════════════════════════════════════════════════════════════════
+
+function ProchainChip({ prochain, onOpen }) {
+  const isEmpty = !prochain
+  // Label = numero + nom si dispo (ex "2 MASTER"), sinon fallback nom ou numero seul.
+  // Le chip n'est utile que s'il identifie sans ambiguïté le livrable.
+  const numero = prochain?.numero?.toString().trim() || ''
+  const nom = prochain?.nom?.toString().trim() || ''
+  const label = numero && nom ? `${numero} ${nom}` : (nom || numero || 'Livrable')
+  const relative = isEmpty ? 'Aucun à venir' : formatDateRelative(prochain.date_livraison)
+  return (
+    <button
+      type="button"
+      onClick={isEmpty ? undefined : () => onOpen?.(prochain)}
+      disabled={isEmpty}
+      className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
+      style={{
+        background: isEmpty ? 'var(--bg-elev)' : 'var(--orange-bg)',
+        border: `1px solid ${isEmpty ? 'transparent' : 'var(--orange)'}`,
+        cursor: isEmpty ? 'default' : 'pointer',
+        maxWidth: 260,
+      }}
+      title={isEmpty ? 'Aucun livrable à venir' : `Prochain : ${label} — ${relative}`}
+    >
+      <ArrowRight
+        className="w-3.5 h-3.5 shrink-0"
+        style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--orange)' }}
+      />
+      <span className="flex flex-col items-start min-w-0">
+        <span
+          className="text-[10px] uppercase tracking-wider leading-none"
+          style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--orange)' }}
+        >
+          Prochain
+        </span>
+        <span
+          className="text-xs font-semibold truncate max-w-[210px]"
+          style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--txt)' }}
+        >
+          {isEmpty ? relative : `${label} · ${relative}`}
+        </span>
+      </span>
+    </button>
   )
 }
 

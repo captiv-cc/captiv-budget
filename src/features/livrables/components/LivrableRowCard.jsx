@@ -64,6 +64,9 @@ export default function LivrableRowCard({
   // LIV-15 — autocomplete monteur
   profiles = [],
   profilesById = null,
+  // LIV-16 — marqueur "prochain" + highlight scroll-to depuis le header
+  isProchain = false,
+  isHighlighted = false,
 }) {
   // Badge version (cf. LivrableRow desktop pour la logique exacte)
   const latestVersionLabel = useMemo(() => {
@@ -203,9 +206,16 @@ export default function LivrableRowCard({
   return (
     <div
       className="px-3 py-2.5 flex flex-col gap-1.5"
-      style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      data-livrable-id={livrable.id}
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: isHighlighted ? 'var(--orange-bg)' : 'transparent',
+        outline: isHighlighted ? '2px solid var(--orange)' : 'none',
+        outlineOffset: isHighlighted ? '-2px' : 0,
+        transition: 'background 600ms ease-out, outline-color 600ms ease-out',
+      }}
     >
-      {/* Ligne 1 : checkbox + (dot retard) numero + nom + menu ⋯ */}
+      {/* Ligne 1 : checkbox + (dot retard / prochain) numero + nom + menu ⋯ */}
       <div className="flex items-center gap-2">
         {canEdit && onToggleSelect && (
           <Checkbox
@@ -222,6 +232,14 @@ export default function LivrableRowCard({
             title="Livrable en retard"
             className="inline-block w-2 h-2 rounded-full shrink-0"
             style={{ background: 'var(--red)' }}
+          />
+        )}
+        {isProchain && !enRetard && (
+          <span
+            aria-label="Prochain livrable"
+            title="Prochain livrable à venir"
+            className="inline-block w-2 h-2 rounded-full shrink-0"
+            style={{ background: 'var(--orange)' }}
           />
         )}
         <input
