@@ -4,15 +4,13 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { fmtEur } from '../lib/cotisations'
 import ProjectAvatar from '../features/projets/components/ProjectAvatar'
+import LivrablesGlobalWidget from '../features/livrables/components/LivrablesGlobalWidget'
 import {
   FolderOpen,
   Users,
   CheckSquare,
-  Calendar,
   Plus,
   ArrowRight,
-  Clock,
-  AlertCircle,
   Receipt,
 } from 'lucide-react'
 
@@ -27,12 +25,6 @@ function greeting() {
 function fmtDate(d) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-}
-
-function daysUntil(d) {
-  if (!d) return null
-  const diff = Math.ceil((new Date(d) - new Date()) / 86400000)
-  return diff
 }
 
 const STATUS_DOT = {
@@ -112,7 +104,6 @@ export default function HomePage() {
 
   const [loading, setLoading] = useState(true)
   const [projets, setProjets] = useState([])
-  const [deadlines, setDeadlines] = useState([])
   const [stats, setStats] = useState({
     projetsActifs: 0,
     livrables: 0,
@@ -140,28 +131,19 @@ export default function HomePage() {
         .eq('org_id', org.id)
         .eq('status', 'en_cours')
 
+      // Compteur livrables actifs : exclut les statuts terminés (livre, archive).
+      // Cohérent avec LIVRABLE_STATUTS_TERMINES côté livrablesHelpers.js.
       const { count: nbLivrables } = await supabase
         .from('livrables')
         .select('id', { count: 'exact', head: true })
-        .not('statut', 'in', '("valide","livre")')
+        .is('deleted_at', null)
+        .not('statut', 'in', '("livre","archive")')
 
       const { count: nbContacts } = await supabase
         .from('contacts')
         .select('id', { count: 'exact', head: true })
         .eq('org_id', org.id)
         .eq('actif', true)
-
-      // Prochaines deadlines planning (7 prochains jours)
-      const in7 = new Date()
-      in7.setDate(in7.getDate() + 14)
-      const { data: items } = await supabase
-        .from('planning_items')
-        .select('id, titre, date_echeance, statut, planning_phases(label, type, projects(title))')
-        .eq('statut', 'a_faire')
-        .lte('date_echeance', in7.toISOString().split('T')[0])
-        .gte('date_echeance', new Date().toISOString().split('T')[0])
-        .order('date_echeance')
-        .limit(5)
 
       let statsFinance = {}
       if (canSeeFinance) {
@@ -177,7 +159,6 @@ export default function HomePage() {
       }
 
       setProjets(projs || [])
-      setDeadlines(items || [])
       setStats({
         projetsActifs: nbActifs || 0,
         livrables: nbLivrables || 0,
@@ -250,7 +231,7 @@ export default function HomePage() {
             label="Livrables en cours"
             value={stats.livrables}
           />
-          {canSeeFinance ? (
+          {canSeeFinance && (
             <StatCard
               icon={Receipt}
               color="red"
@@ -258,13 +239,6 @@ export default function HomePage() {
               label="Factures en attente"
               value={stats.facturesEnAttente}
               sub={stats.montantEnAttente > 0 ? fmtEur(stats.montantEnAttente) : null}
-            />
-          ) : (
-            <StatCard
-              icon={Calendar}
-              color="green"
-              label="Deadlines cette semaine"
-              value={deadlines.length}
             />
           )}
         </div>
@@ -369,60 +343,10 @@ export default function HomePage() {
 
         {/* Colonne droite */}
         <div className="space-y-6">
-          {/* Prochaines deadlines */}
+          {/* Deadlines à venir — widget livrables (LIV-18) */}
           <div>
             <SectionTitle>Deadlines à venir</SectionTitle>
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--brd)' }}>
-              {loading ? (
-                <div className="p-6 text-center" style={{ color: 'var(--txt-3)' }}>
-                  Chargement…
-                </div>
-              ) : deadlines.length === 0 ? (
-                <div className="px-4 py-6 text-center">
-                  <Calendar className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--txt-3)' }} />
-                  <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-                    Aucune deadline dans les 2 semaines
-                  </p>
-                </div>
-              ) : (
-                deadlines.map((item, i) => {
-                  const days = daysUntil(item.date_echeance)
-                  const urgent = days !== null && days <= 3
-                  return (
-                    <div
-                      key={item.id}
-                      className="flex items-start gap-3 px-4 py-3"
-                      style={{
-                        borderTop: i === 0 ? 'none' : '1px solid var(--brd-sub)',
-                        background: urgent ? 'rgba(255,71,87,.05)' : 'transparent',
-                      }}
-                    >
-                      <div className="mt-0.5">
-                        {urgent ? (
-                          <AlertCircle className="w-3.5 h-3.5" style={{ color: 'var(--red)' }} />
-                        ) : (
-                          <Clock className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate" style={{ color: 'var(--txt)' }}>
-                          {item.titre}
-                        </p>
-                        <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                          {item.planning_phases?.projects?.title || '—'}
-                        </p>
-                      </div>
-                      <span
-                        className="text-[11px] font-medium shrink-0"
-                        style={{ color: urgent ? 'var(--red)' : 'var(--txt-3)' }}
-                      >
-                        {days === 0 ? 'Auj.' : days === 1 ? 'Demain' : `J-${days}`}
-                      </span>
-                    </div>
-                  )
-                })
-              )}
-            </div>
+            <LivrablesGlobalWidget orgId={org?.id} daysAhead={14} limit={8} />
           </div>
 
           {/* Actions rapides */}

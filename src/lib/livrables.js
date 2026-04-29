@@ -1102,3 +1102,84 @@ export async function duplicateFromProject({
 
   return { blockIdMap, livrableIdMap, phaseIds }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-18 — Index global (HomePage)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Liste les livrables non terminés tous projets confondus, dont la
+ * `date_livraison` est dans la fenêtre [today - ∞ ; today + daysAhead].
+ *
+ * Inclut les livrables EN RETARD (date passée + statut non terminé) — c'est
+ * voulu, ils sont mis en avant côté UI avec une couleur rouge.
+ *
+ * RLS gère l'accessibilité : on ne récupère que les livrables des projets
+ * auxquels l'utilisateur courant a accès. Le scope `org_id` est joint via
+ * `projects` pour éviter les fuites cross-org.
+ *
+ * Le résultat inclut le titre du projet (jointure `projects(id, title)`)
+ * pour l'afficher à côté du livrable dans le widget.
+ *
+ * @param {Object} params
+ * @param {string} params.orgId      - id de l'organisation (obligatoire)
+ * @param {number} [params.daysAhead=14] - fenêtre future (jours)
+ * @param {number} [params.limit=8]      - nombre max de résultats retournés
+ * @returns {Promise<Array<{
+ *   id: string,
+ *   numero: string|null,
+ *   nom: string|null,
+ *   statut: string,
+ *   date_livraison: string|null,
+ *   assignee_profile_id: string|null,
+ *   assignee_external: string|null,
+ *   project_id: string,
+ *   project_title: string|null,
+ * }>>}
+ */
+export async function listUpcomingLivrables({
+  orgId,
+  daysAhead = 14,
+  limit = 8,
+} = {}) {
+  if (!orgId) return []
+  // Borne sup : today + daysAhead. Pas de borne inf — on inclut les en retard.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const upper = new Date(today)
+  upper.setDate(upper.getDate() + daysAhead)
+  const upperISO = upper.toISOString().slice(0, 10)
+
+  // Statuts considérés "actifs" (cf. LIVRABLE_STATUTS_ACTIFS dans helpers).
+  // On garde la liste explicitement ici pour rester découplé du helper.
+  const ACTIFS = ['brief', 'en_cours', 'a_valider', 'valide']
+
+  const { data, error } = await supabase
+    .from('livrables')
+    .select(`
+      id, numero, nom, statut, date_livraison,
+      assignee_profile_id, assignee_external, project_id,
+      projects!inner ( id, title, org_id )
+    `)
+    .is('deleted_at', null)
+    .in('statut', ACTIFS)
+    .not('date_livraison', 'is', null)
+    .lte('date_livraison', upperISO)
+    .eq('projects.org_id', orgId)
+    .order('date_livraison', { ascending: true })
+    .limit(limit)
+
+  if (error) throw error
+  return (data || []).map((l) => ({
+    id: l.id,
+    numero: l.numero,
+    nom: l.nom,
+    statut: l.statut,
+    date_livraison: l.date_livraison,
+    assignee_profile_id: l.assignee_profile_id,
+    assignee_external: l.assignee_external,
+    project_id: l.project_id,
+    project_title: l.projects?.title || null,
+  }))
+}
+
