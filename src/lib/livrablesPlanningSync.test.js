@@ -212,6 +212,8 @@ describe('buildEtapeEventPayload', () => {
     expect(out).toEqual({
       project_id:        'proj-1',
       title:             'Montage V2',
+      description:       null, // LIV-9 — etape.notes (vide ici) → description event
+      type_id:           null, // LIV-9 — etape.event_type_id (vide ici)
       starts_at:         '2026-04-20T00:00:00.000Z',
       ends_at:           '2026-04-23T00:00:00.000Z',
       all_day:           true,
@@ -219,6 +221,19 @@ describe('buildEtapeEventPayload', () => {
       livrable_etape_id: 'et-1',
       color_override:    '#22c55e', // couleur du kind montage
     })
+  })
+
+  it('LIV-9 — propage notes → description et event_type_id → type_id', () => {
+    const out = buildEtapeEventPayload(
+      {
+        ...baseEtape,
+        notes: 'Brief client : pas de motion',
+        event_type_id: 'evt-type-derush',
+      },
+      'proj-1',
+    )
+    expect(out.description).toBe('Brief client : pas de motion')
+    expect(out.type_id).toBe('evt-type-derush')
   })
 
   it('utilise la couleur override si présente', () => {
@@ -410,11 +425,15 @@ describe('etapePatchAffectsEvent', () => {
     expect(etapePatchAffectsEvent({ date_debut: '2026-04-20' })).toBe(true)
     expect(etapePatchAffectsEvent({ date_fin: '2026-04-22' })).toBe(true)
     expect(etapePatchAffectsEvent({ couleur: '#fff' })).toBe(true)
+    // LIV-9 — notes synchronisée vers events.description
+    expect(etapePatchAffectsEvent({ notes: 'x' })).toBe(true)
+    // LIV-9 — event_type_id synchronisé vers events.type_id
+    expect(etapePatchAffectsEvent({ event_type_id: 'evt-type-x' })).toBe(true)
   })
 
   it('false si seuls des champs hors-scope sont touchés', () => {
-    expect(etapePatchAffectsEvent({ notes: 'x' })).toBe(false)
     expect(etapePatchAffectsEvent({ assignee_profile_id: 'abc' })).toBe(false)
+    expect(etapePatchAffectsEvent({ assignee_external: 'Hugo' })).toBe(false)
     expect(etapePatchAffectsEvent({ is_event: false })).toBe(false)
   })
 
