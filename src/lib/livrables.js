@@ -115,6 +115,7 @@ export async function fetchVersions(livrableIds = []) {
     .from('livrable_versions')
     .select('*')
     .in('livrable_id', livrableIds)
+    .is('deleted_at', null)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -130,6 +131,7 @@ export async function fetchEtapes(livrableIds = []) {
     .from('livrable_etapes')
     .select('*')
     .in('livrable_id', livrableIds)
+    .is('deleted_at', null)
     .order('date_debut', { ascending: true })
     .order('sort_order', { ascending: true })
   if (error) throw error
@@ -477,6 +479,30 @@ export async function restoreLivrable(livrableId) {
   if (error) throw error
 }
 
+/**
+ * Hard delete d'un livrable (LIV-20 — depuis la corbeille). Cascade DB :
+ * versions et étapes liées sont supprimées via FK ON DELETE CASCADE.
+ */
+export async function purgeLivrable(livrableId) {
+  const { error } = await supabase
+    .from('livrables')
+    .delete()
+    .eq('id', livrableId)
+  if (error) throw error
+}
+
+/**
+ * Hard delete d'un bloc (LIV-20 — depuis la corbeille). Cascade DB sur les
+ * livrables (et leurs versions/étapes) du bloc.
+ */
+export async function purgeBlock(blockId) {
+  const { error } = await supabase
+    .from('livrable_blocks')
+    .delete()
+    .eq('id', blockId)
+  if (error) throw error
+}
+
 export async function reorderLivrables(orderedIds = []) {
   await Promise.all(
     orderedIds.map((id, idx) =>
@@ -792,7 +818,34 @@ export async function updateVersion(versionId, fields) {
   return data
 }
 
+/**
+ * Soft delete d'une version (LIV-20). Le hard delete est `purgeVersion`.
+ */
 export async function deleteVersion(versionId) {
+  const { error } = await supabase
+    .from('livrable_versions')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', versionId)
+    .is('deleted_at', null)
+  if (error) throw error
+}
+
+/**
+ * Restaure une version soft-deleted (LIV-20). Met `deleted_at = null`.
+ */
+export async function restoreVersion(versionId) {
+  const { error } = await supabase
+    .from('livrable_versions')
+    .update({ deleted_at: null })
+    .eq('id', versionId)
+  if (error) throw error
+}
+
+/**
+ * Hard delete d'une version (LIV-20 — depuis la corbeille uniquement).
+ * Utilisé via le bouton "Supprimer définitivement".
+ */
+export async function purgeVersion(versionId) {
   const { error } = await supabase
     .from('livrable_versions')
     .delete()
@@ -913,10 +966,60 @@ export async function updateEtape(etapeId, fields) {
   return data
 }
 
+/**
+ * Soft delete d'une étape (LIV-20). On supprime AVANT l'event miroir pour ne
+ * pas garder un event orphelin côté planning. À la restauration, l'event sera
+ * recréé via la sync si l'étape avait `is_event = true`.
+ */
 export async function deleteEtape(etapeId) {
-  // Forward sync → supprime AVANT l'event miroir pour ne pas violer le CHECK
-  // `events_source_fk_consistency` (cf. doc de `livrablesPlanningSync`).
   await syncEtapeOnDelete(etapeId)
+  const { error } = await supabase
+    .from('livrable_etapes')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', etapeId)
+    .is('deleted_at', null)
+  if (error) throw error
+}
+
+/**
+ * Restaure une étape soft-deleted (LIV-20). Met `deleted_at = null` et
+ * recrée l'event miroir si `is_event = true` (via la sync create).
+ */
+export async function restoreEtape(etapeId) {
+  // 1. UPDATE deleted_at + récupération de l'étape complète.
+  const { data: etape, error: errSel } = await supabase
+    .from('livrable_etapes')
+    .update({ deleted_at: null, event_id: null })
+    .eq('id', etapeId)
+    .select()
+    .single()
+  if (errSel) throw errSel
+  // 2. Si l'étape était visible dans le planning, recréer l'event miroir.
+  //    On fetch le project_id via le livrable parent (requis par la sync).
+  if (etape?.is_event && etape?.livrable_id) {
+    try {
+      const { data: liv } = await supabase
+        .from('livrables')
+        .select('project_id')
+        .eq('id', etape.livrable_id)
+        .single()
+      if (liv?.project_id) {
+        await syncEtapeOnCreate(etape, liv.project_id)
+      }
+    } catch (e) {
+      // Non bloquant — si la sync échoue, l'étape est restaurée mais sans
+      // event. L'utilisateur pourra recliquer 👁️ pour relancer la sync.
+      console.error('[restoreEtape] sync event miroir échouée:', e)
+    }
+  }
+  return etape
+}
+
+/**
+ * Hard delete d'une étape (LIV-20 — depuis la corbeille). L'event miroir est
+ * déjà supprimé au soft delete (cf. deleteEtape).
+ */
+export async function purgeEtape(etapeId) {
   const { error } = await supabase
     .from('livrable_etapes')
     .delete()
@@ -1276,4 +1379,94 @@ export async function listLivrablesForDevisPdf(projectId, lotId = null) {
   return filtered
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// LIV-20 — Corbeille (fetch des soft-deleted)
+// ════════════════════════════════════════════════════════════════════════════
+
+const TRASH_DEFAULT_DAYS = 30
+
+/**
+ * Récupère tout le contenu de la corbeille d'un projet : blocs, livrables,
+ * versions et étapes soft-deleted dans les `daysAhead` derniers jours
+ * (30 par défaut, au-delà ils sont ignorés UI — un hard purge backend
+ * pourra les supprimer définitivement).
+ *
+ * On scope les versions/étapes aux blocs ET livrables du projet courant
+ * (jointures côté JS pour rester simple — Supabase peut joindre mais on a
+ * besoin d'un projet → livrables → versions/étapes).
+ *
+ * @param {string} projectId
+ * @param {Object} [opts]
+ * @param {number} [opts.daysAhead=30] - fenêtre temporelle
+ * @returns {Promise<{
+ *   blocks: Array,
+ *   livrables: Array,
+ *   versions: Array,
+ *   etapes: Array,
+ * }>}
+ */
+export async function fetchTrash(projectId, { daysAhead = TRASH_DEFAULT_DAYS } = {}) {
+  if (!projectId) return { blocks: [], livrables: [], versions: [], etapes: [] }
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - daysAhead)
+  const cutoffISO = cutoff.toISOString()
+
+  // 1. Blocs supprimés du projet.
+  const { data: blocks, error: errBlocks } = await supabase
+    .from('livrable_blocks')
+    .select('id, nom, prefixe, couleur, deleted_at')
+    .eq('project_id', projectId)
+    .not('deleted_at', 'is', null)
+    .gte('deleted_at', cutoffISO)
+    .order('deleted_at', { ascending: false })
+  if (errBlocks) throw errBlocks
+
+  // 2. Livrables supprimés du projet (peut inclure ceux d'un bloc supprimé,
+  //    ou supprimés indépendamment).
+  const { data: livrables, error: errLivs } = await supabase
+    .from('livrables')
+    .select('id, numero, nom, format, duree, block_id, deleted_at')
+    .eq('project_id', projectId)
+    .not('deleted_at', 'is', null)
+    .gte('deleted_at', cutoffISO)
+    .order('deleted_at', { ascending: false })
+  if (errLivs) throw errLivs
+
+  // 3. Versions/étapes : on a besoin de la liste des livrables du projet
+  //    (incluant non-supprimés ET supprimés) pour scoper.
+  const { data: allLivIds } = await supabase
+    .from('livrables')
+    .select('id')
+    .eq('project_id', projectId)
+  const livIds = (allLivIds || []).map((l) => l.id)
+  let versions = []
+  let etapes = []
+  if (livIds.length) {
+    const [{ data: vers }, { data: etps }] = await Promise.all([
+      supabase
+        .from('livrable_versions')
+        .select('id, numero_label, statut_validation, livrable_id, deleted_at')
+        .in('livrable_id', livIds)
+        .not('deleted_at', 'is', null)
+        .gte('deleted_at', cutoffISO)
+        .order('deleted_at', { ascending: false }),
+      supabase
+        .from('livrable_etapes')
+        .select('id, kind, date_debut, date_fin, livrable_id, deleted_at')
+        .in('livrable_id', livIds)
+        .not('deleted_at', 'is', null)
+        .gte('deleted_at', cutoffISO)
+        .order('deleted_at', { ascending: false }),
+    ])
+    versions = vers || []
+    etapes = etps || []
+  }
+
+  return {
+    blocks: blocks || [],
+    livrables: livrables || [],
+    versions,
+    etapes,
+  }
+}
 

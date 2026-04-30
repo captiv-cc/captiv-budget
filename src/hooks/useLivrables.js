@@ -354,6 +354,54 @@ export function useLivrables(projectId) {
     [bumpReload],
   )
 
+  // ─── LIV-20 — Corbeille (purge + restore versions/étapes + fetchTrash) ──
+  const purgeBlockAction = useCallback(
+    async (blockId) => {
+      await L.purgeBlock(blockId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const purgeLivrableAction = useCallback(
+    async (livrableId) => {
+      await L.purgeLivrable(livrableId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const restoreVersionAction = useCallback(
+    async (versionId) => {
+      await L.restoreVersion(versionId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const purgeVersionAction = useCallback(
+    async (versionId) => {
+      await L.purgeVersion(versionId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const restoreEtapeAction = useCallback(
+    async (etapeId) => {
+      await L.restoreEtape(etapeId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const purgeEtapeAction = useCallback(
+    async (etapeId) => {
+      await L.purgeEtape(etapeId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const fetchTrashAction = useCallback(
+    () => L.fetchTrash(projectId),
+    [projectId],
+  )
+
   const reorderLivrablesAction = useCallback(
     async (orderedIds) => {
       // Optimistic reorder : on applique le nouvel ordre côté state.
@@ -642,6 +690,14 @@ export function useLivrables(projectId) {
       duplicateFromProject: duplicateFromProjectAction,
       // Sync planning (LIV-4)
       backfillEvents: backfillEventsAction,
+      // LIV-20 — Corbeille
+      purgeBlock: purgeBlockAction,
+      purgeLivrable: purgeLivrableAction,
+      restoreVersion: restoreVersionAction,
+      purgeVersion: purgeVersionAction,
+      restoreEtape: restoreEtapeAction,
+      purgeEtape: purgeEtapeAction,
+      fetchTrash: fetchTrashAction,
       // Misc
       refresh,
     },

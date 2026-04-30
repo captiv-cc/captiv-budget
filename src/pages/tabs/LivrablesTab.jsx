@@ -35,6 +35,7 @@ import {
   Inbox,
   ArrowRight,
   Eraser,
+  Trash2,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -55,6 +56,7 @@ import LivrableBlockList from '../../features/livrables/components/LivrableBlock
 import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
 import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
+import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
 
 const OUTIL_KEY = 'livrables'
 
@@ -353,6 +355,9 @@ export default function LivrablesTab() {
   )
   const prochainId = compteurs?.prochain?.id || null
 
+  // ─── LIV-20 — Drawer Corbeille ──────────────────────────────────────────
+  const [trashOpen, setTrashOpen] = useState(false)
+
   // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
   // updates realtime / optimistic — on ré-extrait l'objet depuis blocks.
@@ -420,6 +425,7 @@ export default function LivrablesTab() {
         compteurs={compteurs}
         canEdit={canEdit}
         onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
+        onOpenTrash={() => setTrashOpen(true)}
         filters={filters}
         onClearAllFilters={handleClearAllFilters}
         onToggleEnRetard={handleToggleEnRetard}
@@ -492,6 +498,15 @@ export default function LivrablesTab() {
         onClose={handleCloseDetailsDrawer}
         initialTab={detailsDrawerInitialTab}
       />
+
+      {/* Drawer Corbeille (LIV-20) — accessible aux users en édition seulement */}
+      {canEdit && (
+        <LivrablesTrashDrawer
+          open={trashOpen}
+          onClose={() => setTrashOpen(false)}
+          actions={actions}
+        />
+      )}
     </div>
   )
 }
@@ -537,6 +552,7 @@ function LivrablesHeader({
   compteurs,
   canEdit,
   onCreateBlock,
+  onOpenTrash,
   filters,
   onClearAllFilters,
   onToggleEnRetard,
@@ -673,6 +689,26 @@ function LivrablesHeader({
 
       {/* CTA */}
       <div className="flex-1" />
+      {canEdit && onOpenTrash && (
+        <button
+          type="button"
+          onClick={onOpenTrash}
+          aria-label="Corbeille"
+          title="Corbeille — éléments supprimés"
+          className="p-2 rounded-lg transition-colors shrink-0"
+          style={{ color: 'var(--txt-3)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      )}
       {canEdit && (
         <button
           type="button"
