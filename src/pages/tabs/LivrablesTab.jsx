@@ -38,6 +38,7 @@ import {
   Trash2,
   List as ListIcon,
   GanttChart,
+  ZoomIn,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -60,6 +61,7 @@ import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
 import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
 import LivrablePipelineView from '../../features/livrables/components/LivrablePipelineView'
+import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 
 const OUTIL_KEY = 'livrables'
 
@@ -415,6 +417,21 @@ export default function LivrablesTab() {
     setSearchParams(params, { replace: true })
   }, [searchParams, setSearchParams])
 
+  // ─── LIV-22e — Zoom Jour / Semaine / Mois ──────────────────────────────
+  // Zoom du Gantt persisté dans l'URL. Défaut : 'day' (lecture fine).
+  const rawZoom = searchParams.get('zoom')
+  const pipelineZoom =
+    rawZoom === 'week' || rawZoom === 'month' ? rawZoom : 'day'
+  const setPipelineZoom = useCallback(
+    (next) => {
+      const params = new URLSearchParams(searchParams)
+      if (next === 'day' || !next) params.delete('zoom')
+      else params.set('zoom', next)
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
   // Liste à plat de toutes les étapes de tous les livrables (pour Pipeline).
   // etapesByLivrable est une Map<livrableId, etape[]> issue de useLivrables.
   const allEtapes = useMemo(() => {
@@ -570,6 +587,12 @@ export default function LivrablesTab() {
                   if (target) handleEnterFocus(target)
                 }}
               />
+              <span
+                className="mx-2 h-4 w-px"
+                style={{ background: 'var(--brd-sub)' }}
+                aria-hidden="true"
+              />
+              <ZoomPicker zoom={pipelineZoom} onChange={setPipelineZoom} />
             </>
           )}
         </div>
@@ -589,6 +612,7 @@ export default function LivrablesTab() {
             eventTypes={eventTypes}
             mode={pipelineMode}
             focusLivrableId={focusLivrableId}
+            zoom={pipelineZoom}
             onEtapeClick={(etape) => {
               // Click sur une barre → ouvre le drawer Versions du livrable parent,
               // sur l'onglet Étapes (réutilisation existant LIV-9)
@@ -951,6 +975,86 @@ function ViewToggle({ active, icon: Icon, label, onClick }) {
       {Icon && <Icon className="w-3.5 h-3.5" />}
       <span>{label}</span>
     </button>
+  )
+}
+
+// LIV-22e — Picker zoom icône-only (loupe). Click → popover avec 3 options
+// Jour/Semaine/Mois. État actif visualisé par fond bleu sur l'option choisie
+// dans le popover. Le bouton porte une bordure bleue subtile quand le zoom
+// n'est pas le défaut "Jour" pour signaler qu'un changement est actif.
+const ZOOM_LABELS = { day: 'Jour', week: 'Semaine', month: 'Mois' }
+
+function ZoomPicker({ zoom, onChange }) {
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef(null)
+  const isCustom = zoom !== 'day'
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center justify-center text-xs p-1.5 rounded-lg shrink-0 transition-colors"
+        style={{
+          background: isCustom ? 'var(--blue-bg)' : 'transparent',
+          color: isCustom ? 'var(--blue)' : 'var(--txt-2)',
+          border: `1px solid ${isCustom ? 'var(--blue)' : 'var(--brd-sub)'}`,
+        }}
+        title={`Zoom : ${ZOOM_LABELS[zoom] || 'Jour'}`}
+      >
+        <ZoomIn className="w-3.5 h-3.5" />
+      </button>
+      <PopoverFloat
+        anchorRef={anchorRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        align="right"
+      >
+        <div
+          className="rounded-lg shadow-lg overflow-hidden"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            minWidth: '140px',
+          }}
+        >
+          <div
+            className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Zoom
+          </div>
+          {(['day', 'week', 'month']).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onChange(key)
+              }}
+              className="w-full flex items-center px-3 py-2 text-left text-xs transition-colors"
+              style={{
+                background: key === zoom ? 'var(--bg-hov)' : 'transparent',
+                color: key === zoom ? 'var(--blue)' : 'var(--txt)',
+                fontWeight: key === zoom ? 600 : 400,
+              }}
+              onMouseEnter={(e) => {
+                if (key !== zoom) {
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (key !== zoom) {
+                  e.currentTarget.style.background = 'transparent'
+                }
+              }}
+            >
+              <span>{ZOOM_LABELS[key]}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverFloat>
+    </>
   )
 }
 

@@ -470,7 +470,16 @@ function HeaderCell({ date, width, zoom, isToday }) {
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dayShort = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'][date.getDay()]
   const isWeekend = date.getDay() === 0 || date.getDay() === 6
-  const showLabel = zoom === 'day' || (zoom === 'week' && date.getDay() === 1)
+  // Quoi afficher selon le zoom :
+  //   - day   : tout (Lu / 13 / 04)
+  //   - week  : sur les lundis seulement
+  //   - month : nom abrégé du mois sur le 1er du mois (Jan / Fév / Mar)
+  let mode = 'none'
+  if (zoom === 'day') mode = 'full'
+  else if (zoom === 'week' && date.getDay() === 1) mode = 'week'
+  else if (zoom === 'month' && date.getDate() === 1) mode = 'month'
+  const monthShort = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun',
+    'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'][date.getMonth()]
   return (
     <div
       className="flex flex-col items-center justify-center shrink-0 relative"
@@ -478,10 +487,14 @@ function HeaderCell({ date, width, zoom, isToday }) {
         width,
         background: isToday
           ? 'var(--blue-bg)'
-          : isWeekend
+          : isWeekend && zoom !== 'month'
             ? 'var(--bg-2)'
             : 'transparent',
-        borderRight: '1px solid var(--brd-sub)',
+        borderRight:
+          // Séparateur fort sur le 1er du mois en zoom week/month, sinon sub.
+          (zoom !== 'day' && date.getDate() === 1)
+            ? '1px solid var(--brd)'
+            : '1px solid var(--brd-sub)',
         fontSize: 10,
         color: 'var(--txt-3)',
         height: HEADER_HEIGHT,
@@ -503,7 +516,7 @@ function HeaderCell({ date, width, zoom, isToday }) {
           AUJ.
         </span>
       )}
-      {showLabel && (
+      {mode === 'full' && (
         <>
           <span style={{ fontSize: 9, marginTop: isToday ? 8 : 0 }}>{dayShort}</span>
           <span
@@ -517,6 +530,40 @@ function HeaderCell({ date, width, zoom, isToday }) {
           </span>
           <span>{mm}</span>
         </>
+      )}
+      {mode === 'week' && (
+        <>
+          <span style={{ fontSize: 8, marginTop: isToday ? 8 : 0 }}>{dayShort}</span>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: isToday ? 'var(--blue)' : 'var(--txt-2)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {dd}/{mm}
+          </span>
+        </>
+      )}
+      {mode === 'month' && (
+        // En month, le 1er du mois affiche un label "Mois année" en débordant
+        // à droite (overflow visible) pour rester lisible malgré 4px/jour.
+        <span
+          className="absolute"
+          style={{
+            top: HEADER_HEIGHT / 2 - 7,
+            left: 2,
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--txt)',
+            whiteSpace: 'nowrap',
+            overflow: 'visible',
+            zIndex: 2,
+          }}
+        >
+          {monthShort} {String(date.getFullYear()).slice(2)}
+        </span>
       )}
     </div>
   )

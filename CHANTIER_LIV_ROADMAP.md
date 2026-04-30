@@ -1126,7 +1126,6 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   tests au total dans `livrablesPipelineHelpers.test.js`).
 - **Restant Vague 2 LIV-22** :
   - **LIV-22d** : drag/resize barres + sync via `actions.updateEtape`.
-  - **LIV-22e** : zoom toggle (jour/semaine/mois) + polish final.
 
 ### Session 2026-04-30 (suite) — LIV-22c (mode Focus + toggle A/B)
 
@@ -1189,13 +1188,49 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   PDF "vue détaillée") réutiliseront le rendu Gantt (canvas ou SVG
   capture). Le découpage a été pensé pour ça.
 
-### Prochaine étape — LIV-22c (mode A focus + toggle A/B)
+### Session 2026-04-30 (suite) — LIV-22e (zoom Jour / Semaine / Mois)
 
-Le composant `LivrablePipelineView` accepte déjà les props `mode` et
-`focusLivrableId`. La logique `groupEtapesByKind` est prête. Reste :
-- UI toggle A/B dans le header Pipeline (déjà 1 toggle Liste/Pipeline
-  → on ajoute un sous-toggle visible uniquement quand `viewMode === 'pipeline'`).
-- En mode A, sélecteur de livrable (dropdown ou click sur lane B pour
-  switcher en focus).
-- Adapter le marqueur deadline en mode A (1 seul livrable → 1 marqueur
-  unique sur la lane "delivery"? ou ligne globale en haut du Gantt ?).
+- **Composant `LivrablePipelineView`** : `HeaderCell` adapté pour 3 modes
+  d'affichage selon le zoom :
+  - `day` (32 px/jour) : label complet (Lu / 13 / 04)
+  - `week` (12 px/jour) : label compact (Lu 13/04) sur les lundis
+  - `month` (4 px/jour) : nom du mois abrégé (Avr 26 / Mai 26) sur le
+    1er du mois, avec `overflow: visible` pour rester lisible malgré
+    la largeur réduite. Séparateur vertical plus marqué sur le 1er du
+    mois (`border-r: var(--brd)` au lieu de `--brd-sub`).
+  - Pas de fond weekend en zoom mois (lisibilité, sinon ça strie).
+- **`LivrablesTab`** :
+  - `pipelineZoom` persisté dans l'URL : `?zoom=week|month` (default `day`
+    → pas dans l'URL).
+  - **Picker icône-only** `ZoomPicker` (inline) : bouton avec icône
+    `ZoomIn` (loupe avec `+` à l'intérieur, distinct de `Search` de la
+    sidebar) → popover avec 3 lignes Jour/Semaine/Mois. Header "ZOOM"
+    discret en haut du popover. Highlight bleu sur l'option active.
+  - Le bouton passe en bordure/fond bleu quand le zoom n'est pas le
+    défaut (signal visuel "zoom actif").
+  - Tooltip au survol : `Zoom : <valeur>`.
+- **Itérations UX (validées Hugo)** :
+  - V1 : 3 boutons Jour / Semaine / Mois → trop encombré (7 boutons sur
+    la même ligne avec Liste/Pipeline/Ensemble/Focus).
+  - V2 : dropdown icône loupe (Search) → confusion avec la loupe de
+    recherche dans la sidebar.
+  - V3 : icône `ZoomIn` (loupe avec `+`) → distinct, pattern universel.
+  - Le label "Zoom" répété sur chaque ligne du popover est devenu un
+    petit header discret en haut.
+- **Validation** : ESLint clean. Parse-check OK. Test fonctionnel Hugo :
+  toggle zoom + URL persistance + rendu HeaderCell aux 3 zooms.
+
+### Prochaine étape — LIV-22d (drag/resize barres)
+
+Permettre à l'utilisateur de modifier les dates d'une étape directement
+depuis le Gantt :
+- **Drag** : attraper une barre et la faire glisser → décale `date_debut`
+  et `date_fin` du même nombre de jours.
+- **Resize** : poignée sur le bord droit (et gauche ?) → modifie
+  `date_fin` (ou `date_debut`).
+- Snap au jour entier (cohérent avec `dayWidth`).
+- Sync via `actions.updateEtape(id, patch)` (déjà optimistic dans
+  `useLivrables`).
+- Permission gating : pas de drag si `!canEdit`.
+- Pattern miroir du Planning Gantt (PlanningTimelineView a déjà du
+  drag/resize — récupérer la mécanique de pointer events).
