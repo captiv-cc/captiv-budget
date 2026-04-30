@@ -38,7 +38,13 @@ import {
   listEventsByProject,
   findConflictsForEvent,
 } from '../../lib/planning'
-import { toDatetimeLocalValue, toDateInputValue } from './dateUtils'
+import {
+  toDatetimeLocalValue,
+  toDateInputValue,
+  allDayStartIso,
+  allDayEndIsoExclusive,
+  allDayEndIsoToDateInput,
+} from './dateUtils'
 import { validateRrule, describeRrule, expandEvents } from '../../lib/rrule'
 import EventMembersPanel from './EventMembersPanel'
 import RecurrenceEditor from './RecurrenceEditor'
@@ -561,7 +567,9 @@ export default function EventEditorModal({
             </Field>
           )}
 
-          {/* All day */}
+          {/* All day — au passage timed→allDay, on normalise les dates en
+              convention exclusive UTC (PL-FIX-1) pour rester cohérent avec
+              la sync miroir des étapes livrables et l'export iCal. */}
           <label
             className="flex items-center gap-2 text-sm cursor-pointer"
             style={{ color: 'var(--txt-2)' }}
@@ -569,20 +577,40 @@ export default function EventEditorModal({
             <input
               type="checkbox"
               checked={allDay}
-              onChange={(e) => setAllDay(e.target.checked)}
+              onChange={(e) => {
+                const next = e.target.checked
+                if (next && !allDay) {
+                  // Passage en all-day : normaliser à 00:00 UTC + lendemain.
+                  const startKey = toDateInputValue(startsAt)
+                  const endKey = toDateInputValue(endsAt)
+                  const startIso = allDayStartIso(startKey)
+                  const endIso = allDayEndIsoExclusive(endKey)
+                  if (startIso) setStartsAt(new Date(startIso))
+                  if (endIso) setEndsAt(new Date(endIso))
+                }
+                setAllDay(next)
+              }}
               className="w-4 h-4"
             />
             Journée entière
           </label>
 
-          {/* Dates */}
+          {/* Dates — convention all-day exclusive UTC (PL-FIX-1) :
+              - input "Début" : 'YYYY-MM-DD' = jour saisi → stocké à 00:00 UTC
+              - input "Fin" : 'YYYY-MM-DD' = DERNIER jour inclus → stocké
+                comme jour suivant 00:00 UTC (exclusive). L'utilisateur saisit
+                ce qui est intuitif (fin = dernier jour visible) et le code
+                assure la convention canonique au stockage. */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Début">
               {allDay ? (
                 <input
                   type="date"
                   value={toDateInputValue(startsAt)}
-                  onChange={(e) => setStartsAt(parseDateInput(e.target.value))}
+                  onChange={(e) => {
+                    const iso = allDayStartIso(e.target.value)
+                    if (iso) setStartsAt(new Date(iso))
+                  }}
                   className="w-full px-3 py-2 rounded-lg text-sm"
                   style={inputStyle}
                 />
@@ -600,8 +628,11 @@ export default function EventEditorModal({
               {allDay ? (
                 <input
                   type="date"
-                  value={toDateInputValue(endsAt)}
-                  onChange={(e) => setEndsAt(endOfDayValue(e.target.value))}
+                  value={allDayEndIsoToDateInput(endsAt.toISOString())}
+                  onChange={(e) => {
+                    const iso = allDayEndIsoExclusive(e.target.value)
+                    if (iso) setEndsAt(new Date(iso))
+                  }}
                   className="w-full px-3 py-2 rounded-lg text-sm"
                   style={inputStyle}
                 />
@@ -1087,16 +1118,6 @@ function parseDatetimeLocal(value) {
   return new Date(value)
 }
 
-function parseDateInput(value) {
-  // Pour un all-day, le début est à 00:00 local
-  if (!value) return new Date()
-  const [y, m, d] = value.split('-').map(Number)
-  return new Date(y, m - 1, d, 0, 0, 0, 0)
-}
-
-function endOfDayValue(value) {
-  // Pour un all-day, on met la fin à 23:59 local
-  if (!value) return new Date()
-  const [y, m, d] = value.split('-').map(Number)
-  return new Date(y, m - 1, d, 23, 59, 0, 0)
-}
+// PL-FIX-1 — `parseDateInput` et `endOfDayValue` (legacy 23:59 local) ont
+// été supprimés au profit des helpers `allDayStartIso` / `allDayEndIsoExclusive`
+// dans `dateUtils.js`. Convention canonique : minuit UTC + lendemain exclusive.

@@ -264,7 +264,17 @@ export function groupEventsByDay(events) {
   safeEvents.forEach((ev) => {
     if (!ev?.starts_at || !ev?.ends_at) return
     const start = startOfDay(new Date(ev.starts_at))
-    const end = startOfDay(new Date(ev.ends_at))
+    // PL-FIX-1 : pour les all-day stockés en convention exclusive UTC
+    // (ends_at = lendemain 00:00 UTC), le DERNIER jour visible = ends_at - 1.
+    // Pour les events timed (ou legacy non-exclusive), on garde le
+    // comportement actuel.
+    let end
+    if (ev.all_day === true) {
+      const lastDay = allDayEndIsoToLastDay(ev.ends_at)
+      end = lastDay ? startOfDay(lastDay) : startOfDay(new Date(ev.ends_at))
+    } else {
+      end = startOfDay(new Date(ev.ends_at))
+    }
     // Itère jour par jour
     let cursor = new Date(start)
     let safety = 0
@@ -281,4 +291,119 @@ export function groupEventsByDay(events) {
     arr.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
   })
   return map
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Convention all-day exclusive (PL-FIX-1)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Tous les events `all_day=true` doivent être stockés selon la convention
+// iCal RFC 5545 : `ends_at` pointe vers MINUIT UTC du JOUR SUIVANT le dernier
+// jour inclus. Exemple : un event "13/04 → 15/04" all-day se stocke comme :
+//   - starts_at = "2026-04-13T00:00:00.000Z"
+//   - ends_at   = "2026-04-16T00:00:00.000Z"  (= 15/04 + 1 jour)
+//
+// Cette convention est cohérente avec :
+//   - L'export iCal (PL-8 / `buildICS`)
+//   - La sync miroir des étapes livrables (`livrablesPlanningSync`)
+//   - Les calendriers tiers (Google, Apple, Outlook)
+//
+// Les helpers ci-dessous garantissent que toute saisie / lecture all-day
+// passe par cette convention, peu importe le fuseau du navigateur.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Convertit une date saisie ('YYYY-MM-DD' depuis un <input type="date">) en
+ * timestamp ISO de DÉBUT all-day : minuit UTC du jour saisi.
+ *
+ * Exemple : "2026-04-13" → "2026-04-13T00:00:00.000Z"
+ */
+export function allDayStartIso(dateStr) {
+  if (!dateStr) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).slice(0, 10))
+  if (!m) return null
+  return `${m[1]}-${m[2]}-${m[3]}T00:00:00.000Z`
+}
+
+/**
+ * Convertit une date saisie ('YYYY-MM-DD') en timestamp ISO de FIN all-day
+ * EXCLUSIVE : minuit UTC du JOUR SUIVANT (= dernier jour inclus + 1).
+ *
+ * Exemple : "2026-04-15" → "2026-04-16T00:00:00.000Z"
+ */
+export function allDayEndIsoExclusive(dateStr) {
+  if (!dateStr) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).slice(0, 10))
+  if (!m) return null
+  // On utilise Date.UTC + 1 jour pour éviter tout souci DST.
+  const d = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10) + 1))
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
+}
+
+/**
+ * Reverse : un `ends_at` exclusive UTC → la date du DERNIER jour inclus, au
+ * format 'YYYY-MM-DD' utilisable dans un <input type="date">.
+ *
+ * Exemple : "2026-04-16T00:00:00.000Z" → "2026-04-15"
+ *
+ * Robuste aux timestamps qui ne sont pas exactement à minuit UTC (cas legacy
+ * où on stockait 23:59 local) : on retombe sur la date UTC pour que
+ * l'utilisateur ait une saisie cohérente, puis le save normalisera.
+ */
+export function allDayEndIsoToDateInput(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  // Si déjà à minuit UTC pile (convention exclusive) → on recule d'1 jour.
+  // Sinon (convention legacy 23:59 local) → on garde la date UTC du jour.
+  const isMidnightUTC =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
+  const target = isMidnightUTC ? new Date(d.getTime() - 24 * 3600 * 1000) : d
+  const y = target.getUTCFullYear()
+  const m = String(target.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(target.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * Reverse pour `starts_at` : timestamp ISO → 'YYYY-MM-DD' UTC.
+ * Symétrique de `allDayStartIso`.
+ *
+ * Exemple : "2026-04-13T00:00:00.000Z" → "2026-04-13"
+ */
+export function allDayStartIsoToDateInput(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * Pour le rendu calendrier : retourne le DERNIER jour inclus d'un event
+ * all-day stocké en convention exclusive. Renvoie un objet Date à minuit UTC
+ * du jour final.
+ *
+ * Permet aux calendriers (MonthCalendar, TimelineCalendar) de ne pas
+ * dessiner la barre sur le jour suivant le dernier jour utile.
+ *
+ * Exemple : ends_at "2026-04-16T00:00:00Z" → Date "2026-04-15T00:00:00Z"
+ */
+export function allDayEndIsoToLastDay(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const isMidnightUTC =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
+  if (!isMidnightUTC) return d // legacy : pas exclusive, on garde
+  return new Date(d.getTime() - 24 * 3600 * 1000)
 }
