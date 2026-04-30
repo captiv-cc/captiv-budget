@@ -36,6 +36,8 @@ import {
   ArrowRight,
   Eraser,
   Trash2,
+  List as ListIcon,
+  GanttChart,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -57,6 +59,7 @@ import LivrableDetailsDrawer from '../../features/livrables/components/LivrableD
 import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
 import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
+import LivrablePipelineView from '../../features/livrables/components/LivrablePipelineView'
 
 const OUTIL_KEY = 'livrables'
 
@@ -358,6 +361,18 @@ export default function LivrablesTab() {
   // ─── LIV-20 — Drawer Corbeille ──────────────────────────────────────────
   const [trashOpen, setTrashOpen] = useState(false)
 
+  // ─── LIV-22 — Toggle Liste / Pipeline ──────────────────────────────────
+  const [viewMode, setViewMode] = useState('list') // 'list' | 'pipeline'
+
+  // Liste à plat de toutes les étapes de tous les livrables (pour Pipeline).
+  // etapesByLivrable est une Map<livrableId, etape[]> issue de useLivrables.
+  const allEtapes = useMemo(() => {
+    if (!etapesByLivrable) return []
+    const out = []
+    for (const arr of etapesByLivrable.values()) out.push(...arr)
+    return out
+  }, [etapesByLivrable])
+
   // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
   // updates realtime / optimistic — on ré-extrait l'objet depuis blocks.
@@ -444,11 +459,55 @@ export default function LivrablesTab() {
         />
       )}
 
+      {/* Toggle Liste / Pipeline (LIV-22) — visible si au moins 1 bloc */}
+      {blocks.length > 0 && (
+        <div
+          className="px-4 sm:px-6 py-2 flex items-center gap-1"
+          style={{
+            background: 'var(--bg-surf)',
+            borderBottom: '1px solid var(--brd)',
+          }}
+        >
+          <span
+            className="text-[10px] uppercase tracking-wider mr-2"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Vue
+          </span>
+          <ViewToggle
+            active={viewMode === 'list'}
+            icon={ListIcon}
+            label="Liste"
+            onClick={() => setViewMode('list')}
+          />
+          <ViewToggle
+            active={viewMode === 'pipeline'}
+            icon={GanttChart}
+            label="Pipeline"
+            onClick={() => setViewMode('pipeline')}
+          />
+        </div>
+      )}
+
       <div className="p-4 sm:p-6 flex-1">
         {blocks.length === 0 ? (
           <EmptyState
             canEdit={canEdit}
             onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: 0 })}
+          />
+        ) : viewMode === 'pipeline' ? (
+          <LivrablePipelineView
+            livrables={allLivrablesFlat}
+            etapes={allEtapes}
+            blocks={blocks}
+            mode="ensemble"
+            onEtapeClick={(etape) => {
+              // Click sur une barre → ouvre le drawer Versions du livrable parent,
+              // sur l'onglet Étapes (réutilisation existant LIV-9)
+              if (!etape?.livrable_id) return
+              setDetailsDrawerInitialTab('etapes')
+              setDetailsDrawerLivrableId(etape.livrable_id)
+            }}
           />
         ) : (
           <LivrableBlockList
@@ -773,6 +832,28 @@ function ProchainChip({ prochain, onOpen }) {
           {isEmpty ? relative : `${label} · ${relative}`}
         </span>
       </span>
+    </button>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ViewToggle — chip Liste / Pipeline (LIV-22)
+// ════════════════════════════════════════════════════════════════════════════
+
+function ViewToggle({ active, icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'transparent',
+        color: active ? 'var(--blue)' : 'var(--txt-2)',
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd-sub)'}`,
+      }}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      <span>{label}</span>
     </button>
   )
 }
