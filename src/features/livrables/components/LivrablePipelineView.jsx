@@ -41,15 +41,16 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef } from 'react'
-import { Target } from 'lucide-react'
+import { ArrowLeft, Crosshair, Target } from 'lucide-react'
 import { LIVRABLE_ETAPE_KINDS, isLivrableEnRetard } from '../../../lib/livrablesHelpers'
 import {
   computeWindowFromEtapes,
   etapesToTimelineEvents,
   filterEtapesForLivrable,
-  groupEtapesByKind,
+  groupEtapesByEventType,
   groupEtapesByLivrable,
 } from '../../../lib/livrablesPipelineHelpers'
+import LivrableFocusPicker from './LivrableFocusPicker'
 
 // ─── Constantes layout ─────────────────────────────────────────────────────
 
@@ -122,8 +123,13 @@ export default function LivrablePipelineView({
   paddingDays = 7,
   onEtapeClick,
   onLivrableClick,
+  onEnterFocus,
+  onExitFocus,
   className = '',
 }) {
+  // Si on demande le mode focus mais sans livrable précisé → on retombe sur
+  // ensemble (comportement défensif). Le toggle UI se charge de fournir un id.
+  const effectiveMode = mode === 'focus' && focusLivrableId ? 'focus' : 'ensemble'
   const dayWidth = DAY_WIDTH_BY_ZOOM[zoom] || DAY_WIDTH_BY_ZOOM.day
   const scrollRef = useRef(null)
   const didAutoScrollRef = useRef(false)
@@ -139,10 +145,12 @@ export default function LivrablePipelineView({
     let lanesData
     let scopedEvents
     let scopedLivrables
-    if (mode === 'focus' && focusLivrableId) {
+    if (effectiveMode === 'focus') {
       scopedEvents = filterEtapesForLivrable(allEvents, focusLivrableId)
       scopedLivrables = livrables.filter((l) => l.id === focusLivrableId)
-      lanesData = groupEtapesByKind(scopedEvents)
+      // LIV-22c — mode A : 1 lane par event_type effectivement utilisé.
+      // Tri par 1ère apparition. "Sans type" en queue.
+      lanesData = groupEtapesByEventType(scopedEvents, eventTypesById)
     } else {
       scopedEvents = allEvents
       scopedLivrables = livrables
@@ -165,7 +173,7 @@ export default function LivrablePipelineView({
       .map((l) => l.date_livraison)
       .filter(Boolean)
     const scopedEtapesRaw =
-      mode === 'focus' && focusLivrableId
+      effectiveMode === 'focus'
         ? etapes.filter((e) => e.livrable_id === focusLivrableId)
         : etapes
     const win = computeWindowFromEtapes(scopedEtapesRaw, {
@@ -199,7 +207,7 @@ export default function LivrablePipelineView({
     })
 
     return { lanes: enrichedLanes, window: win }
-  }, [livrables, etapes, blocks, eventTypes, mode, focusLivrableId, paddingDays])
+  }, [livrables, etapes, blocks, eventTypes, effectiveMode, focusLivrableId, paddingDays])
 
   // ─── Génération de la grille ────────────────────────────────────────────
   const totalDays = window.daysCount
@@ -229,13 +237,24 @@ export default function LivrablePipelineView({
   // ─── Empty state global ─────────────────────────────────────────────────
   if (!lanes.length) {
     return (
-      <div
-        className={`flex items-center justify-center h-64 text-sm ${className}`}
-        style={{ color: 'var(--txt-3)' }}
-      >
-        {mode === 'focus' && focusLivrableId
-          ? 'Aucune étape pour ce livrable.'
-          : 'Aucun livrable dans ce projet.'}
+      <div className={className}>
+        {effectiveMode === 'focus' && (
+          <FocusHeaderBar
+            livrables={livrables}
+            focusLivrableId={focusLivrableId}
+            onEnterFocus={onEnterFocus}
+            onExitFocus={onExitFocus}
+            blocks={blocks}
+          />
+        )}
+        <div
+          className="flex items-center justify-center h-64 text-sm"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {effectiveMode === 'focus'
+            ? 'Aucune étape pour ce livrable.'
+            : 'Aucun livrable dans ce projet.'}
+        </div>
       </div>
     )
   }
@@ -248,72 +267,128 @@ export default function LivrablePipelineView({
   }
 
   return (
-    <div
-      ref={scrollRef}
-      className={`overflow-auto ${className}`}
-      style={{
-        background: 'var(--bg-surf)',
-        border: '1px solid var(--brd)',
-        borderRadius: 8,
-      }}
-    >
-      <div style={{ minWidth: LANE_LABEL_WIDTH + totalWidth }}>
-        {/* Header dates (sticky top) */}
-        <PipelineHeader
-          headerCells={headerCells}
-          dayWidth={dayWidth}
-          zoom={zoom}
-          today={today}
+    <div className={className}>
+      {/* Header focus : visible uniquement en mode 'focus'. Reste hors du
+          scroll container pour ne pas bouger horizontalement. */}
+      {effectiveMode === 'focus' && (
+        <FocusHeaderBar
+          livrables={livrables}
+          focusLivrableId={focusLivrableId}
+          onEnterFocus={onEnterFocus}
+          onExitFocus={onExitFocus}
+          blocks={blocks}
         />
+      )}
 
-        {/* Body : lanes */}
-        <div style={{ position: 'relative' }}>
-          {/* Overlay du passé — léger voile gris sur les jours < today */}
-          {showPastOverlay && (
-            <div
-              className="pointer-events-none"
-              style={{
-                position: 'absolute',
-                left: LANE_LABEL_WIDTH,
-                top: 0,
-                bottom: 0,
-                width: todayOffset * dayWidth,
-                background: 'var(--bg-2)',
-                opacity: 0.35,
-                zIndex: 1,
-              }}
-            />
-          )}
+      <div
+        ref={scrollRef}
+        className="overflow-auto"
+        style={{
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          borderRadius: 8,
+        }}
+      >
+        <div style={{ minWidth: LANE_LABEL_WIDTH + totalWidth }}>
+          {/* Header dates (sticky top). En mode focus, on injecte aussi le
+              marqueur deadline GLOBAL (au-dessus des dates) pour ne pas le
+              répéter sur chaque lane. */}
+          <PipelineHeader
+            headerCells={headerCells}
+            dayWidth={dayWidth}
+            zoom={zoom}
+            today={today}
+            globalDeadline={
+              effectiveMode === 'focus'
+                ? computeDeadlineMarker(
+                    livrables.find((l) => l.id === focusLivrableId),
+                    window.start,
+                    totalDays,
+                  )
+                : null
+            }
+            globalDeadlineLivrable={
+              effectiveMode === 'focus'
+                ? livrables.find((l) => l.id === focusLivrableId)
+                : null
+            }
+          />
 
-          {/* Today line — verticale sur toute la hauteur du body */}
-          {showTodayLine && (
-            <div
-              className="pointer-events-none"
-              style={{
-                position: 'absolute',
-                left: LANE_LABEL_WIDTH + todayOffset * dayWidth,
-                top: 0,
-                bottom: 0,
-                width: 1,
-                background: 'var(--blue)',
-                opacity: 0.6,
-                zIndex: 5,
-              }}
-            />
-          )}
+          {/* Body : lanes */}
+          <div style={{ position: 'relative' }}>
+            {/* Overlay du passé — léger voile gris sur les jours < today */}
+            {showPastOverlay && (
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'absolute',
+                  left: LANE_LABEL_WIDTH,
+                  top: 0,
+                  bottom: 0,
+                  width: todayOffset * dayWidth,
+                  background: 'var(--bg-2)',
+                  opacity: 0.35,
+                  zIndex: 1,
+                }}
+              />
+            )}
 
-          {lanes.map((lane) => (
-            <PipelineLane
-              key={lane.key}
-              lane={lane}
-              dayWidth={dayWidth}
-              totalWidth={totalWidth}
-              windowStart={window.start}
-              totalDays={totalDays}
-              onEtapeClick={onEtapeClick}
-              onLivrableClick={onLivrableClick}
-            />
-          ))}
+            {/* Today line — verticale sur toute la hauteur du body */}
+            {showTodayLine && (
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'absolute',
+                  left: LANE_LABEL_WIDTH + todayOffset * dayWidth,
+                  top: 0,
+                  bottom: 0,
+                  width: 1,
+                  background: 'var(--blue)',
+                  opacity: 0.6,
+                  zIndex: 5,
+                }}
+              />
+            )}
+
+            {/* Deadline globale en mode focus — ligne verticale traversant
+                toutes les lanes (le marqueur Target est dans le header). */}
+            {effectiveMode === 'focus' &&
+              (() => {
+                const liv = livrables.find((l) => l.id === focusLivrableId)
+                const dl = computeDeadlineMarker(liv, window.start, totalDays)
+                if (!dl) return null
+                return (
+                  <div
+                    className="pointer-events-none"
+                    style={{
+                      position: 'absolute',
+                      left: LANE_LABEL_WIDTH + dl.offset * dayWidth,
+                      top: 0,
+                      bottom: 0,
+                      width: 2,
+                      background: dl.color,
+                      opacity: 0.85,
+                      zIndex: 4,
+                    }}
+                  />
+                )
+              })()}
+
+            {lanes.map((lane) => (
+              <PipelineLane
+                key={lane.key}
+                lane={lane}
+                dayWidth={dayWidth}
+                totalWidth={totalWidth}
+                windowStart={window.start}
+                totalDays={totalDays}
+                onEtapeClick={onEtapeClick}
+                onLivrableClick={onLivrableClick}
+                onEnterFocus={effectiveMode === 'ensemble' ? onEnterFocus : null}
+                hideDeadlineMarker={effectiveMode === 'focus'}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -324,7 +399,14 @@ export default function LivrablePipelineView({
 // PipelineHeader — barre dates en haut
 // ════════════════════════════════════════════════════════════════════════════
 
-function PipelineHeader({ headerCells, dayWidth, zoom, today }) {
+function PipelineHeader({
+  headerCells,
+  dayWidth,
+  zoom,
+  today,
+  globalDeadline,
+  globalDeadlineLivrable,
+}) {
   const todayKey = today
     ? `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`
     : null
@@ -335,6 +417,7 @@ function PipelineHeader({ headerCells, dayWidth, zoom, today }) {
         background: 'var(--bg-elev)',
         borderBottom: '1px solid var(--brd)',
         height: HEADER_HEIGHT,
+        position: 'sticky',
       }}
     >
       {/* Coin haut-gauche : empty */}
@@ -346,8 +429,8 @@ function PipelineHeader({ headerCells, dayWidth, zoom, today }) {
           borderRight: '1px solid var(--brd-sub)',
         }}
       />
-      {/* Cellules dates */}
-      <div className="flex">
+      {/* Cellules dates + (en focus) marqueur deadline global */}
+      <div className="flex relative">
         {headerCells.map((cell) => {
           const cellKey = `${cell.date.getFullYear()}-${cell.date.getMonth()}-${cell.date.getDate()}`
           return (
@@ -360,6 +443,23 @@ function PipelineHeader({ headerCells, dayWidth, zoom, today }) {
             />
           )
         })}
+        {globalDeadline && (
+          <div
+            className="absolute flex items-center justify-center rounded-full"
+            style={{
+              left: globalDeadline.offset * dayWidth - 9,
+              top: HEADER_HEIGHT - 22,
+              width: 18,
+              height: 18,
+              background: 'var(--bg-surf)',
+              border: `1.5px solid ${globalDeadline.color}`,
+              zIndex: 11,
+            }}
+            title={formatDeadlineTitle(globalDeadlineLivrable, globalDeadline)}
+          >
+            <Target size={10} style={{ color: globalDeadline.color }} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -434,6 +534,8 @@ function PipelineLane({
   totalDays,
   onEtapeClick,
   onLivrableClick,
+  onEnterFocus,
+  hideDeadlineMarker = false,
 }) {
   // Hauteur min : assez pour 1 sub-row même si lane vide.
   const effectiveSubRows = Math.max(1, lane.subRowsCount)
@@ -444,7 +546,10 @@ function PipelineLane({
 
   // Deadline (date_livraison) du livrable parent, si lane = livrable.
   const livrable = lane.livrable
-  const deadlineInfo = computeDeadlineMarker(livrable, windowStart, totalDays)
+  const deadlineInfo =
+    !hideDeadlineMarker && livrable
+      ? computeDeadlineMarker(livrable, windowStart, totalDays)
+      : null
 
   // Click sur label → drawer si livrable identifiable.
   const isClickableLabel = Boolean(livrable && onLivrableClick)
@@ -452,12 +557,20 @@ function PipelineLane({
     if (isClickableLabel) onLivrableClick(livrable)
   }
 
+  // Bouton Focus : visible uniquement en mode Ensemble (onEnterFocus fourni)
+  // et si la lane est un livrable. Le click déclenche la bascule vers Focus.
+  const showFocusBtn = Boolean(livrable && onEnterFocus)
+  const handleFocusClick = (e) => {
+    e.stopPropagation()
+    onEnterFocus?.(livrable.id)
+  }
+
   const isEmpty = lane.events.length === 0
   const enRetard = livrable ? isLivrableEnRetard(livrable) : false
 
   return (
     <div
-      className="flex"
+      className="flex group"
       style={{
         borderBottom: '1px solid var(--brd-sub)',
         minHeight: laneHeight,
@@ -507,6 +620,28 @@ function PipelineLane({
           >
             !
           </span>
+        )}
+        {showFocusBtn && (
+          <button
+            type="button"
+            onClick={handleFocusClick}
+            className="ml-1 p-1 rounded shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{
+              background: 'transparent',
+              color: 'var(--txt-3)',
+            }}
+            title="Focus sur ce livrable"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--blue)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+          >
+            <Crosshair size={12} />
+          </button>
         )}
       </div>
 
@@ -700,4 +835,87 @@ function resolveBarMeta(event) {
   const etapeNom = (event?._etape?.nom || '').toString().trim()
   const label = etapeNom || typeLabel
   return { label, color, typeLabel }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FocusHeaderBar — barre supérieure du mode Focus (LIV-22c)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Affichée au-dessus du Gantt en mode Focus. Contient :
+//   - Bouton "← Ensemble" pour revenir au mode B
+//   - Mention "Focus" + nom du livrable courant
+//   - Picker de livrable (LivrableFocusPicker) pour switcher rapidement
+//
+// Reste hors du scroll container pour ne pas glisser horizontalement.
+// ════════════════════════════════════════════════════════════════════════════
+
+function FocusHeaderBar({
+  livrables = [],
+  focusLivrableId,
+  onEnterFocus,
+  onExitFocus,
+  blocks = [],
+}) {
+  const focusLivrable = useMemo(
+    () => livrables.find((l) => l.id === focusLivrableId) || null,
+    [livrables, focusLivrableId],
+  )
+  // Préfixe bloc si dispo, pour cohérence avec les labels du Gantt Ensemble.
+  const block = focusLivrable
+    ? blocks.find((b) => b.id === focusLivrable.block_id) || null
+    : null
+  const numero = (focusLivrable?.numero || '').toString().trim()
+  const prefix = (block?.prefixe || '').toString().trim()
+  const fullNumero =
+    prefix && numero && !numero.startsWith(prefix) ? `${prefix}${numero}` : numero
+  const livrableLabel = focusLivrable
+    ? fullNumero
+      ? `${fullNumero} · ${focusLivrable.nom || 'Sans nom'}`
+      : focusLivrable.nom || 'Sans nom'
+    : 'Aucun livrable'
+
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 mb-2 rounded"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onExitFocus?.()}
+        className="flex items-center gap-1 px-2 py-1 rounded text-xs"
+        style={{
+          background: 'var(--bg-2)',
+          color: 'var(--txt-2)',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-hov)'
+          e.currentTarget.style.color = 'var(--txt)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'var(--bg-2)'
+          e.currentTarget.style.color = 'var(--txt-2)'
+        }}
+        title="Retour à la vue Ensemble"
+      >
+        <ArrowLeft size={12} />
+        <span>Ensemble</span>
+      </button>
+
+      <span className="text-[11px] uppercase tracking-wider shrink-0" style={{ color: 'var(--txt-3)' }}>
+        Focus
+      </span>
+
+      <LivrableFocusPicker
+        livrables={livrables}
+        blocks={blocks}
+        currentLabel={livrableLabel}
+        currentLivrableId={focusLivrableId}
+        onPick={(id) => onEnterFocus?.(id)}
+      />
+    </div>
+  )
 }

@@ -372,6 +372,79 @@ export function groupEtapesByKind(timelineEvents = []) {
   return lanes
 }
 
+// ─── groupEtapesByEventType (vue A focus — depuis LIV-22c) ─────────────────
+
+/**
+ * Groupe les events par `event_type_id` — successeur de `groupEtapesByKind`
+ * depuis LIV-22c. Le mode Focus (vue A) montre 1 lane par event_type
+ * effectivement utilisé sur le livrable focus, plutôt que les 7 kinds figés
+ * de l'enum legacy (qui ne correspondent plus à la réalité user depuis LIV-9).
+ *
+ * Tri : par première apparition (date_debut min ascendant). Étapes sans
+ * event_type → lane "Sans type" toujours en queue.
+ *
+ * @param {Array} timelineEvents - issus de `etapesToTimelineEvents` (events
+ *                                  enrichis avec event_type)
+ * @param {Map<string, Object>} [eventTypesById] - Map id → event_type
+ *                                                  (fallback : utilise
+ *                                                  ev.event_type embarqué)
+ * @returns {Array<{ key: string, label: string, color: string, events: Array }>}
+ */
+export function groupEtapesByEventType(timelineEvents = [], eventTypesById = new Map()) {
+  // key === event_type_id si défini, sinon 'untyped'
+  const byTypeKey = new Map()
+  for (const ev of timelineEvents) {
+    const typeId = ev?.event_type?.id || ev?._etape?.event_type_id || null
+    const key = typeId || 'untyped'
+    const startMs = new Date(ev.starts_at).getTime()
+    if (!byTypeKey.has(key)) {
+      let eventType = null
+      if (typeId) {
+        // Préfère la version embarquée dans l'event (déjà enrichie par
+        // etapesToTimelineEvents), sinon retombe sur la Map.
+        eventType = ev?.event_type || eventTypesById.get(typeId) || null
+      }
+      byTypeKey.set(key, { events: [], minDate: Infinity, eventType })
+    }
+    const bucket = byTypeKey.get(key)
+    bucket.events.push(ev)
+    if (startMs < bucket.minDate) bucket.minDate = startMs
+  }
+
+  // Construction des lanes avec label + couleur depuis eventType.
+  const lanes = []
+  for (const [key, bucket] of byTypeKey.entries()) {
+    if (key === 'untyped') {
+      lanes.push({
+        key: 'untyped',
+        label: 'Sans type',
+        color: '#94a3b8',
+        events: bucket.events,
+        minDate: bucket.minDate,
+      })
+    } else {
+      const et = bucket.eventType
+      lanes.push({
+        key,
+        label: et?.label || et?.slug || 'Type',
+        color: et?.color || '#94a3b8',
+        events: bucket.events,
+        minDate: bucket.minDate,
+      })
+    }
+  }
+
+  // Tri : 1ère apparition asc, "untyped" toujours en queue.
+  lanes.sort((a, b) => {
+    if (a.key === 'untyped') return 1
+    if (b.key === 'untyped') return -1
+    return a.minDate - b.minDate
+  })
+
+  // Retire minDate de la sortie (utile uniquement pour le tri).
+  return lanes.map(({ minDate: _ignored, ...rest }) => rest)
+}
+
 // ─── filterEtapesForLivrable (vue A focus) ──────────────────────────────────
 
 /**

@@ -7,6 +7,7 @@ import {
   computeWindowFromEtapes,
   etapesToTimelineEvents,
   filterEtapesForLivrable,
+  groupEtapesByEventType,
   groupEtapesByKind,
   groupEtapesByLivrable,
 } from './livrablesPipelineHelpers.js'
@@ -322,6 +323,84 @@ describe('filterEtapesForLivrable', () => {
   it('renvoie [] si livrableId vide', () => {
     expect(filterEtapesForLivrable(events, null)).toEqual([])
     expect(filterEtapesForLivrable(events, '')).toEqual([])
+  })
+})
+
+describe('groupEtapesByEventType', () => {
+  const eventTypesById = new Map([
+    ['T_DERUSH', { id: 'T_DERUSH', label: 'Dérush', color: '#ff0000' }],
+    ['T_MONTAGE', { id: 'T_MONTAGE', label: 'Montage', color: '#00ff00' }],
+    ['T_ETALO', { id: 'T_ETALO', label: 'Étalonnage', color: '#0000ff' }],
+  ])
+
+  it('1 lane par event_type utilisé', () => {
+    const events = [
+      { id: 'e1', starts_at: '2026-05-10T00:00:00.000Z', event_type: { id: 'T_DERUSH', label: 'Dérush', color: '#ff0000' } },
+      { id: 'e2', starts_at: '2026-05-12T00:00:00.000Z', event_type: { id: 'T_MONTAGE', label: 'Montage', color: '#00ff00' } },
+      { id: 'e3', starts_at: '2026-05-15T00:00:00.000Z', event_type: { id: 'T_DERUSH', label: 'Dérush', color: '#ff0000' } },
+    ]
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    expect(lanes).toHaveLength(2)
+    expect(lanes.find((l) => l.key === 'T_DERUSH').events).toHaveLength(2)
+    expect(lanes.find((l) => l.key === 'T_MONTAGE').events).toHaveLength(1)
+  })
+
+  it('tri par première apparition (date_debut min)', () => {
+    const events = [
+      { id: 'e1', starts_at: '2026-05-20T00:00:00.000Z', event_type: { id: 'T_MONTAGE', label: 'Montage', color: '#00ff00' } },
+      { id: 'e2', starts_at: '2026-05-10T00:00:00.000Z', event_type: { id: 'T_DERUSH', label: 'Dérush', color: '#ff0000' } },
+      { id: 'e3', starts_at: '2026-05-25T00:00:00.000Z', event_type: { id: 'T_ETALO', label: 'Étalonnage', color: '#0000ff' } },
+    ]
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    // Dérush (10/05) avant Montage (20/05) avant Étalo (25/05)
+    expect(lanes.map((l) => l.key)).toEqual(['T_DERUSH', 'T_MONTAGE', 'T_ETALO'])
+  })
+
+  it('"Sans type" toujours en queue', () => {
+    const events = [
+      { id: 'e1', starts_at: '2026-05-01T00:00:00.000Z', _etape: { event_type_id: null } },
+      { id: 'e2', starts_at: '2026-05-15T00:00:00.000Z', event_type: { id: 'T_MONTAGE', label: 'Montage', color: '#00ff00' } },
+    ]
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    // L'étape sans type est la 1ère chronologiquement, mais la lane "untyped"
+    // doit rester en queue.
+    expect(lanes.map((l) => l.key)).toEqual(['T_MONTAGE', 'untyped'])
+    expect(lanes.find((l) => l.key === 'untyped').label).toBe('Sans type')
+  })
+
+  it('utilise event_type embarqué (label + color) en priorité sur la Map', () => {
+    const events = [
+      {
+        id: 'e1',
+        starts_at: '2026-05-10T00:00:00.000Z',
+        event_type: { id: 'T_DERUSH', label: 'Dérush prod', color: '#aa0000' },
+      },
+    ]
+    // La Map dit "Dérush" / "#ff0000" mais l'event embarque "Dérush prod" / "#aa0000"
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    expect(lanes[0].label).toBe('Dérush prod')
+    expect(lanes[0].color).toBe('#aa0000')
+  })
+
+  it('fallback sur la Map si event_type pas embarqué', () => {
+    const events = [
+      { id: 'e1', starts_at: '2026-05-10T00:00:00.000Z', _etape: { event_type_id: 'T_MONTAGE' } },
+    ]
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    expect(lanes[0].label).toBe('Montage')
+    expect(lanes[0].color).toBe('#00ff00')
+  })
+
+  it('liste vide → []', () => {
+    expect(groupEtapesByEventType([], eventTypesById)).toEqual([])
+  })
+
+  it('exclut minDate de la sortie (interne au tri)', () => {
+    const events = [
+      { id: 'e1', starts_at: '2026-05-10T00:00:00.000Z', event_type: { id: 'T_DERUSH', label: 'Dérush', color: '#ff0000' } },
+    ]
+    const lanes = groupEtapesByEventType(events, eventTypesById)
+    expect(lanes[0]).not.toHaveProperty('minDate')
   })
 })
 

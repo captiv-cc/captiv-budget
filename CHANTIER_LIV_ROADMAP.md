@@ -1125,10 +1125,66 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   blocksById) + 6/6 (event_type) = 23/23 PASS. Tests Vitest ajoutés (32
   tests au total dans `livrablesPipelineHelpers.test.js`).
 - **Restant Vague 2 LIV-22** :
-  - **LIV-22c** : mode A (focus 1 livrable) + toggle A/B dans le header
-    Pipeline.
   - **LIV-22d** : drag/resize barres + sync via `actions.updateEtape`.
   - **LIV-22e** : zoom toggle (jour/semaine/mois) + polish final.
+
+### Session 2026-04-30 (suite) — LIV-22c (mode Focus + toggle A/B)
+
+- **Helper `groupEtapesByEventType`** (nouveau) : 1 lane par event_type
+  effectivement utilisé sur le scope. Tri par 1ère apparition (date_debut
+  min ascendant). Étapes sans event_type → lane "Sans type" toujours en
+  queue. Successeur de `groupEtapesByKind` (devenu obsolète depuis LIV-9
+  où l'enum kind a été remplacé par event_type_id libre).
+- **Composant `LivrablePipelineView`** :
+  - Mode `focus` utilise `groupEtapesByEventType` (au lieu de l'enum kind).
+  - Bouton "Focus" (icône Crosshair) sur chaque lane en mode Ensemble,
+    visible au hover via `opacity-0 group-hover:opacity-100`. Click →
+    `onEnterFocus(livrable.id)`.
+  - Marqueur deadline globale en mode Focus : 1 ligne verticale + 1 cercle
+    Target dans le header (pas répété par lane).
+  - Lanes vides en focus : message "Aucune étape pour ce livrable" + le
+    `FocusHeaderBar` reste affiché (permet de switcher vers un autre
+    livrable même quand le courant est vide).
+  - `effectiveMode` : si `mode='focus'` mais `focusLivrableId=null`,
+    fallback défensif sur `'ensemble'`.
+- **Composant `FocusHeaderBar`** (nouveau, inline) : barre supérieure du
+  mode Focus avec bouton "← Ensemble", label "Focus", picker du livrable
+  courant. Reste hors du scroll container (ne glisse pas horizontalement).
+- **Composant `LivrableFocusPicker`** (nouveau, fichier séparé) : picker
+  popover des livrables du projet. Pattern miroir de `EventTypeSelect`
+  (PopoverFloat + createPortal). Tri par `block.sort_order` puis
+  `livrable.sort_order`. Highlight du livrable courant. Préfixe bloc
+  cohérent avec le label des lanes.
+- **`LivrablesTab`** :
+  - `viewMode`, `pipelineMode`, `focusLivrableId` désormais persistés dans
+    l'URL via `useSearchParams` (pattern existant). Format :
+    `?vue=pipeline&mode=focus&livrable=<uuid>`. Refresh / partage =
+    état conservé.
+  - Sous-toggle **Ensemble / Focus** dans la barre Vue, visible uniquement
+    quand `viewMode === 'pipeline'`. Séparé visuellement par une barre
+    verticale.
+  - Filtres (statut / monteur / format / bloc / en retard / mes livrables)
+    désormais aussi appliqués en mode Pipeline : nouvelle dérivée
+    `allFilteredLivrablesFlat` + `allFilteredEtapes` (étape filtrée si
+    son livrable parent passe les filtres). Cohérent avec mode Liste.
+  - `ViewToggle` rendu un peu plus flexible : `icon` est devenu optionnel
+    (toggles Ensemble/Focus n'ont pas d'icône, juste un label).
+- **Tests** : 7 nouveaux cas pour `groupEtapesByEventType` (tri, untyped en
+  queue, fallback Map, vide). Smoke node : 7/7 PASS.
+- **Décisions UX (paris validés Hugo)** :
+  - Entrée en focus = double mécanique : bouton Crosshair sur lane (en
+    Ensemble) **et** picker dans le header Focus pour switcher.
+  - Click sur label de lane garde son comportement existant : ouverture
+    drawer Versions. Le bouton Crosshair (au survol) est dédié au focus.
+  - Lanes Focus = 1 par event_type **utilisé** (compact), pas par
+    event_type de l'org (verbeux). Si jamais l'utilisateur veut tous voir,
+    il pourra ajouter un toggle "include all types" plus tard.
+  - Deadline globale en focus : ligne verticale + Target dans le header
+    (1 marqueur, pas N).
+- **Validation** : ESLint clean (5 fichiers), parse-check OK. Smoke 7/7
+  PASS sur le helper. Test fonctionnel côté Hugo : toggle Ensemble/Focus,
+  bouton Crosshair, picker dans header, URL persistance, filtres en
+  Pipeline.
 - **Dépendant** : LIV-23 (export PDF "vue ensemble") et LIV-24 (export
   PDF "vue détaillée") réutiliseront le rendu Gantt (canvas ou SVG
   capture). Le découpage a été pensé pour ça.

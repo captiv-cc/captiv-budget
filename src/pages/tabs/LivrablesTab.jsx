@@ -248,6 +248,15 @@ export default function LivrablesTab() {
     return next
   }, [livrablesByBlock, filters, userId])
 
+  // Version à plat de la liste filtrée pour le mode Pipeline. Cohérent avec
+  // le mode Liste : les filtres s'appliquent aux deux vues.
+  const allFilteredLivrablesFlat = useMemo(() => {
+    if (!filteredLivrablesByBlock) return []
+    const out = []
+    for (const arr of filteredLivrablesByBlock.values()) out.push(...arr)
+    return out
+  }, [filteredLivrablesByBlock])
+
   // Compteurs basés sur la liste FILTRÉE (réactivité aux filtres pour
   // afficher "X actifs après filtre" — cohérent avec l'UX).
   // Hmm, mais compteurs header sont déjà calculés sur la liste complète via
@@ -361,8 +370,50 @@ export default function LivrablesTab() {
   // ─── LIV-20 — Drawer Corbeille ──────────────────────────────────────────
   const [trashOpen, setTrashOpen] = useState(false)
 
-  // ─── LIV-22 — Toggle Liste / Pipeline ──────────────────────────────────
-  const [viewMode, setViewMode] = useState('list') // 'list' | 'pipeline'
+  // ─── LIV-22 — Toggle Liste / Pipeline + mode Focus ─────────────────────
+  // État persisté dans l'URL pour permettre refresh / partage de lien.
+  //   ?vue=pipeline       → vue Pipeline (sinon Liste)
+  //   ?mode=focus         → mode Focus (sinon Ensemble)
+  //   ?livrable=<uuid>    → livrable focus (requis pour Focus)
+  const viewMode = searchParams.get('vue') === 'pipeline' ? 'pipeline' : 'list'
+  const rawPipelineMode = searchParams.get('mode')
+  const focusLivrableId = searchParams.get('livrable') || null
+  const pipelineMode =
+    rawPipelineMode === 'focus' && focusLivrableId ? 'focus' : 'ensemble'
+
+  const setViewMode = useCallback(
+    (next) => {
+      const params = new URLSearchParams(searchParams)
+      if (next === 'pipeline') params.set('vue', 'pipeline')
+      else {
+        params.delete('vue')
+        // Quitter le pipeline → on nettoie aussi le mode/focus.
+        params.delete('mode')
+        params.delete('livrable')
+      }
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const handleEnterFocus = useCallback(
+    (livrableId) => {
+      if (!livrableId) return
+      const params = new URLSearchParams(searchParams)
+      params.set('vue', 'pipeline')
+      params.set('mode', 'focus')
+      params.set('livrable', livrableId)
+      setSearchParams(params, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const handleExitFocus = useCallback(() => {
+    const params = new URLSearchParams(searchParams)
+    params.delete('mode')
+    params.delete('livrable')
+    setSearchParams(params, { replace: true })
+  }, [searchParams, setSearchParams])
 
   // Liste à plat de toutes les étapes de tous les livrables (pour Pipeline).
   // etapesByLivrable est une Map<livrableId, etape[]> issue de useLivrables.
@@ -372,6 +423,15 @@ export default function LivrablesTab() {
     for (const arr of etapesByLivrable.values()) out.push(...arr)
     return out
   }, [etapesByLivrable])
+
+  // Étapes filtrées : on ne garde que celles dont le livrable parent passe
+  // les filtres actifs. Cohérent avec le mode Liste (les blocs filtrés
+  // n'affichent que les livrables qui passent les filtres).
+  const allFilteredEtapes = useMemo(() => {
+    if (!hasActiveFilter(filters)) return allEtapes
+    const allowedIds = new Set(allFilteredLivrablesFlat.map((l) => l.id))
+    return allEtapes.filter((e) => allowedIds.has(e.livrable_id))
+  }, [allEtapes, allFilteredLivrablesFlat, filters])
 
   // ─── Drawer details (LIV-8 versions + LIV-9 étapes) ──────────────────────
   // On garde l'id du livrable ouvert (pas l'objet) pour rester sync avec les
@@ -459,10 +519,11 @@ export default function LivrablesTab() {
         />
       )}
 
-      {/* Toggle Liste / Pipeline (LIV-22) — visible si au moins 1 bloc */}
+      {/* Toggle Liste / Pipeline (LIV-22) — visible si au moins 1 bloc.
+          En mode Pipeline, sous-toggle Ensemble/Focus (LIV-22c). */}
       {blocks.length > 0 && (
         <div
-          className="px-4 sm:px-6 py-2 flex items-center gap-1"
+          className="px-4 sm:px-6 py-2 flex items-center gap-1 flex-wrap"
           style={{
             background: 'var(--bg-surf)',
             borderBottom: '1px solid var(--brd)',
@@ -486,6 +547,31 @@ export default function LivrablesTab() {
             label="Pipeline"
             onClick={() => setViewMode('pipeline')}
           />
+
+          {viewMode === 'pipeline' && (
+            <>
+              <span
+                className="mx-2 h-4 w-px"
+                style={{ background: 'var(--brd-sub)' }}
+                aria-hidden="true"
+              />
+              <ViewToggle
+                active={pipelineMode === 'ensemble'}
+                label="Ensemble"
+                onClick={handleExitFocus}
+              />
+              <ViewToggle
+                active={pipelineMode === 'focus'}
+                label="Focus"
+                onClick={() => {
+                  // Si pas de livrable focus, on prend le 1er disponible (ux fallback).
+                  const target =
+                    focusLivrableId || allLivrablesFlat[0]?.id || null
+                  if (target) handleEnterFocus(target)
+                }}
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -497,11 +583,12 @@ export default function LivrablesTab() {
           />
         ) : viewMode === 'pipeline' ? (
           <LivrablePipelineView
-            livrables={allLivrablesFlat}
-            etapes={allEtapes}
+            livrables={allFilteredLivrablesFlat}
+            etapes={allFilteredEtapes}
             blocks={blocks}
             eventTypes={eventTypes}
-            mode="ensemble"
+            mode={pipelineMode}
+            focusLivrableId={focusLivrableId}
             onEtapeClick={(etape) => {
               // Click sur une barre → ouvre le drawer Versions du livrable parent,
               // sur l'onglet Étapes (réutilisation existant LIV-9)
@@ -515,6 +602,8 @@ export default function LivrablesTab() {
               setDetailsDrawerInitialTab('versions')
               setDetailsDrawerLivrableId(livrable.id)
             }}
+            onEnterFocus={handleEnterFocus}
+            onExitFocus={handleExitFocus}
           />
         ) : (
           <LivrableBlockList
@@ -859,7 +948,7 @@ function ViewToggle({ active, icon: Icon, label, onClick }) {
         border: `1px solid ${active ? 'var(--blue)' : 'var(--brd-sub)'}`,
       }}
     >
-      <Icon className="w-3.5 h-3.5" />
+      {Icon && <Icon className="w-3.5 h-3.5" />}
       <span>{label}</span>
     </button>
   )
