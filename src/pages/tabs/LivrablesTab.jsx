@@ -500,6 +500,7 @@ export default function LivrablesTab() {
             livrables={allLivrablesFlat}
             etapes={allEtapes}
             blocks={blocks}
+            eventTypes={eventTypes}
             mode="ensemble"
             onEtapeClick={(etape) => {
               // Click sur une barre → ouvre le drawer Versions du livrable parent,
@@ -507,6 +508,12 @@ export default function LivrablesTab() {
               if (!etape?.livrable_id) return
               setDetailsDrawerInitialTab('etapes')
               setDetailsDrawerLivrableId(etape.livrable_id)
+            }}
+            onLivrableClick={(livrable) => {
+              // Click sur le label de lane → drawer Versions du livrable
+              if (!livrable?.id) return
+              setDetailsDrawerInitialTab('versions')
+              setDetailsDrawerLivrableId(livrable.id)
             }}
           />
         ) : (

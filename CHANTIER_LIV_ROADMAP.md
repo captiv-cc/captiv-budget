@@ -1007,19 +1007,139 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   (drag d'un livrable du haut du bloc vers le bas → outline bleu sur la
   ligne survolée → drop → reorder persisté + sort_order mis à jour).
 
-### Prochaine étape — LIV-12 (Duplication livrable — variante)
+### Session 2026-04-30 — LIV-22 (Vue Pipeline / Gantt) — Vague 2
 
-Le menu `⋯` de chaque ligne livrable expose déjà un bouton "Dupliquer"
-qui appelle `actions.duplicateLivrable(livrable.id)`. Cette action
-duplique le livrable avec `nom: "${src.nom} (copie)"` (cf.
-`src/lib/livrables.js` ligne 510). À vérifier :
-  - Que le livrable dupliqué apparaît bien à côté de l'original.
-  - Que le `numero` est régénéré (auto-incrément du préfixe bloc).
-  - Que les versions et étapes sont **dupliquées aussi** ou créées
-    vierges ? À arbitrer avec Hugo (probablement vierges — la "variante"
-    réutilise la structure mais redémarre à V0 / 0 étape).
-  - Que le drag & drop / sort_order place bien le doublon en queue (ou
-    juste après l'original ?).
+- **LIV-22a ✅ (commit `fd0ddd4`)** : helpers purs + tests unitaires.
+  - `src/lib/livrablesPipelineHelpers.js` (~330 lignes) :
+    - `etapesToTimelineEvents(etapes, livrablesById)` : conversion vers
+      shape ISO compatible Planning. Convention all-day exclusive
+      (`ends_at = jour suivant 00:00`). Skip étapes sans `date_debut` ou
+      avec date invalide. `kind` par défaut `'autre'` si manquant.
+    - `computeWindowFromEtapes(etapes, { paddingDays = 7, now })` :
+      fenêtre temporelle [start, end, daysCount] englobant toutes les
+      dates avec un padding configurable. Fenêtre par défaut
+      `[today-7 ; today+30]` si aucune étape.
+    - `groupEtapesByLivrable(events, livrables, blockOrderById, { includeEmpty })` :
+      lanes triées par `block.sort_order` puis `livrable.sort_order`.
+      Option `includeEmpty: true` (LIV-22b) pour afficher TOUS les
+      livrables même sans étape (visualiser ce qui reste à planifier).
+    - `groupEtapesByKind(events)` : lanes triées par
+      `PIPELINE_KIND_ORDER` (production → da → montage → sound →
+      delivery → feedback → autre). Kinds inconnus en queue.
+    - `filterEtapesForLivrable(events, livrableId)` : utilitaire pour
+      mode focus.
+  - `livrablesPipelineHelpers.test.js` (24 tests Vitest, tous verts en
+    smoke node) — couvre conversion, fenêtre, groupage, filtres,
+    `includeEmpty`.
+- **LIV-22b ✅ (commit `8986cf0` + polish)** : composant `LivrablePipelineView`
+  + intégration LivrablesTab + 8 affinages (cette session).
+  - `src/features/livrables/components/LivrablePipelineView.jsx`
+    (~625 lignes) : layout custom Gantt, sub-composants
+    `PipelineHeader` / `HeaderCell` / `PipelineLane` / `PipelineBar`,
+    algo greedy `packEventsIntoSubRows`. Pas de réutilisation directe
+    de `PlanningTimelineView` (trop spécialisé), mais on partage la
+    convention all-day exclusive et le pattern sticky col label.
+  - **Toggle Liste / Pipeline** dans `LivrablesTab` (header), state
+    `viewMode: 'list' | 'pipeline'` (défaut liste).
+  - **Click sur barre** → ouvre `LivrableDetailsDrawer` sur l'onglet
+    `Étapes`. **Click sur label de lane** → ouvre le drawer sur
+    l'onglet `Versions`.
+  - **8 affinages polish (validés Hugo 2026-04-30)** :
+    1. Lanes pour TOUS les livrables (incl. vides) via `includeEmpty: true`.
+       Empty state lane discret "Aucune étape planifiée" (italique gris).
+    2. Marqueur deadline (date_livraison) : ligne verticale 2 px +
+       icône `Target` cerclée 18 px. Couleur orange si à venir, rouge
+       si en retard (`isLivrableEnRetard`). Hors fenêtre = pas affiché.
+    3. Numero complet dans label de lane (pattern `numero · nom`,
+       déjà OK depuis LIV-22a).
+    4. Auto-scroll horizontal vers AUJ. au mount (centré dans la
+       viewport, exécuté une seule fois via `didAutoScrollRef`).
+    5. Click sur label de lane → drawer Versions (cursor pointer,
+       role=button + keyboard).
+    6. Empty state lane (point 1).
+    7. Badge "AUJ." dans le `HeaderCell` du jour courant (top, 8 px,
+       lettre-espacée, fond `--blue-bg`, label DD en `--blue`).
+    8. Overlay du passé : voile gris léger (`--bg-2` opacité 0.35) sur
+       les jours `< today`, rendu absolu zIndex 1 sous les barres.
+    + Badge "!" rouge dans le label de lane si livrable en retard.
+- **Décisions architectes** :
+  - Variante α retenue pour les blocs : pas de header bloc explicite
+    dans le Gantt. L'ordre implicite (block.sort_order puis
+    livrable.sort_order) suffit. Si le besoin émerge, on pourra
+    réintroduire des séparateurs visuels en V2.
+  - Pas de drag/resize (LIV-22d), pas de zoom toggle UI (LIV-22e),
+    pas de mode A focus + toggle (LIV-22c). Le composant est déjà
+    prêt pour ces extensions (props `mode`, `focusLivrableId`, `zoom`).
+  - Constantes layout : `DAY_WIDTH_BY_ZOOM = { day: 32, week: 12, month: 4 }`,
+    `LANE_LABEL_WIDTH = 200`, `ROW_HEIGHT = 32`, `ROW_GAP = 4`,
+    `LANE_PADDING_Y = 8`, `HEADER_HEIGHT = 56`.
+- **Polish #2 — 4 retours feedback Hugo (même session)** :
+  1. **Fenêtre toujours jusqu'à AUJ.** : `computeWindowFromEtapes` accepte
+     désormais l'option `extraDates` (Date | 'YYYY-MM-DD') et `includeToday`.
+     Le composant force l'inclusion de today dans le calcul, peu importe
+     la position des étapes. Le Gantt couvre toujours le présent.
+  2. **Préfixe bloc dans le label** : `groupEtapesByLivrable` accepte
+     `blocksById` (Map blockId → block). Construit `${prefixe}${numero} · {nom}`
+     (ex: `A1 · Teaser` au lieu de `1 · Teaser`). Sans header de bloc dans
+     le Gantt, le préfixe lève l'ambiguïté entre blocs. Déduplication si
+     `numero` contient déjà le préfixe (rétro-compat livrables anciens vs
+     `nextLivrableNumero` post-LIV-7).
+  3. **Deadlines des livrables sans étape** : conséquence directe du
+     point 1 — les `date_livraison` des livrables sont passés en
+     `extraDates`. Du coup MASTER (30/04) et Cutdown (09/05) apparaissent
+     dans la fenêtre, leurs marqueurs Target s'affichent même sur les
+     lanes vides.
+  4. **Hover Target affiche la date FR** : retiré `pointer-events-none`
+     du cercle Target (la ligne verticale reste neutre pour ne pas bloquer
+     les clics sur les barres). Helper `formatDeadlineTitle` produit
+     `Livraison · 30/04/2026` (+ `(en retard)` si pertinent). Curseur
+     par défaut (au lieu de `cursor: help` qui produisait un `?` macOS).
+- **Polish #3 — empty state coupé + bug Target** :
+  - **"Aucune étape planifiée" tronqué après scroll** : le texte était
+    `position: absolute; left: 12px` dans la track. Le label sticky
+    (200 px) recouvrait les premiers 200 px de la track au scroll. Fix :
+    passer le texte en `position: sticky; left: LANE_LABEL_WIDTH + 12`
+    (= 212 px) → reste collé juste à droite du label, peu importe le
+    scroll horizontal.
+- **Polish #4 — barres avec event_type (LIV-9 alignment)** :
+  - **Bug** : les barres affichaient le label de l'enum `kind` legacy
+    (production / da / montage / sound / delivery / feedback / autre)
+    alors que LIV-9 a introduit `event_type_id` (types planning libres
+    de l'org : Dérush, Étalonnage, custom…). Une étape "Derush" avec
+    `event_type_id` mais `kind=autre` apparaissait grise "Autre".
+  - **Fix data layer** : `etapesToTimelineEvents` accepte un 3e param
+    `eventTypesById` et enrichit chaque event avec
+    `event_type: { id, label, color }` (ou null si non configuré).
+  - **Fix UI** : nouvelle fonction `resolveBarMeta(event)` qui :
+    - Label = nom de l'étape (`_etape.nom`) en priorité — c'est ce que
+      l'utilisateur saisit ("Pré-derush", "Edit", "Etalo") et veut voir
+      sur sa barre. Fallback type label puis kind label.
+    - Couleur = event_type.color (vérité LIV-9) → kind legacy → gris.
+    - Tooltip enrichi `Nom · Type — Livrable` pour disambiguïser au
+      survol quand le label est tronqué.
+  - `LivrablePipelineView` accepte la prop `eventTypes` (déjà chargés
+    dans `LivrablesTab` pour le drawer LIV-9).
+- **Validation finale (Polish #1+#2+#3+#4)** : ESLint clean (0 warning,
+  0 error) sur les 4 fichiers touchés. Parse-check `@babel/parser` OK.
+  Smoke test inline node : 7/7 (helpers V1) + 10/10 (extraDates +
+  blocksById) + 6/6 (event_type) = 23/23 PASS. Tests Vitest ajoutés (32
+  tests au total dans `livrablesPipelineHelpers.test.js`).
+- **Restant Vague 2 LIV-22** :
+  - **LIV-22c** : mode A (focus 1 livrable) + toggle A/B dans le header
+    Pipeline.
+  - **LIV-22d** : drag/resize barres + sync via `actions.updateEtape`.
+  - **LIV-22e** : zoom toggle (jour/semaine/mois) + polish final.
+- **Dépendant** : LIV-23 (export PDF "vue ensemble") et LIV-24 (export
+  PDF "vue détaillée") réutiliseront le rendu Gantt (canvas ou SVG
+  capture). Le découpage a été pensé pour ça.
 
-Si tout est déjà OK, ticket = juste valider. Sinon ajuster `duplicateLivrable`
-côté lib + tests rapides.
+### Prochaine étape — LIV-22c (mode A focus + toggle A/B)
+
+Le composant `LivrablePipelineView` accepte déjà les props `mode` et
+`focusLivrableId`. La logique `groupEtapesByKind` est prête. Reste :
+- UI toggle A/B dans le header Pipeline (déjà 1 toggle Liste/Pipeline
+  → on ajoute un sous-toggle visible uniquement quand `viewMode === 'pipeline'`).
+- En mode A, sélecteur de livrable (dropdown ou click sur lane B pour
+  switcher en focus).
+- Adapter le marqueur deadline en mode A (1 seul livrable → 1 marqueur
+  unique sur la lane "delivery"? ou ligne globale en haut du Gantt ?).

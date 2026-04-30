@@ -66,6 +66,36 @@ describe('etapesToTimelineEvents', () => {
     const res = etapesToTimelineEvents(etapes)
     expect(res).toHaveLength(0)
   })
+
+  it('eventTypesById : enrichit avec event_type ({ id, label, color })', () => {
+    const eventTypesById = new Map([
+      ['T1', { id: 'T1', label: 'Dérush', color: '#ff0000', slug: 'derush' }],
+    ])
+    const etapes = [{ id: 'a', date_debut: '2026-05-01', event_type_id: 'T1', kind: 'autre' }]
+    const res = etapesToTimelineEvents(etapes, new Map(), eventTypesById)
+    expect(res[0].event_type).toEqual({ id: 'T1', label: 'Dérush', color: '#ff0000' })
+  })
+
+  it('event_type = null si event_type_id absent', () => {
+    const etapes = [{ id: 'a', date_debut: '2026-05-01', kind: 'montage' }]
+    const res = etapesToTimelineEvents(etapes)
+    expect(res[0].event_type).toBeNull()
+  })
+
+  it('event_type = null si event_type_id non trouvé dans la Map', () => {
+    const etapes = [{ id: 'a', date_debut: '2026-05-01', event_type_id: 'INCONNU' }]
+    const res = etapesToTimelineEvents(etapes, new Map(), new Map())
+    expect(res[0].event_type).toBeNull()
+  })
+
+  it('eventType sans label tombe sur le slug', () => {
+    const eventTypesById = new Map([
+      ['T1', { id: 'T1', label: null, color: '#abc', slug: 'mon-type' }],
+    ])
+    const etapes = [{ id: 'a', date_debut: '2026-05-01', event_type_id: 'T1' }]
+    const res = etapesToTimelineEvents(etapes, new Map(), eventTypesById)
+    expect(res[0].event_type.label).toBe('mon-type')
+  })
 })
 
 describe('computeWindowFromEtapes', () => {
@@ -96,6 +126,51 @@ describe('computeWindowFromEtapes', () => {
   it('respecte paddingDays personnalisé', () => {
     const etapes = [{ id: 'a', date_debut: '2026-05-15' }]
     const w = computeWindowFromEtapes(etapes, { paddingDays: 0, now: FAKE_NOW })
+    expect(w.start.getDate()).toBe(15)
+  })
+
+  it('extraDates : étend la fenêtre pour englober une deadline', () => {
+    const etapes = [{ id: 'a', date_debut: '2026-05-10', date_fin: '2026-05-12' }]
+    // Deadline 2026-06-15 → bien plus tard que les étapes
+    const w = computeWindowFromEtapes(etapes, {
+      paddingDays: 0,
+      extraDates: ['2026-06-15'],
+      now: FAKE_NOW,
+    })
+    // end >= 2026-06-16 (lendemain de la deadline)
+    expect(w.end.getMonth()).toBe(5) // juin
+    expect(w.end.getDate()).toBeGreaterThanOrEqual(16)
+  })
+
+  it('extraDates accepte des Date natives', () => {
+    const w = computeWindowFromEtapes([], {
+      paddingDays: 0,
+      extraDates: [new Date(2026, 5, 1)], // 2026-06-01
+      now: FAKE_NOW,
+    })
+    // start <= 2026-06-01 (la fenêtre par défaut empty est pas appliquée car
+    // on a une extraDate)
+    expect(w.start.getMonth()).toBeLessThanOrEqual(5)
+  })
+
+  it('includeToday: true → today est dans la fenêtre', () => {
+    const etapes = [{ id: 'a', date_debut: '2026-06-01', date_fin: '2026-06-03' }]
+    const w = computeWindowFromEtapes(etapes, {
+      paddingDays: 0,
+      includeToday: true,
+      now: FAKE_NOW, // 2026-04-30
+    })
+    // start <= 2026-04-30 (today doit être dans la fenêtre)
+    const todayTs = new Date(2026, 3, 30).getTime()
+    expect(w.start.getTime()).toBeLessThanOrEqual(todayTs)
+  })
+
+  it('extraDates ignore les valeurs invalides', () => {
+    const w = computeWindowFromEtapes([{ id: 'a', date_debut: '2026-05-15' }], {
+      paddingDays: 0,
+      extraDates: [null, '', 'pas-une-date', undefined],
+      now: FAKE_NOW,
+    })
     expect(w.start.getDate()).toBe(15)
   })
 })
@@ -139,10 +214,61 @@ describe('groupEtapesByLivrable', () => {
     expect(lanes).toHaveLength(3)
   })
 
-  it('skip les livrables sans étape', () => {
+  it('skip les livrables sans étape (default includeEmpty=false)', () => {
     const lanes = groupEtapesByLivrable([events[0]], livrables, blockOrderById)
     expect(lanes).toHaveLength(1)
     expect(lanes[0].key).toBe('L1')
+  })
+
+  it('avec includeEmpty=true : tous les livrables, même sans étape', () => {
+    const lanes = groupEtapesByLivrable([events[0]], livrables, blockOrderById, {
+      includeEmpty: true,
+    })
+    expect(lanes).toHaveLength(3)
+    expect(lanes.map((l) => l.key)).toEqual(['L1', 'L2', 'L3'])
+    // L2 et L3 ont des events vides
+    expect(lanes.find((l) => l.key === 'L2').events).toEqual([])
+    expect(lanes.find((l) => l.key === 'L3').events).toEqual([])
+  })
+
+  it('avec includeEmpty=true : tri respecté même si tous les livrables vides', () => {
+    const lanes = groupEtapesByLivrable([], livrables, blockOrderById, {
+      includeEmpty: true,
+    })
+    expect(lanes.map((l) => l.key)).toEqual(['L1', 'L2', 'L3'])
+  })
+
+  it('blocksById : préfixe le numero avec le préfixe du bloc parent', () => {
+    const blocksById = new Map([
+      ['B1', { id: 'B1', prefixe: 'A' }],
+      ['B2', { id: 'B2', prefixe: 'B' }],
+    ])
+    const lanes = groupEtapesByLivrable(events, livrables, blockOrderById, {
+      blocksById,
+    })
+    expect(lanes.find((l) => l.key === 'L1').label).toBe('A1 · Teaser')
+    expect(lanes.find((l) => l.key === 'L2').label).toBe('A2 · MASTER')
+    expect(lanes.find((l) => l.key === 'L3').label).toBe('B3 · Bonus')
+  })
+
+  it('blocksById : déduplique si le numero contient déjà le préfixe', () => {
+    const livrablesPrefixed = [
+      { id: 'L1', numero: 'A1', nom: 'Teaser', block_id: 'B1', sort_order: 0 },
+    ]
+    const blocksById = new Map([['B1', { id: 'B1', prefixe: 'A' }]])
+    const lanes = groupEtapesByLivrable(
+      [{ id: 'e1', livrable_id: 'L1', kind: 'montage' }],
+      livrablesPrefixed,
+      blockOrderById,
+      { blocksById },
+    )
+    // Pas de "AA1", on garde "A1"
+    expect(lanes[0].label).toBe('A1 · Teaser')
+  })
+
+  it('sans blocksById : fallback sur numero brut (rétro-compat)', () => {
+    const lanes = groupEtapesByLivrable(events, livrables, blockOrderById)
+    expect(lanes[0].label).toBe('1 · Teaser')
   })
 })
 

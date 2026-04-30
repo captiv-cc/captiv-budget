@@ -75,16 +75,23 @@ function dateToExclusiveEndIso(dateStr) {
 /**
  * Mappe une liste de `livrable_etapes` vers la shape "event" attendue par
  * `layoutTimelineLanes` du module planning.js. Enrichit chaque entrée avec
- * les infos du livrable parent (numero, nom, block_id) pour faciliter le
- * regroupement / l'affichage.
+ * les infos du livrable parent (numero, nom, block_id) et — depuis LIV-9 —
+ * l'event_type configuré par l'utilisateur (label, couleur), pour faciliter
+ * le regroupement / l'affichage.
+ *
+ * Priorité d'affichage côté composant :
+ *   1. `event_type` (libre, configuré dans le drawer LIV-9) — vérité actuelle
+ *   2. `kind` (enum figé, legacy) — fallback rétro-compat
  *
  * @param {Array} etapes
  * @param {Map<string, Object>} [livrablesById] - Map id → livrable
+ * @param {Map<string, Object>} [eventTypesById] - Map id → event_type ({ id, label, color, slug })
  * @returns {Array<{
  *   id: string,
  *   starts_at: string,
  *   ends_at: string,
  *   kind: string,
+ *   event_type: { id: string, label: string, color: string }|null,
  *   livrable_id: string,
  *   livrable_numero: string|null,
  *   livrable_nom: string|null,
@@ -93,7 +100,11 @@ function dateToExclusiveEndIso(dateStr) {
  *   _etape: Object,
  * }>}
  */
-export function etapesToTimelineEvents(etapes = [], livrablesById = new Map()) {
+export function etapesToTimelineEvents(
+  etapes = [],
+  livrablesById = new Map(),
+  eventTypesById = new Map(),
+) {
   const out = []
   for (const e of etapes) {
     if (!e || !e.date_debut) continue
@@ -102,11 +113,15 @@ export function etapesToTimelineEvents(etapes = [], livrablesById = new Map()) {
     const ends_at = dateToExclusiveEndIso(endDate)
     if (!starts_at || !ends_at) continue
     const liv = livrablesById.get(e.livrable_id) || null
+    const et = e.event_type_id ? eventTypesById.get(e.event_type_id) || null : null
     out.push({
       id: e.id,
       starts_at,
       ends_at,
       kind: e.kind || 'autre',
+      event_type: et
+        ? { id: et.id, label: et.label || et.slug || '', color: et.color || null }
+        : null,
       livrable_id: e.livrable_id || null,
       livrable_numero: liv?.numero || null,
       livrable_nom: liv?.nom || null,
@@ -123,19 +138,51 @@ export function etapesToTimelineEvents(etapes = [], livrablesById = new Map()) {
 const MS_PER_DAY = 24 * 3600 * 1000
 
 /**
+ * Convertit une date 'YYYY-MM-DD' (ou Date) en timestamp local 00:00:00, ou
+ * null si invalide. Utilisé pour normaliser des dates supplémentaires (ex :
+ * date_livraison de livrable, today) à inclure dans la fenêtre.
+ */
+function dateLikeToTs(value) {
+  if (!value) return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    const d = new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0)
+    return d.getTime()
+  }
+  if (typeof value === 'string') {
+    const sIso = dateToStartIso(value)
+    if (!sIso) return null
+    return new Date(sIso).getTime()
+  }
+  return null
+}
+
+/**
  * Calcule la fenêtre temporelle à afficher pour englober toutes les étapes
  * + un padding (défaut 7 jours de chaque côté).
  *
- * Si vide ou tout invalide → fenêtre par défaut centrée sur "today" :
+ * Options :
+ *   - `extraDates` : dates supplémentaires (Date | 'YYYY-MM-DD') qui doivent
+ *     être englobées dans la fenêtre. Sert à inclure les `date_livraison` des
+ *     livrables et/ou `today` même quand aucune étape ne les couvre. Le
+ *     padding s'applique aussi à ces dates.
+ *   - `includeToday` : si true, ajoute `now` aux extraDates (raccourci).
+ *
+ * Si rien à englober → fenêtre par défaut centrée sur "today" :
  * [today - 7j ; today + 30j].
  *
  * @param {Array} etapes
  * @param {Object} [opts]
- * @param {number} [opts.paddingDays=7] - jours de marge avant/après
+ * @param {number} [opts.paddingDays=7]
  * @param {Date}   [opts.now=new Date()]
+ * @param {Array<Date|string>} [opts.extraDates=[]]
+ * @param {boolean} [opts.includeToday=false]
  * @returns {{ start: Date, end: Date, daysCount: number }}
  */
-export function computeWindowFromEtapes(etapes = [], { paddingDays = 7, now = new Date() } = {}) {
+export function computeWindowFromEtapes(
+  etapes = [],
+  { paddingDays = 7, now = new Date(), extraDates = [], includeToday = false } = {},
+) {
   let minTs = Infinity
   let maxTs = -Infinity
   for (const e of etapes) {
@@ -149,7 +196,20 @@ export function computeWindowFromEtapes(etapes = [], { paddingDays = 7, now = ne
     if (tsEnd > maxTs) maxTs = tsEnd
   }
 
-  // Aucune étape valide → fenêtre par défaut centrée sur today.
+  // Inclure les dates supplémentaires (deadlines livrables, today, etc.).
+  // Pour les étendre dans la fenêtre, on traite chaque date comme une étape
+  // de durée 1 jour : tsStart = date 00:00, tsEnd = lendemain 00:00.
+  const extras = [...extraDates]
+  if (includeToday) extras.push(now)
+  for (const d of extras) {
+    const ts = dateLikeToTs(d)
+    if (ts == null) continue
+    if (ts < minTs) minTs = ts
+    const tsEnd = ts + MS_PER_DAY
+    if (tsEnd > maxTs) maxTs = tsEnd
+  }
+
+  // Rien à englober → fenêtre par défaut centrée sur today.
   if (!isFinite(minTs) || !isFinite(maxTs)) {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const start = new Date(today.getTime() - 7 * MS_PER_DAY)
@@ -174,8 +234,42 @@ export function computeWindowFromEtapes(etapes = [], { paddingDays = 7, now = ne
 // ─── groupEtapesByLivrable (vue B — ensemble projet) ────────────────────────
 
 /**
- * Groupe les events timeline par livrable_id. Renvoie 1 lane par livrable
- * AYANT au moins 1 étape (les livrables sans étapes sont exclus).
+ * Construit le label d'une lane livrable : `{prefixe}{numero} · {nom}`.
+ *
+ * Le `numero` stocké en base peut contenir ou non le préfixe du bloc
+ * (héritage : les anciens livrables ont juste "1", les nouveaux ont déjà
+ * "A1"). On déduplique : si le numero commence déjà par le préfixe, on ne
+ * le rajoute pas. Sinon on concatène — pour que le Pipeline (qui n'affiche
+ * pas de header de bloc) lève l'ambiguïté entre 1·Teaser (bloc A) et
+ * 1·Teaser (bloc B).
+ *
+ * @param {Object} livrable
+ * @param {Object|null} block
+ * @returns {string}
+ */
+function buildLivrableLaneLabel(livrable, block) {
+  const numero = (livrable.numero || '').toString().trim()
+  const nom = (livrable.nom || '').toString().trim() || 'Sans nom'
+  const prefix = (block?.prefixe || '').toString().trim()
+  let displayedNumero = numero
+  if (prefix && numero && !numero.startsWith(prefix)) {
+    displayedNumero = `${prefix}${numero}`
+  } else if (prefix && !numero) {
+    // Cas marginal : pas de numero mais préfixe → afficher juste le préfixe.
+    displayedNumero = prefix
+  }
+  return displayedNumero ? `${displayedNumero} · ${nom}` : nom
+}
+
+/**
+ * Groupe les events timeline par livrable_id.
+ *
+ * Comportement par défaut (includeEmpty=false, V1) : 1 lane par livrable
+ * AYANT au moins 1 étape (les livrables sans étape sont exclus).
+ *
+ * Avec `includeEmpty: true` (LIV-22b polish) : 1 lane par livrable, qu'il
+ * ait des étapes ou pas. Permet de visualiser tous les livrables du projet
+ * dans le Gantt — même ceux pas encore planifiés (lane vide → CTA "À planifier").
  *
  * Tri des lanes : par `block.sort_order` puis `livrable.sort_order` —
  * cohérent avec l'ordre de la table LIV.
@@ -183,35 +277,51 @@ export function computeWindowFromEtapes(etapes = [], { paddingDays = 7, now = ne
  * @param {Array} timelineEvents - issus de `etapesToTimelineEvents`
  * @param {Array} livrables      - tableau plat de tous les livrables (pour l'ordre)
  * @param {Map<string, number>} [blockOrderById] - Map blockId → sort_order
+ * @param {Object} [opts]
+ * @param {boolean} [opts.includeEmpty=false] - inclure aussi les livrables sans étape
+ * @param {Map<string, Object>} [opts.blocksById] - Map blockId → block (pour le préfixe dans le label)
  * @returns {Array<{
  *   key: string,         // livrable_id
- *   label: string,       // "{numero} {nom}"
+ *   label: string,       // "{prefixe}{numero} · {nom}"
  *   livrable: Object,    // ref vers le livrable original
- *   events: Array,       // events de ce livrable
+ *   events: Array,       // events de ce livrable (peut être vide si includeEmpty)
  * }>}
  */
-export function groupEtapesByLivrable(timelineEvents = [], livrables = [], blockOrderById = new Map()) {
+export function groupEtapesByLivrable(
+  timelineEvents = [],
+  livrables = [],
+  blockOrderById = new Map(),
+  { includeEmpty = false, blocksById = new Map() } = {},
+) {
   const byLivrable = new Map()
   for (const ev of timelineEvents) {
     if (!ev?.livrable_id) continue
     if (!byLivrable.has(ev.livrable_id)) byLivrable.set(ev.livrable_id, [])
     byLivrable.get(ev.livrable_id).push(ev)
   }
-  const livrablesById = new Map(livrables.map((l) => [l.id, l]))
+
   const lanes = []
-  for (const [livrableId, events] of byLivrable.entries()) {
-    const liv = livrablesById.get(livrableId)
-    if (!liv) continue // étape orpheline (livrable supprimé) → on skip
-    const numero = (liv.numero || '').toString().trim()
-    const nom = (liv.nom || '').toString().trim() || 'Sans nom'
-    const label = numero ? `${numero} · ${nom}` : nom
-    lanes.push({
-      key: livrableId,
-      label,
-      livrable: liv,
-      events,
-    })
+  if (includeEmpty) {
+    // On itère sur tous les livrables fournis → toutes les lanes, même vides.
+    for (const liv of livrables) {
+      if (!liv?.id) continue
+      const events = byLivrable.get(liv.id) || []
+      const block = blocksById.get(liv.block_id) || null
+      const label = buildLivrableLaneLabel(liv, block)
+      lanes.push({ key: liv.id, label, livrable: liv, events })
+    }
+  } else {
+    // Comportement V1 : seulement les livrables avec au moins 1 étape.
+    const livrablesById = new Map(livrables.map((l) => [l.id, l]))
+    for (const [livrableId, events] of byLivrable.entries()) {
+      const liv = livrablesById.get(livrableId)
+      if (!liv) continue // étape orpheline (livrable supprimé)
+      const block = blocksById.get(liv.block_id) || null
+      const label = buildLivrableLaneLabel(liv, block)
+      lanes.push({ key: livrableId, label, livrable: liv, events })
+    }
   }
+
   lanes.sort((a, b) => {
     const blockA = blockOrderById.get(a.livrable.block_id) ?? 0
     const blockB = blockOrderById.get(b.livrable.block_id) ?? 0
