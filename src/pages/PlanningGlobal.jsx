@@ -29,7 +29,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { CalendarDays, Plus, X, FolderOpen } from 'lucide-react'
+import { CalendarDays, Plus, X, FolderOpen, Link2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import {
@@ -450,16 +450,44 @@ export default function PlanningGlobal() {
   // PG-3 ajoutera un filtre par projet ; pour l'instant, les filtres de type/
   // lot/member/catégorie fonctionnent déjà tels quels (leurs UUIDs viennent
   // des events, pas du projet courant).
+  // LIV-22f — Filtre additionnel : masquer les events miroir des étapes
+  // livrables si le toggle est désactivé. Default OFF en cross-projet
+  // (sinon trop chargé avec N projets).
   const viewFilteredEvents = useMemo(
     () => filterEventsByConfig(expandedEvents, activeView?.config),
     [expandedEvents, activeView?.config],
   )
 
+  // LIV-22f — Toggle "Afficher étapes livrables" — default OFF en cross-projet.
+  const [showLivrableEtapes, setShowLivrableEtapes] = useState(() => {
+    try {
+      const v = localStorage.getItem('captiv:planning-global:showLivrableEtapes')
+      return v === '1' // null ou '0' → false (default OFF)
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'captiv:planning-global:showLivrableEtapes',
+        showLivrableEtapes ? '1' : '0',
+      )
+    } catch {
+      // ignore
+    }
+  }, [showLivrableEtapes])
+
+  const visibleAfterEtapesToggle = useMemo(() => {
+    if (showLivrableEtapes) return viewFilteredEvents
+    return viewFilteredEvents.filter((ev) => !ev.livrable_etape_meta)
+  }, [viewFilteredEvents, showLivrableEtapes])
+
   // ── Titre préfixé avec le nom du projet parent ───────────────────────────
   // On ajoute `_origTitle` pour permettre au modal de retrouver le vrai titre
   // sans préfixe lorsqu'on clique sur un event (évite la duplication au save).
   const displayEvents = useMemo(() => {
-    return viewFilteredEvents.map((ev) => {
+    return visibleAfterEtapesToggle.map((ev) => {
       const projectTitle = ev.project?.title
       if (!projectTitle) return ev
       return {
@@ -468,7 +496,7 @@ export default function PlanningGlobal() {
         title: `${projectTitle} · ${ev.title || 'Sans titre'}`,
       }
     })
-  }, [viewFilteredEvents])
+  }, [visibleAfterEtapesToggle])
 
   // ── Conflits équipe cross-projets ────────────────────────────────────────
   // Calculés sur l'ensemble des events (pas sur displayEvents) : un conflit
@@ -1046,6 +1074,12 @@ export default function PlanningGlobal() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* LIV-22f — Toggle "Afficher étapes livrables" en cross-projet
+              (default OFF pour éviter de noyer la vue avec N projets). */}
+          <PlanningGlobalLivrableEtapesToggle
+            active={showLivrableEtapes}
+            onToggle={() => setShowLivrableEtapes((v) => !v)}
+          />
           <PlanningViewSelector
             views={views}
             activeViewId={activeViewId}
@@ -1545,5 +1579,34 @@ function PlanningGlobalSkeleton({ kind }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// LIV-22f — Toggle "Afficher étapes livrables" en cross-projet (pendant
+// du composant local de PlanningTab). Default OFF. Compact pour la barre
+// d'actions du header. Label visible en permanence (le header global a
+// la place — le bouton Nouvel événement est plus serré encore en mobile).
+function PlanningGlobalLivrableEtapesToggle({ active, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'transparent',
+        color: active ? 'var(--blue)' : 'var(--txt-3)',
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd-sub)'}`,
+      }}
+      title={
+        active
+          ? 'Masquer les étapes livrables (events miroir)'
+          : 'Afficher les étapes livrables (events miroir)'
+      }
+    >
+      <Link2 className="w-3.5 h-3.5 shrink-0" />
+      <span className="whitespace-nowrap">
+        {active ? 'Étapes livrables' : 'Étapes masquées'}
+      </span>
+    </button>
   )
 }

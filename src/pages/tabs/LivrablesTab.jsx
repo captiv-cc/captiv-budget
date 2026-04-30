@@ -417,6 +417,23 @@ export default function LivrablesTab() {
     setSearchParams(params, { replace: true })
   }, [searchParams, setSearchParams])
 
+  // ─── LIV-22f — Deep-link depuis le Planning vers le drawer Étapes ──────
+  // Format : ?openLivrable=<uuid>&openTab=etapes (depuis EventEditorModal
+  // bouton "Aller au livrable"). Au mount, on ouvre le drawer puis on
+  // nettoie ces query params.
+  useEffect(() => {
+    const openLivrableId = searchParams.get('openLivrable')
+    const openTab = searchParams.get('openTab')
+    if (!openLivrableId) return
+    setDetailsDrawerInitialTab(openTab === 'versions' ? 'versions' : 'etapes')
+    setDetailsDrawerLivrableId(openLivrableId)
+    const params = new URLSearchParams(searchParams)
+    params.delete('openLivrable')
+    params.delete('openTab')
+    setSearchParams(params, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // mount only
+
   // ─── LIV-22e — Zoom Jour / Semaine / Mois ──────────────────────────────
   // Zoom du Gantt persisté dans l'URL. Défaut : 'day' (lecture fine).
   const rawZoom = searchParams.get('zoom')

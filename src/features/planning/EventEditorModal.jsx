@@ -25,7 +25,7 @@
  *                   veut pouvoir atterrir sur le planning du projet parent.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Trash2, FileText, Users, AlertTriangle, Pencil, ExternalLink } from 'lucide-react'
+import { X, Trash2, FileText, Users, AlertTriangle, Pencil, ExternalLink, Link2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { notify } from '../../lib/notify'
 import {
@@ -469,6 +469,49 @@ export default function EventEditorModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-3 sm:py-4 flex flex-col gap-3 sm:gap-4">
+          {/* LIV-22f — Bandeau "Étape de livrable" : visible si l'event est
+              le miroir d'une étape livrable. Affiche le livrable parent +
+              bouton "Aller au livrable" qui navigue vers la page Livrables
+              du projet, drawer Étapes ouvert sur le livrable. */}
+          {event?.livrable_etape_meta && (event?.project_id || projectId) && (
+            <div
+              className="rounded-lg p-3 flex items-center gap-3 text-xs"
+              style={{
+                background: 'var(--blue-bg)',
+                border: '1px solid var(--blue)',
+                color: 'var(--txt)',
+              }}
+            >
+              <Link2
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--blue)' }}
+              />
+              <div className="flex-1 min-w-0">
+                <div
+                  className="text-[10px] uppercase tracking-wider mb-0.5"
+                  style={{ color: 'var(--blue)' }}
+                >
+                  Étape du livrable
+                </div>
+                <div className="font-medium truncate">
+                  {event.livrable_etape_meta.livrable_label}
+                </div>
+              </div>
+              <Link
+                to={`/projets/${event?.project_id || projectId}/livrables?openLivrable=${event.livrable_etape_meta.livrable_id}&openTab=etapes`}
+                onClick={onClose}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0"
+                style={{
+                  background: 'var(--blue)',
+                  color: '#fff',
+                }}
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>Aller au livrable</span>
+              </Link>
+            </div>
+          )}
+
           {/* Bandeau lecture seule — visible uniquement quand readOnly est
               activé (chantier PERM — avril 2026). Clarifie pour l'utilisateur
               pourquoi il n'y a pas de bouton "Modifier" / "Supprimer". */}

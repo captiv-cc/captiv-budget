@@ -129,6 +129,12 @@ export async function updateLocation(id, patch) {
 
 // ─── Events (CRUD) ───────────────────────────────────────────────────────────
 
+// LIV-22f — Hydratation `livrable_etape_meta` : on expose les events miroir
+// (étapes livrables synchronisées via livrablesPlanningSync) avec les infos
+// du livrable parent. Implémentation en fetch séparé pour rester robuste
+// aux caches PostgREST et aux noms de FK auto-générés (la jointure imbriquée
+// dans le SELECT principal causait des "Could not find relationship" non
+// résolus par `NOTIFY pgrst, 'reload schema'`).
 const EVENT_SELECT = `
   *,
   type:event_types ( id, slug, label, color, icon, category ),
@@ -144,6 +150,124 @@ const EVENT_SELECT = `
     devis_line:devis_lines ( id, produit, description, regime )
   )
 `
+
+/**
+ * Charge les métadonnées des étapes livrables miroir pour une liste
+ * d'event_ids donnée. Renvoie une Map<event_id, meta>.
+ *
+ * Implémenté en 3 fetchs séparés (livrable_etapes → livrables →
+ * livrable_blocks) pour rester 100 % indépendant des jointures imbriquées
+ * PostgREST. Chaque fetch est isolé : si l'un échoue, on renvoie une Map
+ * vide et on logge un warning. Le planning continue de fonctionner sans
+ * les meta (graceful degradation).
+ */
+async function fetchLivrableEtapeMetasByEventIds(eventIds) {
+  const ids = (eventIds || []).filter(Boolean)
+  if (ids.length === 0) return new Map()
+  try {
+    // 1) livrable_etapes filtrées par event_id
+    const { data: etapes, error: e1 } = await supabase
+      .from('livrable_etapes')
+      .select('id, event_id, livrable_id')
+      .in('event_id', ids)
+    if (e1) {
+      console.warn('[planning] livrable_etapes fetch error:', e1)
+      return new Map()
+    }
+    if (!etapes || etapes.length === 0) return new Map()
+
+    // 2) livrables référencés (avec deleted_at pour filtrer les soft-deleted)
+    const livrableIds = Array.from(
+      new Set(etapes.map((e) => e.livrable_id).filter(Boolean)),
+    )
+    if (livrableIds.length === 0) return new Map()
+    const { data: livrables, error: e2 } = await supabase
+      .from('livrables')
+      .select('id, numero, nom, block_id, deleted_at')
+      .in('id', livrableIds)
+    if (e2) {
+      console.warn('[planning] livrables fetch error:', e2)
+      return new Map()
+    }
+    const livrablesById = new Map(
+      (livrables || [])
+        .filter((l) => l && !l.deleted_at)
+        .map((l) => [l.id, l]),
+    )
+
+    // 3) livrable_blocks pour récupérer les préfixes
+    const blockIds = Array.from(
+      new Set(
+        Array.from(livrablesById.values())
+          .map((l) => l.block_id)
+          .filter(Boolean),
+      ),
+    )
+    let blocksById = new Map()
+    if (blockIds.length > 0) {
+      const { data: blocks, error: e3 } = await supabase
+        .from('livrable_blocks')
+        .select('id, prefixe, deleted_at')
+        .in('id', blockIds)
+      if (e3) {
+        console.warn('[planning] livrable_blocks fetch error:', e3)
+        // Pas fatal : on continue sans les préfixes.
+      } else {
+        blocksById = new Map(
+          (blocks || [])
+            .filter((b) => b && !b.deleted_at)
+            .map((b) => [b.id, b]),
+        )
+      }
+    }
+
+    // 4) Merge : Map<event_id, meta>
+    const map = new Map()
+    for (const etape of etapes) {
+      const livrable = livrablesById.get(etape.livrable_id)
+      if (!livrable) continue
+      const block = livrable.block_id ? blocksById.get(livrable.block_id) : null
+      const numero = (livrable.numero || '').toString().trim()
+      const prefix = (block?.prefixe || '').toString().trim()
+      const fullNumero =
+        prefix && numero && !numero.startsWith(prefix)
+          ? `${prefix}${numero}`
+          : numero
+      const nom = (livrable.nom || '').toString().trim() || 'Sans nom'
+      const livrableLabel = fullNumero ? `${fullNumero} · ${nom}` : nom
+      map.set(etape.event_id, {
+        etape_id: etape.id,
+        livrable_id: livrable.id,
+        livrable_numero: numero,
+        livrable_nom: nom,
+        block_prefixe: prefix || null,
+        livrable_label: livrableLabel,
+      })
+    }
+    return map
+  } catch (e) {
+    console.warn('[planning] livrable_etape metas unexpected error:', e)
+    return new Map()
+  }
+}
+
+/**
+ * Hydrate une liste d'events avec `livrable_etape_meta` quand l'event est
+ * miroir d'une étape livrable. Effectue un fetch séparé sur `livrable_etapes`
+ * filtré par `event_id IN (...)` pour récupérer les métadonnées (nom du
+ * livrable, préfixe bloc, etc.).
+ */
+async function hydrateEventsWithLivrableEtapeMeta(events) {
+  const arr = Array.isArray(events) ? events : []
+  if (arr.length === 0) return arr
+  const eventIds = arr.map((ev) => ev?.id).filter(Boolean)
+  const metas = await fetchLivrableEtapeMetasByEventIds(eventIds)
+  if (metas.size === 0) return arr
+  return arr.map((ev) => {
+    const meta = metas.get(ev.id)
+    return meta ? { ...ev, livrable_etape_meta: meta } : ev
+  })
+}
 
 /**
  * Liste les événements d'un projet, éventuellement restreint à une plage
@@ -177,7 +301,7 @@ export async function listEventsByProject(projectId, { from, to } = {}) {
 
   const { data, error } = await q
   if (error) throw error
-  return data || []
+  return hydrateEventsWithLivrableEtapeMeta(data || [])
 }
 
 /**
@@ -197,17 +321,21 @@ export async function listEventsAcrossOrg({ from, to, memberProfileId } = {}) {
   if (error) throw error
 
   // Filtre en mémoire si un memberProfileId est passé (évite jointure complexe)
-  if (!memberProfileId) return data || []
-  return (data || []).filter((ev) =>
-    (ev.members || []).some((m) => m.profile_id === memberProfileId),
-  )
+  const filtered = !memberProfileId
+    ? (data || [])
+    : (data || []).filter((ev) =>
+        (ev.members || []).some((m) => m.profile_id === memberProfileId),
+      )
+  return hydrateEventsWithLivrableEtapeMeta(filtered)
 }
 
 export async function getEvent(id) {
   const { data, error } = await supabase
     .from('events').select(EVENT_SELECT).eq('id', id).single()
   if (error) throw error
-  return data
+  if (!data) return data
+  const hydrated = await hydrateEventsWithLivrableEtapeMeta([data])
+  return hydrated[0]
 }
 
 /**

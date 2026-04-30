@@ -370,13 +370,33 @@ export default function MonthCalendar({
                   const isDragging = drag && drag.event && eventKey(drag.event) === eventKey(ev) && drag.committed
                   const evConflicts = conflicts?.get(eventKey(ev)) || null
                   const hasConflict = Array.isArray(evConflicts) && evConflicts.length > 0
+                  // LIV-22f — Préfixe livrable pour les events miroir d'étapes
+                  // (ex: "🔗 A1 · MASTER — Pré-derush"). On masque le préfixe
+                  // sur les segments qui continuent à gauche (continuesLeft)
+                  // pour ne pas le répéter sur chaque ligne semaine.
+                  const livMeta = ev.livrable_etape_meta || null
+                  const baseTitle = ev.title
+                  const titleWithPrefix =
+                    livMeta && !bar.continuesLeft
+                      ? `🔗 ${livMeta.livrable_label} — ${baseTitle}`
+                      : baseTitle
                   const title = bar.continuesLeft
-                    ? `… ${ev.title}`
-                    : ev.title
+                    ? `… ${titleWithPrefix}`
+                    : titleWithPrefix
 
                   // Rayons : pas d'arrondis côté coupure, sinon 4px
                   const radiusLeft = bar.continuesLeft ? '0' : '4px'
                   const radiusRight = bar.continuesRight ? '0' : '4px'
+
+                  // LIV-22f — Visuel dégradé pour les events miroir : opacité
+                  // 0.65 + bordure gauche pointillée (au lieu de pleine).
+                  const isLivrableEtape = Boolean(livMeta)
+                  const baseOpacity = isLivrableEtape ? 0.65 : 1
+                  const borderStyle = bar.continuesLeft
+                    ? '0 solid'
+                    : isLivrableEtape
+                      ? `2px dashed ${color}`
+                      : `2px solid ${color}`
 
                   return (
                     <button
@@ -407,16 +427,12 @@ export default function MonthCalendar({
                         // précédente via bar.continuesLeft).
                         background: `${color}55`,
                         color,
-                        borderLeft: bp.isMobile
-                          ? 'none'
-                          : bar.continuesLeft
-                            ? `0 solid ${color}`
-                            : `2px solid ${color}`,
+                        borderLeft: bp.isMobile ? 'none' : borderStyle,
                         borderTopLeftRadius: radiusLeft,
                         borderBottomLeftRadius: radiusLeft,
                         borderTopRightRadius: radiusRight,
                         borderBottomRightRadius: radiusRight,
-                        opacity: isDragging ? 0.4 : 1,
+                        opacity: isDragging ? 0.4 : baseOpacity,
                         cursor: isDragging ? 'grabbing' : 'grab',
                         // Ré-active le clic sur la barre elle-même (le conteneur est none).
                         // Désactivé pendant un drag committed pour que

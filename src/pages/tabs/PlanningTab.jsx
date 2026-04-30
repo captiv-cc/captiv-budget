@@ -6,7 +6,7 @@
  *        filtre par lot.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, Calendar as CalendarIcon, Share2 } from 'lucide-react'
+import { Plus, Calendar as CalendarIcon, Share2, Link2 } from 'lucide-react'
 import { notify } from '../../lib/notify'
 import { useProjet } from '../ProjetLayout'
 import MonthCalendar from '../../features/planning/MonthCalendar'
@@ -122,6 +122,30 @@ export default function PlanningTab() {
   const [eventTypes, setEventTypes] = useState([])
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
+
+  // LIV-22f — Toggle "Afficher étapes livrables".
+  // Default ON sur planning projet (l'utilisateur veut voir le pipeline du
+  // projet courant). État persisté en localStorage par défaut, puis remontable
+  // côté URL si besoin un jour.
+  const [showLivrableEtapes, setShowLivrableEtapes] = useState(() => {
+    try {
+      const v = localStorage.getItem('captiv:planning:showLivrableEtapes')
+      // null = jamais setté → ON par défaut sur planning projet
+      return v === null ? true : v === '1'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'captiv:planning:showLivrableEtapes',
+        showLivrableEtapes ? '1' : '0',
+      )
+    } catch {
+      // localStorage indispo (mode privé Safari rare) → on ignore.
+    }
+  }, [showLivrableEtapes])
 
   // ── Vues multi-lentilles (PL-3.5) ────────────────────────────────────────
   const [views, setViews] = useState(() => [...BUILTIN_PLANNING_VIEWS])
@@ -641,9 +665,14 @@ export default function PlanningTab() {
     [expandedEvents, activeView?.config],
   )
   const visibleEvents = useMemo(() => {
-    if (lotScope === '__all__') return viewFilteredEvents
-    return viewFilteredEvents.filter((ev) => ev.lot_id === lotScope)
-  }, [viewFilteredEvents, lotScope])
+    let arr = viewFilteredEvents
+    if (lotScope !== '__all__') arr = arr.filter((ev) => ev.lot_id === lotScope)
+    if (!showLivrableEtapes) {
+      // LIV-22f — On masque les events miroir des étapes livrables.
+      arr = arr.filter((ev) => !ev.livrable_etape_meta)
+    }
+    return arr
+  }, [viewFilteredEvents, lotScope, showLivrableEtapes])
 
   // ── Carte des conflits équipe (PL-3) ─────────────────────────────────────
   // Calculé sur l'intégralité des événements expanded (pas sur visibleEvents) :
@@ -1030,6 +1059,15 @@ export default function PlanningTab() {
         />
       )}
 
+      {/* LIV-22f — Toggle "Afficher étapes livrables" */}
+      <div className="flex">
+        <LivrableEtapesToggle
+          active={showLivrableEtapes}
+          onToggle={() => setShowLivrableEtapes((v) => !v)}
+        />
+      </div>
+
+
       {noTypes && (
         <div
           className="rounded-xl px-4 py-3 text-xs"
@@ -1248,5 +1286,31 @@ export default function PlanningTab() {
         />
       )}
     </div>
+  )
+}
+
+// LIV-22f — Toggle "Afficher étapes livrables" dans le planning. Bouton
+// pill icône+label, état actif visualisé par fond bleu (= étapes
+// affichées), état inactif (= étapes masquées) en gris discret.
+function LivrableEtapesToggle({ active, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'transparent',
+        color: active ? 'var(--blue)' : 'var(--txt-3)',
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd-sub)'}`,
+      }}
+      title={
+        active
+          ? 'Masquer les étapes livrables (events miroir)'
+          : 'Afficher les étapes livrables (events miroir)'
+      }
+    >
+      <Link2 className="w-3.5 h-3.5" />
+      <span>{active ? 'Étapes livrables' : 'Étapes masquées'}</span>
+    </button>
   )
 }
