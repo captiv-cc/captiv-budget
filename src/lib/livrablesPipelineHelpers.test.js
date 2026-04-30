@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PIPELINE_KIND_ORDER,
+  addDaysToISO,
   computeWindowFromEtapes,
   etapesToTimelineEvents,
   filterEtapesForLivrable,
@@ -401,6 +402,33 @@ describe('groupEtapesByEventType', () => {
     ]
     const lanes = groupEtapesByEventType(events, eventTypesById)
     expect(lanes[0]).not.toHaveProperty('minDate')
+  })
+})
+
+describe('addDaysToISO', () => {
+  it('ajoute N jours à une date YYYY-MM-DD', () => {
+    expect(addDaysToISO('2026-05-12', 3)).toBe('2026-05-15')
+  })
+  it('gère le passage de mois', () => {
+    expect(addDaysToISO('2026-05-30', 5)).toBe('2026-06-04')
+  })
+  it('gère le passage d\'année', () => {
+    expect(addDaysToISO('2025-12-30', 5)).toBe('2026-01-04')
+  })
+  it('accepte des deltas négatifs', () => {
+    expect(addDaysToISO('2026-05-12', -2)).toBe('2026-05-10')
+  })
+  it('renvoie null si date invalide', () => {
+    expect(addDaysToISO('pas-une-date', 1)).toBeNull()
+  })
+  it('renvoie null si date null', () => {
+    expect(addDaysToISO(null, 1)).toBeNull()
+  })
+  it('renvoie la même date si delta=0', () => {
+    expect(addDaysToISO('2026-05-12', 0)).toBe('2026-05-12')
+  })
+  it('tronque les deltas non entiers', () => {
+    expect(addDaysToISO('2026-05-12', 3.7)).toBe('2026-05-15')
   })
 })
 

@@ -40,10 +40,11 @@
 //   - className       : string optionnel
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Crosshair, Target } from 'lucide-react'
 import { LIVRABLE_ETAPE_KINDS, isLivrableEnRetard } from '../../../lib/livrablesHelpers'
 import {
+  addDaysToISO,
   computeWindowFromEtapes,
   etapesToTimelineEvents,
   filterEtapesForLivrable,
@@ -121,10 +122,12 @@ export default function LivrablePipelineView({
   focusLivrableId = null,
   zoom = 'day',
   paddingDays = 7,
+  canEdit = false,
   onEtapeClick,
   onLivrableClick,
   onEnterFocus,
   onExitFocus,
+  onEtapeUpdate,
   className = '',
 }) {
   // Si on demande le mode focus mais sans livrable précisé → on retombe sur
@@ -382,9 +385,11 @@ export default function LivrablePipelineView({
                 totalWidth={totalWidth}
                 windowStart={window.start}
                 totalDays={totalDays}
+                canEdit={canEdit}
                 onEtapeClick={onEtapeClick}
                 onLivrableClick={onLivrableClick}
                 onEnterFocus={effectiveMode === 'ensemble' ? onEnterFocus : null}
+                onEtapeUpdate={onEtapeUpdate}
                 hideDeadlineMarker={effectiveMode === 'focus'}
               />
             ))}
@@ -579,9 +584,11 @@ function PipelineLane({
   totalWidth,
   windowStart,
   totalDays,
+  canEdit = false,
   onEtapeClick,
   onLivrableClick,
   onEnterFocus,
+  onEtapeUpdate,
   hideDeadlineMarker = false,
 }) {
   // Hauteur min : assez pour 1 sub-row même si lane vide.
@@ -767,7 +774,9 @@ function PipelineLane({
             key={bar.event.id}
             bar={bar}
             dayWidth={dayWidth}
+            canEdit={canEdit}
             onClick={onEtapeClick}
+            onUpdate={onEtapeUpdate}
           />
         ))}
       </div>
@@ -814,29 +823,119 @@ function formatDeadlineTitle(livrable, deadlineInfo) {
 // PipelineBar — une barre représentant une étape
 // ════════════════════════════════════════════════════════════════════════════
 
-function PipelineBar({ bar, dayWidth, onClick }) {
+// Largeur de la poignée resize sur le bord droit (px). Doit rester
+// suffisamment large pour la souris sans bouffer la zone cliquable de
+// barres très courtes.
+const RESIZE_HANDLE_WIDTH = 6
+// Distance min en pixels au-delà de laquelle on considère qu'un pointerdown
+// devient un drag (pas un click). En dessous, on ouvre le drawer.
+const DRAG_THRESHOLD_PX = 4
+
+function PipelineBar({ bar, dayWidth, canEdit, onClick, onUpdate }) {
   const { event, startOffset, widthDays, subRow } = bar
   // Label = nom de l'étape (ex: "Pré-derush", "Edit"), couleur = type d'event
   // (ex: rouge pour Dérush, vert pour Montage). Les deux sont indépendants :
   // le nom décrit CETTE étape précise, la couleur catégorise par activité.
   const meta = resolveBarMeta(event)
-  const x = startOffset * dayWidth
-  const w = widthDays * dayWidth - 2 // -2 px padding latéral
-  const y = LANE_PADDING_Y + subRow * (ROW_HEIGHT + ROW_GAP)
-  const handleClick = () => {
-    onClick?.(event._etape)
+
+  // ─── Drag/resize state (LIV-22d) ─────────────────────────────────────────
+  // Pendant un geste : { mode: 'move'|'resize', startX, deltaDays, hadMotion }.
+  // Le delta est calculé en jours snappé via Math.round(deltaPx / dayWidth).
+  // `hadMotion` permet de distinguer un click pur (pas de mouvement détecté)
+  // d'un drag réel — on n'ouvre le drawer que pour les clicks purs.
+  const [drag, setDrag] = useState(null)
+
+  const handlePointerDown = (e, mode) => {
+    if (!canEdit || !onUpdate) return
+    // Bouton gauche uniquement.
+    if (e.button !== undefined && e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+    } catch {
+      // Safari quirk : ignore les erreurs de capture.
+    }
+    setDrag({ mode, startX: e.clientX, deltaDays: 0, hadMotion: false })
   }
-  // Tooltip = "Nom étape · Type — Livrable" pour disambiguïser au survol.
+
+  const handlePointerMove = (e) => {
+    if (!drag) return
+    const deltaPx = e.clientX - drag.startX
+    const hadMotion = drag.hadMotion || Math.abs(deltaPx) > DRAG_THRESHOLD_PX
+    const deltaDays = Math.round(deltaPx / dayWidth)
+    // En resize, on garde widthDays >= 1 → deltaDays >= -(widthDays - 1).
+    const clampedDelta =
+      drag.mode === 'resize'
+        ? Math.max(deltaDays, -(widthDays - 1))
+        : deltaDays
+    if (clampedDelta !== drag.deltaDays || hadMotion !== drag.hadMotion) {
+      setDrag({ ...drag, deltaDays: clampedDelta, hadMotion })
+    }
+  }
+
+  const handlePointerUp = () => {
+    if (!drag) return
+    const { mode, deltaDays, hadMotion } = drag
+    setDrag(null)
+    // Pas de mouvement réel → on traite comme un click (ouvre le drawer).
+    if (!hadMotion || deltaDays === 0) {
+      if (!hadMotion) onClick?.(event._etape)
+      return
+    }
+    // Commit : calcule les nouvelles dates et appelle onUpdate.
+    const etape = event._etape
+    if (!etape) return
+    if (mode === 'move') {
+      const newDebut = addDaysToISO(etape.date_debut, deltaDays)
+      const newFin = addDaysToISO(etape.date_fin || etape.date_debut, deltaDays)
+      if (!newDebut) return
+      onUpdate({
+        etape,
+        patch: { date_debut: newDebut, date_fin: newFin },
+      })
+    } else if (mode === 'resize') {
+      const newFin = addDaysToISO(etape.date_fin || etape.date_debut, deltaDays)
+      if (!newFin) return
+      onUpdate({
+        etape,
+        patch: { date_fin: newFin },
+      })
+    }
+  }
+
+  const handlePointerCancel = () => {
+    // Annulation (touche Esc, focus perdu) → on jette le drag sans commit.
+    setDrag(null)
+  }
+
+  // Position visuelle, incluant l'offset du drag en cours.
+  const dragShiftPx = drag?.mode === 'move' ? drag.deltaDays * dayWidth : 0
+  const dragWidthPx = drag?.mode === 'resize' ? drag.deltaDays * dayWidth : 0
+  const x = startOffset * dayWidth + dragShiftPx
+  const w = Math.max(dayWidth - 2, widthDays * dayWidth - 2 + dragWidthPx)
+  const y = LANE_PADDING_Y + subRow * (ROW_HEIGHT + ROW_GAP)
+
+  // Tooltip : si drag en cours, on affiche les nouvelles dates pressenties.
   const tooltipParts = [meta.label]
   if (meta.typeLabel && meta.typeLabel !== meta.label) {
     tooltipParts.push('· ' + meta.typeLabel)
   }
   if (event.livrable_nom) tooltipParts.push('— ' + event.livrable_nom)
+  if (drag && drag.deltaDays !== 0) {
+    const sign = drag.deltaDays > 0 ? '+' : ''
+    const verbe = drag.mode === 'move' ? 'Déplacer' : 'Allonger'
+    tooltipParts.push(`(${verbe} ${sign}${drag.deltaDays} j)`)
+  }
+
+  const isDragging = drag && drag.hadMotion
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className="absolute flex items-center px-2 rounded text-[11px] font-medium text-white truncate transition-shadow"
+    <div
+      onPointerDown={(e) => handlePointerDown(e, 'move')}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      className="absolute flex items-center px-2 rounded text-[11px] font-medium text-white truncate transition-shadow select-none"
       style={{
         left: x + 1,
         top: y,
@@ -844,20 +943,48 @@ function PipelineBar({ bar, dayWidth, onClick }) {
         height: ROW_HEIGHT,
         background: meta.color,
         border: '1px solid rgba(0,0,0,0.15)',
-        cursor: 'pointer',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+        cursor: canEdit ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+        boxShadow: isDragging
+          ? '0 4px 12px rgba(0,0,0,0.5)'
+          : '0 1px 2px rgba(0,0,0,0.2)',
         textShadow: '0 1px 1px rgba(0,0,0,0.3)',
+        opacity: isDragging ? 0.85 : 1,
+        touchAction: 'none', // empêche le scroll horizontal pendant le drag tactile
       }}
       title={tooltipParts.join(' ')}
       onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.4)'
+        if (!isDragging) e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.4)'
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.2)'
+        if (!isDragging) e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.2)'
       }}
+      role="button"
+      tabIndex={0}
     >
-      <span className="truncate">{meta.label}</span>
-    </button>
+      <span className="truncate pointer-events-none">{meta.label}</span>
+      {/* Poignée resize sur le bord droit — visible et cliquable uniquement
+          si canEdit. Cursor ew-resize sur la poignée seulement (sinon le
+          curseur de la barre entière reste 'grab'). */}
+      {canEdit && (
+        <div
+          onPointerDown={(e) => handlePointerDown(e, 'resize')}
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: RESIZE_HANDLE_WIDTH,
+            cursor: 'ew-resize',
+            // Léger gradient pour signaler la poignée au hover, sans
+            // surcharger visuellement l'état au repos.
+            background:
+              'linear-gradient(to left, rgba(255,255,255,0.18), transparent)',
+            touchAction: 'none',
+          }}
+          title="Étirer pour modifier la date de fin"
+        />
+      )}
+    </div>
   )
 }
 

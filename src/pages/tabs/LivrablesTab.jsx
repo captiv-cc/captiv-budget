@@ -613,6 +613,18 @@ export default function LivrablesTab() {
             mode={pipelineMode}
             focusLivrableId={focusLivrableId}
             zoom={pipelineZoom}
+            canEdit={canEdit}
+            onEtapeUpdate={({ etape, patch }) => {
+              // LIV-22d — drag/resize commit. actions.updateEtape est déjà
+              // optimistic dans useLivrables (LIV-9), donc l'UI bouge tout
+              // de suite et ne retombe que si la BD rejette.
+              if (!etape?.id) return
+              actions.updateEtape(etape.id, patch).catch((err) => {
+                notify.error(
+                  'Mise à jour impossible : ' + (err?.message || err),
+                )
+              })
+            }}
             onEtapeClick={(etape) => {
               // Click sur une barre → ouvre le drawer Versions du livrable parent,
               // sur l'onglet Étapes (réutilisation existant LIV-9)

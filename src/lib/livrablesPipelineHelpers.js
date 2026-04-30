@@ -445,6 +445,37 @@ export function groupEtapesByEventType(timelineEvents = [], eventTypesById = new
   return lanes.map(({ minDate: _ignored, ...rest }) => rest)
 }
 
+// ─── addDaysToISO (drag/resize barres — LIV-22d) ────────────────────────────
+
+/**
+ * Ajoute N jours à une date 'YYYY-MM-DD' et renvoie le résultat sous le
+ * même format. Utilise le constructeur Date local qui gère les overflow
+ * mois/an. Renvoie null si la date d'entrée est invalide.
+ *
+ * Exemples :
+ *   addDaysToISO('2026-05-12', 3)   → '2026-05-15'
+ *   addDaysToISO('2026-05-30', 5)   → '2026-06-04'
+ *   addDaysToISO('2026-05-12', -2)  → '2026-05-10'
+ *   addDaysToISO(null, 3)           → null
+ */
+export function addDaysToISO(dateStr, n) {
+  if (!dateStr) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr)
+  if (!m) return null
+  const days = Number.isFinite(n) ? Math.trunc(n) : 0
+  const d = new Date(
+    parseInt(m[1], 10),
+    parseInt(m[2], 10) - 1,
+    parseInt(m[3], 10) + days,
+    0, 0, 0, 0,
+  )
+  if (Number.isNaN(d.getTime())) return null
+  const yyyy = String(d.getFullYear()).padStart(4, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 // ─── filterEtapesForLivrable (vue A focus) ──────────────────────────────────
 
 /**

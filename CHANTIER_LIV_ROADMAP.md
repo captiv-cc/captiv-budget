@@ -1124,8 +1124,7 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
   Smoke test inline node : 7/7 (helpers V1) + 10/10 (extraDates +
   blocksById) + 6/6 (event_type) = 23/23 PASS. Tests Vitest ajoutés (32
   tests au total dans `livrablesPipelineHelpers.test.js`).
-- **Restant Vague 2 LIV-22** :
-  - **LIV-22d** : drag/resize barres + sync via `actions.updateEtape`.
+- **Restant Vague 2 LIV-22** : ✅ tout bouclé (a/b/c/d/e).
 
 ### Session 2026-04-30 (suite) — LIV-22c (mode Focus + toggle A/B)
 
@@ -1220,17 +1219,65 @@ Wow), régénérer les PDF des deux templates, et verrouiller le lien devis.
 - **Validation** : ESLint clean. Parse-check OK. Test fonctionnel Hugo :
   toggle zoom + URL persistance + rendu HeaderCell aux 3 zooms.
 
-### Prochaine étape — LIV-22d (drag/resize barres)
+### Session 2026-04-30 (suite) — LIV-22d (drag/resize barres)
 
-Permettre à l'utilisateur de modifier les dates d'une étape directement
-depuis le Gantt :
-- **Drag** : attraper une barre et la faire glisser → décale `date_debut`
-  et `date_fin` du même nombre de jours.
-- **Resize** : poignée sur le bord droit (et gauche ?) → modifie
-  `date_fin` (ou `date_debut`).
-- Snap au jour entier (cohérent avec `dayWidth`).
-- Sync via `actions.updateEtape(id, patch)` (déjà optimistic dans
-  `useLivrables`).
-- Permission gating : pas de drag si `!canEdit`.
-- Pattern miroir du Planning Gantt (PlanningTimelineView a déjà du
-  drag/resize — récupérer la mécanique de pointer events).
+- **Helper `addDaysToISO(dateStr, n)`** dans `livrablesPipelineHelpers.js` :
+  ajoute N jours à une date 'YYYY-MM-DD' et renvoie le résultat dans le
+  même format. Gère cross-mois, cross-année, deltas négatifs, troncature
+  des deltas non-entiers, retourne null si invalide. 8 tests Vitest.
+- **Composant `PipelineBar`** réécrit avec pointer events (touch + souris) :
+  - **Drag de la barre entière** (mode `'move'`) : `onPointerDown` sur la
+    barre, `setPointerCapture` pour capturer les move même hors-barre,
+    `onPointerMove` calcule `deltaDays = round(deltaPx / dayWidth)` et
+    update visuel via `transform` (translateX). `onPointerUp` commit via
+    `addDaysToISO` sur `date_debut` ET `date_fin`.
+  - **Resize bord droit** (mode `'resize'`) : poignée 6 px à droite,
+    cursor `ew-resize`, léger gradient blanc visible en hover. Modifie
+    uniquement `date_fin`. Garde-fou : `widthDays >= 1` (pas de barre
+    invisible). Bord gauche reste fixe par design (90% des cas = ajuster
+    la fin).
+  - **Snap au jour entier** : `Math.round(deltaPx / dayWidth)` peu importe
+    le zoom. Toujours des dates entières en BD.
+  - **Click vs drag** : si `Math.abs(deltaPx) < DRAG_THRESHOLD_PX` (4 px)
+    pendant le mouvement, on traite le pointerUp comme un click → le
+    drawer Étapes s'ouvre. Au-delà → c'est un drag réel, drawer
+    non-ouvert.
+  - **Tooltip dynamique pendant le drag** : ajoute `(Déplacer +3 j)` ou
+    `(Allonger +2 j)` aux infos existantes pour signaler la modification
+    en cours.
+  - **Visuel pendant le drag** : opacité 0.85, shadow plus forte, cursor
+    `grabbing`. Au repos en mode édit : cursor `grab`. En lecture seule :
+    cursor `pointer` (comme avant) et pas de poignée resize.
+  - `touch-action: none` sur la barre et la poignée pour empêcher le
+    scroll horizontal sur tactile pendant le geste.
+- **Permission gating** : nouvelle prop `canEdit` sur `LivrablePipelineView`
+  qui désactive `onPointerDown` du drag/resize si `false`. Le `onClick`
+  reste actif (lecture seule = on peut quand même ouvrir le drawer).
+- **Sync** : `actions.updateEtape(id, patch)` côté `LivrablesTab`. Déjà
+  optimistic dans `useLivrables` (LIV-9), donc l'UI bouge tout de suite
+  (pas d'attente serveur). Sync planning miroir automatique via
+  `livrablesPlanningSync` (LIV-4) → l'event correspondant dans le Planning
+  est aussi décalé.
+- **Décisions UX (paris validés Hugo)** :
+  - Drag de barre entière + resize bord droit uniquement (pas bord gauche).
+  - Snap au jour entier (pas de demi-journée).
+  - Lecture seule = pas de drag, pas de resize, mais click drawer OK.
+- **Validation** : ESLint clean (4 fichiers), parse-check OK. Smoke node
+  `addDaysToISO` 8/8 PASS. Test fonctionnel côté Hugo : drag décale
+  l'étape, resize allonge la durée, click ouvre toujours le drawer.
+
+### LIV-22 — BOUCLÉ ✅
+
+La vue Pipeline / Gantt est complète :
+- LIV-22a (helpers purs)
+- LIV-22b (composant + intégration + polish 8 affinages)
+- LIV-22c (mode Focus + toggle Ensemble/Focus + filtres)
+- LIV-22d (drag/resize)
+- LIV-22e (zoom Jour/Semaine/Mois)
+
+Reste sur la Vague 2 :
+- **LIV-23** : Export PDF "vue d'ensemble" (style V and B Fest) — réutilisera
+  le rendu Gantt.
+- **LIV-24** : Export PDF "vue détaillée" (style Mandatory Wow).
+- **LIV-25** : Niveau 3 devis — compteur contractuel vs planifié.
+- **LIV-26** : Templates de projet livrables.
