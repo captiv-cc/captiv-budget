@@ -1617,13 +1617,28 @@ export function layoutMonthBars(cells, events, maxLanes = 3) {
     return rows
   }
 
-  // Normalisation : pour chaque event, calcule startDay & endDay (00:00 local)
+  // Normalisation : pour chaque event, calcule startDay & endDay (00:00 local).
+  // PL-FIX-1 : pour les all_day stockés en convention exclusive UTC
+  // (ends_at = lendemain 00:00 UTC), le DERNIER jour visible = ends_at - 1.
+  // On détecte ça en regardant si ends_at est exactement à minuit UTC ; les
+  // events legacy (23:59 local) sont conservés tels quels et la migration
+  // SQL les normalisera.
   const norm = []
   for (const ev of safeEvents) {
     if (!ev?.starts_at || !ev?.ends_at) continue
     const s = new Date(ev.starts_at)
-    const e = new Date(ev.ends_at)
+    let e = new Date(ev.ends_at)
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) continue
+    if (ev.all_day === true) {
+      const isMidnightUTC =
+        e.getUTCHours() === 0 &&
+        e.getUTCMinutes() === 0 &&
+        e.getUTCSeconds() === 0 &&
+        e.getUTCMilliseconds() === 0
+      if (isMidnightUTC) {
+        e = new Date(e.getTime() - 24 * 3600 * 1000)
+      }
+    }
     const sDay = new Date(s.getFullYear(), s.getMonth(), s.getDate())
     const eDay = new Date(e.getFullYear(), e.getMonth(), e.getDate())
     norm.push({ event: ev, startDay: sDay, endDay: eDay, startTs: s.getTime() })
