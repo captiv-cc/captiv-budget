@@ -291,5 +291,55 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   aux orgs de créer leurs propres templates par-dessus. Pas urgent
   côté sécurité, mais à intégrer au design produit Phase 1.
 
-### 2026-05-01 — MT-0.2 démarré
-- Audit des policies RLS en cours.
+### 2026-05-01 — MT-0.2 ✅ Audit RLS terminé
+- **169 policies analysées** sur 59 tables.
+- **Architecture saine** : 99% des policies passent par des fonctions
+  centralisées (`can_read_outil`, `can_edit_outil`,
+  `can_see_project_finance`, `can_see_project`, `is_admin`,
+  `current_user_role`, `is_project_member`). Pas de copier-coller
+  hasardeux, tout est unifié.
+- **Trou principal détecté** : les fonctions de permission **ne
+  vérifient pas l'org** du projet vs l'org du user. Conséquence : en
+  multi-tenant, un admin d'une org pourrait potentiellement lire/écrire
+  les données d'une autre org si on lui donne par erreur un access. En
+  mono-tenant Captiv → aucun risque actuel (1 seule org).
+- **Trous spécifiques** :
+  - `fournisseurs` a 2 policies trop ouvertes (`using (true)` et
+    `auth.uid() IS NOT NULL`) qui annulent le filtre org via le OR
+    implicite entre policies de même action.
+  - `devis.devis_public_token` a 3 versions de la policy dont 2 en
+    `using (true)` — vraisemblablement reliques de migrations
+    successives, à nettoyer.
+  - `project_access.project_access_admin_write` et
+    `project_access_permissions.pap_admin_write` : `is_admin()` sans
+    filtre org — un admin peut écrire les permissions d'un projet
+    d'une autre org.
+- **Helpers à muscler** : ajouter un check
+  `EXISTS (SELECT 1 FROM projects p WHERE p.id = pid AND p.org_id =
+  get_user_org_id())` dans `can_read_outil`, `can_edit_outil`,
+  `can_see_project_finance`, `can_see_project`, `is_project_member`.
+
+### 2026-05-01 — Décisions Phase 0 (validées Hugo)
+- **Option A — Cloisonnement total** : un admin d'une organisation ne
+  voit jamais les données d'une autre organisation. Pas d'exception,
+  pas de bypass dans les helpers RLS.
+- **Super_admin RGPD-safe (Phase 1)** : la console super-admin
+  n'aura **pas** accès aux données business sensibles (clients,
+  projets, finances, équipes, livrables, devis, factures…). Elle
+  donnera accès uniquement à :
+  - Liste des organisations (nom, slug, plan, statut abonnement)
+  - Métriques agrégées (nb projets, nb users, dernière connexion,
+    usage stockage)
+  - Actions métier (suspendre, réactiver, supprimer une org)
+  - Logs techniques (audit, erreurs)
+  - **Pas** d'accès en lecture aux tables business
+  - Pour le debug client : workflow "impersonate sur demande" en
+    Phase 2/3, avec consentement explicite + audit log + durée
+    limitée + notification visible dans l'org cible.
+- Cette posture est plus contraignante côté support que de pouvoir
+  "regarder les données d'un client" mais c'est la posture pro et
+  alignée RGPD à laquelle viseront tous les SaaS B2B sérieux. Mieux
+  vaut le poser dès Phase 0 que d'avoir à le rétrofitter plus tard.
+
+### 2026-05-01 — MT-0.3 démarré
+- Migration corrective en cours de rédaction.
