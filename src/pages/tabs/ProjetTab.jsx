@@ -20,11 +20,13 @@ import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import DateRangesInput from '../../features/projets/components/DateRangesInput'
+import PeriodesRecapWidget from '../../features/projets/components/PeriodesRecapWidget'
 import LivrablesProjectWidget from '../../features/livrables/components/LivrablesProjectWidget'
 import {
   PERIODE_KEYS,
   PERIODE_META,
   extractPeriodes,
+  hasAnyRange,
   serializePeriodesIntoMetadata,
 } from '../../lib/projectPeriodes'
 import { syncTournagePeriodToPlanning } from '../../lib/projectPeriodSync'
@@ -44,7 +46,6 @@ import {
   ChevronDown,
   ChevronRight,
   Edit2,
-  Calendar,
   Mail,
   Phone,
   MapPin,
@@ -398,17 +399,11 @@ function ReadView({
     { label: 'Format master', value: get('format_master') },
   ].filter((c) => c.value)
 
-  const planningChips = [
-    { label: 'Prépa — jours', value: get('prepa_jours') },
-    { label: 'Prépa — dates', value: get('prepa_dates') },
-    { label: 'Tournage — jours', value: get('tournage_jours') },
-    { label: 'Tournage — dates', value: get('tournage_dates') },
-    { label: 'Envoi V1', value: get('envoi_v1') },
-    { label: 'Livraison MASTER', value: get('livraison_master') },
-    { label: 'Deadline', value: get('deadline') },
-  ].filter((c) => c.value)
-
-  const hasPlanning = planningSpecs.length > 0 || planningChips.length > 0
+  // PROJ-PERIODES — extraction des 5 périodes structurées (avec migration
+  // soft des chaînes legacy si metadata.periodes absent).
+  const periodes = extractPeriodes(project.metadata)
+  const hasAnyPeriode = PERIODE_KEYS.some((k) => hasAnyRange(periodes[k]))
+  const hasPlanning = planningSpecs.length > 0 || hasAnyPeriode
 
   // Combien de blocs prennent la colonne gauche (col-span-2) ? Nécessaire
   // pour qu'Équipe (col-span-1, latérale) span exactement le bon nombre de
@@ -524,17 +519,10 @@ function ReadView({
                   <InfoGrid items={planningSpecs} />
                 </div>
               )}
-              {planningChips.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Calendar className="w-3 h-3 text-gray-500" />
-                    <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">
-                      Planning
-                    </p>
-                  </div>
-                  <InfoGrid items={planningChips} />
-                </div>
-              )}
+              {/* PROJ-PERIODES — Récap visuel des 5 périodes structurées
+                  (pills colorées + total jours par période). Remplace
+                  l'ancienne InfoGrid des chaînes legacy. */}
+              {hasAnyPeriode && <PeriodesRecapWidget periodes={periodes} />}
             </div>
           )}
         </div>
