@@ -270,7 +270,7 @@ export default function LivrablePipelineView({
   }
 
   return (
-    <div className={className}>
+    <div className={`flex flex-col min-h-0 ${className || ''}`}>
       {/* Header focus : visible uniquement en mode 'focus'. Reste hors du
           scroll container pour ne pas bouger horizontalement. */}
       {effectiveMode === 'focus' && (
@@ -283,9 +283,13 @@ export default function LivrablePipelineView({
         />
       )}
 
+      {/* Scroll container : flex-1 + min-h-0 pour qu'il remplisse l'espace
+          dispo (mobile : grille à pleine hauteur de l'écran au lieu de
+          ~30%). scroll-fade-r : fade-out à droite pour signaler le scroll
+          horizontal sur petits écrans. */}
       <div
         ref={scrollRef}
-        className="overflow-auto"
+        className="overflow-auto flex-1 min-h-0 scroll-fade-r"
         style={{
           background: 'var(--bg-surf)',
           border: '1px solid var(--brd)',
@@ -619,7 +623,6 @@ function PipelineLane({
     onEnterFocus?.(livrable.id)
   }
 
-  const isEmpty = lane.events.length === 0
   const enRetard = livrable ? isLivrableEnRetard(livrable) : false
 
   return (
@@ -744,30 +747,10 @@ function PipelineLane({
           </>
         )}
 
-        {/* Empty state lane : message discret, sticky pour rester visible
-            juste après le label sticky. Le label colle à outer-left=0 sur
-            LANE_LABEL_WIDTH px, donc on ancre le texte à
-            LANE_LABEL_WIDTH + 12 px du bord gauche du scroll container.
-            Hors scroll, le texte est en flow normal dans la track et
-            sticky le pousse jusqu'à 12 px du label ; après scroll, il
-            reste fixe juste à droite du label. */}
-        {isEmpty && (
-          <div
-            className="pointer-events-none flex items-center text-[11px] italic"
-            style={{
-              position: 'sticky',
-              left: LANE_LABEL_WIDTH + 12,
-              top: 0,
-              width: 'max-content',
-              height: laneHeight,
-              color: 'var(--txt-3)',
-              opacity: 0.7,
-              zIndex: 2,
-            }}
-          >
-            Aucune étape planifiée
-          </div>
-        )}
+        {/* Empty state lane : pas de texte par lane (bruit visuel sur
+            mobile). Les cellules vides parlent d'elles-mêmes. Si TOUTES
+            les lanes sont vides, l'empty state global affiché par le
+            parent (PipelineHeader/Wrapper) prend le relais. */}
 
         {lane.bars.map((bar) => (
           <PipelineBar
@@ -961,7 +944,12 @@ function PipelineBar({ bar, dayWidth, canEdit, onClick, onUpdate }) {
       role="button"
       tabIndex={0}
     >
-      <span className="truncate pointer-events-none">{meta.label}</span>
+      {/* Label masqué si la barre est trop étroite — un mot tronqué à
+          "E.." n'apporte aucune info. La couleur seule + le tooltip
+          (title=) suffisent à identifier l'étape. Seuil 48 px ≈ ~5 chars. */}
+      {w >= 48 && (
+        <span className="truncate pointer-events-none">{meta.label}</span>
+      )}
       {/* Poignée resize sur le bord droit — visible et cliquable uniquement
           si canEdit. Cursor ew-resize sur la poignée seulement (sinon le
           curseur de la barre entière reste 'grab'). */}

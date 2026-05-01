@@ -271,7 +271,7 @@ export default function LivrableRowCard({
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="Actions livrable"
-              className="p-1.5 rounded shrink-0"
+              className="p-2 sm:p-1.5 rounded shrink-0"
               style={{ color: 'var(--txt-3)' }}
             >
               <MoreHorizontal className="w-4 h-4" />
@@ -315,7 +315,7 @@ export default function LivrableRowCard({
           canEdit={canEdit}
           size="xs"
         />
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="flex items-center gap-3 ml-auto">
           <div style={{ minWidth: 70 }}>
             <FormatSelect
               value={livrable.format || ''}
@@ -325,9 +325,6 @@ export default function LivrableRowCard({
               placeholder="Format"
             />
           </div>
-          <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
-            ·
-          </span>
           <div style={{ width: 60 }}>
             <DurationInput
               value={livrable.duree || ''}
@@ -372,9 +369,12 @@ export default function LivrableRowCard({
         />
       </div>
 
-      {/* Ligne 4 : tous les chips (liens + détails + notes) sur une seule
-          ligne avec wrap. Plus dense que 3 lignes labellées. */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Ligne 4 : tous les chips (liens + détails + notes). Sur mobile,
+          scroll horizontal pour rester sur 1 ligne (évite que 5 chips
+          empty cassent le layout en 2-3 lignes hautes). Sur desktop,
+          flex-wrap normal. `[&>*]:shrink-0` empêche les chips de se
+          comprimer en mode scroll. */}
+      <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto sm:flex-wrap scroll-fade-r [&>*]:shrink-0 -mx-1 px-1 pb-0.5">
         <LinkChip
           label="Frame"
           url={livrable.lien_frame}

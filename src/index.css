@@ -754,3 +754,27 @@ html[data-check-theme='light'] ::-webkit-scrollbar-thumb:hover {
     box-shadow: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Scroll fade — indicateur visuel sur les zones overflow-x-auto :
+   un fade-out à droite (mask-image gradient) signale qu'il y a du contenu
+   au-delà du bord. Sur sm+, on désactive (les zones passent en flex-wrap).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.scroll-fade-r {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    black calc(100% - 24px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    black calc(100% - 24px),
+    transparent
+  );
+}
+@media (min-width: 640px) {
+  .scroll-fade-r {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}

@@ -87,14 +87,13 @@ export default function LivrablesFilterBar({
 
   return (
     <div
-      className="flex items-center gap-2 px-4 sm:px-6 py-2 overflow-x-auto"
+      className="flex items-center gap-2 px-4 sm:px-6 py-2 overflow-x-auto scroll-fade-r"
       style={{
-        background: 'var(--bg-surf)',
-        borderBottom: '1px solid var(--brd)',
+        borderBottom: '1px solid var(--brd-sub)',
       }}
     >
       <span
-        className="text-[10px] uppercase tracking-wider shrink-0 mr-1"
+        className="hidden sm:inline text-[10px] uppercase tracking-wider shrink-0 mr-1"
         style={{ color: 'var(--txt-3)' }}
       >
         Filtres

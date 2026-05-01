@@ -501,7 +501,7 @@ export default function LivrableBlockCard({
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? 'Déplier' : 'Replier'}
-          className="p-0.5 rounded shrink-0"
+          className="p-1.5 sm:p-0.5 rounded shrink-0"
           style={{ color: 'var(--txt-3)' }}
         >
           {collapsed ? (
@@ -522,21 +522,24 @@ export default function LivrableBlockCard({
           />
         )}
 
-        {/* Pastille couleur — click ouvre la palette */}
+        {/* Pastille couleur — click ouvre la palette.
+            Hitbox élargie sur mobile (p-1.5 → tap target ~28px) sans
+            grossir le visuel (le `<span>` reste petit). */}
         <div ref={colorMenuRef} className="relative shrink-0">
           <button
             type="button"
             onClick={() => canEdit && setColorMenuOpen((o) => !o)}
             disabled={!canEdit}
             aria-label="Changer la couleur"
-            className="w-3.5 h-3.5 rounded-full border"
-            style={{
-              background: color,
-              borderColor: 'var(--brd)',
-              cursor: canEdit ? 'pointer' : 'default',
-            }}
+            className="p-1.5 sm:p-0 -m-1.5 sm:m-0 rounded-full flex items-center justify-center"
+            style={{ cursor: canEdit ? 'pointer' : 'default' }}
             title={canEdit ? 'Changer la couleur' : color}
-          />
+          >
+            <span
+              className="block w-3.5 h-3.5 rounded-full border"
+              style={{ background: color, borderColor: 'var(--brd)' }}
+            />
+          </button>
           {colorMenuOpen && (
             <ColorPalette
               currentColor={color}
@@ -615,13 +618,16 @@ export default function LivrableBlockCard({
             type="button"
             onClick={() => canEdit && setPrefixEditing(true)}
             disabled={!canEdit}
-            className="text-[11px] font-mono px-2 py-0.5 rounded"
+            className="text-[11px] font-mono font-bold px-2 py-0.5 rounded shrink-0"
             style={{
-              background: 'var(--bg-2)',
-              color: 'var(--txt-3)',
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
               cursor: canEdit ? 'text' : 'default',
             }}
-            title={canEdit ? 'Cliquer pour modifier le préfixe' : 'Préfixe'}
+            title={canEdit
+              ? `Préfixe du bloc « ${block.prefixe} » — cliquer pour modifier`
+              : `Préfixe du bloc : ${block.prefixe}`}
           >
             {block.prefixe}
           </button>
@@ -666,10 +672,12 @@ export default function LivrableBlockCard({
             )
           })()}
 
-        {/* Compteur livrables */}
+        {/* Compteur livrables — pill rounded-full pour le distinguer du
+            préfixe (badge carré arrondi). Tooltip explicite. */}
         <span
-          className="text-[11px] ml-auto px-2 py-0.5 rounded-full shrink-0"
+          className="text-[11px] font-semibold ml-auto px-2 py-0.5 rounded-full shrink-0 tabular-nums"
           style={{ background: 'var(--bg-2)', color: 'var(--txt-3)' }}
+          title={`${livrables.length} livrable${livrables.length > 1 ? 's' : ''} dans ce bloc`}
         >
           {livrables.length}
         </span>
@@ -682,7 +690,7 @@ export default function LivrableBlockCard({
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="Actions bloc"
-              className="p-1 rounded"
+              className="p-2 sm:p-1 rounded"
               style={{ color: 'var(--txt-3)' }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'var(--bg-hov)'
@@ -932,6 +940,9 @@ function LivrableQuickAdd({ disabled = false, onAdd }) {
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
   const inputRef = useRef(null)
+  // Hint "(Entrée pour valider)" inutile sur mobile (clavier tactile :
+  // la touche Enter est implicite via le bouton de soumission).
+  const { isMobile } = useBreakpoint()
 
   const handleSubmit = useCallback(async () => {
     const nom = value.trim()
@@ -996,7 +1007,11 @@ function LivrableQuickAdd({ disabled = false, onAdd }) {
           }
         }}
         disabled={disabled}
-        placeholder="Nouveau livrable… (Entrée pour valider)"
+        placeholder={
+          isMobile
+            ? 'Nouveau livrable…'
+            : 'Nouveau livrable… (Entrée pour valider)'
+        }
         className="flex-1 bg-transparent focus:outline-none text-xs"
         style={{
           color: focused || value ? 'var(--blue)' : 'var(--txt-3)',

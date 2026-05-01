@@ -638,12 +638,11 @@ export default function LivrablesTab() {
         <div
           className="px-4 sm:px-6 py-2 flex items-center gap-1 flex-wrap"
           style={{
-            background: 'var(--bg-surf)',
-            borderBottom: '1px solid var(--brd)',
+            borderBottom: '1px solid var(--brd-sub)',
           }}
         >
           <span
-            className="text-[10px] uppercase tracking-wider mr-2"
+            className="hidden sm:inline text-[10px] uppercase tracking-wider mr-2"
             style={{ color: 'var(--txt-3)' }}
           >
             Vue
@@ -663,8 +662,11 @@ export default function LivrablesTab() {
 
           {viewMode === 'pipeline' && (
             <>
+              {/* Sur mobile : break-line forcé pour passer Ensemble/Focus
+                  + zoom sur une 2e ligne, plus respirable que tout sur 1.
+                  Sur desktop : séparateur vertical inline. */}
               <span
-                className="mx-2 h-4 w-px"
+                className="basis-full sm:basis-auto sm:mx-2 sm:h-4 sm:w-px"
                 style={{ background: 'var(--brd-sub)' }}
                 aria-hidden="true"
               />
@@ -684,7 +686,7 @@ export default function LivrablesTab() {
                 }}
               />
               <span
-                className="mx-2 h-4 w-px"
+                className="hidden sm:inline-block sm:mx-2 sm:h-4 sm:w-px"
                 style={{ background: 'var(--brd-sub)' }}
                 aria-hidden="true"
               />
@@ -694,7 +696,7 @@ export default function LivrablesTab() {
         </div>
       )}
 
-      <div className="p-4 sm:p-6 flex-1">
+      <div className="p-4 sm:p-6 flex-1 flex flex-col min-h-0">
         {blocks.length === 0 ? (
           <EmptyState
             canEdit={canEdit}
@@ -702,6 +704,7 @@ export default function LivrablesTab() {
           />
         ) : viewMode === 'pipeline' ? (
           <LivrablePipelineView
+            className="flex-1 min-h-0"
             livrables={allFilteredLivrablesFlat}
             etapes={allFilteredEtapes}
             blocks={blocks}
@@ -914,10 +917,14 @@ function LivrablesHeader({
       active: isLivresActive,
     },
   ]
+  // Sous-titre dynamique aligné sur Mat ("21 éléments · checklist 30/63") :
+  // résumé live des comptages au lieu d'une description figée.
+  const totalLabel = `${compteurs.total} livrable${compteurs.total > 1 ? 's' : ''}`
+  const livresLabel = `${compteurs.livres} livré${compteurs.livres > 1 ? 's' : ''}`
   return (
     <div
-      className="px-4 sm:px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center gap-3"
-      style={{ borderColor: 'var(--brd)', background: 'var(--bg-surf)' }}
+      className="px-5 py-4 border-b flex flex-col sm:flex-row sm:items-center gap-3"
+      style={{ borderColor: 'var(--brd-sub)' }}
     >
       {/* Titre */}
       <div className="flex items-center gap-3 shrink-0">
@@ -932,27 +939,30 @@ function LivrablesHeader({
             Livrables
           </h1>
           <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-            Post-production — versions, retours, deadlines
+            {totalLabel} · {livresLabel}
           </p>
         </div>
       </div>
 
-      {/* Compteurs cliquables (LIV-16) */}
-      <div className="flex items-center gap-2 sm:gap-3 sm:ml-6 overflow-x-auto">
+      {/* Compteurs cliquables (LIV-16) — style FlagPill Matériel : pills
+          rondes compactes, icône colorée + count seulement, label en tooltip. */}
+      <div className="flex items-center gap-2 ml-0 sm:ml-4 overflow-x-auto scroll-fade-r">
         {stats.map((s) => {
           const Icon = s.icon
           const ActiveIcon = s.eraser ? Eraser : Icon
           const isInteractive = Boolean(s.onClick)
+          const isHighlight = s.active || s.eraser
           return (
             <button
               key={s.key}
               type="button"
               onClick={s.onClick || undefined}
               disabled={!isInteractive}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
+              className="flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full shrink-0 transition-all"
               style={{
-                background: s.active ? s.bg : 'var(--bg-elev)',
-                border: `1px solid ${s.active ? s.color : 'transparent'}`,
+                background: isHighlight ? s.bg : 'var(--bg-elev)',
+                color: isHighlight ? s.color : 'var(--txt)',
+                border: `1px solid ${isHighlight ? s.color : 'var(--brd)'}`,
                 cursor: isInteractive ? 'pointer' : 'default',
               }}
               title={
@@ -960,22 +970,17 @@ function LivrablesHeader({
                   ? 'Effacer tous les filtres'
                   : s.active
                     ? `Désactiver le filtre ${s.label}`
-                    : `Filtrer : ${s.label}`
+                    : `${s.label} — cliquer pour filtrer`
               }
             >
               <ActiveIcon
-                className="w-3.5 h-3.5"
-                style={{ color: s.active || s.eraser ? s.color : s.color }}
+                className="w-3 h-3"
+                style={{ color: s.color }}
               />
+              <span className="tabular-nums">{s.value}</span>
               <span
-                className="text-xs font-semibold tabular-nums"
-                style={{ color: s.active ? s.color : 'var(--txt)' }}
-              >
-                {s.value}
-              </span>
-              <span
-                className="text-[11px]"
-                style={{ color: s.active ? s.color : 'var(--txt-3)' }}
+                className="text-[11px] font-medium"
+                style={{ color: isHighlight ? s.color : 'var(--txt-3)' }}
               >
                 {s.label}
               </span>
@@ -987,64 +992,84 @@ function LivrablesHeader({
         <ProchainChip prochain={compteurs.prochain} onOpen={onHighlightLivrable} />
       </div>
 
-      {/* CTA */}
-      <div className="flex-1" />
-      {canEdit && onOpenTrash && (
-        <button
-          type="button"
-          onClick={onOpenTrash}
-          aria-label="Corbeille"
-          title="Corbeille — éléments supprimés"
-          className="p-2 rounded-lg transition-colors shrink-0"
-          style={{ color: 'var(--txt-3)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hov)'
-            e.currentTarget.style.color = 'var(--txt)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = 'var(--txt-3)'
-          }}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      )}
-      {/* LIV-23 — Export PDF "Vue ensemble" */}
-      {onExportPdf && (
-        <button
-          type="button"
-          onClick={onExportPdf}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0"
-          style={{
-            background: 'transparent',
-            color: 'var(--txt-2)',
-            border: '1px solid var(--brd-sub)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hov)'
-            e.currentTarget.style.color = 'var(--txt)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = 'var(--txt-2)'
-          }}
-          title="Export PDF — Vue ensemble"
-        >
-          <FileText className="w-4 h-4" />
-          <span className="hidden sm:inline">Export PDF</span>
-        </button>
-      )}
-      {canEdit && (
-        <button
-          type="button"
-          onClick={onCreateBlock}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0"
-          style={{ background: 'var(--green)', color: '#fff' }}
-        >
-          <Plus className="w-4 h-4" />
-          Nouveau bloc
-        </button>
-      )}
+      {/* CTA — pattern Matériel : tailles compactes, fond bg-elev + border,
+          hover bleu pour les actions secondaires, primary solide bleu.
+          Mobile : groupées en ligne flex (et non chacune full-width), avec
+          le CTA principal "Nouveau bloc" qui prend l'espace restant. */}
+      <div className="flex items-center gap-2 sm:ml-auto">
+        {canEdit && onOpenTrash && (
+          <button
+            type="button"
+            onClick={onOpenTrash}
+            aria-label="Corbeille"
+            title="Corbeille — éléments supprimés"
+            className="flex items-center justify-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all shrink-0"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
+        {/* LIV-23 — Export PDF "Vue ensemble" */}
+        {onExportPdf && (
+          <button
+            type="button"
+            onClick={onExportPdf}
+            className="flex items-center justify-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all shrink-0"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--blue-bg)'
+              e.currentTarget.style.color = 'var(--blue)'
+              e.currentTarget.style.borderColor = 'var(--blue)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+              e.currentTarget.style.borderColor = 'var(--brd)'
+            }}
+            title="Export PDF — Vue ensemble"
+          >
+            <FileText className="w-3 h-3" />
+            <span className="hidden sm:inline">Export PDF</span>
+          </button>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onCreateBlock}
+            className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-all"
+            style={{
+              background: 'var(--blue)',
+              color: 'white',
+              border: '1px solid var(--blue)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '0.9'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+          >
+            <Plus className="w-3 h-3" />
+            Nouveau bloc
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -1071,32 +1096,25 @@ function ProchainChip({ prochain, onOpen }) {
       type="button"
       onClick={isEmpty ? undefined : () => onOpen?.(prochain)}
       disabled={isEmpty}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
+      className="flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full shrink-0 transition-all"
       style={{
-        background: isEmpty ? 'var(--bg-elev)' : 'var(--orange-bg)',
-        border: `1px solid ${isEmpty ? 'transparent' : 'var(--orange)'}`,
+        background: 'var(--bg-elev)',
+        color: 'var(--txt)',
+        border: `1px solid var(--brd)`,
         cursor: isEmpty ? 'default' : 'pointer',
-        maxWidth: 260,
+        maxWidth: 220,
       }}
       title={isEmpty ? 'Aucun livrable à venir' : `Prochain : ${label} — ${relative}`}
     >
       <ArrowRight
-        className="w-3.5 h-3.5 shrink-0"
+        className="w-3 h-3 shrink-0"
         style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--orange)' }}
       />
-      <span className="flex flex-col items-start min-w-0">
-        <span
-          className="text-[10px] uppercase tracking-wider leading-none"
-          style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--orange)' }}
-        >
-          Prochain
-        </span>
-        <span
-          className="text-xs font-semibold truncate max-w-[210px]"
-          style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--txt)' }}
-        >
-          {isEmpty ? relative : `${label} · ${relative}`}
-        </span>
+      <span
+        className="font-semibold truncate"
+        style={{ color: isEmpty ? 'var(--txt-3)' : 'var(--txt)' }}
+      >
+        {isEmpty ? relative : `${label} · ${relative}`}
       </span>
     </button>
   )
@@ -1111,11 +1129,11 @@ function ViewToggle({ active, icon: Icon, label, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors"
+      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md shrink-0 transition-all focus:outline-none"
       style={{
-        background: active ? 'var(--blue-bg)' : 'transparent',
+        background: active ? 'var(--blue-bg)' : 'var(--bg-elev)',
         color: active ? 'var(--blue)' : 'var(--txt-2)',
-        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd-sub)'}`,
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd)'}`,
       }}
     >
       {Icon && <Icon className="w-3.5 h-3.5" />}
