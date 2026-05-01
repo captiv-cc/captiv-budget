@@ -18,7 +18,7 @@ import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { calcLine, calcSynthese, CATS_HUMAINS, TAUX_DEFAUT, fmtEur } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
-import { Check, ChevronDown, ChevronRight, Plus, Package } from 'lucide-react'
+import { Activity, Check, ChevronDown, ChevronRight, Plus, Package } from 'lucide-react'
 import { isIntermittentLike, refCout, memberName } from '../../features/budget-reel/utils'
 import { Th } from '../../features/budget-reel/components/atoms'
 import KpiBar from '../../features/budget-reel/components/KpiBar'
@@ -855,8 +855,40 @@ export default function BudgetReelTab() {
     toggleBlocCollapsed,
   }
 
+  // Sous-titre dynamique du header : compteurs lots + total réel.
+  const totalLignesReelles = Object.values(reelByLine).filter((r) => Number(r?.montant_ht) > 0).length
+  const headerSubtitle = lotsWithRef.length > 0
+    ? `${lotsWithRef.length} lot${lotsWithRef.length > 1 ? 's' : ''}${totalLignesReelles > 0 ? ` · ${totalLignesReelles} ligne${totalLignesReelles > 1 ? 's' : ''} saisie${totalLignesReelles > 1 ? 's' : ''}` : ''} · suivi des dépenses réelles`
+    : 'Aucun devis de référence'
+
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--amber-bg)' }}
+          >
+            <Activity className="w-5 h-5" style={{ color: 'var(--amber)' }} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+              Budget réel
+            </h1>
+            <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+              {headerSubtitle}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
+      <div className="p-4 sm:p-6 space-y-5 flex-1">
+
       {/* ── Notice lecture seule (BUDGET-PERM) ─────────────────────────── */}
       {!canEdit && (
         <div
@@ -967,6 +999,7 @@ export default function BudgetReelTab() {
         onSaveFournisseurGroupPaid={saveFournisseurGroupPaid}
         onSaveFournisseurGroupTva={saveFournisseurGroupTva}
       />
+      </div>{/* /body */}
     </div>
   )
 }
