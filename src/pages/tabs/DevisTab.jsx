@@ -19,7 +19,6 @@ import { confirm, prompt } from '../../lib/confirm'
 import { fmtEur, fmtPct } from '../../lib/cotisations'
 import { LOT_STATUS } from '../../lib/lots'
 import DevisEditor, { BLOCS_CANONIQUES } from '../DevisEditor'
-import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import {
   Plus,
   Copy,
@@ -157,13 +156,15 @@ export default function DevisTab() {
   }, [activeLots, refSynthByLot])
 
   const totalVersions = devisList.length
+  // Couleur de la valeur "Marge moyenne" — CSS vars de l'app pour suivre
+  // auto le thème dark/light.
   const margeTone = !globalStats.lotsWithRef
-    ? 'text-gray-400'
+    ? 'var(--txt-3)'
     : globalStats.pctMarge > 0.2
-      ? 'text-green-600'
+      ? 'var(--green)'
       : globalStats.pctMarge < 0
-        ? 'text-red-600'
-        : 'text-amber-600'
+        ? 'var(--red)'
+        : 'var(--amber)'
 
   // ─────────────────────────────────────────────────────────────────────────
   // Actions LOT
@@ -577,51 +578,69 @@ export default function DevisTab() {
   const hasAnyLot = lots.length > 0
   const hasAnyDevis = devisList.length > 0
 
+  // Sous-titre dynamique du header : compteurs lots/versions/HT.
+  const headerSubtitle = !hasAnyLot
+    ? 'Aucun lot pour ce projet'
+    : [
+        `${activeLots.length} lot${activeLots.length > 1 ? 's' : ''}`,
+        totalVersions > 0 && `${totalVersions} version${totalVersions > 1 ? 's' : ''}`,
+        globalStats.lotsWithRef > 0 && `${fmtEur(globalStats.totalHT)} HT`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+
   return (
-    <div className="p-5 max-w-5xl mx-auto pb-16 space-y-4">
-      {/* ── HEADER PROJET ───────────────────────────────────────────────── */}
-      <div className="card overflow-visible">
-        <div className="p-4 sm:p-5 flex items-center gap-4">
-          <ProjectAvatar project={project} size={52} rounded="lg" />
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">
-              Devis du projet
-            </p>
-            <h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">
-              {project?.title || 'Projet sans nom'}
-            </h1>
-            {project?.clients?.nom_commercial && (
-              <p className="text-xs text-gray-500 truncate mt-0.5">
-                {project.clients.nom_commercial}
-              </p>
-            )}
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--blue-bg)' }}
+          >
+            <FileText className="w-5 h-5" style={{ color: 'var(--blue)' }} />
           </div>
-          {hasAnyLot && canEdit && (
-            <button onClick={() => createLot('')} className="btn-secondary btn-sm shrink-0">
-              <Package className="w-3.5 h-3.5" />
-              Nouveau lot
-            </button>
-          )}
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+              Devis
+            </h1>
+            <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+              {headerSubtitle}
+              {project?.clients?.nom_commercial && ` · ${project.clients.nom_commercial}`}
+            </p>
+          </div>
         </div>
+        {hasAnyLot && canEdit && (
+          <button onClick={() => createLot('')} className="btn-secondary btn-sm shrink-0">
+            <Package className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Nouveau lot</span>
+          </button>
+        )}
       </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
+      <div className="p-4 sm:p-6 space-y-4 flex-1">
 
       {/* ── KPI SYNTHÈSE ──────────────────────────────────────────────────── */}
       {hasAnyDevis && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <KpiCard
-            icon={<Package className="w-3.5 h-3.5 text-indigo-500" />}
+            icon={<Package className="w-3.5 h-3.5" style={{ color: 'var(--purple)' }} />}
             label="Lots actifs"
             value={activeLots.length}
             sub={archivedLots.length ? `${archivedLots.length} archivé(s)` : null}
           />
           <KpiCard
-            icon={<Layers className="w-3.5 h-3.5 text-blue-500" />}
+            icon={<Layers className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />}
             label="Versions"
             value={totalVersions}
             sub={totalVersions > 1 ? 'toutes lots confondus' : null}
           />
           <KpiCard
-            icon={<FileText className="w-3.5 h-3.5 text-gray-500" />}
+            icon={<FileText className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
             label="Total HT (ref.)"
             value={globalStats.lotsWithRef ? fmtEur(globalStats.totalHT) : '—'}
             sub={
@@ -631,10 +650,10 @@ export default function DevisTab() {
             }
           />
           <KpiCard
-            icon={<TrendingUp className="w-3.5 h-3.5 text-green-500" />}
+            icon={<TrendingUp className="w-3.5 h-3.5" style={{ color: 'var(--green)' }} />}
             label="Marge moyenne"
             value={globalStats.lotsWithRef ? fmtPct(globalStats.pctMarge) : '—'}
-            valueClass={margeTone}
+            valueColor={margeTone}
             sub={globalStats.lotsWithRef ? fmtEur(globalStats.marge) : null}
           />
         </div>
@@ -645,13 +664,16 @@ export default function DevisTab() {
         <>
           <div className="card overflow-hidden">
             <div className="p-10 sm:p-14 text-center">
-              <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
+              <div
+                className="w-16 h-16 mx-auto mb-5 rounded-2xl flex items-center justify-center shadow-sm"
+                style={{ background: 'linear-gradient(135deg, var(--blue), var(--purple))' }}
+              >
                 <FileText className="w-8 h-8 text-white" />
               </div>
-              <h3 className="text-base font-semibold text-gray-900 mb-1.5">
+              <h3 className="text-base font-semibold mb-1.5" style={{ color: 'var(--txt)' }}>
                 Aucun devis pour ce projet
               </h3>
-              <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">
+              <p className="text-sm max-w-md mx-auto mb-6" style={{ color: 'var(--txt-2)' }}>
                 Lancez-vous en créant votre premier devis. Un lot «&nbsp;Principal&nbsp;» sera créé
                 automatiquement. Vous pourrez ajouter d&apos;autres lots plus tard (ex :
                 «&nbsp;Aftermovie&nbsp;», «&nbsp;Vidéos réseaux sociaux&nbsp;»).
@@ -671,13 +693,16 @@ export default function DevisTab() {
                   >
                     <LayoutTemplate className="w-4 h-4" />
                     Depuis un template
-                    <span className="ml-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                    <span
+                      className="ml-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--amber-bg)', color: 'var(--amber)' }}
+                    >
                       Bientôt
                     </span>
                   </button>
                 )}
                 {!canEdit && (
-                  <p className="text-xs text-gray-500 italic">
+                  <p className="text-xs italic" style={{ color: 'var(--txt-3)' }}>
                     Vous avez accès en lecture seule — demandez un accès édition pour créer des devis.
                   </p>
                 )}
@@ -719,7 +744,11 @@ export default function DevisTab() {
           {/* Bouton global "+ Nouveau lot" en bas si plusieurs lots */}
           {activeLots.length > 0 && canEdit && (
             <div className="flex items-center justify-center pt-1">
-              <button onClick={() => createLot('')} className="btn-ghost btn-sm text-gray-500">
+              <button
+                onClick={() => createLot('')}
+                className="btn-ghost btn-sm"
+                style={{ color: 'var(--txt-3)' }}
+              >
                 <Plus className="w-3.5 h-3.5" />
                 Ajouter un lot
               </button>
@@ -731,21 +760,27 @@ export default function DevisTab() {
             <div className="card overflow-hidden">
               <button
                 onClick={() => setShowArchived((p) => !p)}
-                className="w-full px-4 py-3 flex items-center gap-2 hover:bg-gray-50 transition-colors"
+                className="w-full px-4 py-3 flex items-center gap-2 transition-colors"
+                style={{ color: 'var(--txt-3)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '')}
               >
                 {showArchived ? (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                  <ChevronDown className="w-4 h-4" style={{ color: 'var(--txt-3)' }} />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                  <ChevronRight className="w-4 h-4" style={{ color: 'var(--txt-3)' }} />
                 )}
-                <Archive className="w-3.5 h-3.5 text-gray-400" />
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <Archive className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
+                <span
+                  className="text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: 'var(--txt-3)' }}
+                >
                   {archivedLots.length} lot{archivedLots.length > 1 ? 's' : ''} archivé
                   {archivedLots.length > 1 ? 's' : ''}
                 </span>
               </button>
               {showArchived && (
-                <div className="border-t border-gray-100 divide-y divide-gray-50">
+                <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
                   {archivedLots.map((lot) => (
                     <LotAccordion
                       key={lot.id}
@@ -779,6 +814,7 @@ export default function DevisTab() {
           <TemplatesTeaser compact />
         </>
       )}
+      </div>{/* /body */}
     </div>
   )
 }
@@ -1206,15 +1242,29 @@ function LotAccordion({
 
 // ─── Sous-composants ─────────────────────────────────────────────────────────
 
-function KpiCard({ icon, label, value, sub, valueClass = 'text-gray-900' }) {
+function KpiCard({ icon, label, value, sub, valueColor }) {
   return (
     <div className="card p-3.5">
       <div className="flex items-center gap-1.5 mb-1.5">
         {icon}
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+        <p
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {label}
+        </p>
       </div>
-      <p className={`text-xl font-bold tabular-nums ${valueClass}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{sub}</p>}
+      <p
+        className="text-xl font-bold tabular-nums"
+        style={{ color: valueColor || 'var(--txt)' }}
+      >
+        {value}
+      </p>
+      {sub && (
+        <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--txt-3)' }}>
+          {sub}
+        </p>
+      )}
     </div>
   )
 }
