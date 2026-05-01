@@ -262,3 +262,34 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
 - Audit rapide effectué : fondations MT déjà solides à 80%.
 - Décision : Phase 0 déclenchée immédiatement (3-5 jours), pas d'attente.
 - Phases 1-3 documentées pour traçabilité, à déclencher selon besoin.
+
+### 2026-05-01 — MT-0.1 ✅ Audit complet du scoping terminé
+- **59 tables auditées** dans la base.
+- **52 tables saines** : 17 avec `org_id` direct, 35 héritant via FK
+  (project_id / event_id / livrable_id / devis_id / version_id / item_id /
+  bloc_id / lot_id / facture_id).
+- **7 catalogues globaux intentionnellement partagés** :
+  `organisations`, `grille_cc` (conventions collectives publiques),
+  `outils_catalogue`, `metiers_template`, `metier_template_permissions`,
+  `template_categories`, `template_lines`.
+- **0 trou structurel** : aucune table business n'est sans rattachement
+  à une société.
+- **1 cas à valider en MT-0.2** : `prestataire_outils` n'a pas d'`org_id`
+  direct, isolation indirecte via `user_id → profiles.org_id`. À
+  vérifier que la policy RLS est correcte.
+- **Conclusion** : aucune migration corrective de structure nécessaire.
+  On peut enchaîner directement sur MT-0.2 (audit RLS).
+
+### 2026-05-01 — Décision produit (Phase 1)
+- **Templates métiers personnalisables par org** : aujourd'hui
+  `metiers_template`, `template_categories`, `template_lines`,
+  `metier_template_permissions` sont partagés entre toutes les orgs.
+  Décision Hugo : en Phase 1, chaque organisation devra pouvoir créer
+  ses propres templates. Action à prévoir : ajouter `org_id` à ces
+  tables avec backfill `NULL = global Captiv` puis bascule des templates
+  existants en gabarits "préset système" non-éditables, et permettre
+  aux orgs de créer leurs propres templates par-dessus. Pas urgent
+  côté sécurité, mais à intégrer au design produit Phase 1.
+
+### 2026-05-01 — MT-0.2 démarré
+- Audit des policies RLS en cours.
