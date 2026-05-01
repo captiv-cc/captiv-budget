@@ -53,6 +53,18 @@ async function loadImageDataUrl(url) {
   })
 }
 
+// Détecte le format jsPDF (PNG/JPEG/WEBP) à partir d'un data URL pour
+// éviter les crash "Invalid image format" quand l'utilisateur uploade
+// un JPG via le formulaire Paramètres > Organisation.
+function detectImageFormat(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return 'PNG'
+  const m = /^data:image\/(\w+)/i.exec(dataUrl)
+  const fmt = (m?.[1] || '').toUpperCase()
+  if (fmt === 'JPG' || fmt === 'JPEG') return 'JPEG'
+  if (fmt === 'WEBP') return 'WEBP'
+  return 'PNG'
+}
+
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
 // fmtEurPdf : remplace les espaces insécables (U+00A0, U+202F) par des espaces
 // normaux pour que jsPDF mesure et aligne correctement les montants.
@@ -212,7 +224,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // ╚══════════════════════════════════════════╝
 
   // ── Logo + DEVIS (pas de hline séparatrice) ──────────────────────────────────
-  doc.addImage(bannerDataUrl, 'PNG', M, 10, 45, 10)
+  doc.addImage(bannerDataUrl, detectImageFormat(bannerDataUrl), M, 10, 45, 10)
 
   txt('DEVIS', PW - M, 13, { size: 20, bold: true, align: 'right' })
   txt(NUM, PW - M, 18.5, { size: 7.5, align: 'right' })
