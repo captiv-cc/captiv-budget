@@ -180,7 +180,7 @@ function drawHeader(doc, { project, share, generatedAt, coverDataUrl }, y) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(...C.textMuted)
-  doc.text('AVANCEMENT DES LIVRABLES', tx, ty)
+  doc.text('SUIVI DES LIVRABLES', tx, ty)
   ty += 6
 
   // Titre projet

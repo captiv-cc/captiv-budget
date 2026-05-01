@@ -45,7 +45,7 @@ export default function ShareHeader({ project, share, generatedAt, theme, onTogg
           className="text-[11px] uppercase tracking-wider font-semibold mb-1"
           style={{ color: 'var(--txt-3)' }}
         >
-          Avancement des livrables
+          Suivi des livrables
         </p>
         <h1
           className="text-xl sm:text-2xl font-bold leading-tight truncate"
