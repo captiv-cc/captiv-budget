@@ -56,30 +56,45 @@ async function loadFontBase64(url) {
 // rejette → l'appelant peut retomber sur un fallback.
 async function loadImageAsJpeg(url) {
   if (!url) throw new Error('loadImageAsJpeg: url manquante')
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    // Indispensable pour les URLs cross-origin (Supabase Storage), sinon
-    // canvas.toDataURL throw avec une "tainted canvas" SecurityError.
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth || img.width || 1
-        canvas.height = img.naturalHeight || img.height || 1
-        const ctx = canvas.getContext('2d')
-        // Fond blanc opaque pour neutraliser les pixels transparents
-        // (sinon JPEG les rendrait en noir et le rendu serait moche).
-        ctx.fillStyle = '#FFFFFF'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.drawImage(img, 0, 0)
-        resolve(canvas.toDataURL('image/jpeg', 0.92))
-      } catch (e) {
-        reject(e)
+  // Étape 1 — fetch + ObjectURL : on récupère l'image en blob via fetch
+  // (qui gère mieux les conditions cross-origin que le crossOrigin de
+  // <img>), puis on crée une URL locale via URL.createObjectURL. L'Image
+  // qui charge depuis une URL locale n'a plus de souci CORS.
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`loadImageAsJpeg: HTTP ${res.status} sur ${url}`)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || img.width || 0
+          const h = img.naturalHeight || img.height || 0
+          if (!w || !h) {
+            reject(new Error('loadImageAsJpeg: image vide (0x0)'))
+            return
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext('2d')
+          // Fond blanc opaque pour neutraliser les pixels transparents
+          // (sinon JPEG les rendrait en noir).
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(0, 0, w, h)
+          ctx.drawImage(img, 0, 0)
+          resolve(canvas.toDataURL('image/jpeg', 0.92))
+        } catch (e) {
+          reject(e)
+        }
       }
-    }
-    img.onerror = () => reject(new Error(`loadImageAsJpeg: échec chargement ${url}`))
-    img.src = url
-  })
+      img.onerror = () => reject(new Error(`loadImageAsJpeg: échec décodage ${url}`))
+      img.src = objectUrl
+    })
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
 }
 
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
