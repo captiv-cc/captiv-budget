@@ -341,5 +341,22 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   alignée RGPD à laquelle viseront tous les SaaS B2B sérieux. Mieux
   vaut le poser dès Phase 0 que d'avoir à le rétrofitter plus tard.
 
-### 2026-05-01 — MT-0.3 démarré
-- Migration corrective en cours de rédaction.
+### 2026-05-01 — MT-0.3 ✅ Migration corrective déployée
+- Migration `20260501_mt0_security_hardening.sql` appliquée en
+  production Supabase.
+- Vérifications post-migration validées :
+  - Les 5 helpers (`is_project_member`, `can_see_project`,
+    `can_see_project_finance`, `can_read_outil`, `can_edit_outil`)
+    contiennent désormais le garde-fou `get_user_org_id`.
+  - Les 3 policies ouvertes de `fournisseurs` ont été supprimées,
+    remplacées par 2 policies scopées par org.
+  - `devis_public_token` nettoyée (reliques supprimées, version
+    sûre `public_token IS NOT NULL` confirmée).
+  - `project_access` et `project_access_permissions` ont leur
+    bypass admin durci avec filtre org.
+- Smoke test fonctionnel Captiv : OK. Aucun changement de
+  comportement perceptible côté usage normal.
+- **La sécurité multi-tenant est désormais cadenassée au niveau
+  base de données.** Un admin d'une future org B ne pourra
+  jamais lire/écrire les données de Captiv (et inversement),
+  même en cas de bourde dans la table d'attaches projets.
