@@ -20,6 +20,7 @@ import { AlertCircle, Loader2, Moon, Sun } from 'lucide-react'
 import { useLivrableShareSession } from '../hooks/useLivrableShareSession'
 import ShareHeader from '../features/livrables/components/share/ShareHeader'
 import SharePeriodesBar from '../features/livrables/components/share/SharePeriodesBar'
+import ShareTimeline from '../features/livrables/components/share/ShareTimeline'
 import ShareLivrablesList from '../features/livrables/components/share/ShareLivrablesList'
 
 const THEME_STORAGE_KEY = 'liv-share-theme'
@@ -63,7 +64,10 @@ export default function LivrableShareSession() {
   }
 
   const { share, project, blocks, livrables, versions } = payload
+  const etapes = payload.etapes || []
+  const eventTypes = payload.event_types || []
   const config = share?.config || {}
+  const calendarLevel = config.calendar_level || 'hidden'
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--txt)' }}>
@@ -78,6 +82,18 @@ export default function LivrableShareSession() {
 
         {config.show_periodes && project?.periodes && (
           <SharePeriodesBar periodes={project.periodes} />
+        )}
+
+        {calendarLevel !== 'hidden' && (
+          <ShareTimeline
+            blocks={blocks}
+            livrables={livrables}
+            versions={versions}
+            etapes={etapes}
+            eventTypes={eventTypes}
+            periodes={config.show_periodes ? project?.periodes : null}
+            calendarLevel={calendarLevel}
+          />
         )}
 
         <ShareLivrablesList
