@@ -12,7 +12,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const { signIn, signUp, createOrg } = useAuth()
+  const { signIn, signUp, createOrg, appSettings } = useAuth()
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
@@ -49,8 +49,10 @@ export default function Login() {
           <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mb-3">
             <Film className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">CAPTIV DESK</h1>
-          <p className="text-slate-400 text-sm mt-1">Gestion de production audiovisuelle</p>
+          <h1 className="text-2xl font-bold text-white">{appSettings?.product_name || 'CAPTIV DESK'}</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            {appSettings?.product_tagline || 'La gestion de projets simplifiée'}
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -77,7 +79,7 @@ export default function Login() {
                   className="input"
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
-                  placeholder="Ex: CAPTIV SARL / OMNI FILMS"
+                  placeholder="Ex : Société XYZ"
                   required
                 />
                 <p className="text-xs text-gray-400 mt-1">Visible sur vos devis et PDF</p>

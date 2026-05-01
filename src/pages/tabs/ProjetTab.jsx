@@ -1089,7 +1089,7 @@ function EditModal({
           <div className="p-5 space-y-3">
             <Field
               label="Référence projet"
-              placeholder="CAPTIV-2026-001"
+              placeholder="Ex : 2026-001"
               value={draft.ref_projet}
               onChange={(v) => setA('ref_projet', v)}
             />

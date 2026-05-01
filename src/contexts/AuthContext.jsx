@@ -12,11 +12,41 @@ import {
 
 const AuthContext = createContext(null)
 
+// Valeurs par défaut pour app_settings, utilisées tant que la BDD n'a
+// pas répondu (premier render) et en fallback si la table est vide.
+const DEFAULT_APP_SETTINGS = {
+  product_name: 'CAPTIV DESK',
+  product_tagline: 'La gestion de projets simplifiée',
+  product_url: 'https://desk.captiv.cc',
+  product_support_email: 'contact@captiv.cc',
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [org, setOrg] = useState(null)
+  const [appSettings, setAppSettings] = useState(DEFAULT_APP_SETTINGS)
   const [loading, setLoading] = useState(true)
+
+  // ─── Chargement de app_settings (paramètres produit globaux) ──────────────
+  // Catégorie C de MT_RULES : table partagée entre toutes les orgs, lecture
+  // publique. Chargée une fois au mount, indépendamment de l'auth (utile pour
+  // la page Login qui doit afficher le nom du produit avant connexion).
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('app_settings')
+      .select('*')
+      .eq('key', 'global')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        setAppSettings({ ...DEFAULT_APP_SETTINGS, ...data })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // ─── Chargement du profil ─────────────────────────────────────────────────
   // Depuis chantier 3B, les permissions outil vivent PAR PROJET (project_access
@@ -180,6 +210,7 @@ export function AuthProvider({ children }) {
         org,
         setOrg, // exposé pour les pages admin (Paramètres > Organisation) qui
                 // poussent une MAJ optimiste après PATCH sans recharger la session
+        appSettings, // paramètres produit globaux (nom, tagline, URLs)
         loading,
         // Rôle
         role,

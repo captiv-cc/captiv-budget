@@ -97,7 +97,7 @@ export default function DevisPublic() {
               <Film className="w-5 h-5 text-white" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-sm">{org?.name || 'CAPTIV'}</p>
+              <p className="font-bold text-gray-900 text-sm">{org?.display_name || org?.legal_name || ''}</p>
               <p className="text-xs text-gray-400">Devis V{devis?.version_number}</p>
             </div>
           </div>
@@ -118,7 +118,7 @@ export default function DevisPublic() {
         <div className="grid grid-cols-2 gap-6 mb-8">
           <div className="card p-5">
             <p className="text-xs font-semibold text-gray-400 uppercase mb-3">Émis par</p>
-            <p className="font-bold text-gray-900">{org?.name || 'CAPTIV'}</p>
+            <p className="font-bold text-gray-900">{org?.legal_name || org?.display_name || ''}</p>
             {org?.address && <p className="text-sm text-gray-500 mt-0.5">{org.address}</p>}
             {org?.email && <p className="text-sm text-gray-500">{org.email}</p>}
             {org?.siret && <p className="text-xs text-gray-400 mt-1">SIRET : {org.siret}</p>}
@@ -231,8 +231,8 @@ export default function DevisPublic() {
         )}
 
         <p className="text-xs text-gray-400 text-center mt-8">
-          Document généré par CAPTIV Desk · {org?.name || ''} ·{' '}
-          {org?.siret ? 'SIRET ' + org.siret : ''}
+          {org?.legal_name || org?.display_name || ''}
+          {org?.siret ? ' · SIRET ' + org.siret : ''}
         </p>
       </div>
     </div>
