@@ -122,6 +122,70 @@ un effort modéré.
 
 ---
 
+## 3.bis. MT-PRE-1 — Anticipations Phase 1 (déclenchées 2026-05-01)
+
+> Sous-chantier optionnel et anticipable du chantier global MT.
+> Objectif : préparer le terrain de Phase 1 sans attendre un prospect,
+> sur les zones où ne pas le faire ferait croître la dette technique.
+>
+> Ne contient que les chantiers **anticipables sans cas d'usage réel**.
+> Les chantiers qui requièrent un prospect (Stripe, onboarding wizard,
+> super-admin, sous-domaines) restent en Phase 1.
+
+### MT-PRE-1.A — Branding dynamique
+**Objectif** : que toute mention de "Captiv" / "CAPTIV DESK" en dur
+dans le code soit remplacée par une lecture dynamique depuis la BDD.
+À terme : changer son logo / nom / slogan = remplir un formulaire,
+pas modifier du code.
+
+**Décisions validées Hugo (2026-05-01)** :
+- **Position 1 — Co-branding** : "CAPTIV DESK" (produit) reste visible
+  dans la sidebar/login, mais l'org cliente est mise en avant sur tout
+  ce qui sort vers ses propres clients (PDFs, page de partage).
+- **Nom du produit paramétrable** : pour anticiper un futur rebrand
+  ("PROJECT DESK" ou autre), introduction d'une table `app_settings`
+  globale.
+- **Liste des champs `organisations`** : 14 nouveaux champs +
+  renommage `name → legal_name` + suppression de `logo_url` au profit
+  de `logo_url_clair` et `logo_url_sombre`.
+- **`rcs_number` non stocké** : calculé dynamiquement depuis les 9
+  premiers chiffres du SIRET (= SIREN) formattés en groupes de 3.
+- **Visibilité PDFs** : objet JSON `pdf_field_visibility` extensible.
+- **Couleur de marque** : palette de 8-10 couleurs prédéfinies +
+  picker hexa libre.
+- **Logos** : PNG/JPG uniquement (pas de SVG), 5 Mo max.
+- **Migration `name` → `legal_name`** : renommage propre et complet
+  dans le code (pas d'alias temporaire).
+- **Page admin** : à insérer dans la page `Paramètres` existante
+  (`src/pages/admin/Settings.jsx`), onglet "Organisation" déjà
+  présent en placeholder, à transformer en vrai composant.
+- **`product_tagline` Captiv** : "La gestion de projets simplifiée"
+- **`product_url` Captiv** : `desk.captiv.cc`
+- **`product_support_email` Captiv** : `contact@captiv.cc`
+
+**Décomposition** :
+- **A — BDD + AuthContext** (½ jour) : migration SQL, backfill,
+  charge des nouveaux champs au login.
+- **B — UI Paramètres > Organisation** (1 jour) : formulaire avec 5
+  sections, upload images, picker couleur, preview live.
+- **C — Refactor lectures** (½ jour) : helpers + remplacement des
+  `org?.name` par `org?.display_name` / `org?.legal_name` selon
+  contexte.
+- **D — PDFs** (½ jour) : footers dynamiques, logo selon fond,
+  signature, mentions légales avec respect du
+  `pdf_field_visibility`.
+- **E — UI app + tests** (½ jour) : ShareHeader, DevisPublic,
+  Login, etc.
+
+### MT-PRE-1.B — Scoping `catalogue_lignes` + templates métiers (à déclencher après MT-PRE-1.A)
+Ajouter `org_id` aux tables actuellement partagées
+(`metiers_template`, `template_categories`, `template_lines`,
+`metier_template_permissions`, `catalogue_lignes`), backfill vers
+Captiv, RLS scopée. Permettre à chaque org d'éditer son propre
+contenu via la page Paramètres.
+
+---
+
 ## 4. Phase 1 — MVP B2B (à déclencher quand un prospect sérieux signe un LOI / trial payant) — 4-5 semaines
 
 ### 4.1 — Branding dynamique
