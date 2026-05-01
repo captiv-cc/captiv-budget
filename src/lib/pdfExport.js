@@ -98,7 +98,9 @@ async function loadImageAsJpeg(url) {
             ))
             return
           }
-          resolve(dataUrl)
+          // Retourne { dataUrl, width, height } pour permettre à l'appelant
+          // de calculer un rendu PDF en respectant le ratio naturel.
+          resolve({ dataUrl, width: w, height: h })
         } catch (e) {
           reject(e)
         }
@@ -178,12 +180,13 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
   )
   const bannerUrl = pickOrgLogo(org, 'banner')
-  const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl, livrablesPdf] = await Promise.all([
+  const [wsRegB64, wsBoldB64, wsMedB64, bannerImage, livrablesPdf] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
     // Si org a un logo : on l'essaie, et si ça plante → null (pas de fallback Captiv)
     // Si org n'a pas de logo : on essaie le fallback Captiv (org fresh sans config)
+    // bannerImage est soit { dataUrl, width, height } soit null
     loadImageAsJpeg(bannerUrl).catch((e) => {
       if (hasOrgLogo) {
         console.error('[pdfExport] logo org échoué, PDF sans logo (pas de fallback Captiv):', e?.message)
@@ -284,17 +287,35 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // ╚══════════════════════════════════════════╝
 
   // ── Logo + DEVIS (pas de hline séparatrice) ──────────────────────────────────
-  // bannerDataUrl est garanti JPEG si non-null (renormalisé via canvas).
-  // Si null (chargement échoué + fallback échoué), on omet le logo plutôt
+  // bannerImage est soit { dataUrl, width, height } soit null. Si null
+  // (chargement échoué ou pas de logo configuré), on omet le logo plutôt
   // que de crasher l'export.
-  if (bannerDataUrl) {
+  // Calcul de la taille de rendu : on respecte le ratio naturel de l'image,
+  // contraint à un boîte max BANNER_MAX_W × BANNER_MAX_H mm.
+  if (bannerImage) {
     try {
-      doc.addImage(bannerDataUrl, 'JPEG', M, 10, 45, 10)
+      const BANNER_BOX_Y = 10
+      const BANNER_BOX_H = 14 // marge totale verticale de la boîte logo
+      const BANNER_MAX_W = 50 // largeur max (mm)
+      const ratio = bannerImage.width / bannerImage.height
+      let finalW, finalH
+      if (ratio > BANNER_MAX_W / BANNER_BOX_H) {
+        // Image plus large que la boîte → on contraint par la largeur
+        finalW = BANNER_MAX_W
+        finalH = BANNER_MAX_W / ratio
+      } else {
+        // Image moins large → on contraint par la hauteur
+        finalH = BANNER_BOX_H
+        finalW = BANNER_BOX_H * ratio
+      }
+      // Centrage vertical du logo dans la boîte
+      const finalY = BANNER_BOX_Y + (BANNER_BOX_H - finalH) / 2
+      doc.addImage(bannerImage.dataUrl, 'JPEG', M, finalY, finalW, finalH)
     } catch (e) {
       console.error('[pdfExport] addImage banner échoué:', e?.message || e)
     }
   } else {
-    console.warn('[pdfExport] aucun bannerDataUrl, PDF généré sans logo')
+    console.warn('[pdfExport] aucun banner, PDF généré sans logo')
   }
 
   txt('DEVIS', PW - M, 13, { size: 20, bold: true, align: 'right' })
