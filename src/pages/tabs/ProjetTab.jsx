@@ -433,41 +433,170 @@ function ReadView({
           ? 'lg:row-span-3'
           : 'lg:row-span-2'
 
+  // Hero immersif : si cover_url, affichage avec image en background +
+  // overlay gradient sombre. Sinon, gradient coloré avec icône.
+  const cover = project.cover_url
+  const types = project.types_projet || []
+
   return (
     <>
-      {/* ── HERO ─────────────────────────────────────────────────────────── */}
-      <div className="card overflow-visible lg:col-span-2">
-        <div className="p-6">
-          <div className="flex items-start gap-4">
-            {/* Avatar projet — image projet, sinon logo client, sinon initiales */}
-            <ProjectAvatar project={project} />
+      {/* ── HERO IMMERSIF ────────────────────────────────────────────────── */}
+      <div
+        className="relative rounded-2xl overflow-hidden lg:col-span-2"
+        style={{ border: '1px solid var(--brd)' }}
+      >
+        {/* Background : image cover OU gradient fallback */}
+        {cover ? (
+          <>
+            <img
+              src={cover}
+              alt={project.title || ''}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0.25) 80%, rgba(0,0,0,0.15) 100%)',
+              }}
+            />
+          </>
+        ) : (
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%)',
+            }}
+          />
+        )}
 
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-gray-900 truncate mb-2">
-                {project.title || 'Projet sans nom'}
-              </h1>
-              <SubLine get={get} project={project} />
-              <ClientLine project={project} />
-              {project.description && (
-                <div className="mt-4 pl-3 border-l-2 border-blue-100">
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                    Description
-                  </p>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                    {project.description}
-                  </p>
-                </div>
+        {/* Bouton Modifier flottant en haut à droite */}
+        {canEdit && (
+          <button
+            onClick={onEdit}
+            className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium backdrop-blur transition-colors"
+            style={{
+              background: 'rgba(255,255,255,0.15)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.25)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+            }}
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            Modifier
+          </button>
+        )}
+
+        {/* Contenu en bas du hero — texte blanc lisible sur cover sombre */}
+        <div className="relative p-6 sm:p-8 min-h-[240px] sm:min-h-[280px] flex flex-col justify-end">
+          {/* Pills types projet */}
+          {types.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {types.map((t) => (
+                <span
+                  key={t}
+                  className="text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur"
+                  style={{
+                    background: 'rgba(255,255,255,0.18)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.22)',
+                  }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Titre projet en grand */}
+          <h1
+            className="text-3xl sm:text-4xl font-bold text-white leading-tight"
+            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+          >
+            {project.title || 'Projet sans nom'}
+          </h1>
+
+          {/* Sous-titre : réalisateur · agence */}
+          {(get('realisateur') || get('agence')) && (
+            <p
+              className="mt-2 text-sm sm:text-base font-medium"
+              style={{ color: 'rgba(255,255,255,0.92)', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+            >
+              {[
+                get('realisateur') && `Réalisé par ${get('realisateur')}`,
+                get('agence') && `Agence ${get('agence')}`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          )}
+
+          {/* Bandeau client + ref en bas */}
+          {(project.clients || project.ref_projet) && (
+            <div
+              className="mt-3 flex items-center gap-3 flex-wrap text-xs"
+              style={{ color: 'rgba(255,255,255,0.85)' }}
+            >
+              {project.clients?.nom_commercial && (
+                <span className="font-semibold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                  {project.clients.nom_commercial}
+                </span>
+              )}
+              {project.ref_projet && (
+                <span
+                  className="font-mono px-2 py-0.5 rounded backdrop-blur"
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                  }}
+                >
+                  {project.ref_projet}
+                </span>
+              )}
+              {project.clients?.email && (
+                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                  <Mail className="w-3 h-3" />
+                  {project.clients.email}
+                </span>
+              )}
+              {project.clients?.phone && (
+                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                  <Phone className="w-3 h-3" />
+                  {project.clients.phone}
+                </span>
+              )}
+              {project.clients?.address && (
+                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                  <MapPin className="w-3 h-3" />
+                  {project.clients.address}
+                </span>
               )}
             </div>
-            {canEdit && (
-              <button onClick={onEdit} className="btn-secondary btn-sm shrink-0">
-                <Edit2 className="w-3.5 h-3.5" />
-                Modifier
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
+
+      {/* ── DESCRIPTION (séparée du hero pour lisibilité) ────────────────── */}
+      {project.description && (
+        <SectionCard
+          icon={<StickyNote className="w-4 h-4" />}
+          title="Description"
+          className="lg:col-span-2"
+        >
+          <p
+            className="text-sm whitespace-pre-wrap leading-relaxed"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            {project.description}
+          </p>
+        </SectionCard>
+      )}
 
       {/* ── FOOTER ADMIN (admin/charge_prod uniquement, juste sous le hero) ─ */}
       {canEdit && (
@@ -488,7 +617,7 @@ function ReadView({
                 <span
                   key={t}
                   className="text-xs font-medium px-2.5 py-1 rounded-full"
-                  style={{ background: 'var(--blue-bg, #1d4ed810)', color: 'var(--blue, #3b82f6)' }}
+                  style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
                 >
                   {t}
                 </span>
@@ -536,14 +665,15 @@ function ReadView({
         action={
           <Link
             to={`/projets/${project.id}/equipe`}
-            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+            className="text-xs font-medium transition-colors"
+            style={{ color: 'var(--blue)' }}
           >
             Voir →
           </Link>
         }
       >
         {loadingMembres ? (
-          <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--txt-3)' }}>
             <RefreshCw className="w-3 h-3 animate-spin" />
             Chargement…
           </div>
@@ -554,18 +684,33 @@ function ReadView({
             {persons.map((p) => (
               <div
                 key={p.key}
-                className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2"
+                className="flex items-center gap-3 rounded-lg px-3 py-2"
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd-sub)',
+                }}
               >
-                <div className="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold shrink-0">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                  style={{
+                    background: 'var(--purple-bg)',
+                    color: 'var(--purple)',
+                    border: '1px solid var(--purple-brd, transparent)',
+                  }}
+                >
                   {initials(p)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{fullName(p)}</p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                    {fullName(p)}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
                     {p.postes.length ? (
                       p.postes.join(' · ')
                     ) : (
-                      <span className="italic text-gray-400">Sans poste défini</span>
+                      <span className="italic" style={{ color: 'var(--txt-3)', opacity: 0.7 }}>
+                        Sans poste défini
+                      </span>
                     )}
                   </p>
                 </div>
@@ -710,61 +855,6 @@ function ProjectCoverUploader({ projectId, project, currentUrl, onChange }) {
   )
 }
 
-function SubLine({ get, project }) {
-  const types = project?.types_projet || []
-  const textParts = [
-    get('realisateur') && `Réalisé par ${get('realisateur')}`,
-    get('agence') && `Agence ${get('agence')}`,
-  ].filter(Boolean)
-  if (!types.length && !textParts.length) return null
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {types.map((t) => (
-        <span
-          key={t}
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-          style={{ background: 'var(--blue-bg, #1d4ed810)', color: 'var(--blue, #3b82f6)' }}
-        >
-          {t}
-        </span>
-      ))}
-      {textParts.length > 0 && (
-        <span className="text-sm text-gray-500">{textParts.join(' · ')}</span>
-      )}
-    </div>
-  )
-}
-
-function ClientLine({ project }) {
-  const c = project.clients
-  const ref = project.ref_projet
-  if (!c && !ref) return null
-  return (
-    <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
-      {c?.nom_commercial && <span className="text-gray-600 font-medium">{c.nom_commercial}</span>}
-      {ref && <span className="font-mono">{ref}</span>}
-      {c?.email && (
-        <span className="flex items-center gap-1">
-          <Mail className="w-3 h-3" />
-          {c.email}
-        </span>
-      )}
-      {c?.phone && (
-        <span className="flex items-center gap-1">
-          <Phone className="w-3 h-3" />
-          {c.phone}
-        </span>
-      )}
-      {c?.address && (
-        <span className="flex items-center gap-1">
-          <MapPin className="w-3 h-3" />
-          {c.address}
-        </span>
-      )}
-    </div>
-  )
-}
-
 // Footer compact regroupant les infos admin (réf, BC, date devis)
 // et l'accès délégué vers AccessTab. Visible uniquement pour admin/charge_prod.
 function AdminFooter({ project, accessCount, className = '' }) {
@@ -785,29 +875,44 @@ function AdminFooter({ project, accessCount, className = '' }) {
     <div
       className={`card flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 text-xs ${className}`}
     >
-      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-gray-500">
-        <Building2 className="w-3.5 h-3.5 text-gray-400" />
+      <div
+        className="flex items-center gap-x-4 gap-y-1 flex-wrap"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        <Building2 className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
         {adminBits.length === 0 ? (
-          <span className="italic text-gray-400">Aucune info admin renseignée</span>
+          <span className="italic" style={{ color: 'var(--txt-3)' }}>
+            Aucune info admin renseignée
+          </span>
         ) : (
           adminBits.map((b, i) => (
             <span key={b.label} className="flex items-center gap-1.5">
-              <span className="text-gray-400 uppercase tracking-wide text-[10px] font-semibold">
+              <span
+                className="uppercase tracking-wide text-[10px] font-semibold"
+                style={{ color: 'var(--txt-3)' }}
+              >
                 {b.label}
               </span>
-              <span className={`text-gray-700 ${b.mono ? 'font-mono' : ''}`}>{b.value}</span>
-              {i < adminBits.length - 1 && <span className="text-gray-300 ml-3">·</span>}
+              <span className={b.mono ? 'font-mono' : ''} style={{ color: 'var(--txt)' }}>
+                {b.value}
+              </span>
+              {i < adminBits.length - 1 && (
+                <span className="ml-3" style={{ color: 'var(--brd)' }}>·</span>
+              )}
             </span>
           ))
         )}
       </div>
       <Link
         to={`/projets/${project.id}/access`}
-        className="flex items-center gap-1.5 text-gray-500 hover:text-blue-600 transition-colors"
+        className="flex items-center gap-1.5 transition-colors"
+        style={{ color: 'var(--txt-3)' }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
       >
-        <Shield className="w-3.5 h-3.5 text-gray-400" />
+        <Shield className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
         <span>{accessLabel}</span>
-        <span className="text-blue-600 font-medium ml-1">Gérer →</span>
+        <span className="font-medium ml-1" style={{ color: 'var(--blue)' }}>Gérer →</span>
       </Link>
     </div>
   )
@@ -817,9 +922,14 @@ function SectionCard({ icon, title, action, children, className = '' }) {
   return (
     <div className={`card overflow-visible ${className}`}>
       <div className="card-header">
-        <div className="flex items-center gap-2 text-gray-700">
-          <span className="text-gray-400">{icon}</span>
-          <h2 className="text-xs font-bold uppercase tracking-widest text-gray-500">{title}</h2>
+        <div className="flex items-center gap-2" style={{ color: 'var(--txt)' }}>
+          <span style={{ color: 'var(--txt-3)' }}>{icon}</span>
+          <h2
+            className="text-xs font-bold uppercase tracking-widest"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            {title}
+          </h2>
         </div>
         {action && <div>{action}</div>}
       </div>
@@ -835,10 +945,15 @@ function InfoGrid({ items }) {
     <div className="flex flex-wrap gap-x-8 gap-y-3">
       {filled.map((i) => (
         <div key={i.label} className="min-w-[160px]">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+          <p
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: 'var(--txt-3)' }}
+          >
             {i.label}
           </p>
-          <p className="text-sm text-gray-800 mt-0.5">{i.value}</p>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--txt)' }}>
+            {i.value}
+          </p>
         </div>
       ))}
     </div>
@@ -846,7 +961,11 @@ function InfoGrid({ items }) {
 }
 
 function EmptyHint({ children }) {
-  return <p className="text-xs text-gray-400 italic">{children}</p>
+  return (
+    <p className="text-xs italic" style={{ color: 'var(--txt-3)' }}>
+      {children}
+    </p>
+  )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
