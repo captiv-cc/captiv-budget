@@ -304,6 +304,21 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   reste publique car donnée légale CCNTA, `catalogue_lignes` reste
   whitelistée temporairement jusqu'à son scoping en Phase 1).
 
+### 2026-05-01 — MT-0.5 ✅ Doc des règles livrée
+- Document `MT_RULES.md` créé : référence complète pour toutes les
+  futures migrations multi-tenant safe.
+- Couvre : 3 catégories de tables (org-scopée / héritée / globale),
+  checklist par migration, patterns SQL à recopier, 6 pièges courants
+  avec exemples, procédure d'audit après migration, exceptions
+  encadrées pour les données partagées.
+- Public : Claude (qui rédige les migrations) + Hugo (qui supervise).
+- **🎉 Phase 0 totalement bouclée à ce stade.** La sécurité multi-tenant
+  est cadenassée, les outils d'audit sont en place, la procédure de
+  validation Phase 1 est documentée, et les règles pour les futures
+  migrations sont écrites. Captiv peut désormais accueillir une 2e
+  société en toute sérénité côté infrastructure (reste à faire Phase 1
+  pour le branding, l'onboarding, la facturation, etc.).
+
 ### 2026-05-01 — Synthèse "personnalisation catalogues par-org" (Phase 1)
 Ce mini-chantier groupe les tables de catalogues qui doivent passer
 de "partagé entre toutes les orgs" à "scopable par org" :
