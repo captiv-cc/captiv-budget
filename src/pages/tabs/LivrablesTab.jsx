@@ -40,6 +40,7 @@ import {
   GanttChart,
   ZoomIn,
   FileText,
+  Share2,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -62,6 +63,7 @@ import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
 import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
 import LivrablePipelineView from '../../features/livrables/components/LivrablePipelineView'
+import LivrableShareModal from '../../features/livrables/components/LivrableShareModal'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
 import { buildLivrablesEnsemblePdf } from '../../features/livrables/livrablesPdfExport'
@@ -377,6 +379,9 @@ export default function LivrablesTab() {
   // ─── LIV-20 — Drawer Corbeille ──────────────────────────────────────────
   const [trashOpen, setTrashOpen] = useState(false)
 
+  // ─── LIV-24 — Modal de partage public livrables ────────────────────────
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+
   // ─── LIV-23 — Export PDF "Vue ensemble" ─────────────────────────────────
   // On garde l'objet exporter (avec url, filename, download, revoke) en state.
   // Au close du preview, on révoque l'URL Blob.
@@ -628,6 +633,7 @@ export default function LivrablesTab() {
         canEdit={canEdit}
         onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
         onOpenTrash={() => setTrashOpen(true)}
+        onOpenShare={canEdit ? () => setShareModalOpen(true) : null}
         onExportPdf={blocks.length > 0 ? handleExportPdf : null}
         filters={filters}
         onClearAllFilters={handleClearAllFilters}
@@ -826,6 +832,15 @@ export default function LivrablesTab() {
           onDownload={() => pdfExport.download?.()}
         />
       )}
+
+      {/* LIV-24 — Modal de partage public livrables */}
+      {canEdit && (
+        <LivrableShareModal
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          projectId={projectId}
+        />
+      )}
     </div>
   )
 }
@@ -872,6 +887,7 @@ function LivrablesHeader({
   canEdit,
   onCreateBlock,
   onOpenTrash,
+  onOpenShare,
   onExportPdf,
   filters,
   onClearAllFilters,
@@ -1036,6 +1052,33 @@ function LivrablesHeader({
             }}
           >
             <Trash2 className="w-3 h-3" />
+          </button>
+        )}
+        {/* LIV-24 — Partager (modal de gestion des liens publics) */}
+        {onOpenShare && (
+          <button
+            type="button"
+            onClick={onOpenShare}
+            className="flex items-center justify-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all shrink-0"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--blue-bg)'
+              e.currentTarget.style.color = 'var(--blue)'
+              e.currentTarget.style.borderColor = 'var(--blue)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+              e.currentTarget.style.borderColor = 'var(--brd)'
+            }}
+            title="Partager — liens publics pour le client"
+          >
+            <Share2 className="w-3 h-3" />
+            <span className="hidden sm:inline">Partager</span>
           </button>
         )}
         {/* LIV-23 — Export PDF "Vue ensemble" */}

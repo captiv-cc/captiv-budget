@@ -19,6 +19,7 @@ import Crew from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
+import LivrableShareSession from './pages/LivrableShareSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -105,6 +106,10 @@ function AppRoutes() {
           ouvert ici provoque une erreur "phase mismatch" décodée en
           UX par RenduSession. */}
       <Route path="/rendu/:token" element={<RenduSession />} />
+      {/* Partage public livrables (LIV-24). Vue READ-ONLY simplifiée pour le
+          client externe (sans auth). Le payload est filtré côté serveur via
+          la RPC share_livrables_fetch (SECURITY DEFINER). Hors Layout app. */}
+      <Route path="/share/livrables/:token" element={<LivrableShareSession />} />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
       <Route
