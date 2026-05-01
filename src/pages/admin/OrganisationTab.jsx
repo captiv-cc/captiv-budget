@@ -401,7 +401,7 @@ export default function OrganisationTab() {
             orgId={org.id}
             kind="logo-clair"
             label="Logo (fond clair)"
-            hint="Utilisé sur l'UI lightmode et les PDFs blancs"
+            hint="Utilisé sur l'UI lightmode et les PDFs blancs · PNG/JPG max 4000 px"
             currentUrl={draft.logo_url_clair}
             onChange={(url) => set('logo_url_clair', url)}
             previewBg="#ffffff"
@@ -410,7 +410,7 @@ export default function OrganisationTab() {
             orgId={org.id}
             kind="logo-sombre"
             label="Logo (fond sombre)"
-            hint="Utilisé sur l'UI darkmode et les hero immersifs"
+            hint="Utilisé sur l'UI darkmode et les hero immersifs · PNG/JPG max 4000 px"
             currentUrl={draft.logo_url_sombre}
             onChange={(url) => set('logo_url_sombre', url)}
             previewBg="#0f172a"
@@ -420,7 +420,7 @@ export default function OrganisationTab() {
           orgId={org.id}
           kind="logo-banner"
           label="Logo bannière (en-tête PDF)"
-          hint="Version horizontale du logo, utilisée en en-tête de tous les PDFs (devis, facture, bilan…)"
+          hint="Version horizontale du logo en en-tête PDF · PNG/JPG max 4000 px (1500-2000 px recommandés)"
           currentUrl={draft.logo_banner_url}
           onChange={(url) => set('logo_banner_url', url)}
           previewBg="#ffffff"
@@ -429,7 +429,7 @@ export default function OrganisationTab() {
           orgId={org.id}
           kind="signature"
           label="Signature du producteur"
-          hint="Apparaît en bas des PDFs livrables et devis. Idéalement PNG transparent."
+          hint="Apparaît en bas des PDFs livrables et devis. Idéalement PNG transparent · max 4000 px"
           currentUrl={draft.signature_url}
           onChange={(url) => set('signature_url', url)}
           previewBg="#ffffff"
@@ -614,6 +614,30 @@ function Toggle({ value, onChange }) {
 }
 
 // ─── Uploader d'image vers le bucket org-assets ─────────────────────────────
+// Limite max en pixels côté large : au-delà, le canvas du navigateur ne peut
+// plus encoder l'image (limite ~16K) et les PDFs ne s'afficheront pas.
+const MAX_IMAGE_PIXELS = 4000
+
+// Lit les dimensions naturelles d'un fichier image avant upload, pour valider
+// que la taille reste raisonnable (sinon les PDFs auront un logo manquant).
+function readImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth || img.width || 0
+      const h = img.naturalHeight || img.height || 0
+      URL.revokeObjectURL(url)
+      resolve({ width: w, height: h })
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Image illisible'))
+    }
+    img.src = url
+  })
+}
+
 function ImageUploader({ orgId, kind, label, hint, currentUrl, onChange, previewBg }) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState(null)
@@ -632,6 +656,23 @@ function ImageUploader({ orgId, kind, label, hint, currentUrl, onChange, preview
     }
     if (file.size > 5 * 1024 * 1024) {
       setError('Image trop lourde (max 5 Mo).')
+      return
+    }
+    // Validation pixels : au-delà de MAX_IMAGE_PIXELS côté max, le canvas
+    // navigateur ne peut plus encoder → l'image n'apparaîtra pas dans les
+    // PDFs. On préfère bloquer ici plutôt que laisser un upload qui plante
+    // silencieusement à l'export.
+    try {
+      const { width, height } = await readImageDimensions(file)
+      if (width > MAX_IMAGE_PIXELS || height > MAX_IMAGE_PIXELS) {
+        setError(
+          `Image trop grande (${width}×${height}). Max ${MAX_IMAGE_PIXELS}×${MAX_IMAGE_PIXELS} px. ` +
+          `Redimensionnez votre image (un logo n'a pas besoin de plus de 2000 px).`
+        )
+        return
+      }
+    } catch {
+      setError('Image illisible — fichier corrompu ou format inhabituel.')
       return
     }
     setUploading(true)

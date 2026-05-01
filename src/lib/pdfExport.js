@@ -167,32 +167,35 @@ const LABELS_C2 = {
 
 // ─── Export principal ─────────────────────────────────────────────────────────
 export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DEFAUT) {
-  // Choix du logo bannière selon org : version horizontale prioritaire,
-  // fallback sur logo clair, puis sur l'image Captiv en dur.
+  // Choix du logo bannière selon org. Pas de fallback sur le logo Captiv
+  // en dur : si une org a uploadé un logo qui ne charge pas, on préfère
+  // un PDF sans logo plutôt qu'un logo qui n'est pas le sien (poserait
+  // un problème de crédibilité pour une org cliente).
+  // Le fallback /captiv-banner.png n'est utilisé QUE si l'org n'a aucun
+  // logo configuré (cas d'une org fraîchement créée qui n'a pas encore
+  // rempli ses Paramètres).
+  const hasOrgLogo = Boolean(
+    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+  )
   const bannerUrl = pickOrgLogo(org, 'banner')
-  console.log('[pdfExport] banner URL choisie:', bannerUrl)
   const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl, livrablesPdf] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
-    // Cascade de fallbacks : URL choisie → /captiv-banner.png → null
-    // (le PDF se génère sans logo plutôt que de crasher tout l'export)
-    loadImageAsJpeg(bannerUrl)
-      .catch((e) => {
-        console.warn('[pdfExport] banner principal échoué, fallback /captiv-banner.png:', e?.message)
-        return loadImageAsJpeg('/captiv-banner.png')
-      })
-      .catch((e) => {
-        console.error('[pdfExport] banner fallback aussi échoué, PDF sans logo:', e?.message)
+    // Si org a un logo : on l'essaie, et si ça plante → null (pas de fallback Captiv)
+    // Si org n'a pas de logo : on essaie le fallback Captiv (org fresh sans config)
+    loadImageAsJpeg(bannerUrl).catch((e) => {
+      if (hasOrgLogo) {
+        console.error('[pdfExport] logo org échoué, PDF sans logo (pas de fallback Captiv):', e?.message)
         return null
-      }),
+      }
+      console.warn('[pdfExport] org sans logo configuré, fallback /captiv-banner.png')
+      return null
+    }),
     // LIV-19 — livrables réels du projet filtrés par lot du devis (génériques
     // sans lot inclus). Si erreur, on retombe silencieusement sur [].
     listLivrablesForDevisPdf(project?.id, devis?.lot_id || null).catch(() => []),
   ])
-  console.log('[pdfExport] banner data URL:', bannerDataUrl
-    ? `${bannerDataUrl.slice(0, 50)}... (${bannerDataUrl.length} chars)`
-    : 'null')
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const PW = doc.internal.pageSize.getWidth()
