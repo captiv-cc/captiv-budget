@@ -146,7 +146,12 @@ function Initials({ name }) {
 
 // ─── Layout principal ─────────────────────────────────────────────────────────
 export default function Layout() {
-  const { profile, role, canSeeFinance, isAdmin, isInternal, signOut } = useAuth()
+  const { profile, role, canSeeFinance, isAdmin, isInternal, signOut, org, appSettings } = useAuth()
+  // Logo affiché en sidebar/header : on prend le logo sombre de l'org
+  // (l'app est en dark mode permanent), avec fallback sur le clair, puis
+  // sur le logo Captiv en dur si rien n'a été uploadé.
+  const sidebarLogo = org?.logo_url_sombre || org?.logo_url_clair || '/captiv-logo.png'
+  const sidebarLogoAlt = appSettings?.product_name || 'CAPTIV DESK'
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -208,8 +213,8 @@ export default function Layout() {
           style={{ borderBottom: '1px solid var(--brd-sub)', height: '57px' }}
         >
           <img
-            src="/captiv-logo.png"
-            alt="CAPTIV DESK"
+            src={sidebarLogo}
+            alt={sidebarLogoAlt}
             style={{
               maxWidth: '100%',
               maxHeight: '24px',
@@ -403,8 +408,8 @@ export default function Layout() {
               <Menu className="w-4 h-4" />
             </button>
             <img
-              src="/captiv-logo.png"
-              alt="CAPTIV DESK"
+              src={sidebarLogo}
+              alt={sidebarLogoAlt}
               style={{
                 maxHeight: '20px',
                 width: 'auto',

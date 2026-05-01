@@ -160,7 +160,11 @@ const ALL_TABS = [
 export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
-  const { _org, canSeeFinance, isPrestataire, isAdmin, isChargeProd, isInternal } = useAuth()
+  const { org, canSeeFinance, isPrestataire, isAdmin, isChargeProd, isInternal, appSettings } = useAuth()
+  // Logo affiché dans le header projet : sombre en priorité (app dark mode),
+  // fallback sur clair, puis sur le logo Captiv en dur si rien d'uploadé.
+  const headerLogo = org?.logo_url_sombre || org?.logo_url_clair || '/captiv-logo.png'
+  const headerLogoAlt = appSettings?.product_name || 'CAPTIV DESK'
 
   // Permissions par projet (chantier 3B) : chargées depuis project_access +
   // project_access_permissions via Supabase
@@ -469,8 +473,8 @@ export default function ProjetLayout() {
                     ce qui donne : [☰] captiv. <titre> [statut]. Caché en ≥sm
                     car la sidebar globale 64px porte déjà le logo. */}
                 <img
-                  src="/captiv-logo.png"
-                  alt="CAPTIV DESK"
+                  src={headerLogo}
+                  alt={headerLogoAlt}
                   className="sm:hidden shrink-0"
                   style={{
                     maxHeight: '20px',
