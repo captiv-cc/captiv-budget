@@ -360,3 +360,20 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   base de données.** Un admin d'une future org B ne pourra
   jamais lire/écrire les données de Captiv (et inversement),
   même en cas de bourde dans la table d'attaches projets.
+
+### 2026-05-01 — MT-0.4 ✅ Validation cross-org : C livré, B reporté
+- Décision Hugo : combiner **B (procédure documentée pour Phase 1)**
+  et **C (audit statique exécutable maintenant)**. Pas de tests
+  artificiels avec orgs fictives — risque de faux positifs.
+- **Livrable C (audit statique)** : script
+  `supabase/mt0_4_static_audit.sql` exécutable dans le SQL Editor
+  Supabase. Inspecte les helpers, les policies ouvertes, les
+  policies "auth-only", la couverture RLS, et donne un verdict
+  global PASS/FAIL. À rejouer après chaque migration impactant la
+  sécurité.
+- **Livrable B (procédure cross-org Phase 1)** :
+  `MT_PHASE1_CROSS_ORG_TEST.md` — checklist de 21 tests à
+  dérouler le jour J où une 2e org sera créée pour de vrai
+  (typiquement onboarding du 1er prospect). Couvre les tests
+  d'isolation en lecture, écriture, super_admin, partage public.
+  Critère de validation : 21/21 PASS.
