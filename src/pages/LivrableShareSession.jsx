@@ -163,7 +163,7 @@ function ShareContent({
         {/* Footer */}
         <footer className="pt-6 pb-3 text-center" style={{ color: 'var(--txt-3)' }}>
           <p className="text-[11px] leading-relaxed">
-            Ce lien donne accès en lecture seule à l&apos;avancement de votre projet.
+            Ce lien donne accès en lecture seule au suivi de votre projet.
             {' '}Les informations sont mises à jour en temps réel.
           </p>
           <p className="mt-3 text-[10px] tracking-wider" style={{ color: 'var(--txt-3)' }}>

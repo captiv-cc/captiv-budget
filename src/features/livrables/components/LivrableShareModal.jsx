@@ -264,7 +264,7 @@ export default function LivrableShareModal({ open, onClose, projectId }) {
             ) : activeTokens.length === 0 ? (
               <EmptyState
                 message="Aucun lien actif pour ce projet."
-                hint="Créez un nouveau lien ci-dessus pour partager l'avancement avec un client."
+                hint="Créez un nouveau lien ci-dessus pour partager le suivi avec un client."
               />
             ) : (
               <ul className="space-y-2">

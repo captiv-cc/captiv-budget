@@ -4,7 +4,7 @@
 //
 // Génère un PDF A4 portrait propre, partageable au client en pièce jointe
 // d'email. Volontairement différent de LIV-23 (qui est un Gantt jours ×
-// livrables pour usage interne) : ici on présente l'avancement projet de
+// livrables pour usage interne) : ici on présente le suivi projet de
 // manière narrative, calquée sur la page web /share/livrables/:token.
 //
 // Layout :
