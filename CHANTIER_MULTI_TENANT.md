@@ -291,17 +291,42 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   aux orgs de créer leurs propres templates par-dessus. Pas urgent
   côté sécurité, mais à intégrer au design produit Phase 1.
 
-### 2026-05-01 — Question produit ouverte (Phase 1)
-- **`catalogue_lignes` partagé ou par-org ?** Découvert lors de
-  MT-0.4-C : table de catalogue de lignes types pour devis, créée via
-  le dashboard Supabase (pas dans les migrations versionnées). Policy
-  RLS actuelle : `using (true)` → lecture publique entre toutes les
-  orgs. À décider en Phase 1 : reste partagé (comme `minimas_convention`,
-  donnée de référence) ou scoping par org (comme les templates métiers
-  ci-dessus) ? Aucun impact sécurité aujourd'hui (1 seule org).
+### 2026-05-01 — Décision produit (Phase 1) — `catalogue_lignes`
+- **`catalogue_lignes` scopable par org** : décidé Hugo. Chaque
+  société aura son propre catalogue de lignes types pour devis,
+  qu'elle pourra alimenter librement. Comportement parallèle aux
+  templates métiers ci-dessus.
+- Action Phase 1 : ajouter `org_id` à `catalogue_lignes`, backfill
+  des lignes existantes vers Captiv, RLS scopée, et permettre à
+  chaque org d'alimenter le sien.
 - Whitelist mise à jour dans `mt0_4_static_audit.sql` pour reconnaître
-  ces 2 catalogues publics légitimes (`minimas_convention`,
-  `catalogue_lignes`).
+  ces 2 catalogues publics légitimes côté audit (`minimas_convention`
+  reste publique car donnée légale CCNTA, `catalogue_lignes` reste
+  whitelistée temporairement jusqu'à son scoping en Phase 1).
+
+### 2026-05-01 — Synthèse "personnalisation catalogues par-org" (Phase 1)
+Ce mini-chantier groupe les tables de catalogues qui doivent passer
+de "partagé entre toutes les orgs" à "scopable par org" :
+- `metiers_template`, `template_categories`, `template_lines`,
+  `metier_template_permissions` (templates métiers + permissions)
+- `catalogue_lignes` (catalogue lignes devis)
+
+Pattern commun :
+1. Ajout `org_id UUID REFERENCES organisations(id)` (nullable au
+   début pour migration)
+2. Backfill : toutes les rows existantes → `org_id` de Captiv
+3. Passage en `NOT NULL`
+4. RLS : remplacer `using (true)` par scoping
+   `org_id = get_user_org_id()` ou héritage via FK
+5. UI : permettre à chaque org admin de créer/modifier ses entrées
+6. Seed à la création d'une nouvelle org : option de copier les
+   "préset système" Captiv comme point de départ, ou repartir de
+   zéro
+
+Tables qui restent **délibérément** partagées entre toutes les orgs :
+- `grille_cc`, `minimas_convention` (données légales publiques CCNTA)
+- `outils_catalogue` (catalogue des outils logiciels du système)
+- `organisations` (table de gestion des orgs)
 
 ### 2026-05-01 — MT-0.2 ✅ Audit RLS terminé
 - **169 policies analysées** sur 59 tables.
