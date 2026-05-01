@@ -41,6 +41,7 @@ import {
   ZoomIn,
   FileText,
   Share2,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -63,6 +64,7 @@ import BulkActionBar from '../../features/livrables/components/BulkActionBar'
 import LivrablesFilterBar from '../../features/livrables/components/LivrablesFilterBar'
 import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
 import LivrablePipelineView from '../../features/livrables/components/LivrablePipelineView'
+import LivrableDashboard from '../../features/livrables/components/LivrableDashboard'
 import LivrableShareModal from '../../features/livrables/components/LivrableShareModal'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
@@ -475,7 +477,11 @@ export default function LivrablesTab() {
   //   ?vue=pipeline       → vue Pipeline (sinon Liste)
   //   ?mode=focus         → mode Focus (sinon Ensemble)
   //   ?livrable=<uuid>    → livrable focus (requis pour Focus)
-  const viewMode = searchParams.get('vue') === 'pipeline' ? 'pipeline' : 'list'
+  const viewModeRaw = searchParams.get('vue')
+  const viewMode =
+    viewModeRaw === 'pipeline' ? 'pipeline'
+      : viewModeRaw === 'dashboard' ? 'dashboard'
+        : 'list'
   const rawPipelineMode = searchParams.get('mode')
   const focusLivrableId = searchParams.get('livrable') || null
   const pipelineMode =
@@ -485,9 +491,14 @@ export default function LivrablesTab() {
     (next) => {
       const params = new URLSearchParams(searchParams)
       if (next === 'pipeline') params.set('vue', 'pipeline')
+      else if (next === 'dashboard') {
+        params.set('vue', 'dashboard')
+        // Quitter le pipeline → on nettoie aussi le mode/focus.
+        params.delete('mode')
+        params.delete('livrable')
+      }
       else {
         params.delete('vue')
-        // Quitter le pipeline → on nettoie aussi le mode/focus.
         params.delete('mode')
         params.delete('livrable')
       }
@@ -680,6 +691,12 @@ export default function LivrablesTab() {
             label="Pipeline"
             onClick={() => setViewMode('pipeline')}
           />
+          <ViewToggle
+            active={viewMode === 'dashboard'}
+            icon={LayoutDashboard}
+            label="Dashboard"
+            onClick={() => setViewMode('dashboard')}
+          />
 
           {viewMode === 'pipeline' && (
             <>
@@ -722,6 +739,17 @@ export default function LivrablesTab() {
           <EmptyState
             canEdit={canEdit}
             onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: 0 })}
+          />
+        ) : viewMode === 'dashboard' ? (
+          <LivrableDashboard
+            blocks={blocks}
+            livrables={allLivrablesFlat}
+            versionsByLivrable={versionsByLivrable}
+            onLivrableClick={(livrable) => {
+              if (!livrable?.id) return
+              setDetailsDrawerInitialTab('versions')
+              setDetailsDrawerLivrableId(livrable.id)
+            }}
           />
         ) : viewMode === 'pipeline' ? (
           <LivrablePipelineView
