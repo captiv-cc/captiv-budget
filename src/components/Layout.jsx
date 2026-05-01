@@ -30,6 +30,8 @@
 import { useEffect, useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useAppTheme } from '../hooks/useAppTheme'
+import { pickOrgLogo } from '../lib/branding'
 import { notify } from '../lib/notify'
 import { LogOut, Menu, Search, Share2 } from 'lucide-react'
 import {
@@ -147,10 +149,12 @@ function Initials({ name }) {
 // ─── Layout principal ─────────────────────────────────────────────────────────
 export default function Layout() {
   const { profile, role, canSeeFinance, isAdmin, isInternal, signOut, org, appSettings } = useAuth()
-  // Logo affiché en sidebar/header : on prend le logo sombre de l'org
-  // (l'app est en dark mode permanent), avec fallback sur le clair, puis
-  // sur le logo Captiv en dur si rien n'a été uploadé.
-  const sidebarLogo = org?.logo_url_sombre || org?.logo_url_clair || '/captiv-logo.png'
+  const theme = useAppTheme()
+  // Logo affiché en sidebar/header : on délègue à pickOrgLogo() qui gère
+  // la cascade clair/sombre/fallback selon le thème courant. Le jour où
+  // l'app aura un lightmode global, useAppTheme() basculera et le bon
+  // logo sera choisi automatiquement.
+  const sidebarLogo = pickOrgLogo(org, theme)
   const sidebarLogoAlt = appSettings?.product_name || 'CAPTIV DESK'
   const navigate = useNavigate()
   const location = useLocation()

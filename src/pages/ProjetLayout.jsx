@@ -28,6 +28,8 @@ import {
 import { useParams, useLocation, Outlet, Link, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useAppTheme } from '../hooks/useAppTheme'
+import { pickOrgLogo } from '../lib/branding'
 import { notify } from '../lib/notify'
 import { useProjectPermissions } from '../hooks/useProjectPermissions'
 import useBreakpoint from '../hooks/useBreakpoint'
@@ -161,9 +163,10 @@ export default function ProjetLayout() {
   const { id } = useParams()
   const location = useLocation()
   const { org, canSeeFinance, isPrestataire, isAdmin, isChargeProd, isInternal, appSettings } = useAuth()
-  // Logo affiché dans le header projet : sombre en priorité (app dark mode),
-  // fallback sur clair, puis sur le logo Captiv en dur si rien d'uploadé.
-  const headerLogo = org?.logo_url_sombre || org?.logo_url_clair || '/captiv-logo.png'
+  const theme = useAppTheme()
+  // Logo header projet : choix délégué à pickOrgLogo() qui gère la cascade
+  // selon le theme courant (dark aujourd'hui, dark/light demain).
+  const headerLogo = pickOrgLogo(org, theme)
   const headerLogoAlt = appSettings?.product_name || 'CAPTIV DESK'
 
   // Permissions par projet (chantier 3B) : chargées depuis project_access +
