@@ -66,15 +66,18 @@ function PeriodeRow({ label, color, bg, periode }) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex items-baseline gap-2">
         <span
           className="text-[11px] uppercase tracking-wider font-semibold"
           style={{ color: 'var(--txt-3)' }}
         >
           {label}
         </span>
-        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-          {days} jour{days > 1 ? 's' : ''}
+        <span
+          className="text-[10px]"
+          style={{ color: 'var(--txt-3)', opacity: 0.7 }}
+        >
+          · {days} jour{days > 1 ? 's' : ''}
         </span>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
