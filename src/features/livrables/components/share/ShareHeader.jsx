@@ -2,12 +2,13 @@
 // ShareHeader — En-tête de la page de partage public livrables (LIV-24C)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Image projet (cover_url) + titre + ref + date de mise à jour.
-// Design sobre et professionnel pour un client externe.
+// Hero immersif : image projet (cover_url) en background flouté + overlay
+// sombre + vignette carrée nette à gauche + bloc texte à droite. Le bouton
+// PDF et le toggle theme sont posés en absolu en haut à droite, avec
+// backdrop-blur. Pattern aligné sur le hero de ProjetTab.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Film, FileText, Loader2 } from 'lucide-react'
-import { ThemeToggle } from '../../../../pages/LivrableShareSession'
+import { Film, FileText, Loader2, Moon, Sun } from 'lucide-react'
 
 export default function ShareHeader({ project, share, generatedAt, theme, onToggleTheme, onExportPdf, exporting }) {
   const title = project?.title || 'Projet'
@@ -19,90 +20,164 @@ export default function ShareHeader({ project, share, generatedAt, theme, onTogg
 
   return (
     <header
-      className="rounded-2xl shadow-sm p-5 sm:p-6 flex items-start gap-4 sm:gap-5"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      className="relative rounded-2xl overflow-hidden shadow-sm"
+      style={{ border: '1px solid var(--brd)' }}
     >
-      {/* Vignette projet (carré). */}
+      {/* Background : image cover floutée OU gradient fallback */}
       {cover ? (
-        <img
-          src={cover}
-          alt={title}
-          className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover shrink-0"
-          style={{ border: '1px solid var(--brd)' }}
-        />
+        <>
+          <img
+            src={cover}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ filter: 'blur(24px) saturate(1.1)', transform: 'scale(1.15)' }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.55) 100%)',
+            }}
+          />
+        </>
       ) : (
         <div
-          className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: 'linear-gradient(135deg, #334155, #0f172a)' }}
-        >
-          <Film className="w-8 h-8 text-white/40" />
-        </div>
+          className="absolute inset-0"
+          style={{ background: 'linear-gradient(135deg, #334155 0%, #0f172a 100%)' }}
+        />
       )}
 
-      {/* Bloc texte */}
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-[11px] uppercase tracking-wider font-semibold mb-1"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          Suivi des livrables
-        </p>
-        <h1
-          className="text-xl sm:text-2xl font-bold leading-tight truncate"
-          style={{ color: 'var(--txt)' }}
-        >
-          {title}
-        </h1>
-        <div
-          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          {ref && <span className="font-mono">{ref}</span>}
-          {ref && shareLabel && <span aria-hidden="true">·</span>}
-          {shareLabel && <span>{shareLabel}</span>}
-          {generatedFr && (
-            <>
-              <span aria-hidden="true" className="ml-auto">·</span>
-              <span>Mis à jour {generatedFr}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Actions à droite : Export PDF + toggle theme */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Actions flottantes en haut à droite */}
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10 flex items-center gap-2">
         {onExportPdf && (
           <button
             type="button"
             onClick={onExportPdf}
             disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur transition-colors"
             style={{
-              background: 'var(--bg-elev)',
-              border: '1px solid var(--brd)',
-              color: 'var(--txt)',
+              background: 'rgba(255,255,255,0.15)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.25)',
               cursor: exporting ? 'wait' : 'pointer',
               opacity: exporting ? 0.7 : 1,
             }}
             onMouseEnter={(e) => {
-              if (!exporting) e.currentTarget.style.background = 'var(--bg-hov)'
+              if (!exporting) e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
             }}
             onMouseLeave={(e) => {
-              if (!exporting) e.currentTarget.style.background = 'var(--bg-elev)'
+              if (!exporting) e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
             }}
             title="Exporter en PDF"
           >
             {exporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <FileText className="w-4 h-4" />
+              <FileText className="w-3.5 h-3.5" />
             )}
             <span className="hidden sm:inline">PDF</span>
           </button>
         )}
-        {onToggleTheme && <ThemeToggle theme={theme} onToggle={onToggleTheme} />}
+        {onToggleTheme && <GlassThemeToggle theme={theme} onToggle={onToggleTheme} />}
+      </div>
+
+      {/* Contenu : vignette carrée nette à gauche + textes à droite */}
+      <div className="relative p-5 sm:p-6 flex flex-col sm:flex-row gap-4 sm:gap-6 items-start sm:items-center">
+        {cover ? (
+          <img
+            src={cover}
+            alt={title}
+            className="flex-shrink-0 w-20 h-20 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-xl object-cover"
+            style={{
+              border: '1px solid rgba(255,255,255,0.18)',
+              boxShadow: '0 12px 36px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3)',
+            }}
+          />
+        ) : (
+          <div
+            className="flex-shrink-0 w-20 h-20 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-xl flex items-center justify-center"
+            style={{
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
+            }}
+          >
+            <Film className="w-8 h-8" style={{ color: 'rgba(255,255,255,0.7)' }} />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-[11px] uppercase tracking-wider font-semibold mb-1"
+            style={{ color: 'rgba(255,255,255,0.7)' }}
+          >
+            Suivi des livrables
+          </p>
+          <h1
+            className="text-xl sm:text-2xl md:text-3xl font-bold leading-tight break-words text-white"
+            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+          >
+            {title}
+          </h1>
+          <div
+            className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+            style={{ color: 'rgba(255,255,255,0.85)' }}
+          >
+            {ref && (
+              <span
+                className="font-mono px-2 py-0.5 rounded backdrop-blur"
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+              >
+                {ref}
+              </span>
+            )}
+            {shareLabel && (
+              <span style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>{shareLabel}</span>
+            )}
+            {generatedFr && (
+              <span
+                className="sm:ml-auto"
+                style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.75)' }}
+              >
+                Mis à jour {generatedFr}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </header>
+  )
+}
+
+// Variante "glass" du ThemeToggle, posée sur le hero sombre (couleurs en
+// dur — pas de CSS vars — pour rester lisible quel que soit le theme courant).
+function GlassThemeToggle({ theme, onToggle }) {
+  const Icon = theme === 'light' ? Moon : Sun
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="p-2 rounded-lg backdrop-blur transition-colors shrink-0"
+      style={{
+        background: 'rgba(255,255,255,0.15)',
+        color: 'white',
+        border: '1px solid rgba(255,255,255,0.25)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+      }}
+      title={theme === 'light' ? 'Passer en mode sombre' : 'Passer en mode clair'}
+      aria-label={theme === 'light' ? 'Passer en mode sombre' : 'Passer en mode clair'}
+    >
+      <Icon className="w-3.5 h-3.5" />
+    </button>
   )
 }
 
