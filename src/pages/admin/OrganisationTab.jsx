@@ -50,14 +50,16 @@ const BRAND_COLORS = [
 ]
 
 // ─── Champs légaux et leurs clés JSON pour la visibilité PDF ────────────────
+// Placeholders volontairement génériques pour rester pertinents quelle que
+// soit la société qui s'inscrit (pas d'exemples spécifiques à Captiv).
 const LEGAL_FIELDS = [
-  { key: 'legal_name',      label: 'Raison sociale',         placeholder: 'CAPTIV SARL OMNI Films' },
-  { key: 'forme_juridique', label: 'Forme juridique',        placeholder: 'SARL, SAS…' },
-  { key: 'capital_social',  label: 'Capital social',         placeholder: '800 €' },
-  { key: 'siret',           label: 'SIRET',                  placeholder: '898201025 00019' },
-  { key: 'code_ape',        label: 'Code APE',               placeholder: '5911A' },
-  { key: 'tva_number',      label: 'N° TVA intracommunautaire', placeholder: 'FR 26898201025' },
-  { key: 'ville_rcs',       label: 'Ville RCS',              placeholder: 'Montpellier' },
+  { key: 'legal_name',      label: 'Raison sociale',            placeholder: 'Ex : Société XYZ', required: true },
+  { key: 'forme_juridique', label: 'Forme juridique',           placeholder: 'SARL, SAS, SA…' },
+  { key: 'capital_social',  label: 'Capital social',            placeholder: 'Ex : 10 000 €' },
+  { key: 'siret',           label: 'SIRET',                     placeholder: '14 chiffres' },
+  { key: 'code_ape',        label: 'Code APE',                  placeholder: 'Ex : 5911A' },
+  { key: 'tva_number',      label: 'N° TVA intracommunautaire', placeholder: 'FR + 11 chiffres' },
+  { key: 'ville_rcs',       label: 'Ville RCS',                 placeholder: 'Ex : Paris' },
 ]
 
 // ─── Helper : calcul du SIREN depuis SIRET (9 premiers chiffres) ────────────
@@ -130,12 +132,23 @@ export default function OrganisationTab() {
 
   async function handleSave() {
     if (saving) return
+    // Validation client : champs requis (cohérent avec contrainte NOT NULL en BDD)
+    const dn = (draft.display_name || '').trim()
+    const ln = (draft.legal_name || '').trim()
+    if (!dn) {
+      notify.error('Le nom commercial est obligatoire.')
+      return
+    }
+    if (!ln) {
+      notify.error('La raison sociale est obligatoire.')
+      return
+    }
     setSaving(true)
     const payload = {
-      display_name: draft.display_name || null,
+      display_name: dn,
       tagline: draft.tagline || null,
       website_url: draft.website_url || null,
-      legal_name: draft.legal_name || null,
+      legal_name: ln,
       forme_juridique: draft.forme_juridique || null,
       capital_social: draft.capital_social || null,
       siret: draft.siret || null,
@@ -241,7 +254,7 @@ export default function OrganisationTab() {
           <input
             type="text"
             className="input text-sm w-full"
-            placeholder="Captiv"
+            placeholder="Nom court de votre société"
             value={draft.display_name}
             onChange={(e) => set('display_name', e.target.value)}
           />
@@ -250,7 +263,7 @@ export default function OrganisationTab() {
           <input
             type="text"
             className="input text-sm w-full"
-            placeholder="Production audiovisuelle"
+            placeholder="Ex : Production audiovisuelle"
             value={draft.tagline}
             onChange={(e) => set('tagline', e.target.value)}
           />
@@ -278,6 +291,7 @@ export default function OrganisationTab() {
           <Field
             key={f.key}
             label={f.label}
+            required={f.required}
             toggleVisibility={
               <Toggle
                 value={Boolean(draft.pdf_field_visibility?.[f.key])}
