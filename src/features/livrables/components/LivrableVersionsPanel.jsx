@@ -28,6 +28,7 @@ import {
   History,
   Link2,
   Plus,
+  Send,
   Trash2,
 } from 'lucide-react'
 import {
@@ -202,10 +203,12 @@ function EmptyVersions({ canEdit, onAdd, adding }) {
 function VersionCard({ version, versions = [], actions, canEdit, onSyncLivrable }) {
   // États locaux pour inline edit
   const [numeroLabel, setNumeroLabel] = useState(version.numero_label || '')
+  const [datePrevu, setDatePrevu] = useState(version.date_envoi_prevu || '')
   const [dateEnvoi, setDateEnvoi] = useState(version.date_envoi || '')
   const [feedback, setFeedback] = useState(version.feedback_client || '')
 
   useEffect(() => setNumeroLabel(version.numero_label || ''), [version.numero_label])
+  useEffect(() => setDatePrevu(version.date_envoi_prevu || ''), [version.date_envoi_prevu])
   useEffect(() => setDateEnvoi(version.date_envoi || ''), [version.date_envoi])
   useEffect(() => setFeedback(version.feedback_client || ''), [version.feedback_client])
 
@@ -319,7 +322,35 @@ function VersionCard({ version, versions = [], actions, canEdit, onSyncLivrable 
           }}
         />
 
-        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--txt-3)' }}>
+        {/* LIV-V-PREV : date d'envoi PRÉVISIONNELLE — sert au planning
+            (Pipeline + PDF). Violet pour se distinguer du orange du montage
+            dans les autres vues. Distincte de la date d'envoi RÉELLE en-dessous. */}
+        <div
+          className="flex items-center gap-1.5 text-xs"
+          style={{ color: 'var(--purple)' }}
+          title="Date d'envoi prévisionnelle (visible dans la Pipeline et le PDF)"
+        >
+          <Send className="w-3 h-3" />
+          <input
+            type="date"
+            value={datePrevu}
+            onChange={(e) => setDatePrevu(e.target.value)}
+            onBlur={() => saveField('date_envoi_prevu', datePrevu)}
+            disabled={!canEdit}
+            placeholder="Prévu"
+            className="bg-transparent focus:outline-none"
+            style={{
+              color: datePrevu ? 'var(--purple)' : 'var(--txt-3)',
+              cursor: canEdit ? 'text' : 'default',
+            }}
+          />
+        </div>
+
+        <div
+          className="flex items-center gap-1.5 text-xs"
+          style={{ color: 'var(--txt-3)' }}
+          title="Date d'envoi réelle (posée quand l'envoi est fait)"
+        >
           <Calendar className="w-3 h-3" />
           <input
             type="date"

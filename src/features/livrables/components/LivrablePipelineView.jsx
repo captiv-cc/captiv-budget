@@ -41,7 +41,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Crosshair, Target } from 'lucide-react'
+import { ArrowLeft, Crosshair, Send, Target } from 'lucide-react'
 import { LIVRABLE_ETAPE_KINDS, isLivrableEnRetard } from '../../../lib/livrablesHelpers'
 import {
   addDaysToISO,
@@ -127,6 +127,10 @@ export default function LivrablePipelineView({
   // Si présente, les jours de tournage sont peints en arrière-plan (vert
   // pâle) sur toute la grille. Format: { ranges: [{ start, end }] }.
   tournagePeriode = null,
+  // LIV-V-PREV : versions des livrables avec date_envoi_prevu. Affiche un
+  // marqueur enveloppe (Send) à chaque date d'envoi prévu, par lane.
+  // Format: Map<livrableId, version[]>.
+  versionsByLivrable = null,
   onEtapeClick,
   onLivrableClick,
   onEnterFocus,
@@ -419,6 +423,81 @@ export default function LivrablePipelineView({
                 )
               })()}
 
+            {/* LIV-V-PREV : en mode focus, les lanes sont groupées par
+                event_type (pas par livrable), donc les marqueurs versions
+                ne peuvent pas être attachés à une lane spécifique. On les
+                dessine comme un overlay global au-dessus du body, comme
+                la deadline focus. */}
+            {effectiveMode === 'focus' &&
+              (() => {
+                const focusVersions =
+                  versionsByLivrable?.get?.(focusLivrableId) || []
+                const markers = computeVersionMarkers(
+                  focusVersions,
+                  window.start,
+                  totalDays,
+                )
+                if (markers.length === 0) return null
+                return (
+                  <>
+                    {markers.map((m) => (
+                      <div
+                        key={`focus-line-${m.id}`}
+                        className="pointer-events-none"
+                        style={{
+                          position: 'absolute',
+                          left: LANE_LABEL_WIDTH + m.offset * dayWidth,
+                          top: 0,
+                          bottom: 0,
+                          width: 2,
+                          background: m.color,
+                          opacity: 0.6,
+                          zIndex: 3,
+                        }}
+                      />
+                    ))}
+                    {markers.map((m) => (
+                      <div
+                        key={`focus-dot-${m.id}`}
+                        className="absolute flex flex-col items-center gap-0.5"
+                        style={{
+                          left: LANE_LABEL_WIDTH + m.offset * dayWidth - 8,
+                          top: 4,
+                          zIndex: 7,
+                        }}
+                        title={m.tooltip}
+                      >
+                        <span
+                          className="flex items-center justify-center rounded-full"
+                          style={{
+                            width: 16,
+                            height: 16,
+                            background: 'var(--bg-surf)',
+                            border: `1.5px solid ${m.color}`,
+                          }}
+                        >
+                          <Send size={9} style={{ color: m.color }} />
+                        </span>
+                        {m.label && (
+                          <span
+                            className="text-[9px] font-mono font-bold leading-none px-1 py-0.5 rounded"
+                            style={{
+                              background: 'var(--bg-surf)',
+                              color: m.color,
+                              border: `1px solid ${m.color}`,
+                              writingMode: 'sideways-lr',
+                              letterSpacing: 0.5,
+                            }}
+                          >
+                            {m.label}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )
+              })()}
+
             {lanes.map((lane) => (
               <PipelineLane
                 key={lane.key}
@@ -433,6 +512,11 @@ export default function LivrablePipelineView({
                 onEnterFocus={effectiveMode === 'ensemble' ? onEnterFocus : null}
                 onEtapeUpdate={onEtapeUpdate}
                 hideDeadlineMarker={effectiveMode === 'focus'}
+                versions={
+                  lane.livrable
+                    ? versionsByLivrable?.get?.(lane.livrable.id) || []
+                    : []
+                }
               />
             ))}
           </div>
@@ -632,6 +716,7 @@ function PipelineLane({
   onEnterFocus,
   onEtapeUpdate,
   hideDeadlineMarker = false,
+  versions = [],
 }) {
   // Hauteur min : assez pour 1 sub-row même si lane vide.
   const effectiveSubRows = Math.max(1, lane.subRowsCount)
@@ -646,6 +731,13 @@ function PipelineLane({
     !hideDeadlineMarker && livrable
       ? computeDeadlineMarker(livrable, windowStart, totalDays)
       : null
+
+  // LIV-V-PREV : marqueurs d'envoi par version. Un par version qui a une
+  // `date_envoi_prevu` dans la fenêtre temporelle. Couleur :
+  //   - vert si déjà envoyé (date_envoi posée)
+  //   - rouge si en retard (prévu < today, pas envoyé)
+  //   - orange sinon (à venir)
+  const versionMarkers = computeVersionMarkers(versions, windowStart, totalDays)
 
   // Click sur label → drawer si livrable identifiable.
   const isClickableLabel = Boolean(livrable && onLivrableClick)
@@ -785,6 +877,63 @@ function PipelineLane({
           </>
         )}
 
+        {/* LIV-V-PREV : marqueurs des versions (date_envoi_prevu).
+            Icône Send dans un cercle, couleur selon état. Le label "V1"
+            apparaît à droite du marqueur si la fenêtre le permet. */}
+        {versionMarkers.map((m) => (
+          <div
+            key={m.id}
+            className="absolute pointer-events-none"
+            style={{
+              left: m.offset * dayWidth,
+              top: 0,
+              bottom: 0,
+              width: 2,
+              background: m.color,
+              opacity: 0.6,
+              zIndex: 3,
+            }}
+          />
+        ))}
+        {versionMarkers.map((m) => (
+          <div
+            key={`dot-${m.id}`}
+            className="absolute flex flex-col items-center gap-0.5"
+            style={{
+              left: m.offset * dayWidth - 8,
+              top: 22,
+              zIndex: 7,
+            }}
+            title={m.tooltip}
+          >
+            <span
+              className="flex items-center justify-center rounded-full"
+              style={{
+                width: 16,
+                height: 16,
+                background: 'var(--bg-surf)',
+                border: `1.5px solid ${m.color}`,
+              }}
+            >
+              <Send size={9} style={{ color: m.color }} />
+            </span>
+            {m.label && (
+              <span
+                className="text-[9px] font-mono font-bold leading-none px-1 py-0.5 rounded"
+                style={{
+                  background: 'var(--bg-surf)',
+                  color: m.color,
+                  border: `1px solid ${m.color}`,
+                  writingMode: 'sideways-lr',
+                  letterSpacing: 0.5,
+                }}
+              >
+                {m.label}
+              </span>
+            )}
+          </div>
+        ))}
+
         {/* Empty state lane : pas de texte par lane (bruit visuel sur
             mobile). Les cellules vides parlent d'elles-mêmes. Si TOUTES
             les lanes sont vides, l'empty state global affiché par le
@@ -803,6 +952,52 @@ function PipelineLane({
       </div>
     </div>
   )
+}
+
+/**
+ * LIV-V-PREV — Calcule les marqueurs visuels des versions (envois prévus).
+ * Pour chaque version qui a une `date_envoi_prevu` dans la fenêtre, on
+ * renvoie sa position + couleur selon l'état.
+ *
+ * Couleur :
+ *   - vert  : envoyé (`date_envoi` posée → déjà fait)
+ *   - rouge : en retard (`date_envoi_prevu < today` et pas envoyé)
+ *   - orange : à venir (par défaut)
+ */
+function computeVersionMarkers(versions, windowStart, totalDays) {
+  if (!Array.isArray(versions) || versions.length === 0) return []
+  const todayMidnight = new Date()
+  todayMidnight.setHours(0, 0, 0, 0)
+  const out = []
+  for (const v of versions) {
+    if (!v?.date_envoi_prevu) continue
+    const due = new Date(v.date_envoi_prevu + 'T00:00:00')
+    if (Number.isNaN(due.getTime())) continue
+    const offset = Math.round((due.getTime() - windowStart.getTime()) / MS_PER_DAY)
+    if (offset < 0 || offset > totalDays) continue
+    // Couleur unifiée violet pour tous les jalons d'envoi (cohérence avec
+    // la phase "Envoi" du PDF). L'état (à venir / envoyée / en retard)
+    // reste dans le tooltip uniquement.
+    const color = 'var(--purple)'
+    let state = 'à venir'
+    if (v.date_envoi) state = 'envoyée'
+    else if (due < todayMidnight) state = 'en retard'
+    const dateLabel = formatDateFR(v.date_envoi_prevu)
+    out.push({
+      id: v.id,
+      offset,
+      color,
+      label: v.numero_label || '',
+      tooltip: `Envoi ${v.numero_label || 'version'} · ${dateLabel} (${state})`,
+    })
+  }
+  return out
+}
+
+function formatDateFR(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''))
+  if (!m) return iso || ''
+  return `${m[3]}/${m[2]}/${m[1]}`
 }
 
 /**

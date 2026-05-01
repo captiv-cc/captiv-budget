@@ -39,6 +39,11 @@ const C = {
   phaseMontageText: [150, 75, 15],
   phaseLivraison:   [225, 120, 120],
   phaseLivraisonText:[150, 30, 30],
+  // LIV-V-PREV : envoi de version (prévisionnel) — VIOLET pour se
+  // distinguer franchement du orange du montage. Sémantiquement : un
+  // jalon planning, pas une phase de production.
+  phaseEnvoi:       [180, 140, 230],
+  phaseEnvoiText:   [70, 40, 130],
   off: [250, 250, 250],
   weekend: [240, 240, 240],
   today: [210, 230, 255],
@@ -50,6 +55,7 @@ const PHASE_DEFS = [
   { key: 'pre_prod',   label: 'Pré-prod',   fill: C.phasePreProd,   text: C.phasePreProdText },
   { key: 'tournage',   label: 'Tournage',   fill: C.phaseTournage,  text: C.phaseTournageText },
   { key: 'post_prod',  label: 'Montage',    fill: C.phaseMontage,   text: C.phaseMontageText },
+  { key: 'envoi',      label: 'Envoi',      fill: C.phaseEnvoi,     text: C.phaseEnvoiText },
   { key: 'delivery',   label: 'Livraison',  fill: C.phaseLivraison, text: C.phaseLivraisonText },
 ]
 
@@ -126,6 +132,11 @@ export function buildEnsembleData({
   // .periodes.tournage), les jours correspondants sont peints en fond vert
   // pâle pour les cellules livrable qui n'ont pas d'étape ce jour-là.
   tournagePeriode = null,
+  // LIV-V-PREV : versions des livrables (Map<livrableId, version[]>). Si
+  // une version a une date_envoi_prevu, on peint la cellule en orange et
+  // on écrit "Envoi VX" dedans. Cette phase est prioritaire sur tout
+  // (montage, tournage, etc).
+  versionsByLivrable = null,
 }) {
   const eventTypesById = new Map(eventTypes.map((t) => [t.id, t]))
   const blocksById = new Map(blocks.map((b) => [b.id, b]))
@@ -252,6 +263,24 @@ export function buildEnsembleData({
         phaseByDay.set(k, 'delivery')
         labelByDay.set(k, 'Livraison')
         rendusByDay.set(k, (rendusByDay.get(k) || 0) + 1)
+      }
+    }
+
+    // LIV-V-PREV : envois de versions (date_envoi_prevu).
+    // Phase 'envoi' prioritaire sur tout (étape, tournage). Non comptabilisée
+    // dans le compteur RENDUS (les vrais rendus = livraison finale).
+    const livVersions = versionsByLivrable?.get?.(l.id)
+      || (Array.isArray(versionsByLivrable) ? null : null)
+    if (Array.isArray(livVersions)) {
+      for (const v of livVersions) {
+        if (!v?.date_envoi_prevu) continue
+        const vd = parseLocalDate(v.date_envoi_prevu)
+        if (!vd) continue
+        const k = dayKey(vd)
+        if (!k) continue
+        phaseByDay.set(k, 'envoi')
+        const numero = (v.numero_label || '').toString().trim()
+        labelByDay.set(k, numero ? `Envoi ${numero}` : 'Envoi')
       }
     }
 
@@ -405,10 +434,15 @@ export async function buildLivrablesEnsemblePdf({
   // PROJ-PERIODES : période tournage du projet (single source of truth).
   // Si fournie, les jours correspondants sont peints en vert pâle.
   tournagePeriode = null,
+  // LIV-V-PREV : versions par livrable (Map<id, version[]>). Si une
+  // version a une date_envoi_prevu, la cellule du jour correspondant est
+  // peinte en orange avec "Envoi VX".
+  versionsByLivrable = null,
 }) {
   const data = buildEnsembleData({
     blocks, livrables, etapes, eventTypes, profilesById, now: generatedAt,
     tournagePeriode,
+    versionsByLivrable,
   })
 
   // Pré-chargement (best-effort) du visuel projet

@@ -438,6 +438,9 @@ export default function LivrablesTab() {
         // PROJ-PERIODES : période tournage du projet → fond vert pâle sur
         // les colonnes de jour de tournage dans le PDF Vue ensemble.
         tournagePeriode: projectPeriodes?.tournage,
+        // LIV-V-PREV : versions par livrable → cellule orange "Envoi VX"
+        // au jour de date_envoi_prevu, prioritaire sur les autres phases.
+        versionsByLivrable,
       })
       setPdfExport(exporter)
     } catch (err) {
@@ -451,6 +454,7 @@ export default function LivrablesTab() {
     blocks,
     livrablesByBlock,
     etapesByLivrable,
+    versionsByLivrable,
     eventTypes,
     profilesById,
   ])
@@ -725,6 +729,7 @@ export default function LivrablesTab() {
             zoom={pipelineZoom}
             canEdit={canEdit}
             tournagePeriode={projectPeriodes?.tournage}
+            versionsByLivrable={versionsByLivrable}
             onEtapeUpdate={({ etape, patch }) => {
               // LIV-22d — drag/resize commit. actions.updateEtape est déjà
               // optimistic dans useLivrables (LIV-9), donc l'UI bouge tout

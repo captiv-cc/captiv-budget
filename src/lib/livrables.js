@@ -761,6 +761,7 @@ export async function duplicateBlockToProject(srcBlockId, targetProjectId) {
 const VERSION_EDITABLE_FIELDS = [
   'numero_label',
   'date_envoi',
+  'date_envoi_prevu', // LIV-V-PREV : date prévisionnelle d'envoi (planning)
   'lien_frame',
   'statut_validation',
   'feedback_client',
@@ -786,6 +787,7 @@ export async function addVersion({ livrableId, data: input = {} }) {
     livrable_id: livrableId,
     numero_label: input.numero_label?.trim() || `V${nextOrder}`,
     date_envoi: input.date_envoi || null,
+    date_envoi_prevu: input.date_envoi_prevu || null,
     lien_frame: input.lien_frame || null,
     statut_validation: input.statut_validation || 'en_attente',
     feedback_client: input.feedback_client || null,
