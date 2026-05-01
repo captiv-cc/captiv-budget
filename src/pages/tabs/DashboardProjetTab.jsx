@@ -389,7 +389,35 @@ export default function DashboardProjetTab() {
   const scopeColor = scopeLot ? lotColor(scopeLot.id, lotsWithRef) : 'var(--blue)'
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--blue-bg)' }}
+          >
+            <BarChart3 className="w-5 h-5" style={{ color: 'var(--blue)' }} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+              Tableau de bord
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {lotsWithRef.length} lot{lotsWithRef.length > 1 ? 's' : ''} avec devis
+              {scopeLot && ` · scope : ${scopeLot.label || 'Lot'}`}
+              {' · synthèse projet'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
+      <div className="p-4 sm:p-6 space-y-6 flex-1">
+
       {/* ── Sélecteur de scope (masqué en mono-lot) ─────────────────────── */}
       {isMultiLot && (
         <LotScopeSelector
@@ -407,7 +435,7 @@ export default function DashboardProjetTab() {
           value={fmtEur(scopedSynth.totalHTFinal)}
           sub={`${fmtEur(scopedSynth.totalTTC)} TTC`}
           icon={Euro}
-          color={{ bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' }}
+          color={{ bg: 'var(--blue-bg)', txt: 'var(--blue)' }}
           to={`/projets/${projectId}/devis`}
         />
         <KpiCard
@@ -416,7 +444,7 @@ export default function DashboardProjetTab() {
           sub={fmtEur(scopedSynth.margeFinale)}
           icon={TrendingUp}
           color={{
-            bg: scopedSynth.pctMargeFinale < 0 ? 'rgba(239,68,68,.12)' : 'rgba(0,200,117,.12)',
+            bg: scopedSynth.pctMargeFinale < 0 ? 'var(--red-bg)' : 'var(--green-bg)',
             txt: margeColor,
           }}
         />
@@ -429,7 +457,7 @@ export default function DashboardProjetTab() {
               : 'Aucune entrée'
           }
           icon={Activity}
-          color={{ bg: 'rgba(245,158,11,.12)', txt: 'var(--amber)' }}
+          color={{ bg: 'var(--amber-bg)', txt: 'var(--amber)' }}
           to={`/projets/${projectId}/budget`}
         />
         <KpiCard
@@ -437,7 +465,7 @@ export default function DashboardProjetTab() {
           value={fmtEur(totalRegle)}
           sub={`${(pctEncaisse * 100).toFixed(0)} % · ${fmtEur(totalFacTTC)} facturé TTC`}
           icon={CheckCircle2}
-          color={{ bg: 'rgba(0,200,117,.12)', txt: 'var(--green)' }}
+          color={{ bg: 'var(--green-bg)', txt: 'var(--green)' }}
           to={`/projets/${projectId}/factures`}
         />
       </div>
@@ -971,6 +999,8 @@ export default function DashboardProjetTab() {
           </div>
         </div>
       </div>
+
+      </div>{/* /body */}
     </div>
   )
 }
