@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { Shield, Wrench, Building2, CalendarClock } from 'lucide-react'
 import TemplatesMetiersTab from './TemplatesMetiersTab'
 import EventTypesTab from './EventTypesTab'
+import OrganisationTab from './OrganisationTab'
 
 function Placeholder({ title }) {
   return (
@@ -37,12 +38,7 @@ const TABS = [
     icon: Wrench,
     component: () => <Placeholder title="Catalogue d'outils" />,
   },
-  {
-    key: 'org',
-    label: 'Organisation',
-    icon: Building2,
-    component: () => <Placeholder title="Informations organisation" />,
-  },
+  { key: 'org', label: 'Organisation', icon: Building2, component: OrganisationTab },
 ]
 
 export default function Settings() {
