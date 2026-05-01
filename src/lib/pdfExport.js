@@ -156,18 +156,29 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // Choix du logo bannière selon org : version horizontale prioritaire,
   // fallback sur logo clair, puis sur l'image Captiv en dur.
   const bannerUrl = pickOrgLogo(org, 'banner')
+  console.log('[pdfExport] banner URL choisie:', bannerUrl)
   const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl, livrablesPdf] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
-    // Si l'org a uploadé son logo banner, c'est une URL Supabase Storage publique
-    // qu'on charge et renormalise en PNG via canvas. Best-effort : si échec
-    // (CORS, 404, format pas supporté par <img>), fallback sur l'image en dur.
-    loadImageAsJpeg(bannerUrl).catch(() => loadImageAsJpeg('/captiv-banner.png')),
+    // Cascade de fallbacks : URL choisie → /captiv-banner.png → null
+    // (le PDF se génère sans logo plutôt que de crasher tout l'export)
+    loadImageAsJpeg(bannerUrl)
+      .catch((e) => {
+        console.warn('[pdfExport] banner principal échoué, fallback /captiv-banner.png:', e?.message)
+        return loadImageAsJpeg('/captiv-banner.png')
+      })
+      .catch((e) => {
+        console.error('[pdfExport] banner fallback aussi échoué, PDF sans logo:', e?.message)
+        return null
+      }),
     // LIV-19 — livrables réels du projet filtrés par lot du devis (génériques
     // sans lot inclus). Si erreur, on retombe silencieusement sur [].
     listLivrablesForDevisPdf(project?.id, devis?.lot_id || null).catch(() => []),
   ])
+  console.log('[pdfExport] banner data URL:', bannerDataUrl
+    ? `${bannerDataUrl.slice(0, 50)}... (${bannerDataUrl.length} chars)`
+    : 'null')
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const PW = doc.internal.pageSize.getWidth()
@@ -256,8 +267,18 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // ╚══════════════════════════════════════════╝
 
   // ── Logo + DEVIS (pas de hline séparatrice) ──────────────────────────────────
-  // bannerDataUrl est garanti JPEG (renormalisé via canvas dans loadImageAsJpeg)
-  doc.addImage(bannerDataUrl, 'JPEG', M, 10, 45, 10)
+  // bannerDataUrl est garanti JPEG si non-null (renormalisé via canvas).
+  // Si null (chargement échoué + fallback échoué), on omet le logo plutôt
+  // que de crasher l'export.
+  if (bannerDataUrl) {
+    try {
+      doc.addImage(bannerDataUrl, 'JPEG', M, 10, 45, 10)
+    } catch (e) {
+      console.error('[pdfExport] addImage banner échoué:', e?.message || e)
+    }
+  } else {
+    console.warn('[pdfExport] aucun bannerDataUrl, PDF généré sans logo')
+  }
 
   txt('DEVIS', PW - M, 13, { size: 20, bold: true, align: 'right' })
   txt(NUM, PW - M, 18.5, { size: 7.5, align: 'right' })
