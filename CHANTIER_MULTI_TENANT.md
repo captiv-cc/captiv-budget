@@ -291,6 +291,18 @@ prévoir un tier "Enterprise" avec instance Supabase dédiée payante.
   aux orgs de créer leurs propres templates par-dessus. Pas urgent
   côté sécurité, mais à intégrer au design produit Phase 1.
 
+### 2026-05-01 — Question produit ouverte (Phase 1)
+- **`catalogue_lignes` partagé ou par-org ?** Découvert lors de
+  MT-0.4-C : table de catalogue de lignes types pour devis, créée via
+  le dashboard Supabase (pas dans les migrations versionnées). Policy
+  RLS actuelle : `using (true)` → lecture publique entre toutes les
+  orgs. À décider en Phase 1 : reste partagé (comme `minimas_convention`,
+  donnée de référence) ou scoping par org (comme les templates métiers
+  ci-dessus) ? Aucun impact sécurité aujourd'hui (1 seule org).
+- Whitelist mise à jour dans `mt0_4_static_audit.sql` pour reconnaître
+  ces 2 catalogues publics légitimes (`minimas_convention`,
+  `catalogue_lignes`).
+
 ### 2026-05-01 — MT-0.2 ✅ Audit RLS terminé
 - **169 policies analysées** sur 59 tables.
 - **Architecture saine** : 99% des policies passent par des fonctions

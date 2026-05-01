@@ -195,11 +195,21 @@ WITH checks AS (
        AND prosrc ILIKE '%get_user_org_id%') AS helpers_ok,
     -- Helpers attendus
     5 AS helpers_attendus,
-    -- Policies vraiment ouvertes (hors grille_cc qui est intentionnelle)
+    -- Policies vraiment ouvertes (hors catalogues publics intentionnels)
+    -- Whitelist :
+    --   - grille_cc            : grille convention collective (publique légale)
+    --   - outils_catalogue     : catalogue d'outils du système
+    --   - minimas_convention   : minimas tarifaires CCNTA (publique légale)
+    --   - catalogue_lignes     : catalogue de lignes types pour devis (partagé)
     (SELECT COUNT(*) FROM pg_policy p
      JOIN pg_class c ON c.oid = p.polrelid
      WHERE pg_get_expr(p.polqual, p.polrelid) IN ('true','(true)')
-       AND c.relname NOT IN ('grille_cc','outils_catalogue')) AS policies_ouvertes
+       AND c.relname NOT IN (
+         'grille_cc',
+         'outils_catalogue',
+         'minimas_convention',
+         'catalogue_lignes'
+       )) AS policies_ouvertes
 )
 SELECT
   helpers_ok || '/' || helpers_attendus AS helpers_durcis,
