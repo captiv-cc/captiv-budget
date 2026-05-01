@@ -39,6 +39,7 @@ import {
   List as ListIcon,
   GanttChart,
   ZoomIn,
+  FileText,
 } from 'lucide-react'
 import { useLivrables } from '../../hooks/useLivrables'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -62,6 +63,9 @@ import LivrablesFilterBar from '../../features/livrables/components/LivrablesFil
 import LivrablesTrashDrawer from '../../features/livrables/components/LivrablesTrashDrawer'
 import LivrablePipelineView from '../../features/livrables/components/LivrablePipelineView'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
+import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
+import { buildLivrablesEnsemblePdf } from '../../features/livrables/livrablesPdfExport'
+import { useProjet } from '../ProjetLayout'
 
 const OUTIL_KEY = 'livrables'
 
@@ -372,6 +376,80 @@ export default function LivrablesTab() {
   // ─── LIV-20 — Drawer Corbeille ──────────────────────────────────────────
   const [trashOpen, setTrashOpen] = useState(false)
 
+  // ─── LIV-23 — Export PDF "Vue ensemble" ─────────────────────────────────
+  // On garde l'objet exporter (avec url, filename, download, revoke) en state.
+  // Au close du preview, on révoque l'URL Blob.
+  const projetCtx = useProjet()
+  const project = projetCtx?.project || null
+  const [pdfExport, setPdfExport] = useState(null)
+  const handleExportPdf = useCallback(async () => {
+    try {
+      const versionStr = await prompt({
+        title: 'Export PDF — Vue ensemble',
+        message:
+          'Numéro de version du document (V1, V2, V3…). ' +
+          'Apparaîtra dans le bandeau d\'en-tête et dans le nom du fichier.',
+        placeholder: 'Ex : 1',
+        initialValue: '1',
+        confirmLabel: 'Générer',
+      })
+      if (versionStr === null) return
+      const versionNumber = String(versionStr).trim() || '1'
+      // Flatten les livrables et étapes depuis les Maps useLivrables
+      const livrablesFlat = []
+      if (livrablesByBlock) {
+        for (const arr of livrablesByBlock.values()) {
+          for (const l of arr) livrablesFlat.push(l)
+        }
+      }
+      const etapesFlat = []
+      if (etapesByLivrable) {
+        for (const arr of etapesByLivrable.values()) {
+          for (const e of arr) etapesFlat.push(e)
+        }
+      }
+      // Source unique : champ "Producteur" du projet (saisi dans ProjetTab,
+      // section ÉQUIPE). Stocké dans project.metadata.producteur, fallback
+      // colonne legacy project.producteur. Si vide → vide dans le PDF.
+      const producerName = (
+        project?.metadata?.producteur ?? project?.producteur ?? ''
+      ).toString().trim()
+      const clientName =
+        project?.clients?.nom_commercial ||
+        project?.clients?.nom ||
+        ''
+      const exporter = await buildLivrablesEnsemblePdf({
+        project,
+        client: clientName,
+        producer: producerName,
+        blocks,
+        livrables: livrablesFlat,
+        etapes: etapesFlat,
+        eventTypes,
+        profilesById,
+        versionNumber,
+      })
+      setPdfExport(exporter)
+    } catch (err) {
+      notify.error(
+        'Génération PDF impossible : ' + (err?.message || err),
+      )
+    }
+  }, [
+    project,
+    blocks,
+    livrablesByBlock,
+    etapesByLivrable,
+    eventTypes,
+    profilesById,
+  ])
+  const handleClosePdfPreview = useCallback(() => {
+    if (pdfExport) {
+      pdfExport.revoke?.()
+    }
+    setPdfExport(null)
+  }, [pdfExport])
+
   // ─── LIV-22 — Toggle Liste / Pipeline + mode Focus ─────────────────────
   // État persisté dans l'URL pour permettre refresh / partage de lien.
   //   ?vue=pipeline       → vue Pipeline (sinon Liste)
@@ -535,6 +613,7 @@ export default function LivrablesTab() {
         canEdit={canEdit}
         onCreateBlock={() => handleCreateBlock({ actions, nextSortOrder: blocks.length })}
         onOpenTrash={() => setTrashOpen(true)}
+        onExportPdf={blocks.length > 0 ? handleExportPdf : null}
         filters={filters}
         onClearAllFilters={handleClearAllFilters}
         onToggleEnRetard={handleToggleEnRetard}
@@ -715,6 +794,18 @@ export default function LivrablesTab() {
           actions={actions}
         />
       )}
+
+      {/* LIV-23 — Modal preview PDF "Vue ensemble" */}
+      {pdfExport && (
+        <PdfPreviewModal
+          open={true}
+          onClose={handleClosePdfPreview}
+          title="Vue ensemble — Livrables"
+          url={pdfExport.url}
+          filename={pdfExport.filename}
+          onDownload={() => pdfExport.download?.()}
+        />
+      )}
     </div>
   )
 }
@@ -761,6 +852,7 @@ function LivrablesHeader({
   canEdit,
   onCreateBlock,
   onOpenTrash,
+  onExportPdf,
   filters,
   onClearAllFilters,
   onToggleEnRetard,
@@ -915,6 +1007,31 @@ function LivrablesHeader({
           }}
         >
           <Trash2 className="w-4 h-4" />
+        </button>
+      )}
+      {/* LIV-23 — Export PDF "Vue ensemble" */}
+      {onExportPdf && (
+        <button
+          type="button"
+          onClick={onExportPdf}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors shrink-0"
+          style={{
+            background: 'transparent',
+            color: 'var(--txt-2)',
+            border: '1px solid var(--brd-sub)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-2)'
+          }}
+          title="Export PDF — Vue ensemble"
+        >
+          <FileText className="w-4 h-4" />
+          <span className="hidden sm:inline">Export PDF</span>
         </button>
       )}
       {canEdit && (
