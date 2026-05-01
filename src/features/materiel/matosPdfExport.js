@@ -34,6 +34,8 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { isUnassignedRecap } from '../../lib/materiel'
+import { loadImageAsJpeg, computeLogoBox } from '../../lib/pdfImageLoader'
+import { pickOrgLogo } from '../../lib/branding'
 
 // ─── Palette ────────────────────────────────────────────────────────────────
 const C = {
@@ -73,16 +75,9 @@ async function loadFontBase64(url) {
   return btoa(bin)
 }
 
-async function loadImageDataUrl(url) {
-  const res = await fetch(url)
-  const blob = await res.blob()
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
+// Helpers de chargement d'images factorisés dans lib/pdfImageLoader.js
+// (loadImageAsJpeg renormalise via canvas pour éviter les crash jsPDF
+// sur les variantes PNG/transparence/ratio).
 
 // Emballe un jsPDF doc en objet prévisualisable / téléchargeable.
 // Ne déclenche PAS le download automatiquement — laisse l'appelant choisir
@@ -108,18 +103,37 @@ function finishDoc(doc, filename) {
   }
 }
 
-// Charge fonts + logo UNE SEULE fois par session (cache module-scope).
-let _assetsCache = null
-async function loadAssets() {
-  if (_assetsCache) return _assetsCache
-  const [wsReg, wsBold, wsMed, banner] = await Promise.all([
+// Charge fonts (cache module-scope, indépendant de l'org) + logo banner
+// (rechargé selon l'org car chaque org a son propre logo).
+let _fontsCache = null
+async function loadFonts() {
+  if (_fontsCache) return _fontsCache
+  const [wsReg, wsBold, wsMed] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
-    loadImageDataUrl('/captiv-banner.png').catch(() => null),
   ])
-  _assetsCache = { wsReg, wsBold, wsMed, banner }
-  return _assetsCache
+  _fontsCache = { wsReg, wsBold, wsMed }
+  return _fontsCache
+}
+
+async function loadAssets(org) {
+  const fonts = await loadFonts()
+  // bannerImage est { dataUrl, width, height } ou null
+  // Si l'org n'a aucun logo configuré, on retombe sur /captiv-banner.png.
+  // Sinon, si le chargement de son logo échoue, on ne met pas de logo.
+  const hasOrgLogo = Boolean(
+    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+  )
+  const bannerUrl = pickOrgLogo(org, 'banner')
+  const bannerImage = await loadImageAsJpeg(bannerUrl).catch((e) => {
+    if (hasOrgLogo) {
+      console.error('[matosPdfExport] logo org échoué, PDF sans logo:', e?.message)
+      return null
+    }
+    return null
+  })
+  return { ...fonts, bannerImage }
 }
 
 // ─── Utilitaires ────────────────────────────────────────────────────────────
@@ -148,14 +162,22 @@ function projectRef(project) {
 }
 
 // ─── Header / Footer (communs) ──────────────────────────────────────────────
-function drawHeader(doc, { title, subtitle, project, activeVersion, banner }) {
+function drawHeader(doc, { title, subtitle, project, activeVersion, bannerImage }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
 
-  // Logo à gauche (45x10mm)
-  if (banner) {
+  // Logo à gauche, taille calculée dynamiquement à partir du ratio naturel
+  // pour éviter l'écrasement (boîte max 50×14mm, centré verticalement)
+  if (bannerImage) {
     try {
-      doc.addImage(banner, 'PNG', M, 10, 45, 10)
+      const BOX_Y = 10
+      const BOX_H = 14
+      const BOX_W = 50
+      const { width, height } = computeLogoBox(
+        bannerImage.width, bannerImage.height, BOX_W, BOX_H
+      )
+      const finalY = BOX_Y + (BOX_H - height) / 2
+      doc.addImage(bannerImage.dataUrl, 'JPEG', M, finalY, width, height)
     } catch {
       // pas grave, on affiche le titre sans logo
     }
@@ -202,7 +224,7 @@ function drawFooter(doc, { org }) {
     doc.setFont('WS', 'normal')
     doc.setFontSize(7)
     doc.setTextColor(...C.gray)
-    doc.text(org?.name || 'CAPTIV', M, PH - 7)
+    doc.text(org?.legal_name || org?.display_name || '', M, PH - 7)
     doc.text(`Page ${i}/${total}`, PW - M, PH - 7, { align: 'right' })
   }
 }
@@ -461,7 +483,7 @@ export async function exportMatosGlobalPDF({
   org,
   infosLogistiqueByLoueur = null, // MAT-20 — Map(loueur_id -> row)
 }) {
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   const doc = makeDoc(assets)
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
@@ -473,7 +495,7 @@ export async function exportMatosGlobalPDF({
       subtitle: 'Liste globale',
       project,
       activeVersion,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
     })
 
   renderPageHeader()
@@ -592,7 +614,7 @@ export async function exportMatosChecklistPDF({
   loueursById,
   org,
 }) {
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   // Paysage pour accommoder les 8 colonnes
   const doc = makeDoc(assets, { orientation: 'landscape' })
   const PW = doc.internal.pageSize.getWidth()
@@ -605,7 +627,7 @@ export async function exportMatosChecklistPDF({
       subtitle: 'Pré / Post / Prod',
       project,
       activeVersion,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
     })
 
   renderPageHeader()
@@ -723,7 +745,7 @@ export async function exportMatosLoueursPDF({
   selectedLoueurIds = null, // null = tous
   infosLogistiqueByLoueur = null, // MAT-20
 }) {
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   const doc = makeDoc(assets)
   const M = 14
 
@@ -740,7 +762,7 @@ export async function exportMatosLoueursPDF({
       subtitle: 'Par loueur',
       project,
       activeVersion,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
     })
     doc.setFont('WS', 'normal')
     doc.setFontSize(10)
@@ -757,7 +779,7 @@ export async function exportMatosLoueursPDF({
       activeVersion,
       loueur: r.loueur,
       lignes: r.lignes,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
   })
@@ -788,7 +810,7 @@ export async function exportMatosLoueursZip({
     )
   }
 
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   // MAT-18 : on exclut TOUJOURS le groupe synthétique "Non assigné" des
   // exports PDF — il n'a pas de destinataire, ce n'est qu'un indicateur UI.
   const realRecap = recapByLoueur.filter((r) => !isUnassignedRecap(r))
@@ -808,7 +830,7 @@ export async function exportMatosLoueursZip({
       activeVersion,
       loueur: r.loueur,
       lignes: r.lignes,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
     drawFooter(doc, { org })
@@ -851,14 +873,14 @@ export async function exportMatosLoueurSinglePDF({
   org,
   infosLogistique = '', // MAT-20 — texte libre loueur
 }) {
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   const doc = makeDoc(assets)
   renderLoueurSection(doc, {
     project,
     activeVersion,
     loueur,
     lignes,
-    banner: assets.banner,
+    bannerImage: assets.bannerImage,
     infosLogistique,
   })
   drawFooter(doc, { org })

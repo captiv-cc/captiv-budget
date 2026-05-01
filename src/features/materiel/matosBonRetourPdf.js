@@ -46,6 +46,8 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { versionLabel, NO_LOUEUR_BUCKET_ID } from '../../lib/matosBilanData'
+import { loadImageAsJpeg, computeLogoBox } from '../../lib/pdfImageLoader'
+import { pickOrgLogo } from '../../lib/branding'
 import {
   bonRetourPdfFilename,
   bonRetourLoueurPdfFilename,
@@ -96,27 +98,28 @@ async function loadFontBase64(url) {
   return btoa(bin)
 }
 
-async function loadImageDataUrl(url) {
-  const res = await fetch(url)
-  const blob = await res.blob()
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
+// Helpers de chargement images factorisés dans lib/pdfImageLoader.js
 
-async function loadAssets() {
-  if (_assetsCache) return _assetsCache
-  const [wsReg, wsBold, wsMed, banner] = await Promise.all([
-    loadFontBase64('/font/WorkSans-Regular.ttf'),
-    loadFontBase64('/font/WorkSans-Bold.ttf'),
-    loadFontBase64('/font/WorkSans-Medium.ttf'),
-    loadImageDataUrl('/captiv-banner.png').catch(() => null),
-  ])
-  _assetsCache = { wsReg, wsBold, wsMed, banner }
-  return _assetsCache
+async function loadAssets(org) {
+  if (!_assetsCache) {
+    const [wsReg, wsBold, wsMed] = await Promise.all([
+      loadFontBase64('/font/WorkSans-Regular.ttf'),
+      loadFontBase64('/font/WorkSans-Bold.ttf'),
+      loadFontBase64('/font/WorkSans-Medium.ttf'),
+    ])
+    _assetsCache = { wsReg, wsBold, wsMed }
+  }
+  const hasOrgLogo = Boolean(
+    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+  )
+  const bannerUrl = pickOrgLogo(org, 'banner')
+  const bannerImage = await loadImageAsJpeg(bannerUrl).catch((e) => {
+    if (hasOrgLogo) {
+      console.error('[matosBonRetourPdf] logo org échoué, PDF sans logo:', e?.message)
+    }
+    return null
+  })
+  return { ..._assetsCache, bannerImage }
 }
 
 function makeDoc(assets, { orientation = 'portrait' } = {}) {
@@ -178,13 +181,21 @@ function projectRef(project) {
 }
 
 // ─── Header / footer ───────────────────────────────────────────────────────
-function drawHeader(doc, { title, subtitle, project, version, banner }) {
+function drawHeader(doc, { title, subtitle, project, version, bannerImage }) {
   const PW = doc.internal.pageSize.getWidth()
   const M = 14
 
-  if (banner) {
+  // Logo à gauche, taille calculée dynamiquement à partir du ratio naturel
+  if (bannerImage) {
     try {
-      doc.addImage(banner, 'PNG', M, 10, 45, 10)
+      const BOX_Y = 10
+      const BOX_H = 14
+      const BOX_W = 50
+      const { width, height } = computeLogoBox(
+        bannerImage.width, bannerImage.height, BOX_W, BOX_H
+      )
+      const finalY = BOX_Y + (BOX_H - height) / 2
+      doc.addImage(bannerImage.dataUrl, 'JPEG', M, finalY, width, height)
     } catch {
       // tant pis, on continue sans logo
     }
@@ -227,7 +238,7 @@ function drawFooter(doc, { org }) {
     doc.setFont('WS', 'normal')
     doc.setFontSize(7)
     doc.setTextColor(...C.gray)
-    doc.text(org?.name || 'CAPTIV', M, PH - 7)
+    doc.text(org?.legal_name || org?.display_name || '', M, PH - 7)
     doc.text(`Page ${i}/${total}`, PW - M, PH - 7, { align: 'right' })
   }
 }
@@ -1075,7 +1086,7 @@ export async function buildBonRetourGlobalPdf(snapshot, { org, photoDataMap = nu
   if (!snapshot || !snapshot.version) {
     throw new Error('buildBonRetourGlobalPdf : snapshot invalide')
   }
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   const doc = makeDoc(assets)
   const M = 14
 
@@ -1088,7 +1099,7 @@ export async function buildBonRetourGlobalPdf(snapshot, { org, photoDataMap = nu
       subtitle: 'Rendu matériel — vue d\'ensemble',
       project: snapshot.project,
       version: snapshot.version,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
     })
 
   renderPageHeader()
@@ -1167,7 +1178,7 @@ export async function buildBonRetourLoueurPdf(snapshot, {
     throw new Error('buildBonRetourLoueurPdf : section (loueur bucket) requis')
   }
 
-  const assets = await loadAssets()
+  const assets = await loadAssets(org)
   const doc = makeDoc(assets)
   const M = 14
   const PW = doc.internal.pageSize.getWidth()
@@ -1186,7 +1197,7 @@ export async function buildBonRetourLoueurPdf(snapshot, {
       subtitle: `Loueur : ${loueurNom}`,
       project: snapshot.project,
       version: snapshot.version,
-      banner: assets.banner,
+      bannerImage: assets.bannerImage,
     })
 
   renderPageHeader()
