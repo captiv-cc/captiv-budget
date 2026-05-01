@@ -1,12 +1,25 @@
 /**
- * Export PDF devis — CAPTIV
- * Style : blanc/noir, Work Sans, fidèle à exemple-devis.pdf
+ * Export PDF devis
+ * Style : blanc/noir, Work Sans. Toutes les infos visibles (logo,
+ * raison sociale, mentions légales, blocs annulation/règlement/CGV)
+ * sont tirées dynamiquement de l'organisation via `org`.
  */
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { calcLine, calcSynthese, fmtEur, TAUX_DEFAUT } from './cotisations'
 import { getBlocInfo } from './blocs'
 import { listLivrablesForDevisPdf } from './livrables'
+import { pickOrgLogo } from './branding'
+
+// Calcul du SIREN à partir d'un SIRET : 9 premiers chiffres formattés
+// en groupes de 3 (ex: "898201025 00019" → "898 201 025"). Renvoie ''
+// si le SIRET est vide ou ne contient pas assez de chiffres.
+function computeSiren(siret) {
+  if (!siret) return ''
+  const digits = String(siret).replace(/\D/g, '').slice(0, 9)
+  if (digits.length < 9) return ''
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)}`
+}
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const C = {
@@ -96,11 +109,17 @@ const LABELS_C2 = {
 
 // ─── Export principal ─────────────────────────────────────────────────────────
 export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DEFAUT) {
+  // Choix du logo bannière selon org : version horizontale prioritaire,
+  // fallback sur logo clair, puis sur l'image Captiv en dur.
+  const bannerUrl = pickOrgLogo(org, 'banner')
   const [wsRegB64, wsBoldB64, wsMedB64, bannerDataUrl, livrablesPdf] = await Promise.all([
     loadFontBase64('/font/WorkSans-Regular.ttf'),
     loadFontBase64('/font/WorkSans-Bold.ttf'),
     loadFontBase64('/font/WorkSans-Medium.ttf'),
-    loadImageDataUrl('/captiv-banner.png'),
+    // Si l'org a uploadé son logo banner, c'est une URL Supabase Storage publique
+    // qu'on charge en data URL. Best-effort : si échec (CORS, 404), fallback vers
+    // l'image en dur pour ne pas casser l'export.
+    loadImageDataUrl(bannerUrl).catch(() => loadImageDataUrl('/captiv-banner.png')),
     // LIV-19 — livrables réels du projet filtrés par lot du devis (génériques
     // sans lot inclus). Si erreur, on retombe silencieusement sur [].
     listLivrablesForDevisPdf(project?.id, devis?.lot_id || null).catch(() => []),
@@ -166,9 +185,10 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   }
 
   // ── Footer ───────────────────────────────────────────────────────────────────
+  const orgFooterName = org?.legal_name || org?.display_name || ''
   const drawFooter = (pageNum) => {
     hline(M, PH - 12, PW - M, C.lgray, 0.3)
-    txt(org?.name || 'CAPTIV SARL OMNI FILMS', M, PH - 7, { size: 7 })
+    txt(orgFooterName, M, PH - 7, { size: 7 })
     txt(`Page ${pageNum}`, PW - M, PH - 7, { size: 7, align: 'right' })
   }
 
@@ -215,30 +235,32 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // +4mm de padding en haut du bloc client → "ligne vide" avant le nom
   if (clientBlockH > 0) fillRect(rightX - 4, y - 3, halfW + 4, clientBlockH + 10, C.light)
 
-  // Captiv (gauche, pas de fond)
+  // Émetteur (gauche, pas de fond) — toutes les infos viennent de org
   let ly = y
-  txt(org?.name || 'CAPTIV SARL OMNI FILMS', M, ly, { size: 7.5, bold: true })
-  ly += 3.8
+  const senderName = org?.legal_name || org?.display_name || ''
+  if (senderName) {
+    txt(senderName, M, ly, { size: 7.5, bold: true })
+    ly += 3.8
+  }
   if (org?.address) {
     doc.splitTextToSize(org.address, halfW).forEach((l) => {
       txt(l, M, ly, { size: 6.5, color: C.gray })
       ly += 3.4
     })
-  } else {
-    txt('59 Rue de Ponthieu, Bureau 326', M, ly, { size: 6.5, color: C.gray })
-    ly += 3.4
-    txt('75008 PARIS', M, ly, { size: 6.5, color: C.gray })
-    ly += 3.4
-    txt('FRANCE', M, ly, { size: 6.5, color: C.gray })
-    ly += 3.4
   }
   ly += 0.5
-  txt(org?.contact_name || 'Hugo MARTIN', M, ly, { size: 6.5, bold: true, color: C.gray })
-  ly += 3.4
-  txt(org?.email || 'hugo@captiv.cc', M, ly, { size: 6.5, color: C.gray })
-  ly += 3.4
-  txt(org?.phone || '0641675554', M, ly, { size: 6.5, color: C.gray })
-  ly += 3.4
+  if (org?.contact_name) {
+    txt(org.contact_name, M, ly, { size: 6.5, bold: true, color: C.gray })
+    ly += 3.4
+  }
+  if (org?.email) {
+    txt(org.email, M, ly, { size: 6.5, color: C.gray })
+    ly += 3.4
+  }
+  if (org?.phone) {
+    txt(org.phone, M, ly, { size: 6.5, color: C.gray })
+    ly += 3.4
+  }
 
   // Client (droite, sur fond gris déjà dessiné) — démarre 4mm plus bas (ligne vide en haut)
   let cy = y + 4
@@ -452,44 +474,35 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     ny += 2
   }
 
-  txt('ANNULATION / REPORT', M, ny, { size: 6, bold: true })
-  ny += 3.5
-  ;[
-    'À moins de 5 jours ouvrables du tournage : 50% du montant total de la production',
-    'À moins de 72h du tournage : 100% du montant total de la production',
-  ].forEach((t) =>
-    doc.splitTextToSize(t, notesW).forEach((l) => {
-      txt(l, M, ny, { size: 5.5, color: C.gray })
-      ny += 2.8
-    }),
-  )
-  ny += 2
-
-  txt('MODALITÉS DE RÈGLEMENT', M, ny, { size: 6, bold: true })
-  ny += 3.5
-  ;[
-    `Acompte : ${devis.acompte_pct || 30}% du montant total à la commande (${fmtEurPdf(synth.acompte)} TTC)`,
-    'Solde : sous 30 jours après réception de la facture',
-    'Majoration de 10% après 60 jours',
-  ].forEach((t) =>
-    doc.splitTextToSize(t, notesW).forEach((l) => {
-      txt(l, M, ny, { size: 5.5, color: C.gray })
-      ny += 2.8
-    }),
-  )
-  ny += 2
-
-  txt('CGV', M, ny, { size: 6, bold: true })
-  ny += 3.5
-  doc
-    .splitTextToSize(
-      "Toute commande est soumise à l'acceptation préalable de nos conditions générales de ventes, consultables sur www.captiv.cc ou sur simple demande.",
-      notesW,
-    )
-    .forEach((l) => {
-      txt(l, M, ny, { size: 5.5, color: C.gray })
-      ny += 2.8
+  // Helper pour rendre un bloc texte multi-paragraphes (split sur \n).
+  // Le bloc est entièrement masqué si le texte est vide → permet à une
+  // org de masquer un bloc en laissant son champ vide dans Paramètres.
+  const drawTextBlock = (title, body) => {
+    if (!body || !String(body).trim()) return
+    txt(title, M, ny, { size: 6, bold: true })
+    ny += 3.5
+    String(body).split('\n').forEach((line) => {
+      doc.splitTextToSize(line, notesW).forEach((l) => {
+        txt(l, M, ny, { size: 5.5, color: C.gray })
+        ny += 2.8
+      })
     })
+    ny += 2
+  }
+
+  drawTextBlock('ANNULATION / REPORT', org?.pdf_devis_annulation_text)
+
+  // Modalités de règlement : la première ligne (acompte) est calculée
+  // dynamiquement à partir du devis (% + montant TTC). Le reste vient
+  // du texte fixe de l'org (solde, majoration, etc.).
+  const acomptePct = devis.acompte_pct || 30
+  const acompteLine = `Acompte : ${acomptePct}% du montant total à la commande (${fmtEurPdf(synth.acompte)} TTC)`
+  const reglementBody = [acompteLine, org?.pdf_devis_reglement_text || '']
+    .filter((s) => String(s).trim())
+    .join('\n')
+  drawTextBlock('MODALITÉS DE RÈGLEMENT', reglementBody)
+
+  drawTextBlock('CGV', org?.pdf_devis_cgv_text)
 
   // Totaux droite — TOTAL HT en priorité (fond sombre), TTC en fond clair
   const RH = 5.5
@@ -809,17 +822,47 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   }
 
   // ── Mention légale ────────────────────────────────────────────────────────────
-  const orgSiret = org?.siret || '898201025 00043'
-  const orgTVA = org?.tva_number || 'FR 26898201025'
+  // Construite dynamiquement à partir des champs `org` et de
+  // `pdf_field_visibility` (toggles dans Paramètres > Organisation > Identité
+  // légale). Les champs masqués / vides sont automatiquement omis.
+  const vis = org?.pdf_field_visibility || {}
+  const showField = (key) => vis[key] !== false  // défaut : visible si non défini
+  const orgSiren = computeSiren(org?.siret)
+  // Ligne 1 : raison sociale + forme + capital
+  const line1Parts = []
+  if (showField('legal_name') && (org?.legal_name || org?.display_name)) {
+    line1Parts.push(org.legal_name || org.display_name)
+  }
+  if (showField('forme_juridique') && org?.forme_juridique) {
+    line1Parts.push(org.forme_juridique)
+  }
+  if (showField('capital_social') && org?.capital_social) {
+    line1Parts.push(`au capital de ${org.capital_social}`)
+  }
+  // Ligne 2 : SIRET, RCS+SIREN, APE, TVA
+  const line2Parts = []
+  if (showField('siret') && org?.siret) line2Parts.push(`N° Siret : ${org.siret}`)
+  if (showField('siren') && orgSiren && org?.ville_rcs && showField('ville_rcs')) {
+    line2Parts.push(`R.C.S. ${org.ville_rcs} ${orgSiren}`)
+  } else if (showField('ville_rcs') && org?.ville_rcs) {
+    line2Parts.push(`R.C.S. ${org.ville_rcs}`)
+  } else if (showField('siren') && orgSiren) {
+    line2Parts.push(`SIREN ${orgSiren}`)
+  }
+  if (showField('code_ape') && org?.code_ape) line2Parts.push(`Code APE : ${org.code_ape}`)
+  if (showField('tva_number') && org?.tva_number) {
+    line2Parts.push(`TVA intracommunautaire : ${org.tva_number}`)
+  }
+
   let legalY = Math.max(dy + 5, PH - FOOTER_H - 15)
-  ;[
-    `${org?.name || 'CAPTIV. // SARL OMNI Films'} - SARL au capital de 800 €`,
-    `N° Siret : ${orgSiret} - R.C.S. Paris 898 201 025 - Code APE : 5911A - TVA intracommunautaire : ${orgTVA}`,
-    'IBAN : FR76 1695 8000 0193 6355 6456 948 - BIC : QNTOFRP1XXX',
-  ].forEach((l) => {
-    txt(l, PW / 2, legalY, { size: 6, color: C.gray, align: 'center' })
+  if (line1Parts.length > 0) {
+    txt(line1Parts.join(' - '), PW / 2, legalY, { size: 6, color: C.gray, align: 'center' })
     legalY += 3.5
-  })
+  }
+  if (line2Parts.length > 0) {
+    txt(line2Parts.join(' - '), PW / 2, legalY, { size: 6, color: C.gray, align: 'center' })
+    legalY += 3.5
+  }
 
   // ── Footers ───────────────────────────────────────────────────────────────────
   const totalPages = doc.internal.getNumberOfPages()
@@ -834,7 +877,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // entre prévisualiser (URL.createObjectURL → <iframe>) et télécharger.
   // Aligné avec le pattern `finishDoc` de matosBilanPdf.js.
   const sanitize = (s) => (s || '').replace(/[^a-zA-Z0-9àâäéèêëïîôùûüçÀÂÄÉÈÊËÏÎÔÙÛÜÇ &+\-_.]/g, '').trim()
-  const ref = sanitize(project?.ref_projet) || 'CAPTIV'
+  const ref = sanitize(project?.ref_projet) || sanitize(org?.display_name) || 'PROJET'
   const clientName = sanitize(client?.raison_sociale || client?.nom_commercial) || ''
   const projTitle = sanitize(project?.title) || ''
   const ver = devis.version_number || 1
