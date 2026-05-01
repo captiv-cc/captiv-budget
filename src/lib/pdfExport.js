@@ -75,6 +75,7 @@ async function loadImageAsJpeg(url) {
             reject(new Error('loadImageAsJpeg: image vide (0x0)'))
             return
           }
+          console.log(`[loadImageAsJpeg] image chargée: ${w}×${h} pour ${url}`)
           const canvas = document.createElement('canvas')
           canvas.width = w
           canvas.height = h
@@ -84,7 +85,20 @@ async function loadImageAsJpeg(url) {
           ctx.fillStyle = '#FFFFFF'
           ctx.fillRect(0, 0, w, h)
           ctx.drawImage(img, 0, 0)
-          resolve(canvas.toDataURL('image/jpeg', 0.92))
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+          // Détection d'un échec silencieux de toDataURL : si le canvas
+          // ne peut pas encoder (image trop grande, format pixel exotique,
+          // mémoire saturée), il retourne "data:," sans throw. On le
+          // détecte et on rejette pour permettre le fallback en cascade.
+          if (!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.length < 100) {
+            reject(new Error(
+              `loadImageAsJpeg: toDataURL retourne un data URL invalide (${dataUrl?.length || 0} chars) ` +
+              `pour image ${w}×${h}. L'image source est probablement trop grande ou dans un format ` +
+              `non supporté (essayer de la redimensionner < 2000px).`
+            ))
+            return
+          }
+          resolve(dataUrl)
         } catch (e) {
           reject(e)
         }
