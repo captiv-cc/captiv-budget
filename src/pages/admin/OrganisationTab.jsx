@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertCircle,
+  Receipt,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -76,7 +77,7 @@ export default function OrganisationTab() {
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
   const [openSections, setOpenSections] = useState({
-    commercial: true, legal: true, contact: true, branding: true, share: true,
+    commercial: true, legal: true, contact: true, branding: true, share: true, devis: true,
   })
 
   // Hydrate le draft depuis l'org au premier render et à chaque changement d'org
@@ -98,6 +99,7 @@ export default function OrganisationTab() {
       phone: org.phone || '',
       logo_url_clair: org.logo_url_clair || '',
       logo_url_sombre: org.logo_url_sombre || '',
+      logo_banner_url: org.logo_banner_url || '',
       signature_url: org.signature_url || '',
       brand_color: org.brand_color || '#3B82F6',
       pdf_field_visibility: org.pdf_field_visibility || {
@@ -105,6 +107,9 @@ export default function OrganisationTab() {
         siret: true, code_ape: true, tva_number: true, ville_rcs: true, siren: true,
       },
       share_intro_text: org.share_intro_text || '',
+      pdf_devis_annulation_text: org.pdf_devis_annulation_text || '',
+      pdf_devis_reglement_text: org.pdf_devis_reglement_text || '',
+      pdf_devis_cgv_text: org.pdf_devis_cgv_text || '',
     })
   }, [org])
 
@@ -160,10 +165,14 @@ export default function OrganisationTab() {
       phone: draft.phone || null,
       logo_url_clair: draft.logo_url_clair || null,
       logo_url_sombre: draft.logo_url_sombre || null,
+      logo_banner_url: draft.logo_banner_url || null,
       signature_url: draft.signature_url || null,
       brand_color: draft.brand_color || '#3B82F6',
       pdf_field_visibility: draft.pdf_field_visibility || {},
       share_intro_text: draft.share_intro_text || null,
+      pdf_devis_annulation_text: draft.pdf_devis_annulation_text || null,
+      pdf_devis_reglement_text: draft.pdf_devis_reglement_text || null,
+      pdf_devis_cgv_text: draft.pdf_devis_cgv_text || null,
     }
     const { data, error } = await supabase
       .from('organisations')
@@ -209,6 +218,7 @@ export default function OrganisationTab() {
       phone: org.phone || '',
       logo_url_clair: org.logo_url_clair || '',
       logo_url_sombre: org.logo_url_sombre || '',
+      logo_banner_url: org.logo_banner_url || '',
       signature_url: org.signature_url || '',
       brand_color: org.brand_color || '#3B82F6',
       pdf_field_visibility: org.pdf_field_visibility || {
@@ -216,6 +226,9 @@ export default function OrganisationTab() {
         siret: true, code_ape: true, tva_number: true, ville_rcs: true, siren: true,
       },
       share_intro_text: org.share_intro_text || '',
+      pdf_devis_annulation_text: org.pdf_devis_annulation_text || '',
+      pdf_devis_reglement_text: org.pdf_devis_reglement_text || '',
+      pdf_devis_cgv_text: org.pdf_devis_cgv_text || '',
     })
   }
 
@@ -405,6 +418,15 @@ export default function OrganisationTab() {
         </div>
         <ImageUploader
           orgId={org.id}
+          kind="logo-banner"
+          label="Logo bannière (en-tête PDF)"
+          hint="Version horizontale du logo, utilisée en en-tête de tous les PDFs (devis, facture, bilan…)"
+          currentUrl={draft.logo_banner_url}
+          onChange={(url) => set('logo_banner_url', url)}
+          previewBg="#ffffff"
+        />
+        <ImageUploader
+          orgId={org.id}
           kind="signature"
           label="Signature du producteur"
           hint="Apparaît en bas des PDFs livrables et devis. Idéalement PNG transparent."
@@ -467,6 +489,46 @@ export default function OrganisationTab() {
             placeholder="Bienvenue sur le suivi de votre projet…"
             value={draft.share_intro_text}
             onChange={(e) => set('share_intro_text', e.target.value)}
+          />
+        </Field>
+      </Section>
+
+      {/* ── 6. Mentions devis ────────────────────────────────────────── */}
+      <Section
+        icon={<Receipt className="w-4 h-4" />}
+        title="Mentions devis"
+        subtitle="Textes affichés dans le pied de page de vos devis. Laisser vide pour masquer un bloc."
+        open={openSections.devis}
+        onToggle={() => toggle('devis')}
+      >
+        <Field label="Annulation / report">
+          <textarea
+            className="input text-sm w-full resize-y min-h-[80px]"
+            placeholder="Conditions d'annulation ou de report du tournage…"
+            value={draft.pdf_devis_annulation_text}
+            onChange={(e) => set('pdf_devis_annulation_text', e.target.value)}
+          />
+        </Field>
+        <Field
+          label="Modalités de règlement"
+          hint="Les conditions d'acompte (% et montant calculé) sont injectées automatiquement par le devis avant ce texte. Mettez ici uniquement les règles fixes : solde, majoration, etc."
+        >
+          <textarea
+            className="input text-sm w-full resize-y min-h-[80px]"
+            placeholder="Solde sous 30 jours, majoration en cas de retard…"
+            value={draft.pdf_devis_reglement_text}
+            onChange={(e) => set('pdf_devis_reglement_text', e.target.value)}
+          />
+        </Field>
+        <Field
+          label="CGV"
+          hint="Mention légale renvoyant vers vos conditions générales de vente"
+        >
+          <textarea
+            className="input text-sm w-full resize-y min-h-[80px]"
+            placeholder="Toute commande est soumise à l'acceptation de nos CGV, consultables sur…"
+            value={draft.pdf_devis_cgv_text}
+            onChange={(e) => set('pdf_devis_cgv_text', e.target.value)}
           />
         </Field>
       </Section>
