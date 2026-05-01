@@ -42,15 +42,20 @@ async function loadFontBase64(url) {
   return btoa(bin)
 }
 
-// Charge une image et la **renormalise en PNG** via un canvas. Évite les
-// crashs jsPDF "Invalid string length" / "Invalid image format" quand
-// l'utilisateur uploade un JPG/WebP/PNG mal encodé : peu importe le format
-// d'origine, on ressort toujours un PNG propre que jsPDF peut décoder.
+// Charge une image et la **renormalise en JPEG** via un canvas. Évite les
+// crashs jsPDF ("Invalid string length", "Incomplete or corrupt PNG file")
+// quand l'utilisateur uploade un format que le parser PNG strict de jsPDF
+// n'aime pas (PNG avec alpha, WebP, JPG annoncé comme PNG, etc.).
+//
+// Pourquoi JPEG plutôt que PNG en sortie : le parser JPEG de jsPDF est
+// nettement plus tolérant. La transparence est gérée en peignant le canvas
+// en blanc avant de dessiner l'image (les PDFs sont sur fond blanc, donc
+// c'est sans conséquence visuelle).
 //
 // Si l'image n'est pas chargeable (URL invalide, CORS, 404), la promesse
 // rejette → l'appelant peut retomber sur un fallback.
-async function loadImageAsPng(url) {
-  if (!url) throw new Error('loadImageAsPng: url manquante')
+async function loadImageAsJpeg(url) {
+  if (!url) throw new Error('loadImageAsJpeg: url manquante')
   return new Promise((resolve, reject) => {
     const img = new Image()
     // Indispensable pour les URLs cross-origin (Supabase Storage), sinon
@@ -62,13 +67,17 @@ async function loadImageAsPng(url) {
         canvas.width = img.naturalWidth || img.width || 1
         canvas.height = img.naturalHeight || img.height || 1
         const ctx = canvas.getContext('2d')
+        // Fond blanc opaque pour neutraliser les pixels transparents
+        // (sinon JPEG les rendrait en noir et le rendu serait moche).
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.drawImage(img, 0, 0)
-        resolve(canvas.toDataURL('image/png'))
+        resolve(canvas.toDataURL('image/jpeg', 0.92))
       } catch (e) {
         reject(e)
       }
     }
-    img.onerror = () => reject(new Error(`loadImageAsPng: échec chargement ${url}`))
+    img.onerror = () => reject(new Error(`loadImageAsJpeg: échec chargement ${url}`))
     img.src = url
   })
 }
@@ -139,7 +148,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     // Si l'org a uploadé son logo banner, c'est une URL Supabase Storage publique
     // qu'on charge et renormalise en PNG via canvas. Best-effort : si échec
     // (CORS, 404, format pas supporté par <img>), fallback sur l'image en dur.
-    loadImageAsPng(bannerUrl).catch(() => loadImageAsPng('/captiv-banner.png')),
+    loadImageAsJpeg(bannerUrl).catch(() => loadImageAsJpeg('/captiv-banner.png')),
     // LIV-19 — livrables réels du projet filtrés par lot du devis (génériques
     // sans lot inclus). Si erreur, on retombe silencieusement sur [].
     listLivrablesForDevisPdf(project?.id, devis?.lot_id || null).catch(() => []),
@@ -232,8 +241,8 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   // ╚══════════════════════════════════════════╝
 
   // ── Logo + DEVIS (pas de hline séparatrice) ──────────────────────────────────
-  // bannerDataUrl est garanti PNG (renormalisé via canvas dans loadImageAsPng)
-  doc.addImage(bannerDataUrl, 'PNG', M, 10, 45, 10)
+  // bannerDataUrl est garanti JPEG (renormalisé via canvas dans loadImageAsJpeg)
+  doc.addImage(bannerDataUrl, 'JPEG', M, 10, 45, 10)
 
   txt('DEVIS', PW - M, 13, { size: 20, bold: true, align: 'right' })
   txt(NUM, PW - M, 18.5, { size: 7.5, align: 'right' })
