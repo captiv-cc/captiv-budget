@@ -32,7 +32,6 @@ import {
 import { syncTournagePeriodToPlanning } from '../../lib/projectPeriodSync'
 import {
   Save,
-  Plus,
   Trash2,
   X,
   RefreshCw,
@@ -49,6 +48,7 @@ import {
   Mail,
   Phone,
   MapPin,
+  Folder,
 } from 'lucide-react'
 
 // ─── Définition des champs dynamiques PROJET ─────────────────────────────────
@@ -109,14 +109,6 @@ const PROJET_FIELDS_DEF = [
 
 const ALL_KEYS = PROJET_FIELDS_DEF.map((f) => f.key)
 
-const EMPTY_LIVRABLE = () => ({
-  id: Date.now() + Math.random(),
-  nom: '',
-  format: '',
-  duree: '',
-  livraison: '',
-})
-
 // ─── Helpers de mapping project ⇄ draft (formulaire d'édition) ───────────────
 function buildDraftFromProject(project) {
   const meta = project.metadata || {}
@@ -132,16 +124,6 @@ function buildDraftFromProject(project) {
   ALL_KEYS.forEach((k) => {
     visible[k] = meta._visible?.[k] !== false
   })
-
-  let livrables = []
-  try {
-    livrables = Array.isArray(project.livrables_json)
-      ? project.livrables_json
-      : JSON.parse(project.livrables_json || '[]')
-  } catch {
-    livrables = []
-  }
-  if (!livrables.length) livrables = [EMPTY_LIVRABLE()]
 
   // PROJ-PERIODES : extraction des 5 périodes structurées (avec migration
   // soft des chaînes legacy si metadata.periodes absent).
@@ -159,7 +141,6 @@ function buildDraftFromProject(project) {
     fields,
     visible,
     periodes,
-    livrables,
     noteProd: project.note_prod || '',
   }
 }
@@ -184,7 +165,8 @@ function buildPayloadFromDraft(draft) {
     realisateur: draft.fields.realisateur || null,
     note_prod: draft.noteProd,
     metadata,
-    livrables_json: draft.livrables,
+    // NB : livrables_json (legacy) n'est volontairement plus écrit ici —
+    // les livrables sont gérés depuis LivrablesTab (LIV-7+).
     updated_at: new Date().toISOString(),
   }
 }
@@ -345,36 +327,34 @@ export default function ProjetTab() {
 
   return (
     <div className="p-5 max-w-7xl mx-auto pb-16">
-      {editing ? (
-        <div className="max-w-4xl mx-auto space-y-4">
-          <EditView
-            draft={draft}
-            setDraft={setDraft}
-            clientsList={clientsList}
-            onCancel={cancelEdit}
-            onSave={saveEdit}
-            saving={saving}
-            showAdmin={showAdmin}
-            setShowAdmin={setShowAdmin}
-            projectId={projectId}
-          />
-        </div>
-      ) : (
-        // Tous les rôles : grille 3 colonnes desktop avec Équipe en colonne
-        // latérale (col-start-3, row-span-N). Repli en single column sur
-        // mobile/tablette.
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 items-start">
-          <ReadView
-            project={project}
-            get={get}
-            canEdit={canEdit}
-            onEdit={startEdit}
-            persons={persons}
-            loadingMembres={loadingMembres}
-            accessCount={accessCount}
-            canSeeLivrables={canSeeLivrables}
-          />
-        </div>
+      {/* Lecture (toujours rendue) — grille 3 colonnes desktop avec Équipe
+          en colonne latérale, single column sur mobile/tablette. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 items-start">
+        <ReadView
+          project={project}
+          get={get}
+          canEdit={canEdit}
+          onEdit={startEdit}
+          persons={persons}
+          loadingMembres={loadingMembres}
+          accessCount={accessCount}
+          canSeeLivrables={canSeeLivrables}
+        />
+      </div>
+
+      {/* Édition : modal overlay au lieu d'un page-flip */}
+      {editing && draft && (
+        <EditModal
+          draft={draft}
+          setDraft={setDraft}
+          clientsList={clientsList}
+          onCancel={cancelEdit}
+          onSave={saveEdit}
+          saving={saving}
+          showAdmin={showAdmin}
+          setShowAdmin={setShowAdmin}
+          projectId={projectId}
+        />
       )}
     </div>
   )
@@ -445,19 +425,21 @@ function ReadView({
         className="relative rounded-2xl overflow-hidden lg:col-span-2"
         style={{ border: '1px solid var(--brd)' }}
       >
-        {/* Background : image cover OU gradient fallback */}
+        {/* Background : image cover floutée OU gradient fallback */}
         {cover ? (
           <>
             <img
               src={cover}
-              alt={project.title || ''}
+              alt=""
+              aria-hidden="true"
               className="absolute inset-0 w-full h-full object-cover"
+              style={{ filter: 'blur(24px) saturate(1.1)', transform: 'scale(1.15)' }}
             />
             <div
               className="absolute inset-0"
               style={{
                 background:
-                  'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0.25) 80%, rgba(0,0,0,0.15) 100%)',
+                  'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.55) 100%)',
               }}
             />
           </>
@@ -493,92 +475,120 @@ function ReadView({
           </button>
         )}
 
-        {/* Contenu en bas du hero — texte blanc lisible sur cover sombre */}
-        <div className="relative p-6 sm:p-8 min-h-[240px] sm:min-h-[280px] flex flex-col justify-end">
-          {/* Pills types projet */}
-          {types.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {types.map((t) => (
-                <span
-                  key={t}
-                  className="text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur"
-                  style={{
-                    background: 'rgba(255,255,255,0.18)',
-                    color: 'white',
-                    border: '1px solid rgba(255,255,255,0.22)',
-                  }}
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Titre projet en grand */}
-          <h1
-            className="text-3xl sm:text-4xl font-bold text-white leading-tight"
-            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
-          >
-            {project.title || 'Projet sans nom'}
-          </h1>
-
-          {/* Sous-titre : réalisateur · agence */}
-          {(get('realisateur') || get('agence')) && (
-            <p
-              className="mt-2 text-sm sm:text-base font-medium"
-              style={{ color: 'rgba(255,255,255,0.92)', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
-            >
-              {[
-                get('realisateur') && `Réalisé par ${get('realisateur')}`,
-                get('agence') && `Agence ${get('agence')}`,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </p>
-          )}
-
-          {/* Bandeau client + ref en bas */}
-          {(project.clients || project.ref_projet) && (
+        {/* Contenu : vignette carrée à gauche + textes à droite */}
+        <div className="relative p-5 sm:p-7 flex flex-col sm:flex-row gap-5 sm:gap-7 items-start sm:items-center">
+          {/* Vignette carrée nette (avec ombre douce) */}
+          {cover ? (
+            <img
+              src={cover}
+              alt={project.title || ''}
+              className="flex-shrink-0 w-24 h-24 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-xl object-cover"
+              style={{
+                border: '1px solid rgba(255,255,255,0.18)',
+                boxShadow:
+                  '0 12px 36px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3)',
+              }}
+            />
+          ) : (
             <div
-              className="mt-3 flex items-center gap-3 flex-wrap text-xs"
-              style={{ color: 'rgba(255,255,255,0.85)' }}
+              className="flex-shrink-0 w-24 h-24 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-xl flex items-center justify-center"
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
+              }}
             >
-              {project.clients?.nom_commercial && (
-                <span className="font-semibold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-                  {project.clients.nom_commercial}
-                </span>
-              )}
-              {project.ref_projet && (
-                <span
-                  className="font-mono px-2 py-0.5 rounded backdrop-blur"
-                  style={{
-                    background: 'rgba(255,255,255,0.12)',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                  }}
-                >
-                  {project.ref_projet}
-                </span>
-              )}
-              {project.clients?.email && (
-                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-                  <Mail className="w-3 h-3" />
-                  {project.clients.email}
-                </span>
-              )}
-              {project.clients?.phone && (
-                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-                  <Phone className="w-3 h-3" />
-                  {project.clients.phone}
-                </span>
-              )}
-              {project.clients?.address && (
-                <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-                  <MapPin className="w-3 h-3" />
-                  {project.clients.address}
-                </span>
-              )}
+              <Folder className="w-10 h-10" style={{ color: 'rgba(255,255,255,0.7)' }} />
             </div>
           )}
+
+          {/* Bloc textes à droite */}
+          <div className="flex-1 min-w-0">
+            {/* Pills types projet */}
+            {types.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {types.map((t) => (
+                  <span
+                    key={t}
+                    className="text-[11px] font-medium px-2.5 py-0.5 rounded-full backdrop-blur"
+                    style={{
+                      background: 'rgba(255,255,255,0.18)',
+                      color: 'white',
+                      border: '1px solid rgba(255,255,255,0.22)',
+                    }}
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Titre projet en grand */}
+            <h1
+              className="text-2xl sm:text-3xl md:text-4xl font-bold text-white leading-tight break-words"
+              style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+            >
+              {project.title || 'Projet sans nom'}
+            </h1>
+
+            {/* Sous-titre : réalisateur · agence */}
+            {(get('realisateur') || get('agence')) && (
+              <p
+                className="mt-1.5 text-sm sm:text-base font-medium"
+                style={{ color: 'rgba(255,255,255,0.92)', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+              >
+                {[
+                  get('realisateur') && `Réalisé par ${get('realisateur')}`,
+                  get('agence') && `Agence ${get('agence')}`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            )}
+
+            {/* Bandeau client + ref */}
+            {(project.clients || project.ref_projet) && (
+              <div
+                className="mt-3 flex items-center gap-x-3 gap-y-1.5 flex-wrap text-xs"
+                style={{ color: 'rgba(255,255,255,0.88)' }}
+              >
+                {project.clients?.nom_commercial && (
+                  <span className="font-semibold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                    {project.clients.nom_commercial}
+                  </span>
+                )}
+                {project.ref_projet && (
+                  <span
+                    className="font-mono px-2 py-0.5 rounded backdrop-blur"
+                    style={{
+                      background: 'rgba(255,255,255,0.12)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                    }}
+                  >
+                    {project.ref_projet}
+                  </span>
+                )}
+                {project.clients?.email && (
+                  <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                    <Mail className="w-3 h-3" />
+                    {project.clients.email}
+                  </span>
+                )}
+                {project.clients?.phone && (
+                  <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                    <Phone className="w-3 h-3" />
+                    {project.clients.phone}
+                  </span>
+                )}
+                {project.clients?.address && (
+                  <span className="flex items-center gap-1" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                    <MapPin className="w-3 h-3" />
+                    {project.clients.address}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -971,7 +981,7 @@ function EmptyHint({ children }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VUE ÉDITION — formulaire complet (admin + charge_prod uniquement)
 // ══════════════════════════════════════════════════════════════════════════════
-function EditView({
+function EditModal({
   draft,
   setDraft,
   clientsList,
@@ -984,24 +994,6 @@ function EditView({
 }) {
   const setA = (k, v) => setDraft((p) => ({ ...p, [k]: v }))
   const setF = (k, v) => setDraft((p) => ({ ...p, fields: { ...p.fields, [k]: v } }))
-
-  function addLivrable() {
-    setDraft((p) => ({ ...p, livrables: [...p.livrables, EMPTY_LIVRABLE()] }))
-  }
-  function updateLivrable(id, key, val) {
-    setDraft((p) => ({
-      ...p,
-      livrables: p.livrables.map((l) => (l.id === id ? { ...l, [key]: val } : l)),
-    }))
-  }
-  function deleteLivrable(id) {
-    setDraft((p) => ({
-      ...p,
-      livrables: p.livrables.filter((l) => l.id !== id).length
-        ? p.livrables.filter((l) => l.id !== id)
-        : [EMPTY_LIVRABLE()],
-    }))
-  }
 
   function renderDynField(key) {
     const def = PROJET_FIELDS_DEF.find((f) => f.key === key)
@@ -1018,28 +1010,61 @@ function EditView({
   }
 
   return (
-    <>
-      {/* ── Barre d'actions sticky en haut ───────────────────────────────── */}
-      <div className="sticky top-2 z-20 card px-4 py-2.5 flex items-center justify-between shadow-md ring-1 ring-blue-100">
-        <div className="flex items-center gap-2 text-gray-700">
-          <Edit2 className="w-4 h-4 text-blue-500" />
-          <span className="text-sm font-semibold">Mode édition</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onCancel} disabled={saving} className="btn-secondary btn-sm">
-            <X className="w-3.5 h-3.5" />
-            Annuler
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
+      onClick={(e) => {
+        // Click backdrop → annuler. Préserver clic interne via stopPropagation
+        // dans le contenu.
+        if (e.target === e.currentTarget && !saving) onCancel?.()
+      }}
+    >
+      <div
+        className="relative w-full max-w-3xl max-h-[92vh] flex flex-col rounded-xl shadow-xl overflow-hidden"
+        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      >
+        {/* Header modal — sticky */}
+        <header
+          className="flex items-center gap-3 px-5 py-3.5 border-b shrink-0"
+          style={{ borderColor: 'var(--brd-sub)' }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center"
+            style={{ background: 'var(--blue-bg)' }}
+          >
+            <Edit2 className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+              Modifier le projet
+            </h2>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Identité, planning, spécifications et notes de production
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="p-1.5 rounded-md transition-colors disabled:opacity-50"
+            style={{ color: 'var(--txt-3)' }}
+            onMouseEnter={(e) => {
+              if (saving) return
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+            title="Fermer"
+          >
+            <X className="w-4 h-4" />
           </button>
-          <button onClick={onSave} disabled={saving} className="btn-primary btn-sm">
-            {saving ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Save className="w-3.5 h-3.5" />
-            )}
-            {saving ? 'Enregistrement…' : 'Enregistrer'}
-          </button>
-        </div>
-      </div>
+        </header>
+
+        {/* Contenu scrollable */}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
 
       {/* ── BLOC DÉTAILS ADMIN (repliable, en 2e position pour ne pas l'oublier) ─ */}
       <div className="card overflow-visible">
@@ -1206,89 +1231,6 @@ function EditView({
         </div>
       </Block>
 
-      {/* ── BLOC LIVRABLES ───────────────────────────────────────────────── */}
-      <Block
-        icon={<FileText className="w-4 h-4" />}
-        title="Livrables"
-        actions={
-          <button
-            onClick={addLivrable}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Ajouter
-          </button>
-        }
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left py-2 px-2 text-xs font-semibold text-gray-400 w-8">N°</th>
-                <th className="text-left py-2 px-2 text-xs font-semibold text-gray-400">NOM</th>
-                <th className="text-left py-2 px-2 text-xs font-semibold text-gray-400 w-32">
-                  FORMAT
-                </th>
-                <th className="text-left py-2 px-2 text-xs font-semibold text-gray-400 w-24">
-                  DURÉE
-                </th>
-                <th className="text-left py-2 px-2 text-xs font-semibold text-gray-400 w-32">
-                  LIVRAISON
-                </th>
-                <th className="w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.livrables.map((l, i) => (
-                <tr key={l.id} className="border-b border-gray-50 hover:bg-gray-50/50 group">
-                  <td className="py-1.5 px-2 text-xs text-gray-400 font-mono">{i + 1}</td>
-                  <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-sm"
-                      value={l.nom}
-                      onChange={(e) => updateLivrable(l.id, 'nom', e.target.value)}
-                      placeholder="Film 3 min 16/9…"
-                    />
-                  </td>
-                  <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.format}
-                      onChange={(e) => updateLivrable(l.id, 'format', e.target.value)}
-                      placeholder="MP4, MOV…"
-                    />
-                  </td>
-                  <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.duree}
-                      onChange={(e) => updateLivrable(l.id, 'duree', e.target.value)}
-                      placeholder="3'00&quot;"
-                    />
-                  </td>
-                  <td className="py-1.5 px-1">
-                    <input
-                      className="input-cell w-full text-xs"
-                      value={l.livraison}
-                      onChange={(e) => updateLivrable(l.id, 'livraison', e.target.value)}
-                      placeholder="01/06/2026"
-                    />
-                  </td>
-                  <td className="py-1.5 px-1">
-                    <button
-                      onClick={() => deleteLivrable(l.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Block>
-
       {/* ── BLOC NOTE DE PROD ────────────────────────────────────────────── */}
       <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
         <textarea
@@ -1305,7 +1247,39 @@ function EditView({
           onChange={(e) => setA('noteProd', e.target.value)}
         />
       </Block>
-    </>
+        </div>
+        {/* /Contenu scrollable */}
+
+        {/* Footer modal — sticky */}
+        <footer
+          className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0"
+          style={{ borderColor: 'var(--brd-sub)', background: 'var(--bg-surf)' }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="btn-secondary btn-sm"
+          >
+            <X className="w-3.5 h-3.5" />
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="btn-primary btn-sm"
+          >
+            {saving ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </footer>
+      </div>
+    </div>
   )
 }
 
