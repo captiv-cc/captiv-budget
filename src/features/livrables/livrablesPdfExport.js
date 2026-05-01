@@ -122,6 +122,10 @@ export function buildEnsembleData({
   profilesById = null,
   paddingDays = 7,
   now = new Date(),
+  // PROJ-PERIODES : si une période tournage est fournie (projet.metadata
+  // .periodes.tournage), les jours correspondants sont peints en fond vert
+  // pâle pour les cellules livrable qui n'ont pas d'étape ce jour-là.
+  tournagePeriode = null,
 }) {
   const eventTypesById = new Map(eventTypes.map((t) => [t.id, t]))
   const blocksById = new Map(blocks.map((b) => [b.id, b]))
@@ -133,7 +137,24 @@ export function buildEnsembleData({
     return true
   })
   if (activeLivrables.length === 0) {
-    return { days: [], livrables: [], blocks: [], rendusByDay: new Map() }
+    return { days: [], livrables: [], blocks: [], rendusByDay: new Map(), tournageDays: new Set() }
+  }
+
+  // PROJ-PERIODES : ensemble des jours ISO (YYYY-MM-DD) couverts par la
+  // période tournage du projet (single source of truth). Sert à peindre
+  // les cellules livrables sans étape en vert pâle (background).
+  const tournageDaysSet = new Set()
+  if (tournagePeriode?.ranges?.length) {
+    for (const r of tournagePeriode.ranges) {
+      if (!r?.start || !r?.end) continue
+      const sd = parseLocalDate(r.start)
+      const ed = parseLocalDate(r.end)
+      if (!sd || !ed) continue
+      for (let t = sd.getTime(); t <= ed.getTime(); t += MS_PER_DAY) {
+        const k = dayKey(new Date(t))
+        if (k) tournageDaysSet.add(k)
+      }
+    }
   }
 
   // Fenêtre temporelle
@@ -279,7 +300,13 @@ export function buildEnsembleData({
     }
   }
 
-  return { days, livrables: enrichedLivrables, blocks: blockGroups, rendusByDay }
+  return {
+    days,
+    livrables: enrichedLivrables,
+    blocks: blockGroups,
+    rendusByDay,
+    tournageDays: tournageDaysSet,
+  }
 }
 
 function kindToPhase(kind) {
@@ -375,9 +402,13 @@ export async function buildLivrablesEnsemblePdf({
   profilesById = null,
   versionNumber = '1',
   generatedAt = new Date(),
+  // PROJ-PERIODES : période tournage du projet (single source of truth).
+  // Si fournie, les jours correspondants sont peints en vert pâle.
+  tournagePeriode = null,
 }) {
   const data = buildEnsembleData({
     blocks, livrables, etapes, eventTypes, profilesById, now: generatedAt,
+    tournagePeriode,
   })
 
   // Pré-chargement (best-effort) du visuel projet
@@ -655,7 +686,7 @@ function computeColumnWidth(livrablesCount) {
 }
 
 function drawCrossTable(doc, data, { startY }) {
-  const { days, livrables, blocks, rendusByDay } = data
+  const { days, livrables, blocks, rendusByDay, tournageDays } = data
   const livrableColW = computeColumnWidth(livrables.length)
   const tableLeft = MARGIN_MM
   const headerStartY = startY
@@ -715,6 +746,7 @@ function drawCrossTable(doc, data, { startY }) {
     }
     drawDayRow(doc, {
       tableLeft, y, livrableColW, livrables, day, rendusByDay,
+      isTournageDay: tournageDays?.has(day.key) || false,
     })
     y += ROW_H
   }
@@ -1023,7 +1055,14 @@ function mix(a, b, f) {
 }
 
 function drawDayRow(doc, opts) {
-  const { tableLeft, y, livrableColW, livrables, day, rendusByDay } = opts
+  const {
+    tableLeft, y, livrableColW, livrables, day, rendusByDay,
+    isTournageDay = false,
+  } = opts
+  // PROJ-PERIODES : couleur de fond "tournage projet" (vert pâle, plus
+  // clair que la phase étape pour ne pas masquer une étape qui aurait
+  // aussi la phase tournage).
+  const tournageBgFill = tint(C.phaseTournage, 0.55)
 
   // Cellule jour
   if (day.isToday) {
@@ -1055,8 +1094,13 @@ function drawDayRow(doc, opts) {
   let cx = tableLeft + DAY_COL_W
   for (const liv of livrables) {
     const phase = liv.phaseByDay.get(day.key) || null
+    // Priorité de couleur : phase étape > tournage projet > weekend > blanc.
+    // Le tournage projet sert de fond seulement quand il n'y a pas d'étape.
     let fill = day.isWeekend ? C.weekend : C.white
     let textColor = null
+    if (isTournageDay && !phase) {
+      fill = tournageBgFill
+    }
     if (phase) {
       const def = PHASE_DEFS.find((p) => p.key === phase)
       if (def) {

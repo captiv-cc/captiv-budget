@@ -48,6 +48,7 @@ import {
 import { validateRrule, describeRrule, expandEvents } from '../../lib/rrule'
 import EventMembersPanel from './EventMembersPanel'
 import RecurrenceEditor from './RecurrenceEditor'
+import { isProjectPeriodEvent } from '../../lib/projectPeriodSync'
 
 export default function EventEditorModal({
   event,
@@ -61,6 +62,15 @@ export default function EventEditorModal({
   readOnly = false,
   projectLink = null,
 }) {
+  // PROJ-PERIODES : si l'event est une projection d'une période projet
+  // (ex: tournage saisi dans ProjetTab), on force le mode lecture seule.
+  // L'édition se fait depuis la fiche projet uniquement.
+  const isPeriodProjection = isProjectPeriodEvent(event)
+  const effectiveReadOnly = readOnly || isPeriodProjection
+  // Note : on continue d'utiliser `readOnly` partout dans le composant ;
+  // la variable `readOnly` du paramètre est shadowée ci-dessous pour
+  // éviter de toucher des dizaines de lignes.
+  readOnly = effectiveReadOnly
   // Un "event" venant du planning peut être une occurrence virtuelle (métadonnées
   // _master_id / _occurrence_key / _is_occurrence / _recurring). On doit utiliser
   // _master_id pour les opérations CRUD côté base.
@@ -512,10 +522,52 @@ export default function EventEditorModal({
             </div>
           )}
 
-          {/* Bandeau lecture seule — visible uniquement quand readOnly est
-              activé (chantier PERM — avril 2026). Clarifie pour l'utilisateur
-              pourquoi il n'y a pas de bouton "Modifier" / "Supprimer". */}
-          {readOnly && (
+          {/* PROJ-PERIODES — Bandeau "Tournage projet" : visible si l'event
+              est une projection d'une période saisie dans la fiche projet.
+              Bouton "Modifier dans le projet" qui navigue vers ProjetTab. */}
+          {isPeriodProjection && (event?.project_id || projectId) && (
+            <div
+              className="rounded-lg p-3 flex items-center gap-3 text-xs"
+              style={{
+                background: 'var(--green-bg)',
+                border: '1px solid var(--green)',
+                color: 'var(--txt)',
+              }}
+            >
+              <Link2
+                className="w-4 h-4 shrink-0"
+                style={{ color: 'var(--green)' }}
+              />
+              <div className="flex-1 min-w-0">
+                <div
+                  className="text-[10px] uppercase tracking-wider mb-0.5"
+                  style={{ color: 'var(--green)' }}
+                >
+                  Période projet
+                </div>
+                <div className="font-medium">
+                  {event?.metadata?.readonly_reason ||
+                    'Cette période est gérée depuis les paramètres du projet.'}
+                </div>
+              </div>
+              <Link
+                to={`/projets/${event?.project_id || projectId}`}
+                onClick={onClose}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0"
+                style={{
+                  background: 'var(--green)',
+                  color: '#fff',
+                }}
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>Modifier dans le projet</span>
+              </Link>
+            </div>
+          )}
+
+          {/* Bandeau lecture seule — visible quand readOnly mais pas projet
+              période (chantier PERM — avril 2026). */}
+          {readOnly && !isPeriodProjection && (
             <div
               className="rounded-lg p-2.5 text-[11px]"
               style={{

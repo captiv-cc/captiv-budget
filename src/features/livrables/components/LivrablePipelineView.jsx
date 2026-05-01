@@ -123,6 +123,10 @@ export default function LivrablePipelineView({
   zoom = 'day',
   paddingDays = 7,
   canEdit = false,
+  // PROJ-PERIODES : période tournage du projet (single source of truth).
+  // Si présente, les jours de tournage sont peints en arrière-plan (vert
+  // pâle) sur toute la grille. Format: { ranges: [{ start, end }] }.
+  tournagePeriode = null,
   onEtapeClick,
   onLivrableClick,
   onEnterFocus,
@@ -339,6 +343,40 @@ export default function LivrablePipelineView({
                 }}
               />
             )}
+
+            {/* PROJ-PERIODES : bandes vertes en arrière-plan sur les jours
+                de tournage (single source of truth = projet.metadata.periodes
+                .tournage). Z-index 1 → derrière les barres d'étapes (z=2+)
+                et le today-line. */}
+            {tournagePeriode?.ranges?.map((range, idx) => {
+              if (!range?.start || !range?.end) return null
+              const startD = new Date(`${range.start}T00:00:00.000Z`)
+              const endD = new Date(`${range.end}T00:00:00.000Z`)
+              const startOffset = dayOffsetFrom(window.start, startD)
+              const endOffset = dayOffsetFrom(window.start, endD)
+              if (endOffset < 0 || startOffset >= totalDays) return null
+              const clampedStart = Math.max(0, startOffset)
+              const clampedEnd = Math.min(totalDays - 1, endOffset)
+              const widthDays = clampedEnd - clampedStart + 1
+              return (
+                <div
+                  key={`tournage-${idx}-${range.start}`}
+                  className="pointer-events-none"
+                  style={{
+                    position: 'absolute',
+                    left: LANE_LABEL_WIDTH + clampedStart * dayWidth,
+                    top: 0,
+                    bottom: 0,
+                    width: widthDays * dayWidth,
+                    background: 'var(--green-bg)',
+                    borderLeft: '1px dashed var(--green)',
+                    borderRight: '1px dashed var(--green)',
+                    zIndex: 1,
+                  }}
+                  title={`Tournage : ${range.start} → ${range.end}`}
+                />
+              )
+            })}
 
             {/* Today line — verticale sur toute la hauteur du body */}
             {showTodayLine && (

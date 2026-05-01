@@ -19,7 +19,15 @@ import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
+import DateRangesInput from '../../features/projets/components/DateRangesInput'
 import LivrablesProjectWidget from '../../features/livrables/components/LivrablesProjectWidget'
+import {
+  PERIODE_KEYS,
+  PERIODE_META,
+  extractPeriodes,
+  serializePeriodesIntoMetadata,
+} from '../../lib/projectPeriodes'
+import { syncTournagePeriodToPlanning } from '../../lib/projectPeriodSync'
 import {
   Save,
   Plus,
@@ -134,6 +142,10 @@ function buildDraftFromProject(project) {
   }
   if (!livrables.length) livrables = [EMPTY_LIVRABLE()]
 
+  // PROJ-PERIODES : extraction des 5 périodes structurées (avec migration
+  // soft des chaînes legacy si metadata.periodes absent).
+  const periodes = extractPeriodes(meta)
+
   return {
     title: project.title || '',
     description: project.description || '',
@@ -145,13 +157,19 @@ function buildDraftFromProject(project) {
     types_projet: project.types_projet || [],
     fields,
     visible,
+    periodes,
     livrables,
     noteProd: project.note_prod || '',
   }
 }
 
 function buildPayloadFromDraft(draft) {
-  const metadata = { ...draft.fields, _visible: draft.visible }
+  // PROJ-PERIODES : on sérialise les périodes structurées dans metadata
+  // (clé `periodes`) ET on resync les champs legacy (tournage_dates,
+  // tournage_jours, etc.) pour que ReadView et le code existant continuent
+  // de fonctionner sans modification.
+  const baseMetadata = { ...draft.fields, _visible: draft.visible }
+  const metadata = serializePeriodesIntoMetadata(baseMetadata, draft.periodes)
   return {
     title: draft.title || null,
     description: draft.description || null,
@@ -290,11 +308,26 @@ export default function ProjetTab() {
       .eq('id', projectId)
       .select('*, clients(*)')
       .single()
-    setSaving(false)
     if (error) {
+      setSaving(false)
       notify.error('Erreur sauvegarde : ' + error.message)
       return
     }
+    // PROJ-PERIODES : synchronise les events planning de type "Tournage"
+    // avec les ranges saisis. Best-effort, n'échoue pas la sauvegarde si
+    // ça plante (mais on prévient l'utilisateur).
+    try {
+      await syncTournagePeriodToPlanning({
+        projectId,
+        tournage: draft.periodes?.tournage || { ranges: [] },
+      })
+    } catch (syncErr) {
+      notify.error(
+        'Projet sauvegardé, mais erreur de sync planning : ' +
+          (syncErr?.message || syncErr),
+      )
+    }
+    setSaving(false)
     if (data) {
       setProject(data)
       setDraft(null)
@@ -1034,16 +1067,33 @@ function EditView({
             </div>
           </FieldSubSection>
           <FieldSubSection label="Planning">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {[
-                'prepa_jours',
-                'prepa_dates',
-                'tournage_jours',
-                'tournage_dates',
-                'envoi_v1',
-                'livraison_master',
-                'deadline',
-              ].map(renderDynField)}
+            {/* PROJ-PERIODES : 5 périodes structurées (multi-ranges).
+                - Le tournage est propagé en events read-only dans le planning
+                  global (cf. saveEdit → syncTournagePeriodToPlanning).
+                - Les compteurs *_jours sont calculés automatiquement.
+                - Les anciens champs texte libre (legacy) restent maintenus
+                  en arrière-plan pour rétro-compat de la ReadView. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+              {PERIODE_KEYS.map((key) => {
+                const meta = PERIODE_META[key]
+                return (
+                  <div key={key}>
+                    <FieldLabel>{meta.label}</FieldLabel>
+                    <DateRangesInput
+                      value={draft.periodes?.[key]}
+                      onChange={(next) =>
+                        setDraft((p) => ({
+                          ...p,
+                          periodes: { ...(p.periodes || {}), [key]: next },
+                        }))
+                      }
+                      color={meta.color}
+                      bg={meta.bg}
+                      canEdit
+                    />
+                  </div>
+                )
+              })}
             </div>
           </FieldSubSection>
         </div>

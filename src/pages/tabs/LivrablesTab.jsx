@@ -66,6 +66,7 @@ import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
 import { buildLivrablesEnsemblePdf } from '../../features/livrables/livrablesPdfExport'
 import { useProjet } from '../ProjetLayout'
+import { extractPeriodes } from '../../lib/projectPeriodes'
 
 const OUTIL_KEY = 'livrables'
 
@@ -381,6 +382,12 @@ export default function LivrablesTab() {
   // Au close du preview, on révoque l'URL Blob.
   const projetCtx = useProjet()
   const project = projetCtx?.project || null
+  // PROJ-PERIODES : extrait la période tournage du projet pour la peindre
+  // en arrière-plan dans le Pipeline (et dans le PDF Vue ensemble).
+  const projectPeriodes = useMemo(
+    () => extractPeriodes(project?.metadata),
+    [project?.metadata],
+  )
   const [pdfExport, setPdfExport] = useState(null)
   const handleExportPdf = useCallback(async () => {
     try {
@@ -428,6 +435,9 @@ export default function LivrablesTab() {
         eventTypes,
         profilesById,
         versionNumber,
+        // PROJ-PERIODES : période tournage du projet → fond vert pâle sur
+        // les colonnes de jour de tournage dans le PDF Vue ensemble.
+        tournagePeriode: projectPeriodes?.tournage,
       })
       setPdfExport(exporter)
     } catch (err) {
@@ -437,6 +447,7 @@ export default function LivrablesTab() {
     }
   }, [
     project,
+    projectPeriodes?.tournage,
     blocks,
     livrablesByBlock,
     etapesByLivrable,
@@ -713,6 +724,7 @@ export default function LivrablesTab() {
             focusLivrableId={focusLivrableId}
             zoom={pipelineZoom}
             canEdit={canEdit}
+            tournagePeriode={projectPeriodes?.tournage}
             onEtapeUpdate={({ etape, patch }) => {
               // LIV-22d — drag/resize commit. actions.updateEtape est déjà
               // optimistic dans useLivrables (LIV-9), donc l'UI bouge tout
