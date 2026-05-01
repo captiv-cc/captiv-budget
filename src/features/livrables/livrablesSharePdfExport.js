@@ -450,15 +450,23 @@ function drawLivrableCard(doc, livrable, versions, block, config, y) {
   return cardY + cardH
 }
 
+// Hauteur d'une ligne version (mm). Doit être ≥ hauteur d'un pill (~5.5 mm)
+// + un peu d'air pour ne pas que le pill déborde sur la ligne suivante.
+const VERSION_ROW_HEIGHT = 7
+
 function drawVersionRow(doc, v, config, cardX, y, cardW) {
   const isEnvoyee = Boolean(v.date_envoi)
   const validationMeta = VERSION_STATUT_META[v.statut_validation] || VERSION_STATUT_META.en_attente
+
+  // Y central de la row = baseline du texte + alignement du pill autour.
+  const textBaseline = y + 3.5
+  const pillY = y + 0.6 // top du pill, pour qu'il soit centré sur la row
 
   // Numero label (mono bold)
   doc.setFont('courier', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(...C.text)
-  doc.text(v.numero_label || '?', cardX + 5, y + 3)
+  doc.text(v.numero_label || '?', cardX + 5, textBaseline)
 
   // État
   doc.setFont('helvetica', 'normal')
@@ -468,13 +476,13 @@ function drawVersionRow(doc, v, config, cardX, y, cardW) {
   if (isEnvoyee) stateText = `Envoyée le ${formatDateFR(v.date_envoi)}`
   else if (v.date_envoi_prevu && config.show_envoi_prevu) stateText = `Envoi prévu le ${formatDateFR(v.date_envoi_prevu)}`
   else stateText = 'À venir'
-  doc.text(stateText, cardX + 18, y + 3)
+  doc.text(stateText, cardX + 18, textBaseline)
 
   // Pill statut validation (si envoyée) au centre-droit
   if (isEnvoyee) {
     const stateW = doc.getTextWidth(stateText)
     const pillX = cardX + 18 + stateW + 3
-    drawPill(doc, pillX, y + 0, validationMeta.label, validationMeta, { align: 'left', smaller: true })
+    drawPill(doc, pillX, pillY, validationMeta.label, validationMeta, { align: 'left', smaller: true })
   }
 
   // Lien Frame à droite (si présent)
@@ -484,12 +492,12 @@ function drawVersionRow(doc, v, config, cardX, y, cardW) {
     doc.setFontSize(8)
     doc.setTextColor(...C.black)
     const tw = doc.getTextWidth(text)
-    doc.textWithLink(text, cardX + cardW - 5 - tw, y + 3, { url: normalizeUrl(v.lien_frame) })
+    doc.textWithLink(text, cardX + cardW - 5 - tw, textBaseline, { url: normalizeUrl(v.lien_frame) })
   }
 
-  y += 5
+  y += VERSION_ROW_HEIGHT
 
-  // Feedback client (si présent et autorisé) — italique
+  // Feedback client (si présent et autorisé) — italique, en dessous
   if (config.show_feedback && v.feedback_client) {
     doc.setFont('helvetica', 'italic')
     doc.setFontSize(8)
@@ -503,7 +511,7 @@ function drawVersionRow(doc, v, config, cardX, y, cardW) {
     y += 1
   }
 
-  return y + 1
+  return y
 }
 
 function estimateFeedbackHeight(doc, text) {
@@ -520,14 +528,33 @@ function applyFooter(doc, { generatedAt, project }) {
   const pageCount = doc.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i)
+
+    // Ligne séparatrice fine au-dessus du footer
+    doc.setDrawColor(...C.borderLight)
+    doc.setLineWidth(0.2)
+    doc.line(MARGIN_X, PAGE_H - 12, PAGE_W - MARGIN_X, PAGE_H - 12)
+
+    // Ligne 1 (signature Captiv en gras à gauche, pagination à droite)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(...C.text)
+    doc.text('CAPTIV', MARGIN_X, PAGE_H - 8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...C.textMuted)
+    doc.text(' · Production audiovisuelle', MARGIN_X + doc.getTextWidth('CAPTIV'), PAGE_H - 8)
+
+    const right1 = `Page ${i} / ${pageCount}`
+    const tw1 = doc.getTextWidth(right1)
+    doc.text(right1, PAGE_W - MARGIN_X - tw1, PAGE_H - 8)
+
+    // Ligne 2 (titre projet à gauche, date génération à droite)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)
     doc.setTextColor(...C.textFaint)
-    const left = `${project?.title || 'Projet'} · Avancement des livrables`
-    doc.text(left, MARGIN_X, PAGE_H - 6)
-    const right = `Page ${i} / ${pageCount}  ·  ${formatDateTimeFR(generatedAt)}`
-    const tw = doc.getTextWidth(right)
-    doc.text(right, PAGE_W - MARGIN_X - tw, PAGE_H - 6)
+    doc.text(project?.title || 'Projet', MARGIN_X, PAGE_H - 4.5)
+    const right2 = formatDateTimeFR(generatedAt)
+    const tw2 = doc.getTextWidth(right2)
+    doc.text(right2, PAGE_W - MARGIN_X - tw2, PAGE_H - 4.5)
   }
 }
 

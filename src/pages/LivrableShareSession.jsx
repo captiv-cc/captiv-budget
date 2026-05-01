@@ -160,11 +160,20 @@ function ShareContent({
           config={config}
         />
 
-        {/* Footer minimal */}
-        <div className="pt-6 pb-2 text-center text-[11px]" style={{ color: 'var(--txt-3)' }}>
-          Ce lien donne accès en lecture seule à l&apos;avancement de votre projet.
-          {' '}Les informations sont mises à jour en temps réel.
-        </div>
+        {/* Footer */}
+        <footer className="pt-6 pb-3 text-center" style={{ color: 'var(--txt-3)' }}>
+          <p className="text-[11px] leading-relaxed">
+            Ce lien donne accès en lecture seule à l&apos;avancement de votre projet.
+            {' '}Les informations sont mises à jour en temps réel.
+          </p>
+          <p className="mt-3 text-[10px] tracking-wider" style={{ color: 'var(--txt-3)' }}>
+            <span className="font-bold" style={{ color: 'var(--txt-2)', letterSpacing: '0.15em' }}>
+              CAPTIV
+            </span>
+            <span className="mx-1.5" aria-hidden="true">·</span>
+            <span>Production audiovisuelle</span>
+          </p>
+        </footer>
       </div>
     </div>
   )
