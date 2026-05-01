@@ -170,16 +170,26 @@ export default function OrganisationTab() {
       .update(payload)
       .eq('id', org.id)
       .select('*')
-      .single()
+      .maybeSingle()
     setSaving(false)
     if (error) {
       notify.error('Erreur sauvegarde : ' + error.message)
       return
     }
+    // Succès : on notifie systématiquement.
+    // Si la RLS post-update n'a pas renvoyé la row, on rafraîchit
+    // par un SELECT séparé pour garantir la mise à jour du state.
     if (data) {
       setOrg(data)
-      notify.success('Identité de la société enregistrée.')
+    } else {
+      const { data: refreshed } = await supabase
+        .from('organisations')
+        .select('*')
+        .eq('id', org.id)
+        .maybeSingle()
+      if (refreshed) setOrg(refreshed)
     }
+    notify.success('Identité de la société enregistrée.')
   }
 
   function handleReset() {
