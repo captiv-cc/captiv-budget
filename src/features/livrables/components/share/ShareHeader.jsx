@@ -6,10 +6,10 @@
 // Design sobre et professionnel pour un client externe.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Film } from 'lucide-react'
+import { Film, FileText, Loader2 } from 'lucide-react'
 import { ThemeToggle } from '../../../../pages/LivrableShareSession'
 
-export default function ShareHeader({ project, share, generatedAt, theme, onToggleTheme }) {
+export default function ShareHeader({ project, share, generatedAt, theme, onToggleTheme, onExportPdf, exporting }) {
   const title = project?.title || 'Projet'
   const ref = project?.ref_projet
   const cover = project?.cover_url
@@ -69,8 +69,39 @@ export default function ShareHeader({ project, share, generatedAt, theme, onTogg
         </div>
       </div>
 
-      {/* Toggle dark/light en haut à droite */}
-      {onToggleTheme && <ThemeToggle theme={theme} onToggle={onToggleTheme} />}
+      {/* Actions à droite : Export PDF + toggle theme */}
+      <div className="flex items-center gap-2 shrink-0">
+        {onExportPdf && (
+          <button
+            type="button"
+            onClick={onExportPdf}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+              cursor: exporting ? 'wait' : 'pointer',
+              opacity: exporting ? 0.7 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (!exporting) e.currentTarget.style.background = 'var(--bg-hov)'
+            }}
+            onMouseLeave={(e) => {
+              if (!exporting) e.currentTarget.style.background = 'var(--bg-elev)'
+            }}
+            title="Exporter en PDF"
+          >
+            {exporting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileText className="w-4 h-4" />
+            )}
+            <span className="hidden sm:inline">PDF</span>
+          </button>
+        )}
+        {onToggleTheme && <ThemeToggle theme={theme} onToggle={onToggleTheme} />}
+      </div>
     </header>
   )
 }

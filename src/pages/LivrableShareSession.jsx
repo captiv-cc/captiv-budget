@@ -22,6 +22,7 @@ import ShareHeader from '../features/livrables/components/share/ShareHeader'
 import SharePeriodesBar from '../features/livrables/components/share/SharePeriodesBar'
 import ShareTimeline from '../features/livrables/components/share/ShareTimeline'
 import ShareLivrablesList from '../features/livrables/components/share/ShareLivrablesList'
+import { buildLivrablesSharePdf } from '../features/livrables/livrablesSharePdfExport'
 
 const THEME_STORAGE_KEY = 'liv-share-theme'
 
@@ -70,6 +71,60 @@ export default function LivrableShareSession() {
   const calendarLevel = config.calendar_level || 'hidden'
 
   return (
+    <ShareContent
+      payload={payload}
+      project={project}
+      share={share}
+      blocks={blocks}
+      livrables={livrables}
+      versions={versions}
+      etapes={etapes}
+      eventTypes={eventTypes}
+      config={config}
+      calendarLevel={calendarLevel}
+      theme={theme}
+      onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+    />
+  )
+}
+
+// Sous-composant pour héberger l'état d'export PDF (qui doit pouvoir
+// déclencher un re-render du bouton "exporting" sans toucher au hook
+// principal). Garde aussi le code de la page racine plus lisible.
+function ShareContent({
+  payload,
+  project,
+  share,
+  blocks,
+  livrables,
+  versions,
+  etapes,
+  eventTypes,
+  config,
+  calendarLevel,
+  theme,
+  onToggleTheme,
+}) {
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportPdf = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const pdf = await buildLivrablesSharePdf(payload)
+      // Télécharge directement (le client veut le fichier en main).
+      pdf.download()
+      // Révoque l'URL après un court délai pour laisser le download partir.
+      setTimeout(() => pdf.revoke(), 1000)
+    } catch (err) {
+      console.error('[livrableShare] PDF export error', err)
+      alert('Une erreur est survenue lors de la génération du PDF.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--txt)' }}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6">
         <ShareHeader
@@ -77,7 +132,9 @@ export default function LivrableShareSession() {
           share={share}
           generatedAt={payload.generated_at}
           theme={theme}
-          onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
+          onToggleTheme={onToggleTheme}
+          onExportPdf={handleExportPdf}
+          exporting={exporting}
         />
 
         {config.show_periodes && project?.periodes && (
