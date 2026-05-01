@@ -407,37 +407,72 @@ export default function EquipeTab() {
     )
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-5">
-      {/* ── Header KPIs + export ─────────────────────────────────────────── */}
-      <div className="flex items-start gap-4">
-        <div className="flex-1 grid grid-cols-2 gap-3">
-          <KpiCard
-            label="Postes"
-            color={nbAttribues === crewLines.length ? 'green' : 'blue'}
-            value={`${nbAttribues} / ${crewLines.length}`}
-            sub="attribués"
-          />
-          <KpiCard
-            label="Confirmés"
-            color="purple"
-            value={`${nbValides} / ${membres.length}`}
-            sub="validés ou réglés"
-          />
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--purple-bg)' }}
+          >
+            <Users className="w-5 h-5" style={{ color: 'var(--purple)' }} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+              Équipe
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {crewLines.length} poste{crewLines.length > 1 ? 's' : ''}
+              {' · '}
+              {nbAttribues}/{crewLines.length} attribué{nbAttribues > 1 ? 's' : ''}
+              {' · '}
+              {nbValides}/{membres.length} confirmé{nbValides > 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
         <button
           onClick={exportCSV}
           title="Exporter en CSV"
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg shrink-0 mt-0.5 transition-all"
+          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg shrink-0 transition-all"
           style={{
-            background: 'var(--bg-surf)',
+            background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
-            color: 'var(--txt-3)',
+            color: 'var(--txt-2)',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--txt)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--bg-elev)'
+            e.currentTarget.style.color = 'var(--txt-2)'
+          }}
         >
-          <Download className="w-3.5 h-3.5" /> Export CSV
+          <Download className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Export CSV</span>
         </button>
+      </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
+      <div className="p-4 sm:p-6 space-y-5 flex-1">
+
+      {/* ── KPIs détaillés (mobile : 1 col, desktop : 2 col) ─────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <KpiCard
+          label="Postes"
+          color={nbAttribues === crewLines.length ? 'green' : 'blue'}
+          value={`${nbAttribues} / ${crewLines.length}`}
+          sub="attribués"
+        />
+        <KpiCard
+          label="Confirmés"
+          color="purple"
+          value={`${nbValides} / ${membres.length}`}
+          sub="validés ou réglés"
+        />
       </div>
 
       {/* ── Onglets Attribution / Équipe ─────────────────────────────────── */}
@@ -521,6 +556,8 @@ export default function EquipeTab() {
           onRemove={removeMembre}
         />
       )}
+
+      </div>{/* /body */}
 
       {/* ── Toast ────────────────────────────────────────────────────────── */}
       {toast && (
