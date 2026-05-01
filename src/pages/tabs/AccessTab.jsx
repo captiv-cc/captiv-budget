@@ -267,32 +267,48 @@ export default function AccessTab() {
     )
   }
 
+  // Sous-titre dynamique du header.
+  const nbUsers = accessList.length
+  const nbPrestataires = accessList.filter((a) => a.profiles?.role === 'prestataire').length
+  const headerSubtitle = nbUsers === 0
+    ? 'Aucun utilisateur attaché à ce projet'
+    : `${nbUsers} utilisateur${nbUsers > 1 ? 's' : ''}${nbPrestataires > 0 ? ` · ${nbPrestataires} prestataire${nbPrestataires > 1 ? 's' : ''}` : ''}`
+
   return (
-    <div className="p-5 space-y-4">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2
-            className="text-base font-semibold flex items-center gap-2"
-            style={{ color: 'var(--txt)' }}
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--blue-bg)' }}
           >
-            <Shield className="w-4 h-4" style={{ color: 'var(--blue)' }} />
-            Accès au projet
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
-            Qui voit quoi sur ce projet. Les prestataires héritent des droits de leur métier, avec
-            possibilité d&apos;ajuster par outil.
-          </p>
+            <Shield className="w-5 h-5" style={{ color: 'var(--blue)' }} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+              Accès au projet
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {headerSubtitle}
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors shrink-0"
           style={{ background: 'var(--blue)', color: 'white' }}
         >
           <UserPlus className="w-3.5 h-3.5" />
-          Ajouter un accès
+          <span className="hidden sm:inline">Ajouter un accès</span>
         </button>
       </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
+      <div className="p-4 sm:p-6 space-y-4 flex-1">
 
       {/* ── Info banner ─────────────────────────────────────────────────── */}
       <div
@@ -300,7 +316,7 @@ export default function AccessTab() {
         style={{
           background: 'var(--blue-bg)',
           color: 'var(--txt-2)',
-          border: '1px solid rgba(0,122,255,.2)',
+          border: '1px solid var(--blue-brd)',
         }}
       >
         <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--blue)' }} />
@@ -492,6 +508,8 @@ export default function AccessTab() {
           })}
         </div>
       )}
+
+      </div>{/* /body */}
 
       {/* ── Modal d'ajout ────────────────────────────────────────────────── */}
       {showAdd && (
