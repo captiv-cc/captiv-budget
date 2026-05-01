@@ -975,27 +975,39 @@ export default function PlanningTab() {
   // Adapte le sélecteur de scope au contrat attendu par LotScopeSelector
   const lotsForSelector = activeLots.map((l) => ({ id: l.id, title: l.title || 'Lot' }))
 
+  // Sous-titre dynamique du header : nb d'événements visibles + nb total + vue active.
+  const headerSubtitle = (() => {
+    const nbVisible = visibleEvents?.length ?? 0
+    const nbTotal = events?.length ?? 0
+    const viewLabel = activeView?.label || 'Vue calendrier'
+    const eventLabel = nbTotal === 0
+      ? 'Aucun événement'
+      : nbVisible === nbTotal
+        ? `${nbTotal} événement${nbTotal > 1 ? 's' : ''}`
+        : `${nbVisible}/${nbTotal} événement${nbTotal > 1 ? 's' : ''}`
+    return `${eventLabel} · ${viewLabel}`
+  })()
+
   return (
-    <div className="p-3 sm:p-4 md:p-6 flex flex-col gap-3 md:gap-4 h-full">
-      {/* Header — toujours en row (mobile & desktop) : titre + icône à gauche,
-          controls (sélecteur de vue + "+") serrés à droite.
-          Le sous-titre est masqué en mobile pour éviter de pousser les controls
-          à la ligne — cf. UI review avril 2026. */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+    <div className="flex flex-col min-h-full h-full">
+      {/* ── Header full-width avec border-bottom (pattern Matériel/Livrables) ── */}
+      <div
+        className="flex items-center justify-between gap-2 sm:gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
             style={{ background: 'var(--blue-bg)' }}
           >
-            <CalendarIcon className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+            <CalendarIcon className="w-5 h-5" style={{ color: 'var(--blue)' }} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-base font-bold truncate" style={{ color: 'var(--txt)' }}>
+            <h1 className="text-lg font-bold truncate" style={{ color: 'var(--txt)' }}>
               Planning
             </h1>
-            {/* Sous-titre caché sur mobile pour gagner de la place verticale */}
-            <p className="hidden sm:block text-xs" style={{ color: 'var(--txt-3)' }}>
-              Vue calendrier des événements du projet
+            <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+              {headerSubtitle}
             </p>
           </div>
         </div>
@@ -1049,6 +1061,11 @@ export default function PlanningTab() {
           )}
         </div>
       </div>
+
+      {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab. Conserve
+          flex-col + flex-1 pour que la vue active (timeline/gantt) prenne
+          toute la hauteur restante. ── */}
+      <div className="p-4 sm:p-6 flex flex-col gap-3 md:gap-4 flex-1 min-h-0">
 
       {/* Scope lots (masqué si moins de 2 lots actifs) */}
       {lotsForSelector.length >= 2 && (
@@ -1285,6 +1302,7 @@ export default function PlanningTab() {
           onCancel={() => setPendingMove(null)}
         />
       )}
+      </div>{/* /body */}
     </div>
   )
 }
