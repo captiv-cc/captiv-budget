@@ -61,14 +61,14 @@ const STATUTS = [
     label: 'Émise',
     icon: Send,
     color: 'var(--blue)',
-    bg: 'rgba(59,130,246,.12)',
+    bg: 'var(--blue-bg)',
   },
   {
     key: 'reglee',
     label: 'Réglée',
     icon: CheckCircle2,
     color: 'var(--green)',
-    bg: 'rgba(0,200,117,.12)',
+    bg: 'var(--green-bg)',
   },
   {
     key: 'annulee',
@@ -80,9 +80,9 @@ const STATUTS = [
 ]
 
 const TYPE_COLORS = {
-  blue: { bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' },
-  green: { bg: 'rgba(0,200,117,.12)', txt: 'var(--green)' },
-  purple: { bg: 'rgba(139,92,246,.12)', txt: '#a78bfa' },
+  blue:   { bg: 'var(--blue-bg)',   txt: 'var(--blue)' },
+  green:  { bg: 'var(--green-bg)',  txt: 'var(--green)' },
+  purple: { bg: 'var(--purple-bg)', txt: 'var(--purple)' },
 }
 
 // Palette déterministe par lot (indexé par l'ordre d'apparition dans lots[])
@@ -364,163 +364,290 @@ function FactureLine({
       ? `Échéance dépassée de ${Math.abs(joursRestants || 0)} j — à émettre dans Qonto`
       : `${Math.abs(joursRestants || 0)} j de retard de règlement`
 
-  return (
-    <div
-      className="grid items-center gap-3 px-4 py-3 text-sm transition-colors"
-      style={{
-        gridTemplateColumns: gridCols,
-        borderTop: '1px solid var(--brd-sub)',
-        opacity: dim ? 0.55 : 1,
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = '')}
-    >
-      {/* Objet + type + N° Qonto */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-medium truncate text-sm" style={{ color: 'var(--txt)' }}>
-            {facture.objet || `Facture ${type.label}`}
-          </p>
-          {retard && (
-            <span
-              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide inline-flex items-center gap-1"
-              style={{ background: 'rgba(239,68,68,.15)', color: 'var(--red)' }}
-              title={retardTitle}
-            >
-              <AlertCircle className="w-3 h-3" />
-              {retardLabel}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <span
-            className="text-[11px] px-1.5 py-0.5 rounded font-medium"
-            style={{ background: tc.bg, color: tc.txt }}
-          >
-            {type.label}
-          </span>
-          {facture.numero && (
-            <span className="text-[11px] font-mono" style={{ color: 'var(--txt-3)' }}>
-              {facture.numero}
-            </span>
-          )}
-          {facture.qonto_url && (
-            <a
-              href={facture.qonto_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-[11px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium transition-colors"
-              style={{ background: 'rgba(139,92,246,.12)', color: '#a78bfa' }}
-              title="Ouvrir dans Qonto"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Qonto
-            </a>
-          )}
-        </div>
-      </div>
-
-      {/* Colonne Lot (multi-lot uniquement) */}
-      {showLotCol && (
-        <div className="flex items-center">
-          <LotChip lot={lot} lots={lots} />
-        </div>
+  // Sous-bloc commun "type + numero + qonto" réutilisé desktop et mobile.
+  const TypeMetaPills = (
+    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+      <span
+        className="text-[11px] px-1.5 py-0.5 rounded font-medium"
+        style={{ background: tc.bg, color: tc.txt }}
+      >
+        {type.label}
+      </span>
+      {facture.numero && (
+        <span className="text-[11px] font-mono" style={{ color: 'var(--txt-3)' }}>
+          {facture.numero}
+        </span>
       )}
+      {facture.qonto_url && (
+        <a
+          href={facture.qonto_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-[11px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium transition-colors"
+          style={{ background: 'var(--purple-bg)', color: 'var(--purple)' }}
+          title="Ouvrir dans Qonto"
+        >
+          <ExternalLink className="w-3 h-3" />
+          Qonto
+        </a>
+      )}
+    </div>
+  )
 
-      {/* Montant HT */}
-      <div className="text-right">
-        <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-          {fmtEur(facture.montant_ht)}
-        </p>
-        <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-          HT
-        </p>
-      </div>
+  return (
+    <>
+      {/* ─── Desktop : grille (sm+) ──────────────────────────────────────── */}
+      <div
+        className="hidden sm:grid items-center gap-3 px-4 py-3 text-sm transition-colors"
+        style={{
+          gridTemplateColumns: gridCols,
+          borderTop: '1px solid var(--brd-sub)',
+          opacity: dim ? 0.55 : 1,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = '')}
+      >
+        {/* Objet + type + N° Qonto */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-medium truncate text-sm" style={{ color: 'var(--txt)' }}>
+              {facture.objet || `Facture ${type.label}`}
+            </p>
+            {retard && (
+              <span
+                className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide inline-flex items-center gap-1"
+                style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
+                title={retardTitle}
+              >
+                <AlertCircle className="w-3 h-3" />
+                {retardLabel}
+              </span>
+            )}
+          </div>
+          {TypeMetaPills}
+        </div>
 
-      {/* Montant TTC */}
-      <div className="text-right">
-        <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
-          {fmtEur(facture.montant_ttc)}
-        </p>
-        <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-          TTC
-        </p>
-      </div>
-
-      {/* Échéance + jours restants */}
-      <div className="text-center">
-        <p className="text-xs" style={{ color: retard ? 'var(--red)' : 'var(--txt-2)' }}>
-          {fmtDate(ech)}
-        </p>
-        {joursRestants !== null && !retard && (
-          <p
-            className="text-[10px]"
-            style={{
-              color: joursRestants <= 7 ? 'var(--amber)' : 'var(--txt-3)',
-            }}
-          >
-            {joursRestants === 0
-              ? "aujourd'hui"
-              : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`}
-          </p>
+        {/* Colonne Lot (multi-lot uniquement) */}
+        {showLotCol && (
+          <div className="flex items-center">
+            <LotChip lot={lot} lots={lots} />
+          </div>
         )}
-        {joursRestants === null && (
-          <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-            échéance
+
+        {/* Montant HT */}
+        <div className="text-right">
+          <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
+            {fmtEur(facture.montant_ht)}
           </p>
-        )}
+          <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+            HT
+          </p>
+        </div>
+
+        {/* Montant TTC */}
+        <div className="text-right">
+          <p className="font-semibold text-sm" style={{ color: 'var(--txt)' }}>
+            {fmtEur(facture.montant_ttc)}
+          </p>
+          <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+            TTC
+          </p>
+        </div>
+
+        {/* Échéance + jours restants */}
+        <div className="text-center">
+          <p className="text-xs" style={{ color: retard ? 'var(--red)' : 'var(--txt-2)' }}>
+            {fmtDate(ech)}
+          </p>
+          {joursRestants !== null && !retard && (
+            <p
+              className="text-[10px]"
+              style={{
+                color: joursRestants <= 7 ? 'var(--amber)' : 'var(--txt-3)',
+              }}
+            >
+              {joursRestants === 0
+                ? "aujourd'hui"
+                : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`}
+            </p>
+          )}
+          {joursRestants === null && (
+            <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+              échéance
+            </p>
+          )}
+        </div>
+
+        {/* Statut */}
+        <div className="flex justify-center">
+          <StatutDropdown
+            statut={facture.statut}
+            onSelect={(key) => onChangeStatut(facture.id, key)}
+            disabled={!canEdit}
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 justify-end">
+          {canEdit && (
+            <>
+              <button
+                onClick={() => onEdit(facture)}
+                className="p-1.5 rounded-md transition-colors"
+                title="Modifier"
+                style={{ color: 'var(--txt-3)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-elev)'
+                  e.currentTarget.style.color = 'var(--txt)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = ''
+                  e.currentTarget.style.color = 'var(--txt-3)'
+                }}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onDelete(facture.id)}
+                className="p-1.5 rounded-md transition-colors"
+                title="Supprimer"
+                style={{ color: 'var(--txt-3)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--red-bg)'
+                  e.currentTarget.style.color = 'var(--red)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = ''
+                  e.currentTarget.style.color = 'var(--txt-3)'
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Statut */}
-      <div className="flex justify-center">
-        <StatutDropdown
-          statut={facture.statut}
-          onSelect={(key) => onChangeStatut(facture.id, key)}
-          disabled={!canEdit}
-        />
-      </div>
+      {/* ─── Mobile : card empilée verticalement (< sm) ───────────────────── */}
+      <div
+        className="sm:hidden flex flex-col gap-2 px-4 py-3"
+        style={{
+          borderTop: '1px solid var(--brd-sub)',
+          opacity: dim ? 0.55 : 1,
+        }}
+      >
+        {/* Ligne 1 : objet + statut à droite */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium text-sm" style={{ color: 'var(--txt)' }}>
+                {facture.objet || `Facture ${type.label}`}
+              </p>
+              {retard && (
+                <span
+                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide inline-flex items-center gap-1"
+                  style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
+                  title={retardTitle}
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  {retardLabel}
+                </span>
+              )}
+            </div>
+            {TypeMetaPills}
+            {showLotCol && lot && (
+              <div className="mt-1.5">
+                <LotChip lot={lot} lots={lots} />
+              </div>
+            )}
+          </div>
+          <div className="shrink-0">
+            <StatutDropdown
+              statut={facture.statut}
+              onSelect={(key) => onChangeStatut(facture.id, key)}
+              disabled={!canEdit}
+            />
+          </div>
+        </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 justify-end">
+        {/* Ligne 2 : montants HT / TTC / échéance */}
+        <div
+          className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-xs"
+          style={{ background: 'var(--bg-elev)' }}
+        >
+          <div>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
+              HT
+            </span>
+            <span className="ml-1.5 font-semibold" style={{ color: 'var(--txt)' }}>
+              {fmtEur(facture.montant_ht)}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
+              TTC
+            </span>
+            <span className="ml-1.5 font-semibold" style={{ color: 'var(--txt)' }}>
+              {fmtEur(facture.montant_ttc)}
+            </span>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
+              Échéance
+            </span>
+            <span
+              className="ml-1.5 font-medium"
+              style={{ color: retard ? 'var(--red)' : 'var(--txt-2)' }}
+            >
+              {fmtDate(ech)}
+            </span>
+            {joursRestants !== null && !retard && (
+              <span
+                className="ml-1 text-[10px]"
+                style={{
+                  color: joursRestants <= 7 ? 'var(--amber)' : 'var(--txt-3)',
+                }}
+              >
+                ({joursRestants === 0
+                  ? "auj."
+                  : `J${joursRestants > 0 ? '-' : '+'}${Math.abs(joursRestants)}`})
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Ligne 3 : actions (uniquement si canEdit) */}
         {canEdit && (
-          <>
+          <div className="flex items-center justify-end gap-1">
             <button
               onClick={() => onEdit(facture)}
-              className="p-1.5 rounded-md transition-colors"
-              title="Modifier"
-              style={{ color: 'var(--txt-3)' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--bg-elev)'
-                e.currentTarget.style.color = 'var(--txt)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = ''
-                e.currentTarget.style.color = 'var(--txt-3)'
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--txt-2)',
+                border: '1px solid var(--brd-sub)',
               }}
             >
-              <Pencil className="w-3.5 h-3.5" />
+              <Pencil className="w-3 h-3" />
+              Modifier
             </button>
             <button
               onClick={() => onDelete(facture.id)}
-              className="p-1.5 rounded-md transition-colors"
-              title="Supprimer"
-              style={{ color: 'var(--txt-3)' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(239,68,68,.12)'
-                e.currentTarget.style.color = 'var(--red)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = ''
-                e.currentTarget.style.color = 'var(--txt-3)'
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--red)',
+                border: '1px solid var(--brd-sub)',
               }}
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3 h-3" />
+              Supprimer
             </button>
-          </>
+          </div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -1016,8 +1143,8 @@ function FactureModal({
               <div
                 className="flex-1 flex items-center justify-between rounded-lg px-3 py-1.5"
                 style={{
-                  background: 'rgba(59,130,246,.08)',
-                  border: '1px solid rgba(59,130,246,.2)',
+                  background: 'var(--blue-bg)',
+                  border: '1px solid var(--blue-brd)',
                 }}
               >
                 <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
@@ -1180,10 +1307,10 @@ function LotFacturationGauge({ lot, lots, totalDevisHT, totalFactureHT, totalFac
 
   const badgeBg =
     pctFacture >= 0.999 && pctFacture <= 1.001
-      ? 'rgba(0,200,117,.12)'
+      ? 'var(--green-bg)'
       : pctFacture > 1.001
-        ? 'rgba(239,68,68,.12)'
-        : 'rgba(59,130,246,.12)'
+        ? 'var(--red-bg)'
+        : 'var(--blue-bg)'
   const badgeCol =
     pctFacture >= 0.999 && pctFacture <= 1.001
       ? 'var(--green)'
@@ -1474,18 +1601,21 @@ export default function FacturesTab() {
     )
 
   return (
-    <div className="p-6 space-y-5 max-w-6xl mx-auto">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col min-h-full">
+      {/* ── Header full-width avec border-bottom (pattern MateriélHeader) ── */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
             style={{ background: 'var(--blue-bg)' }}
           >
-            <Receipt className="w-4.5 h-4.5" style={{ color: 'var(--blue)' }} />
+            <Receipt className="w-5 h-5" style={{ color: 'var(--blue)' }} />
           </div>
-          <div>
-            <h1 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
               Factures
             </h1>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
@@ -1501,7 +1631,7 @@ export default function FacturesTab() {
               setModal(true)
             }}
             disabled={activeLots.length === 0}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             style={{ background: 'var(--blue)' }}
             title={
               activeLots.length === 0
@@ -1510,10 +1640,13 @@ export default function FacturesTab() {
             }
           >
             <Plus className="w-4 h-4" />
-            Nouvelle facture
+            <span className="hidden sm:inline">Nouvelle facture</span>
           </button>
         )}
       </div>
+
+      {/* ── Body : padding latéral cohérent avec MaterielTab/LivrablesTab ── */}
+      <div className="p-4 sm:p-6 space-y-5 flex-1">
 
       {/* ── Notice lecture seule ──────────────────────────────────────────── */}
       {!canEdit && (
@@ -1587,20 +1720,20 @@ export default function FacturesTab() {
           value={fmtEur(totalFactureHT)}
           sub={`${fmtEur(totalFactureTTC)} TTC`}
           icon={Euro}
-          color={{ bg: 'rgba(59,130,246,.12)', txt: 'var(--blue)' }}
+          color={{ bg: 'var(--blue-bg)', txt: 'var(--blue)' }}
         />
         <KpiCard
           label="Encaissé"
           value={fmtEur(totalRegle)}
           sub={`${(pctEncaisse * 100).toFixed(0)} % du total`}
           icon={CheckCircle2}
-          color={{ bg: 'rgba(0,200,117,.12)', txt: 'var(--green)' }}
+          color={{ bg: 'var(--green-bg)', txt: 'var(--green)' }}
         />
         <KpiCard
           label="En attente"
           value={fmtEur(totalEnAttente)}
           icon={Clock}
-          color={{ bg: 'rgba(245,158,11,.12)', txt: 'var(--amber)' }}
+          color={{ bg: 'var(--amber-bg)', txt: 'var(--amber)' }}
         />
         <KpiCard
           label={nbRetard > 0 ? `${nbRetard} en retard` : 'Aucun retard'}
@@ -1612,8 +1745,8 @@ export default function FacturesTab() {
           icon={nbRetard > 0 ? AlertTriangle : TrendingUp}
           color={
             nbRetard > 0
-              ? { bg: 'rgba(239,68,68,.12)', txt: 'var(--red)' }
-              : { bg: 'rgba(0,200,117,.08)', txt: 'var(--green)' }
+              ? { bg: 'var(--red-bg)', txt: 'var(--red)' }
+              : { bg: 'var(--green-bg)', txt: 'var(--green)' }
           }
         />
       </div>
@@ -1704,8 +1837,10 @@ export default function FacturesTab() {
         className="rounded-xl overflow-hidden"
         style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
       >
+        {/* Header de tableau (desktop uniquement — mobile utilise des cards
+            avec labels explicites par section). */}
         <div
-          className="grid px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider"
+          className="hidden sm:grid px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider"
           style={{
             gridTemplateColumns: gridCols,
             background: 'var(--bg-elev)',
@@ -1848,6 +1983,8 @@ export default function FacturesTab() {
           </>
         )}
       </div>
+
+      </div>{/* /body */}
 
       {/* Confirmation suppression */}
       {deleting && (
