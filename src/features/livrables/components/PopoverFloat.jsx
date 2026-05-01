@@ -20,6 +20,9 @@
 //   - align         : 'left' | 'right' (par rapport au bord de l'ancre)
 //   - placement     : 'bottom' | 'top' (défaut 'bottom') — sens d'ouverture
 //   - offsetY       : px entre l'ancre et le popover (défaut 4)
+//   - autoFlip      : si true (défaut), flip de bottom→top quand pas assez
+//                     de place en dessous (mesure après render). Passer
+//                     false pour figer le placement demandé.
 //   - children      : contenu du popover
 //
 // Attention : ne stylise PAS l'enveloppe (pas de fond / border / shadow ici).
@@ -37,6 +40,7 @@ export default function PopoverFloat({
   align = 'left',
   placement = 'bottom',
   offsetY = 4,
+  autoFlip = true,
   children,
 }) {
   const popRef = useRef(null)
@@ -57,33 +61,52 @@ export default function PopoverFloat({
         onClose?.()
         return
       }
-      // Position verticale selon placement :
+      // Auto-flip : si le placement demandé est 'bottom' mais qu'il n'y a
+      // pas assez de place en dessous (ou plus en haut), on flip vers 'top'
+      // (et inversement). On utilise la hauteur réelle du popover si elle
+      // a déjà été mesurée, sinon une estimation conservatrice (240px).
+      const popH = popRef.current?.offsetHeight || 240
+      const margin = 8
+      const spaceBelow = window.innerHeight - r.bottom - margin
+      const spaceAbove = r.top - margin
+      let chosen = placement
+      if (autoFlip) {
+        if (placement === 'bottom' && popH + offsetY > spaceBelow && spaceAbove > spaceBelow) {
+          chosen = 'top'
+        } else if (placement === 'top' && popH + offsetY > spaceAbove && spaceBelow > spaceAbove) {
+          chosen = 'bottom'
+        }
+      }
+      // Position verticale selon placement choisi :
       //   - 'bottom' : popover sous l'ancre (top = ancre.bottom + offset)
       //   - 'top'    : popover au-dessus (bottom = viewport.h - ancre.top + offset)
       // Pour 'top' on utilise `bottom:` au lieu de `top:` pour que le popover
-      // s'étende vers le haut depuis sa base. Ça évite de devoir mesurer la
-      // hauteur du popover (qui n'est pas encore montée au moment du calcul).
+      // s'étende vers le haut depuis sa base.
       const next = {}
-      if (placement === 'top') {
-        next.bottom = Math.max(8, window.innerHeight - r.top + offsetY)
+      if (chosen === 'top') {
+        next.bottom = Math.max(margin, window.innerHeight - r.top + offsetY)
       } else {
         next.top = r.bottom + offsetY
       }
       if (align === 'right') {
-        next.right = Math.max(8, window.innerWidth - r.right)
+        next.right = Math.max(margin, window.innerWidth - r.right)
       } else {
-        next.left = Math.max(8, r.left)
+        next.left = Math.max(margin, r.left)
       }
       setPos(next)
     }
     recalc()
+    // Second recalc dès que le popover est monté pour utiliser sa vraie
+    // hauteur (le premier passage utilise l'estimation 240px).
+    const raf = window.requestAnimationFrame(recalc)
     window.addEventListener('scroll', recalc, true)
     window.addEventListener('resize', recalc)
     return () => {
+      window.cancelAnimationFrame(raf)
       window.removeEventListener('scroll', recalc, true)
       window.removeEventListener('resize', recalc)
     }
-  }, [open, anchorRef, align, placement, offsetY, onClose])
+  }, [open, anchorRef, align, placement, offsetY, onClose, autoFlip])
 
   // Click outside (ne ferme PAS si clic sur l'ancre — c'est elle qui toggle).
   useEffect(() => {
