@@ -87,13 +87,14 @@ export async function syncTournagePeriodToPlanning({ projectId, tournage }) {
   if (!projectId) return { deleted: 0, created: 0 }
 
   // 1. Suppression de tous les events tournage sourcés projet pour ce projet.
-  //    On filtre via metadata->>source pour ne pas toucher aux events manuels
+  //    Filtre exact sur `source` (CHECK constraint accepte project_periode_*
+  //    depuis la migration 20260502) pour ne pas toucher aux events manuels
   //    de tournage que l'utilisateur aurait créés à la main.
   const { error: delErr } = await supabase
     .from('events')
     .delete()
     .eq('project_id', projectId)
-    .filter('metadata->>source', 'eq', SOURCE_PROJECT_PERIODE_TOURNAGE)
+    .eq('source', SOURCE_PROJECT_PERIODE_TOURNAGE)
   if (delErr) {
     // Non bloquant : on log et on continue. Si le delete échoue, on aura
     // potentiellement des doublons jusqu'au prochain save propre.
@@ -111,6 +112,9 @@ export async function syncTournagePeriodToPlanning({ projectId, tournage }) {
   const eventTypeId = eventType?.id || null
 
   // 4. Construit le payload pour chaque range.
+  // NB : on pose `source = 'project_periode_tournage'` (CHECK constraint
+  // élargi par la migration 20260502 — accepte le préfixe project_periode_).
+  // `metadata` jsonb stocke les détails de la projection.
   const ranges = (tournage.ranges || []).filter((r) => r?.start && r?.end)
   const payloads = ranges.map((range, idx) => ({
     project_id: projectId,
@@ -119,7 +123,7 @@ export async function syncTournagePeriodToPlanning({ projectId, tournage }) {
     starts_at: dateToDayStartIso(range.start),
     ends_at: dateToDayEndExclusiveIso(range.end),
     all_day: true,
-    kind: 'autre',
+    source: SOURCE_PROJECT_PERIODE_TOURNAGE,
     metadata: {
       source: SOURCE_PROJECT_PERIODE_TOURNAGE,
       range_index: idx,
@@ -145,9 +149,11 @@ export async function syncTournagePeriodToPlanning({ projectId, tournage }) {
  * Renvoie le `source` ('project_periode_tournage'…) ou null.
  *
  * Helper simple pour les composants UI (EventEditorModal, planning).
+ * Lit `event.source` (préfixe `project_periode_`), avec fallback sur
+ * `event.metadata.source` au cas où la migration n'est pas encore appliquée.
  */
 export function getProjectPeriodSource(event) {
-  const src = event?.metadata?.source
+  const src = event?.source || event?.metadata?.source
   if (typeof src !== 'string') return null
   if (src.startsWith('project_periode_')) return src
   return null
