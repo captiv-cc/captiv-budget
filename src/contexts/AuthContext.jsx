@@ -178,6 +178,8 @@ export function AuthProvider({ children }) {
         user,
         profile,
         org,
+        setOrg, // exposé pour les pages admin (Paramètres > Organisation) qui
+                // poussent une MAJ optimiste après PATCH sans recharger la session
         loading,
         // Rôle
         role,
