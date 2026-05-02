@@ -2,34 +2,30 @@
 // AddMemberModal — Ajout d'une personne à la techlist (sans devis_line)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Ouvre une modale qui :
-//   1. ContactPicker pour rechercher un contact existant ou en créer un.
-//   2. Pré-rempli la spécialité depuis contact.specialite (modifiable).
-//   3. Sélection de la catégorie (PROD / TECHNIQUE / POST-PROD ou custom).
-//   4. Crée 1 row projet_membres SANS devis_line_id (= ligne libre dans la
-//      techlist).
+// Deux modes (P1.6) :
 //
-// Convention : si on ajoute une personne déjà attribuée via le devis, l'admin
-// peut faire "Ajouter membre" → la row libre s'ajoutera en plus, et le tri
-// par persona dans la techlist regroupera les rows de la même personne.
+//   1. ANNUAIRE (par défaut) : on choisit/crée un contact dans l'annuaire
+//      org via ContactPicker. La row projet_membres pointe vers ce
+//      contact_id. Le contact est réutilisable sur d'autres projets.
 //
-// Usage :
-//   <AddMemberModal
-//     open={open}
-//     onClose={...}
-//     contacts={contacts}
-//     categories={categories}
-//     onCreateContact={addContact}
-//     onAddMember={addMember}
-//     defaultCategory="PRODUCTION"
-//   />
+//   2. HORS ANNUAIRE (toggle "Pas dans l'annuaire") : on saisit prenom,
+//      nom, email, téléphone directement, et on crée la row sans
+//      contact_id. Les infos sont stockées sur projet_membres lui-même
+//      (champs prenom/nom/email/telephone). Utile pour les renforts
+//      ponctuels qu'on ne veut pas garder dans l'annuaire.
+//
+// Catégorie : si "À trier" sélectionnée, finalCategory = null. Sinon
+// catégorie standard ou custom (saisie libre).
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect } from 'react'
-import { X, UserPlus, AlertCircle } from 'lucide-react'
+import { X, UserPlus, AlertCircle, BookUser, UserX } from 'lucide-react'
 import ContactPicker from './ContactPicker'
 import { DEFAULT_CATEGORIES } from '../../../lib/crew'
 import { notify } from '../../../lib/notify'
+
+const SENTINEL_UNCATEGORIZED = '__uncategorized__'
+const SENTINEL_CUSTOM = '__custom__'
 
 export default function AddMemberModal({
   open,
@@ -38,16 +34,22 @@ export default function AddMemberModal({
   categories = DEFAULT_CATEGORIES,
   onCreateContact,
   onAddMember,
-  // null = boîte "À trier" (default depuis P1.5).
   defaultCategory = null,
 }) {
-  const SENTINEL_UNCATEGORIZED = '__uncategorized__'
-  const SENTINEL_CUSTOM = '__custom__'
+  // Mode : 'annuaire' (default) ou 'adhoc' (hors annuaire)
+  const [mode, setMode] = useState('annuaire')
 
+  // ── Mode annuaire ──────────────────────────────────────────────────
   const [contact, setContact] = useState(null)
+
+  // ── Mode hors annuaire ─────────────────────────────────────────────
+  const [adhocPrenom, setAdhocPrenom] = useState('')
+  const [adhocNom, setAdhocNom] = useState('')
+  const [adhocEmail, setAdhocEmail] = useState('')
+  const [adhocTelephone, setAdhocTelephone] = useState('')
+
+  // ── Communs ────────────────────────────────────────────────────────
   const [specialite, setSpecialite] = useState('')
-  // category est soit SENTINEL_UNCATEGORIZED, soit une catégorie standard,
-  // soit SENTINEL_CUSTOM (pour saisie libre).
   const [category, setCategory] = useState(defaultCategory ?? SENTINEL_UNCATEGORIZED)
   const [customCategory, setCustomCategory] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -55,7 +57,12 @@ export default function AddMemberModal({
   // Reset à l'ouverture
   useEffect(() => {
     if (open) {
+      setMode('annuaire')
       setContact(null)
+      setAdhocPrenom('')
+      setAdhocNom('')
+      setAdhocEmail('')
+      setAdhocTelephone('')
       setSpecialite('')
       setCategory(defaultCategory ?? SENTINEL_UNCATEGORIZED)
       setCustomCategory('')
@@ -63,20 +70,17 @@ export default function AddMemberModal({
     }
   }, [open, defaultCategory])
 
-  // Auto-fill spécialité quand on sélectionne un contact
+  // Auto-fill spécialité depuis le contact (mode annuaire)
   useEffect(() => {
-    if (contact?.specialite && !specialite) {
+    if (mode === 'annuaire' && contact?.specialite && !specialite) {
       setSpecialite(contact.specialite)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contact])
+  }, [contact, mode])
 
   if (!open) return null
 
-  // Résolution de la catégorie finale :
-  //   - SENTINEL_UNCATEGORIZED → null (boîte "À trier")
-  //   - SENTINEL_CUSTOM        → customCategory.trim().toUpperCase()
-  //   - sinon                  → la valeur sélectionnée
+  // Résolution catégorie finale
   let finalCategory = null
   if (category === SENTINEL_CUSTOM) {
     const c = customCategory.trim()
@@ -85,24 +89,49 @@ export default function AddMemberModal({
     finalCategory = category
   }
 
-  // canSubmit : contact requis. Catégorie peut être null (= À trier).
-  // Si l'utilisateur a sélectionné "Nouvelle catégorie" mais n'a rien tapé,
-  // on bloque pour éviter une catégorie vide bizarre.
   const customSelected = category === SENTINEL_CUSTOM
   const customMissing = customSelected && !customCategory.trim()
-  const canSubmit = Boolean(contact) && !customMissing && !submitting
+
+  // canSubmit dépend du mode
+  let canSubmit = false
+  if (mode === 'annuaire') {
+    canSubmit = Boolean(contact) && !customMissing && !submitting
+  } else {
+    // Mode adhoc : prénom OU nom requis (au moins l'un des deux)
+    const hasName = Boolean(adhocPrenom.trim() || adhocNom.trim())
+    canSubmit = hasName && !customMissing && !submitting
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      await onAddMember({
-        contact_id: contact.id,
-        category: finalCategory, // null = À trier
-        specialite: specialite.trim() || null,
-        regime: contact.regime || null,
-      })
-      notify.success(`${contact.prenom || ''} ${contact.nom || ''} ajouté(e)`.trim())
+      let payload
+      let displayName
+      if (mode === 'annuaire') {
+        payload = {
+          contact_id: contact.id,
+          category: finalCategory,
+          specialite: specialite.trim() || null,
+          regime: contact.regime || null,
+        }
+        displayName = `${contact.prenom || ''} ${contact.nom || ''}`.trim()
+      } else {
+        payload = {
+          // Pas de contact_id → row "ad-hoc"
+          contact_id: null,
+          category: finalCategory,
+          specialite: specialite.trim() || null,
+          // Infos sur la row directement
+          prenom: adhocPrenom.trim() || null,
+          nom: adhocNom.trim() || null,
+          email: adhocEmail.trim().toLowerCase() || null,
+          telephone: adhocTelephone.trim() || null,
+        }
+        displayName = `${adhocPrenom.trim()} ${adhocNom.trim()}`.trim()
+      }
+      await onAddMember(payload)
+      notify.success(`${displayName} ajouté(e)`.trim())
       onClose?.()
     } catch (err) {
       console.error('[AddMemberModal] add error:', err)
@@ -162,33 +191,171 @@ export default function AddMemberModal({
           </button>
         </header>
 
-        {/* Form */}
-        <div className="flex-1 px-5 py-4 space-y-4">
-          {/* Contact */}
-          <div>
-            <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--txt-2)' }}>
-              Contact
-            </label>
-            <ContactPicker
-              contacts={contacts}
-              value={contact}
-              onChange={setContact}
-              onCreate={onCreateContact}
-              placeholder="Rechercher dans l'annuaire…"
-              autoFocus
-            />
-            {contact && (
-              <div className="mt-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                {contact.email && <div>📧 {contact.email}</div>}
-                {contact.telephone && <div>📞 {contact.telephone}</div>}
-                {contact.ville && <div>📍 {contact.ville}</div>}
-              </div>
-            )}
+        {/* Body */}
+        <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto">
+          {/* Toggle Mode annuaire / hors annuaire */}
+          <div
+            className="flex gap-1 p-1 rounded-lg"
+            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
+          >
+            {[
+              { k: 'annuaire', l: 'Depuis l\u2019annuaire', icon: BookUser },
+              { k: 'adhoc', l: 'Hors annuaire', icon: UserX },
+            ].map(({ k, l, icon: Icon }) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setMode(k)}
+                className="flex-1 py-1.5 px-2 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1.5"
+                style={
+                  mode === k
+                    ? {
+                        background: 'var(--bg-surf)',
+                        color: 'var(--txt)',
+                        boxShadow: '0 1px 3px rgba(0,0,0,.18)',
+                      }
+                    : {
+                        color: 'var(--txt-3)',
+                        background: 'transparent',
+                      }
+                }
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {l}
+              </button>
+            ))}
           </div>
 
-          {/* Spécialité */}
+          {mode === 'annuaire' ? (
+            <>
+              {/* Contact */}
+              <div>
+                <label
+                  className="block text-xs font-semibold mb-1.5"
+                  style={{ color: 'var(--txt-2)' }}
+                >
+                  Contact
+                </label>
+                <ContactPicker
+                  contacts={contacts}
+                  value={contact}
+                  onChange={setContact}
+                  onCreate={onCreateContact}
+                  placeholder="Rechercher dans l&rsquo;annuaire…"
+                  autoFocus
+                />
+                {contact && (
+                  <div className="mt-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                    {contact.email && <div>📧 {contact.email}</div>}
+                    {contact.telephone && <div>📞 {contact.telephone}</div>}
+                    {contact.ville && <div>📍 {contact.ville}</div>}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Mode hors annuaire : saisie directe */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label
+                    className="block text-xs font-semibold mb-1.5"
+                    style={{ color: 'var(--txt-2)' }}
+                  >
+                    Prénom
+                  </label>
+                  <input
+                    type="text"
+                    value={adhocPrenom}
+                    onChange={(e) => setAdhocPrenom(e.target.value)}
+                    placeholder="Hugo"
+                    autoFocus
+                    className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      color: 'var(--txt)',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-xs font-semibold mb-1.5"
+                    style={{ color: 'var(--txt-2)' }}
+                  >
+                    Nom
+                  </label>
+                  <input
+                    type="text"
+                    value={adhocNom}
+                    onChange={(e) => setAdhocNom(e.target.value)}
+                    placeholder="Martin"
+                    className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      color: 'var(--txt)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label
+                    className="block text-xs font-semibold mb-1.5"
+                    style={{ color: 'var(--txt-2)' }}
+                  >
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={adhocEmail}
+                    onChange={(e) => setAdhocEmail(e.target.value)}
+                    placeholder="hugo@example.fr"
+                    className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      color: 'var(--txt)',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="block text-xs font-semibold mb-1.5"
+                    style={{ color: 'var(--txt-2)' }}
+                  >
+                    Téléphone
+                  </label>
+                  <input
+                    type="tel"
+                    value={adhocTelephone}
+                    onChange={(e) => setAdhocTelephone(e.target.value)}
+                    placeholder="06…"
+                    className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      color: 'var(--txt)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <p className="text-[10px] italic" style={{ color: 'var(--txt-3)' }}>
+                Cette personne ne sera pas ajoutée à l&rsquo;annuaire de
+                l&rsquo;organisation. Pratique pour les renforts ponctuels.
+              </p>
+            </>
+          )}
+
+          {/* Spécialité (commun aux 2 modes) */}
           <div>
-            <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--txt-2)' }}>
+            <label
+              className="block text-xs font-semibold mb-1.5"
+              style={{ color: 'var(--txt-2)' }}
+            >
               Spécialité (optionnel)
             </label>
             <input
@@ -196,7 +363,7 @@ export default function AddMemberModal({
               value={specialite}
               onChange={(e) => setSpecialite(e.target.value)}
               placeholder="Ex: Cadreur, JRI, Steadicam…"
-              className="w-full text-sm px-2.5 py-1.5 rounded-md border outline-none"
+              className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
               style={{
                 background: 'var(--bg-elev)',
                 border: '1px solid var(--brd)',
@@ -207,7 +374,10 @@ export default function AddMemberModal({
 
           {/* Catégorie */}
           <div>
-            <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--txt-2)' }}>
+            <label
+              className="block text-xs font-semibold mb-1.5"
+              style={{ color: 'var(--txt-2)' }}
+            >
               Catégorie
             </label>
             <select
@@ -247,15 +417,18 @@ export default function AddMemberModal({
             )}
 
             {category === SENTINEL_UNCATEGORIZED && (
-              <p className="mt-1.5 text-[10px] italic" style={{ color: 'var(--txt-3)' }}>
+              <p
+                className="mt-1.5 text-[10px] italic"
+                style={{ color: 'var(--txt-3)' }}
+              >
                 La personne arrivera dans la boîte « À trier » de la techlist.
                 Vous pourrez la classer ensuite par drag & drop.
               </p>
             )}
           </div>
 
-          {/* Hint si pas de contact */}
-          {!contact && (
+          {/* Hint contextuel */}
+          {mode === 'annuaire' && !contact && (
             <div
               className="flex items-start gap-2 text-[11px] rounded-md px-2.5 py-2"
               style={{

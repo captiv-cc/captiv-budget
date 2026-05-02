@@ -24,6 +24,7 @@ import { useState } from 'react'
 import { Users, Plus, Eye, EyeOff, Loader2, Inbox } from 'lucide-react'
 import { useCrew } from '../../hooks/useCrew'
 import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPeriodes'
+import { fullNameFromPersona } from '../../lib/crew'
 import AttributionRow from './components/AttributionRow'
 import AddMemberModal from './components/AddMemberModal'
 import PresenceCalendarModal from './components/PresenceCalendarModal'
@@ -308,14 +309,10 @@ export default function TechListView({ project, projectId, canEdit = true }) {
       <PresenceCalendarModal
         open={Boolean(presenceFor)}
         onClose={() => setPresenceFor(null)}
-        personaName={
-          presenceFor
-            ? `${presenceFor.persona?.contact?.prenom || ''} ${presenceFor.persona?.contact?.nom || ''}`.trim() || '—'
-            : ''
-        }
-        value={presenceFor?.persona?.presence_days || []}
-        onSave={(days) =>
-          presenceFor && updatePersona(presenceFor.persona_key, { presence_days: days })
+        personaName={presenceFor?.persona ? fullNameFromPersona(presenceFor.persona) : ''}
+        persona={presenceFor?.persona || null}
+        onSave={(fields) =>
+          presenceFor && updatePersona(presenceFor.persona_key, fields)
         }
         periodes={periodes}
         anchorDate={tournageAnchor}

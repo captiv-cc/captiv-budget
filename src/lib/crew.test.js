@@ -270,6 +270,7 @@ describe('PERSONA_LEVEL_FIELDS', () => {
   it('contient les bons champs persona-level', () => {
     expect(PERSONA_LEVEL_FIELDS).toEqual([
       'secteur', 'hebergement', 'chauffeur', 'presence_days', 'couleur',
+      'arrival_date', 'arrival_time', 'logistique_notes',
     ])
   })
 

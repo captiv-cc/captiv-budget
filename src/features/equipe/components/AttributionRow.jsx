@@ -80,11 +80,17 @@ export default function AttributionRow({
 
   // Le poste vient en priorité de la ligne de devis (= ce qui a été vendu),
   // puis de la spécialité saisie sur le projet_membre, puis du contact.
+  const posteFromDevis = row.devis_line?.produit || null
   const poste =
-    row.devis_line?.produit ||
+    posteFromDevis ||
     row.specialite ||
     persona.contact?.specialite ||
     '—'
+
+  // Édition possible du poste UNIQUEMENT si pas de devis_line. Si la row est
+  // attachée à une ligne de devis, le poste est figé sur le produit du devis
+  // (pour modifier, il faut éditer le devis lui-même).
+  const canEditPoste = canEdit && !posteFromDevis
 
   const nbAttached = row.attached?.length || 0
 
@@ -140,13 +146,18 @@ export default function AttributionRow({
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          {/* Le POSTE en avant */}
+          {/* Le POSTE en avant — éditable si pas issu d'une ligne de devis */}
           <div
             className="text-sm font-semibold truncate flex items-center gap-1.5"
             style={{ color: 'var(--txt)' }}
-            title={poste}
           >
-            {poste}
+            <PosteInline
+              value={poste}
+              canEdit={canEditPoste}
+              onSave={(v) =>
+                onUpdateRow?.(row.id, { specialite: v.trim() || null })
+              }
+            />
             {nbAttached > 0 && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
@@ -305,6 +316,69 @@ export default function AttributionRow({
 }
 
 // ─── Sous-composants ────────────────────────────────────────────────────────
+
+/**
+ * PosteInline — Affichage / édition du poste (titre de la ligne).
+ * Édition débloquée seulement si pas de devis_line (sinon le poste est
+ * figé sur devis_line.produit, pour cohérence avec la facturation).
+ */
+function PosteInline({ value, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value === '—' ? '' : value)
+
+  if (!editing && !editing && draft !== (value === '—' ? '' : value)) {
+    setDraft(value === '—' ? '' : value)
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="text"
+        value={draft}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false)
+          if (draft !== (value === '—' ? '' : value)) onSave?.(draft)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setDraft(value === '—' ? '' : value)
+            setEditing(false)
+          }
+        }}
+        placeholder="Poste / spécialité"
+        className="text-sm font-semibold px-1.5 py-0.5 rounded outline-none flex-1 min-w-0"
+        style={{
+          background: 'var(--bg-elev)',
+          color: 'var(--txt)',
+          border: '1px solid var(--blue)',
+        }}
+      />
+    )
+  }
+
+  if (!canEdit) {
+    return <span className="truncate" title={value}>{value}</span>
+  }
+
+  // Cliquable pour éditer
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="truncate text-left transition-colors hover:underline decoration-dotted"
+      style={{
+        color: value === '—' ? 'var(--txt-3)' : 'var(--txt)',
+        background: 'transparent',
+      }}
+      title={value === '—' ? 'Cliquer pour saisir un poste' : `${value} (cliquer pour modifier)`}
+    >
+      {value}
+    </button>
+  )
+}
 
 function InlineText({ value, placeholder, icon, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
