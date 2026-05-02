@@ -448,6 +448,8 @@ export default function LivrablesTab() {
         // LIV-V-PREV : versions par livrable → cellule orange "Envoi VX"
         // au jour de date_envoi_prevu, prioritaire sur les autres phases.
         versionsByLivrable,
+        // MT-PRE-1.A : org pour brander dynamiquement bandeau noir + footer
+        org,
       })
       setPdfExport(exporter)
     } catch (err) {
@@ -464,6 +466,7 @@ export default function LivrablesTab() {
     versionsByLivrable,
     eventTypes,
     profilesById,
+    org,
   ])
   const handleClosePdfPreview = useCallback(() => {
     if (pdfExport) {

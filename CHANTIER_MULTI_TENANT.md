@@ -8,6 +8,50 @@
 
 ---
 
+## 🧭 État courant et prochaines étapes (2026-05-02)
+
+### ✅ Terminé
+- **Phase 0 — Sécurité** (5 sous-chantiers MT-0.1 → MT-0.5)
+  - Audit scoping (59 tables auditées, 0 trou structurel)
+  - Audit RLS (169 policies, helpers durcis avec garde-fou org)
+  - Migration corrective `20260501_mt0_security_hardening.sql`
+    appliquée en prod
+  - Audit statique (`mt0_4_static_audit.sql`) + procédure cross-org
+    Phase 1 (`MT_PHASE1_CROSS_ORG_TEST.md`)
+  - Règles MT documentées (`MT_RULES.md`)
+- **MT-PRE-1.A — Branding dynamique** : voir détail en bas du doc.
+  L'app est désormais 100% prête à accueillir une 2e org sans
+  fuite de pixel "Captiv".
+
+### 🟡 En attente (anticipations Phase 1, hors prospect)
+- ~~**MT-PRE-1.B — Scoping `catalogue_lignes` + templates métiers**~~
+  ✅ **Bouclé 2026-05-02** : recon montrant que 4 tables sur 5
+  étaient déjà scopées par CH-3A / CH-4D (org_id direct ou héritage),
+  UI `TemplatesMetiersTab` déjà branchée. `catalogue_lignes` était
+  une table morte (jamais utilisée, supplantée par `produits_bdd`)
+  → dropée via `20260502_mtpre1b_drop_catalogue_lignes.sql`.
+
+### 🔴 Bloqué jusqu'à prospect (Phase 1 complète)
+- **Onboarding wizard** : signup d'une nouvelle société, setup
+  pas-à-pas (logo, charges, types projets, invitations équipe).
+- **Buckets Storage isolés par org** : préfixer tous les paths
+  `<org_id>/...` + RLS. Note : le bucket `org-assets` créé en
+  MT-PRE-1.A applique déjà ce pattern.
+- **Domaine partagé + landing publique** : `app.captivdesk.com`
+  ou nom de marque finalisé.
+- **Console super-admin RGPD-safe** : page `/super-admin` avec
+  liste des orgs, métriques agrégées, suspension/réactivation.
+  **Pas** d'accès lecture aux données business.
+- **Tests cross-org grandeur nature** : créer une 2e org de test,
+  dérouler les 21 tests `MT_PHASE1_CROSS_ORG_TEST.md`. Critère :
+  21/21 PASS.
+
+### 🔴 Phase 2+ (production SaaS, hors urgence)
+- Stripe Billing, emails transactionnels, RGPD/DPA,
+  sous-domaines par slug, white-label profond.
+
+---
+
 ## 1. Contexte & vision
 
 L'outil MATRICE GOLDEN a vocation à être ouvert à d'autres sociétés de
@@ -493,3 +537,119 @@ Tables qui restent **délibérément** partagées entre toutes les orgs :
   (typiquement onboarding du 1er prospect). Couvre les tests
   d'isolation en lecture, écriture, super_admin, partage public.
   Critère de validation : 21/21 PASS.
+
+### 2026-05-02 — MT-PRE-1.A ✅ Branding dynamique terminé
+Le branding « Captiv » hardcodé dans le code a été entièrement
+remplacé par une lecture dynamique depuis les tables `organisations`
+(branding visuel par-org) et `app_settings` (nom produit global).
+
+**A — BDD (migrations Supabase appliquées)** :
+- `20260502_mtpre1a_branding_schema.sql` : renommage
+  `name → legal_name` + 13 nouveaux champs sur `organisations`
+  (display_name, tagline, forme_juridique, capital_social, code_ape,
+  ville_rcs, website_url, logo_url_clair, logo_url_sombre,
+  signature_url, brand_color, pdf_field_visibility jsonb,
+  share_intro_text). Drop de l'ancien `logo_url`. Création
+  table `app_settings` (singleton clé `'global'`) avec product_name,
+  product_tagline, product_url, product_support_email seedés.
+- `20260502_mtpre1a_branding_devis_fields.sql` : 4 champs en plus
+  (logo_banner_url, pdf_devis_annulation_text,
+  pdf_devis_reglement_text, pdf_devis_cgv_text).
+- `20260502_mtpre1a_storage_bucket.sql` : bucket `org-assets` avec
+  RLS scopée par préfixe org folder.
+- `20260502_mtpre1a_share_livrables_org.sql` : extension de la
+  RPC `share_livrables_fetch` pour exposer un objet `org` dans
+  son payload (branding-only, pas de fuite des infos légales).
+
+**B — UI Paramètres > Organisation (`OrganisationTab.jsx`)** :
+- 5 sections collapsibles : Identité commerciale, Identité légale
+  (avec toggles `pdf_field_visibility`), Coordonnées, Branding visuel,
+  Page partage client, Mentions devis.
+- Image uploader avec validation pixel (max 4000×4000).
+- Color picker (palette + hex libre).
+- SIREN calculé dynamiquement depuis SIRET.
+
+**C — Refactor lectures** :
+- `AuthContext` expose `org`, `setOrg`, `appSettings` (avec
+  fallback `DEFAULT_APP_SETTINGS` si table app_settings vide).
+- `lib/branding.js` : helper `pickOrgLogo(org, mode)` avec modes
+  `dark` / `light` / `banner` pour gérer le futur lightmode.
+- `hooks/useAppTheme.js` : abstraction du thème courant (renvoie
+  `'dark'` aujourd'hui, prêt pour le toggle lightmode).
+- `lib/pdfImageLoader.js` : helpers `loadImageAsJpeg` (fond blanc
+  forcé) + `loadImageAsPng` (alpha préservé pour fond non-blanc) +
+  `computeLogoBox` (ratio respecté dans une boîte W×H).
+
+**D — Refactor PDFs** :
+- D.1 PDF Devis (`lib/pdfExport.js`) : header banner via
+  `pickOrgLogo(org, 'banner')`, sender block dynamique, blocs
+  annulation/règlement/CGV depuis org, mention légale auto-construite
+  selon `pdf_field_visibility`, modalités acompte dynamiques.
+- D.2 PDFs Matériel (3 fichiers) : `matosPdfExport`, `matosBilanPdf`,
+  `matosBonRetourPdf` brandés. Header avec logo banner + footer
+  avec `legal_name || display_name`. Fix du paramètre `banner`
+  → `bannerImage` propagé à travers les helpers internes.
+  Fix oubli de passer `org` à `BonRetourExportModal` depuis
+  `RenduSession.jsx`.
+- D.3 PDFs Livrables : `livrablesPdfExport` (Vue ensemble interne
+  A4 paysage) avec bandeau noir → logo PNG en mode `'dark'`
+  (alpha préservé), footer avec `display_name || legal_name` et
+  filename neutre `Livrables-...`. `livrablesSharePdfExport`
+  (Vue client public) avec footer dynamique
+  `display_name · tagline`.
+- D.4 Page partage client : `ShareHeader` avec logo + nom org
+  intégré inline dans l'eyebrow ("[logo] · Suivi des livrables"),
+  eyebrow customisable via `org.share_intro_text`. Footer page
+  web `LivrableShareSession` avec `display_name · tagline`.
+
+**Audit final** : 4 strings UI internes encore brandés Captiv
+neutralisés (placeholder Login → "votre@email.com",
+"Équipe Captiv" → "Équipe interne", 2× "Identifiant CAPTIV"
+→ "Identifiant interne"). Tous les autres "captiv" résiduels
+(localStorage namespace, classes CSS, iCal PRODID, fallbacks
+legacy `org === null`) sont intentionnels et invisibles
+utilisateur.
+
+**Stratégie rétrocompat** : tous les helpers PDFs gardent un
+fallback Captiv si `org === null` (caller legacy). Dès qu'une
+`org` réelle est passée → branding 100% dynamique. Aucun risque
+de régression.
+
+**Validation Hugo** : tous les PDFs et la page de partage testés
+en réel avec OMNI FILMS — branding correct partout.
+
+**🎉 MT-PRE-1.A bouclé.** L'application est désormais 100% prête
+pour accueillir une 2e société sans qu'aucun pixel "Captiv" ne
+fuite chez ses clients.
+
+### 2026-05-02 — MT-PRE-1.B ✅ Scoping catalogues par-org
+La recon a révélé que **95% du chantier était déjà fait** depuis
+les chantiers historiques :
+
+**Déjà scopé** :
+- `metiers_template` : `org_id` direct + `is_system` flag + RLS
+  scopée + RPC `clone_metier_template` (CH-3A + CH-4D).
+- `metier_template_permissions` : scopée par héritage FK template.
+- `template_categories` / `template_lines` : scopées par héritage
+  via `devis_templates.org_id` (système des templates de devis).
+- UI admin `TemplatesMetiersTab.jsx` : déjà branchée dans
+  `Settings.jsx` avec CRUD complet + clone des templates système.
+
+**Drop de la table morte** :
+- `catalogue_lignes` était prévue à l'origine comme catalogue plat
+  de lignes-types pour devis, mais n'a jamais été branchée :
+  - 0 INSERT dans la migration (table créée vide)
+  - 0 référence côté front
+  - 0 jointure SQL ailleurs
+- La feature a été supplantée par `produits_bdd` (déjà avec
+  `org_id` direct, RLS scopée, UI Catalogue branchée à
+  ~128 éléments en prod chez Captiv) qui couvre exactement le
+  même besoin de manière multi-tenant safe.
+- Décision Hugo : drop. Migration
+  `20260502_mtpre1b_drop_catalogue_lignes.sql`. Whitelist de
+  `mt0_4_static_audit.sql` mise à jour pour cohérence.
+
+**🎉 MT-PRE-1.B bouclé.** Tous les catalogues / templates de l'app
+sont désormais scopés par-org ou hérités. Une nouvelle org pourra
+créer ses propres templates métiers et son propre catalogue
+`produits_bdd` sans conflit avec ceux de Captiv.

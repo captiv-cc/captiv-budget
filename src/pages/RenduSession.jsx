@@ -107,7 +107,7 @@ function TokenRenduSession() {
 
 function AuthedRenduSession() {
   const { id: projectId, versionId: paramVersionId } = useParams()
-  const { profile, user } = useAuth()
+  const { profile, user, org } = useAuth()
 
   const userName =
     profile?.full_name?.trim() ||
@@ -181,6 +181,7 @@ function AuthedRenduSession() {
       presenceUsers={users}
       presenceCurrentKey={currentKey}
       requireName={false}
+      org={org}
     />
   )
 }
@@ -209,6 +210,7 @@ function RenduSessionShell({
   presenceUsers,
   presenceCurrentKey,
   requireName,
+  org = null, // MT-PRE-1.A : org pour brander les PDFs bon-retour (authed only)
 }) {
   const users = presenceUsers
   const currentKey = presenceCurrentKey
@@ -446,6 +448,7 @@ function RenduSessionShell({
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         session={session}
+        org={org}
       />
     </div>
   )
@@ -745,7 +748,7 @@ function RenduHeader({
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
-            title={mode === 'authed' ? `Identifiant CAPTIV — ${userName}` : userName || undefined}
+            title={mode === 'authed' ? `Identifiant interne — ${userName}` : userName || undefined}
             aria-label={userName || undefined}
           >
             <span className="hidden sm:inline">{userName}</span>

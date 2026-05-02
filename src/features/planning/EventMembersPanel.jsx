@@ -350,7 +350,7 @@ function AddMemberPanel({ profiles, crew, loading, onCancel, onPickProfile, onPi
       {!loading && filteredProfiles.length > 0 && (
         <div className="flex flex-col gap-1">
           <div className="text-[10px] uppercase tracking-wide px-1" style={{ color: 'var(--txt-3)' }}>
-            Équipe Captiv
+            Équipe interne
           </div>
           {filteredProfiles.map((p) => (
             <button

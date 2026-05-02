@@ -96,6 +96,10 @@ const CONTENT_W = PAGE_W - MARGIN_X * 2
 
 export async function buildLivrablesSharePdf(payload, options = {}) {
   const { share, project, blocks = [], livrables = [], versions = [] } = payload || {}
+  // MT-PRE-1.A : org transportée par la RPC share_livrables_fetch (étendue
+  // en D.4). Si absente — caller / RPC ancienne version — on retombe sur
+  // les valeurs Captiv historiques pour ne rien casser visuellement.
+  const org = payload?.org || null
   const generatedAt = options.generatedAt || payload?.generated_at || new Date().toISOString()
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
@@ -127,7 +131,7 @@ export async function buildLivrablesSharePdf(payload, options = {}) {
   drawLivrablesList(doc, { blocks, livrables, versions, config: share?.config || {} }, y + 6)
 
   // ─── 4. Footer pages ────────────────────────────────────────────────────
-  applyFooter(doc, { generatedAt, project })
+  applyFooter(doc, { generatedAt, project, org })
 
   // ─── 5. Build blob/url ──────────────────────────────────────────────────
   const blob = doc.output('blob')
@@ -524,7 +528,18 @@ function estimateFeedbackHeight(doc, text) {
 
 // ─── Footer pages ─────────────────────────────────────────────────────────
 
-function applyFooter(doc, { generatedAt, project }) {
+function applyFooter(doc, { generatedAt, project, org = null }) {
+  // MT-PRE-1.A : signature dynamique. Préfère display_name (nom commercial,
+  // souvent en majuscules) puis legal_name. Tagline optionnelle. Si org
+  // absente (caller legacy / RPC pas encore étendue), on garde la signature
+  // Captiv historique pour préserver la rétrocompatibilité visuelle.
+  const orgName = org === null
+    ? 'CAPTIV'
+    : (org?.display_name || org?.legal_name || '').toString().trim().toUpperCase()
+  const orgTagline = org === null
+    ? ' · Production audiovisuelle'
+    : (org?.tagline ? ` · ${org.tagline}` : '')
+
   const pageCount = doc.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i)
@@ -534,17 +549,23 @@ function applyFooter(doc, { generatedAt, project }) {
     doc.setLineWidth(0.2)
     doc.line(MARGIN_X, PAGE_H - 12, PAGE_W - MARGIN_X, PAGE_H - 12)
 
-    // Ligne 1 (signature Captiv en gras à gauche, pagination à droite)
+    // Ligne 1 (signature org en gras à gauche, pagination à droite)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7)
     doc.setTextColor(...C.text)
-    doc.text('CAPTIV', MARGIN_X, PAGE_H - 8)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(...C.textMuted)
-    doc.text(' · Production audiovisuelle', MARGIN_X + doc.getTextWidth('CAPTIV'), PAGE_H - 8)
+    if (orgName) {
+      doc.text(orgName, MARGIN_X, PAGE_H - 8)
+      if (orgTagline) {
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(...C.textMuted)
+        doc.text(orgTagline, MARGIN_X + doc.getTextWidth(orgName), PAGE_H - 8)
+      }
+    }
 
     const right1 = `Page ${i} / ${pageCount}`
     const tw1 = doc.getTextWidth(right1)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...C.text)
     doc.text(right1, PAGE_W - MARGIN_X - tw1, PAGE_H - 8)
 
     // Ligne 2 (titre projet à gauche, date génération à droite)

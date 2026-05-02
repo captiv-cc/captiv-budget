@@ -67,6 +67,10 @@ export default function LivrableShareSession() {
   const { share, project, blocks, livrables, versions } = payload
   const etapes = payload.etapes || []
   const eventTypes = payload.event_types || []
+  // MT-PRE-1.A : org transportée par la RPC share_livrables_fetch (étendue
+  // en D.4). null si la RPC n'a pas encore été migrée — le rendu fallback
+  // gracieusement sur l'apparence Captiv historique.
+  const org = payload.org || null
   const config = share?.config || {}
   const calendarLevel = config.calendar_level || 'hidden'
 
@@ -75,6 +79,7 @@ export default function LivrableShareSession() {
       payload={payload}
       project={project}
       share={share}
+      org={org}
       blocks={blocks}
       livrables={livrables}
       versions={versions}
@@ -95,6 +100,7 @@ function ShareContent({
   payload,
   project,
   share,
+  org = null,
   blocks,
   livrables,
   versions,
@@ -130,6 +136,7 @@ function ShareContent({
         <ShareHeader
           project={project}
           share={share}
+          org={org}
           generatedAt={payload.generated_at}
           theme={theme}
           onToggleTheme={onToggleTheme}
@@ -160,22 +167,49 @@ function ShareContent({
           config={config}
         />
 
-        {/* Footer */}
-        <footer className="pt-6 pb-3 text-center" style={{ color: 'var(--txt-3)' }}>
-          <p className="text-[11px] leading-relaxed">
-            Ce lien donne accès en lecture seule au suivi de votre projet.
-            {' '}Les informations sont mises à jour en temps réel.
-          </p>
-          <p className="mt-3 text-[10px] tracking-wider" style={{ color: 'var(--txt-3)' }}>
-            <span className="font-bold" style={{ color: 'var(--txt-2)', letterSpacing: '0.15em' }}>
-              CAPTIV
-            </span>
-            <span className="mx-1.5" aria-hidden="true">·</span>
-            <span>Production audiovisuelle</span>
-          </p>
-        </footer>
+        {/* Footer — MT-PRE-1.A : signature org dynamique. Préfère display_name
+            (nom commercial en majuscules) puis legal_name. Tagline optionnelle.
+            Si org=null (RPC pas migrée), fallback Captiv historique. */}
+        <ShareFooter org={org} />
       </div>
     </div>
+  )
+}
+
+// ─── Footer signature org (MT-PRE-1.A) ────────────────────────────────────
+//
+// Affiche le nom commercial (display_name) en gras + tagline en normal,
+// dans le même format que le footer historique. Si org=null (RPC pas
+// migrée), fallback "CAPTIV · Production audiovisuelle" pour préserver
+// l'apparence visuelle existante.
+function ShareFooter({ org }) {
+  const orgName = org === null
+    ? 'CAPTIV'
+    : (org?.display_name || org?.legal_name || '').toString().trim().toUpperCase()
+  const orgTagline = org === null
+    ? 'Production audiovisuelle'
+    : (org?.tagline || '').toString().trim()
+
+  return (
+    <footer className="pt-6 pb-3 text-center" style={{ color: 'var(--txt-3)' }}>
+      <p className="text-[11px] leading-relaxed">
+        Ce lien donne accès en lecture seule au suivi de votre projet.
+        {' '}Les informations sont mises à jour en temps réel.
+      </p>
+      {orgName && (
+        <p className="mt-3 text-[10px] tracking-wider" style={{ color: 'var(--txt-3)' }}>
+          <span className="font-bold" style={{ color: 'var(--txt-2)', letterSpacing: '0.15em' }}>
+            {orgName}
+          </span>
+          {orgTagline && (
+            <>
+              <span className="mx-1.5" aria-hidden="true">·</span>
+              <span>{orgTagline}</span>
+            </>
+          )}
+        </p>
+      )}
+    </footer>
   )
 }
 

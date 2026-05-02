@@ -20,6 +20,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import jsPDF from 'jspdf'
+import { loadImageAsPng, computeLogoBox } from '../../lib/pdfImageLoader'
+import { pickOrgLogo } from '../../lib/branding'
 
 // ─── Palette ──────────────────────────────────────────────────────────────
 const C = {
@@ -438,6 +440,9 @@ export async function buildLivrablesEnsemblePdf({
   // version a une date_envoi_prevu, la cellule du jour correspondant est
   // peinte en orange avec "Envoi VX".
   versionsByLivrable = null,
+  // MT-PRE-1.A : org pour brander dynamiquement le bandeau noir + footer.
+  // Si null, on retombe sur le branding Captiv historique (compat).
+  org = null,
 }) {
   const data = buildEnsembleData({
     blocks, livrables, etapes, eventTypes, profilesById, now: generatedAt,
@@ -449,10 +454,36 @@ export async function buildLivrablesEnsemblePdf({
   const coverUrl = project?.cover_url || project?.clients?.logo_url || null
   const projectImage = coverUrl ? await fetchImageAsDataUrl(coverUrl) : null
 
+  // MT-PRE-1.A : logo org pour le bandeau noir. Mode 'dark' = logo conçu
+  // pour fond sombre (typiquement la version blanche/claire du logo).
+  //
+  // ⚠️ On charge en PNG (pas JPEG) parce que le bandeau est NOIR : un JPEG
+  // forcerait un fond blanc opaque autour du logo (alpha non supporté par
+  // JPEG), créant un rectangle blanc disgracieux. PNG préserve l'alpha.
+  //
+  // Si l'org n'a aucun logo configuré ET org est non-null, on continue
+  // sans logo pour ne pas afficher le logo Captiv dans une autre org.
+  // Si org est null (caller legacy), on garde le fallback Captiv historique.
+  const hasOrgLogo = Boolean(
+    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+  )
+  let bannerImage = null
+  if (org === null) {
+    // Caller legacy : fallback Captiv pour ne rien casser
+    bannerImage = await loadImageAsPng(pickOrgLogo(null, 'dark')).catch(() => null)
+  } else if (hasOrgLogo) {
+    const logoUrl = pickOrgLogo(org, 'dark')
+    bannerImage = await loadImageAsPng(logoUrl).catch((e) => {
+      console.error('[livrablesPdfExport] logo org échoué, PDF sans logo:', e?.message)
+      return null
+    })
+  }
+  // else : org passée mais aucun logo configuré → bandeau texte seul
+
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   doc.setFont('helvetica', 'normal')
 
-  drawTopBlackBanner(doc)
+  drawTopBlackBanner(doc, { bannerImage, org })
   drawHeader(doc, { project, client, producer, versionNumber, generatedAt, projectImage })
 
   if (data.livrables.length === 0) {
@@ -463,7 +494,7 @@ export async function buildLivrablesEnsemblePdf({
     drawCrossTable(doc, data, { startY: TABLE_START_Y })
   }
 
-  drawFooter(doc)
+  drawFooter(doc, { org })
 
   const blob = doc.output('blob')
   const url = URL.createObjectURL(blob)
@@ -473,7 +504,10 @@ export async function buildLivrablesEnsemblePdf({
     .trim()
     .replace(/\s+/g, '-') || 'projet'
   const ymd = `${generatedAt.getFullYear()}${String(generatedAt.getMonth() + 1).padStart(2, '0')}${String(generatedAt.getDate()).padStart(2, '0')}`
-  const filename = `Captiv-Livrables-${safeTitle}-V${versionNumber}-${ymd}.pdf`
+  // MT-PRE-1.A : filename neutre (pas de "Captiv-" hardcodé), juste
+  // "Livrables-<projet>-V<n>-<date>.pdf" — l'utilisateur reconnaît son
+  // projet, et c'est portable cross-org.
+  const filename = `Livrables-${safeTitle}-V${versionNumber}-${ymd}.pdf`
 
   return {
     blob,
@@ -497,28 +531,65 @@ export async function buildLivrablesEnsemblePdf({
 
 /**
  * Bandeau noir pleine largeur en haut de la 1re page.
- * "captiv." en blanc gros + sous-titre "PLANNING DE POST-PRODUCTION…"
+ * Logo org (mode dark = blanc/clair pour fond sombre) à gauche, sous-titre
+ * "PLANNING DE POST-PRODUCTION — VUE D'ENSEMBLE" en blanc à droite.
+ *
+ * Si pas de logo image disponible (org sans logo, ou caller legacy avec
+ * fallback Captiv ayant échoué), on retombe sur un texte "<nom org>." en
+ * blanc — ou "captiv." si org est null (compat).
  */
-function drawTopBlackBanner(doc) {
+function drawTopBlackBanner(doc, { bannerImage = null, org = null } = {}) {
   doc.setFillColor(...C.black)
   doc.rect(0, 0, PAGE_WIDTH_MM, BANNER_H, 'F')
 
-  // Logo "captiv." centré (gros, blanc)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(15)
-  doc.setTextColor(...C.white)
-  doc.text('captiv.', PAGE_WIDTH_MM / 2, 6.8, { align: 'center' })
+  // Logo image à gauche, hauteur calée sur le bandeau (ratio respecté)
+  if (bannerImage) {
+    try {
+      const BOX_X = MARGIN_MM
+      const BOX_Y = 2
+      const BOX_W = 60
+      const BOX_H = BANNER_H - 4
+      const { width, height } = computeLogoBox(
+        bannerImage.width, bannerImage.height, BOX_W, BOX_H,
+      )
+      const finalY = BOX_Y + (BOX_H - height) / 2
+      // PNG (pas JPEG) pour préserver l'alpha sur fond noir
+      doc.addImage(bannerImage.dataUrl, 'PNG', BOX_X, finalY, width, height)
+    } catch {
+      // image invalide → fallback texte
+      drawBannerTextLogo(doc, org)
+    }
+  } else {
+    drawBannerTextLogo(doc, org)
+  }
 
-  // Sous-titre
+  // Sous-titre centré
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...C.white)
   doc.text(
     "PLANNING DE POST-PRODUCTION — VUE D'ENSEMBLE",
     PAGE_WIDTH_MM / 2,
-    11.5,
+    BANNER_H / 2 + 2,
     { align: 'center' },
   )
+}
+
+/**
+ * Fallback texte si pas d'image de logo : nom court de l'org en gras blanc.
+ * Pour org=null (caller legacy), affiche "captiv." pour préserver
+ * l'apparence historique.
+ */
+function drawBannerTextLogo(doc, org) {
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(15)
+  doc.setTextColor(...C.white)
+  const text = org === null
+    ? 'captiv.'
+    : (org?.display_name || org?.legal_name || '').toString().trim() || ''
+  if (text) {
+    doc.text(text, MARGIN_MM, BANNER_H / 2 + 2)
+  }
 }
 
 function drawHeader(doc, {
@@ -671,20 +742,31 @@ function drawLegendBox(doc, { x, y }) {
   doc.setLineWidth(0.1)
 }
 
-function drawFooter(doc) {
+function drawFooter(doc, { org = null } = {}) {
+  // MT-PRE-1.A : signature dynamique. Préfère le nom commercial
+  // (display_name) — c'est ce que l'utilisateur veut voir en footer,
+  // pas l'URL du site. Fallback sur legal_name. Si org=null (caller
+  // legacy), on garde "captiv.cc" pour ne rien casser visuellement.
+  const signature = org === null
+    ? 'captiv.cc'
+    : (org?.display_name || org?.legal_name || '')
   const total = doc.internal.getNumberOfPages()
   for (let i = 1; i <= total; i += 1) {
     doc.setPage(i)
     doc.setFontSize(7)
     doc.setTextColor(...C.textMuted)
+    const right = signature
+      ? `${signature} · Page ${i}/${total}`
+      : `Page ${i}/${total}`
     doc.text(
-      `captiv.cc · Page ${i}/${total}`,
+      right,
       PAGE_WIDTH_MM - MARGIN_MM,
       PAGE_HEIGHT_MM - 4,
       { align: 'right' },
     )
   }
 }
+
 
 // ─── Tableau croisé ──────────────────────────────────────────────────────
 

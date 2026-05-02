@@ -78,6 +78,72 @@ export async function loadImageAsJpeg(url) {
 }
 
 /**
+ * Charge une image et la renormalise en PNG via canvas, en PRÉSERVANT
+ * la transparence.
+ *
+ * Différence vs `loadImageAsJpeg` :
+ *   - pas de fillRect blanc avant drawImage → l'alpha de l'image source
+ *     est conservé tel quel
+ *   - sortie PNG via `canvas.toDataURL('image/png')` (PNG supporte alpha,
+ *     JPEG non — les JPEG forcent un fond opaque)
+ *
+ * À utiliser quand l'image va être posée sur un fond NON BLANC dans le
+ * PDF (typiquement : logo sur bandeau coloré ou foncé). Sur fond blanc,
+ * `loadImageAsJpeg` reste préférable (sortie plus légère).
+ *
+ * Note : le canvas re-encode toujours en PNG "propre" (8-bit RGBA,
+ * non-interlaced) quel que soit le format d'entrée — pas d'incompatibilité
+ * avec le parser jsPDF, contrairement à un PNG brut récupéré via fetch.
+ *
+ * @param {string} url - URL de l'image (https:// ou /chemin local)
+ * @returns {Promise<{dataUrl: string, width: number, height: number}>}
+ */
+export async function loadImageAsPng(url) {
+  if (!url) throw new Error('loadImageAsPng: url manquante')
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`loadImageAsPng: HTTP ${res.status} sur ${url}`)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || img.width || 0
+          const h = img.naturalHeight || img.height || 0
+          if (!w || !h) {
+            reject(new Error('loadImageAsPng: image vide (0x0)'))
+            return
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext('2d')
+          // Pas de fillRect : on veut conserver la transparence
+          ctx.drawImage(img, 0, 0)
+          const dataUrl = canvas.toDataURL('image/png')
+          if (!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.length < 100) {
+            reject(new Error(
+              `loadImageAsPng: toDataURL retourne un data URL invalide (${dataUrl?.length || 0} chars) ` +
+              `pour image ${w}×${h}. L'image est probablement trop grande pour le canvas du navigateur ` +
+              `(redimensionner < 4000 px).`
+            ))
+            return
+          }
+          resolve({ dataUrl, width: w, height: h })
+        } catch (e) {
+          reject(e)
+        }
+      }
+      img.onerror = () => reject(new Error(`loadImageAsPng: échec décodage ${url}`))
+      img.src = objectUrl
+    })
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+/**
  * Calcule les dimensions de rendu PDF d'une image en respectant son
  * ratio naturel, contraint à une boîte max W × H.
  *

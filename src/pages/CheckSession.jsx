@@ -726,7 +726,7 @@ function CheckHeader({
               border: '1px solid var(--brd)',
               color: 'var(--txt-2)',
             }}
-            title={mode === 'authed' ? `Identifiant CAPTIV — ${userName || ''}` : userName || undefined}
+            title={mode === 'authed' ? `Identifiant interne — ${userName || ''}` : userName || undefined}
             aria-label={userName || undefined}
           >
             <span className="hidden sm:inline">{userName}</span>

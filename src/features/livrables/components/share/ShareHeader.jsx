@@ -6,17 +6,38 @@
 // sombre + vignette carrée nette à gauche + bloc texte à droite. Le bouton
 // PDF et le toggle theme sont posés en absolu en haut à droite, avec
 // backdrop-blur. Pattern aligné sur le hero de ProjetTab.
+//
+// MT-PRE-1.A (D.4) : badge de branding "Partagé par <org>" en bas du hero
+// avec logo (mode 'dark' = version pour fond sombre) si l'org en a un.
+// L'eyebrow "Suivi des livrables" peut être surchargé par org.share_intro_text.
+// Si org est null (caller legacy / RPC ancienne version), comportement
+// inchangé (pas de badge, eyebrow par défaut).
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Film, FileText, Loader2, Moon, Sun } from 'lucide-react'
+import { pickOrgLogo } from '../../../../lib/branding'
 
-export default function ShareHeader({ project, share, generatedAt, theme, onToggleTheme, onExportPdf, exporting }) {
+export default function ShareHeader({ project, share, generatedAt, org = null, theme, onToggleTheme, onExportPdf, exporting }) {
   const title = project?.title || 'Projet'
   const ref = project?.ref_projet
   const cover = project?.cover_url
   const shareLabel = share?.label
 
   const generatedFr = formatDateTimeFR(generatedAt)
+
+  // MT-PRE-1.A : eyebrow customisable par org (ex: "Suivi production",
+  // "Espace client OMNI FILMS"…), fallback sur l'eyebrow par défaut.
+  const eyebrow = org?.share_intro_text?.trim() || 'Suivi des livrables'
+
+  // MT-PRE-1.A : signature org. Le hero est sombre (overlay noir 0.7+),
+  // donc on prend le logo en mode 'dark' = la version blanche/claire conçue
+  // pour fond sombre. Pas de fallback Captiv automatique : si l'org a pas
+  // de logo, on affiche juste le nom commercial en texte (badge subtil).
+  const hasOrgLogo = Boolean(
+    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+  )
+  const orgLogoUrl = hasOrgLogo ? pickOrgLogo(org, 'dark') : null
+  const orgName = org?.display_name || org?.legal_name || ''
 
   return (
     <header
@@ -108,12 +129,30 @@ export default function ShareHeader({ project, share, generatedAt, theme, onTogg
         )}
 
         <div className="flex-1 min-w-0">
-          <p
-            className="text-[11px] uppercase tracking-wider font-semibold mb-1"
+          {/* MT-PRE-1.A : eyebrow enrichi avec branding org. Format inline :
+              [logo] OMNI FILMS · Suivi des livrables. Si pas de logo image,
+              juste le nom en texte. Si pas d'org du tout (RPC pas migrée),
+              on retombe sur le texte seul (eyebrow par défaut). */}
+          <div
+            className="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold mb-1"
             style={{ color: 'rgba(255,255,255,0.7)' }}
           >
-            Suivi des livrables
-          </p>
+            {orgLogoUrl && (
+              <img
+                src={orgLogoUrl}
+                alt={orgName}
+                className="h-3.5 w-auto object-contain shrink-0"
+                style={{ maxWidth: '60px' }}
+              />
+            )}
+            {orgName && !orgLogoUrl && (
+              <span style={{ color: 'rgba(255,255,255,0.95)' }}>{orgName}</span>
+            )}
+            {orgName && (
+              <span aria-hidden="true" style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
+            )}
+            <span>{eyebrow}</span>
+          </div>
           <h1
             className="text-xl sm:text-2xl md:text-3xl font-bold leading-tight break-words text-white"
             style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}

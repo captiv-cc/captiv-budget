@@ -890,7 +890,7 @@ export async function exportMatosLoueurSinglePDF({
 // ─── Rendu d'une section loueur ─────────────────────────────────────────────
 function renderLoueurSection(
   doc,
-  { project, activeVersion, loueur, lignes, banner, infosLogistique = '' },
+  { project, activeVersion, loueur, lignes, bannerImage, infosLogistique = '' },
 ) {
   const M = 14
   const PW = doc.internal.pageSize.getWidth()
@@ -901,7 +901,7 @@ function renderLoueurSection(
     subtitle: `Loueur : ${loueur.nom}`,
     project,
     activeVersion,
-    banner,
+    bannerImage,
   })
 
   let y = 34
@@ -992,7 +992,7 @@ function renderLoueurSection(
         subtitle: `Loueur : ${loueur.nom}`,
         project,
         activeVersion,
-        banner,
+        bannerImage,
       })
     },
   })
