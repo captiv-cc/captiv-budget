@@ -140,11 +140,10 @@ export default function EquipeTab() {
   // Note : le mapping category_id → devis_id n'est plus nécessaire, on passe par lineLotMap
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
-  // ── Onglets équipe (EQUIPE-P1) ─────────────────────────────────────────
-  // Default = 'techlist' (nouvelle Tech list). 'attribution' garde l'ancienne
-  // vue par poste de devis. La vue 'equipe' (legacy "Vue par personne") est
-  // remplacée par la Tech list.
-  const [activeTab, setActiveTab] = useState('techlist') // 'techlist' | 'attribution'
+  // ── Onglets équipe ─────────────────────────────────────────────────────
+  // 3 modes : techlist (vue terrain) / attribution (vue par poste de devis)
+  // / finances (vue par personne avec totaux financiers, gated canSeeCrewBudget).
+  const [activeTab, setActiveTab] = useState('techlist') // 'techlist' | 'attribution' | 'finances'
 
   // ── Persistance du collapse des lots (localStorage, par projet) ───────────
   const lotCollapseKey = `equipeTab.collapsedLots.${projectId || 'noproj'}`
@@ -516,8 +515,13 @@ export default function EquipeTab() {
         style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
       >
         {[
-          { k: 'techlist', l: 'Tech list', hint: 'Vue par personne — secteur, présence, hébergement' },
-          { k: 'attribution', l: 'Attribution', hint: 'Gérer les postes un par un' },
+          { k: 'techlist', l: 'Tech list', hint: 'Vue terrain — qui est là quand, secteur, présence, hébergement' },
+          { k: 'attribution', l: 'Attribution', hint: 'Gérer les postes du devis un par un' },
+          // Vue Finances : visible uniquement par les rôles internes (admin /
+          // chargé prod / coordinateur) car expose les budgets HT.
+          ...(canSeeCrewBudget
+            ? [{ k: 'finances', l: 'Finances', hint: 'Vue par personne avec totaux financiers' }]
+            : []),
         ].map(({ k, l, hint }) => (
           <button
             key={k}
@@ -542,11 +546,26 @@ export default function EquipeTab() {
 
       {/* ── Contenu selon onglet ─────────────────────────────────────────── */}
       {activeTab === 'techlist' ? (
-        /* ── Tech list (EQUIPE-P1) — nouvelle vue par personne ────────────── */
+        /* ── Tech list (EQUIPE-P1) — vue terrain ───────────────────────────── */
         <TechListView
           project={project}
           projectId={projectId}
           canEdit={true}
+        />
+      ) : activeTab === 'finances' && canSeeCrewBudget ? (
+        /* ── Finances (P2.4 — réactivée) — vue par personne avec totaux ───── */
+        <EquipeFinancesView
+          membres={membres}
+          crewLines={crewLines}
+          catMap={catMap}
+          canSeeFinance={canSeeFinance}
+          canSeeCrewBudget={canSeeCrewBudget}
+          projectId={projectId}
+          lineLotMap={lineLotMap}
+          lotInfoMap={lotInfoMap}
+          isMultiLot={isMultiLot}
+          onUpdate={updateMembre}
+          onRemove={removeMembre}
         />
       ) : (
         <>
@@ -1545,11 +1564,13 @@ function groupByPerson(membres, crewLines, lineLotMap = {}) {
   )
 }
 
-// Renommé _EquipeView (préfixe underscore = lint silencé) car l'ancienne
-// "Vue par personne" est remplacée par TechListView (EQUIPE-P1). Le code
-// reste en place pour faciliter une éventuelle réintroduction si besoin ;
-// il pourra être supprimé en Phase 1.5 une fois la Tech list validée.
-function _EquipeView({
+// Vue Finances par personne (P2.4 — réactivée).
+//
+// Regroupe les attributions par personne et affiche les totaux financiers
+// agrégés (vente HT, coût estimé, budget convenu) + le détail ligne par
+// ligne avec édition inline du `budget_convenu`. Visible uniquement par les
+// rôles internes (admin/charge_prod/coordinateur) via canSeeCrewBudget.
+function EquipeFinancesView({
   membres,
   crewLines,
   catMap = {},
