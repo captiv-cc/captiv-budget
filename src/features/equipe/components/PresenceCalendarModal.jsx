@@ -72,6 +72,9 @@ export default function PresenceCalendarModal({
   // En mode 'arrival'/'departure', click sur un jour assigne la date
   // correspondante au lieu de toggler la présence.
   const [pickerMode, setPickerMode] = useState('presence')
+  // Cellule survolée — utilisée pour le hover violet en mode picker
+  // (plutôt qu'un ring violet permanent sur toutes les cellules).
+  const [hoveredIso, setHoveredIso] = useState(null)
 
   const [viewMonth, setViewMonth] = useState(() => {
     if (anchorDate instanceof Date) return startOfMonth(anchorDate)
@@ -393,20 +396,28 @@ export default function PresenceCalendarModal({
                 if (pickerMode === 'arrival') tooltipParts.push('→ définir comme arrivée')
                 if (pickerMode === 'departure') tooltipParts.push('→ définir comme retour')
 
-                // Hover/cursor en mode picker
+                // Mode picker → cursor crosshair + ring violet UNIQUEMENT
+                // sur la cellule survolée (le banner + le cursor suffisent
+                // à indiquer le mode, pas besoin de saturer le calendrier).
                 const cellCursor = pickerMode === 'presence' ? 'pointer' : 'crosshair'
-                // Ring violet en mode picker
-                const pickerRing =
-                  pickerMode !== 'presence' && inMonth
-                    ? `0 0 0 1px var(--purple)`
-                    : ''
-                const finalBoxShadow = [boxShadow, pickerRing].filter((s) => s && s !== 'none').join(', ') || 'none'
+                const isHoveredInPicker =
+                  pickerMode !== 'presence' && inMonth && hoveredIso === iso
+                const pickerRing = isHoveredInPicker ? '0 0 0 2px var(--purple)' : ''
+                const finalBoxShadow =
+                  [boxShadow, pickerRing].filter((s) => s && s !== 'none').join(', ') ||
+                  'none'
 
                 return (
                   <button
                     key={i}
                     type="button"
                     onClick={() => toggleDay(d)}
+                    onMouseEnter={() => {
+                      if (pickerMode !== 'presence' && inMonth) setHoveredIso(iso)
+                    }}
+                    onMouseLeave={() => {
+                      if (hoveredIso === iso) setHoveredIso(null)
+                    }}
                     className="aspect-square rounded-md text-sm flex items-center justify-center transition-all relative"
                     style={{
                       background: bgColor,
