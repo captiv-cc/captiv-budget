@@ -24,7 +24,6 @@
 
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Link } from 'react-router-dom'
 import {
   Phone,
   Mail,
@@ -63,24 +62,25 @@ const STATUT_STYLES = {
   paie_terminee:  { color: 'var(--amber)', bg: 'var(--amber-bg)' },
 }
 
-// Style régime fiscal (badge à côté du poste, gated canSeeCrewBudget).
-// Aligné sur regimeStyle de EquipeTab.jsx mais en label court pour la techlist.
+// Style régime fiscal (badge discret à côté du poste, gated canSeeCrewBudget).
+// Format raccourci ("Int.", "Ext."…) pour ne pas concurrencer visuellement le
+// poste. Texte coloré sans fond/bordure, plus petit que les autres badges.
 function regimeBadgeStyle(regime) {
   if (!regime) return null
   const r = regime.toLowerCase()
   if (r.includes('intermittent')) {
-    return { label: 'Intermittent', color: 'var(--purple)', bg: 'var(--purple-bg)', brd: 'var(--purple-brd)' }
+    return { short: 'Int.', full: 'Intermittent', color: 'var(--purple)' }
   }
   if (r === 'interne') {
-    return { label: 'Interne', color: 'var(--blue)', bg: 'var(--blue-bg)', brd: 'var(--blue-brd)' }
+    return { short: 'Interne', full: 'Interne', color: 'var(--blue)' }
   }
   if (r.includes('salarié')) {
-    return { label: 'Salarié', color: 'var(--amber)', bg: 'var(--amber-bg)', brd: 'var(--amber-brd)' }
+    return { short: 'Sal.', full: 'Salarié', color: 'var(--amber)' }
   }
   if (r.includes('micro') || r.includes('auto-entrepreneur')) {
-    return { label: 'Micro', color: 'var(--red)', bg: 'var(--red-bg)', brd: 'var(--red-brd)' }
+    return { short: 'Micro', full: 'Micro / Auto', color: 'var(--red)' }
   }
-  return { label: 'Externe', color: 'var(--green)', bg: 'var(--green-bg)', brd: 'var(--green-brd)' }
+  return { short: 'Ext.', full: 'Externe', color: 'var(--green)' }
 }
 
 // Calcule "J-N" / "J0" / "J+N" entre une date ISO et une date de référence ISO.
@@ -227,18 +227,15 @@ export default function AttributionRow({
                 onUpdateRow?.(row.id, { specialite: v.trim() || null })
               }
             />
-            {/* Badge régime fiscal — visible admin/charge_prod/coordinateur */}
+            {/* Régime fiscal — discret, texte coloré seul (pas de badge plein).
+                Visible admin/charge_prod/coordinateur uniquement. */}
             {regimeBadge && (
               <span
-                className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
-                style={{
-                  background: regimeBadge.bg,
-                  color: regimeBadge.color,
-                  border: `1px solid ${regimeBadge.brd}`,
-                }}
-                title={`Régime fiscal : ${regimeBadge.label}`}
+                className="text-[10px] font-normal shrink-0"
+                style={{ color: regimeBadge.color, opacity: 0.75 }}
+                title={`Régime fiscal : ${regimeBadge.full}`}
               >
-                {regimeBadge.label}
+                · {regimeBadge.short}
               </span>
             )}
             {nbAttached > 0 && (
@@ -256,23 +253,13 @@ export default function AttributionRow({
               </span>
             )}
           </div>
-          {/* Le NOM en sous-titre — cliquable vers /crew si contact dans annuaire */}
+          {/* Le NOM en sous-titre. Plus de lien vers l'annuaire (/crew gated
+              admin → cassé pour les autres rôles). Drawer "Vue par membre"
+              à venir en Phase 2 ouvrira les détails sans redirection. */}
           <div className="text-[11px] truncate" style={{ color: 'var(--txt-2)' }}>
-            {persona.contact_id ? (
-              <Link
-                to="/crew"
-                className="transition-colors hover:underline"
-                style={{ color: 'var(--txt-2)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-2)')}
-                onClick={(e) => e.stopPropagation()}
-                title="Ouvrir l'annuaire des contacts"
-              >
-                {fullName}
-              </Link>
-            ) : (
-              <span title="Hors annuaire">{fullName}</span>
-            )}
+            <span title={persona.contact_id ? fullName : `${fullName} (hors annuaire)`}>
+              {fullName}
+            </span>
           </div>
           {showSensitive && (persona.contact?.email || persona.contact?.telephone) && (
             <div
