@@ -1338,9 +1338,30 @@ function StatusBadge({ statut, membreId, onUpdate }) {
 
   function handleClick(e) {
     e.preventDefault()
+    // Toggle au re-clic + détection haut/bas pour éviter la troncature
+    // quand le badge est près du bas du viewport (cf. dernière card de la
+    // page Attribution qui sortait du cadre).
+    if (open) {
+      setOpen(false)
+      return
+    }
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 4, left: r.left })
+      // Hauteur estimée : 5 items × ~38px + bordures ≈ 200px
+      const dropdownH = STEPS.length * 38 + 8
+      const spaceBelow = window.innerHeight - r.bottom - 8
+      const spaceAbove = r.top - 8
+      const goUp = spaceBelow < dropdownH && spaceAbove > spaceBelow
+      if (goUp) {
+        // Ancre par le bas (le dropdown s'aligne au-dessus du trigger).
+        setPos({
+          bottom: window.innerHeight - r.top + 4,
+          top: null,
+          left: r.left,
+        })
+      } else {
+        setPos({ top: r.bottom + 4, bottom: null, left: r.left })
+      }
     }
     setOpen(true)
   }
@@ -1384,7 +1405,8 @@ function StatusBadge({ statut, membreId, onUpdate }) {
             className="rounded-xl shadow-2xl overflow-hidden"
             style={{
               position: 'fixed',
-              top: pos.top,
+              ...(pos.top != null ? { top: pos.top } : {}),
+              ...(pos.bottom != null ? { bottom: pos.bottom } : {}),
               left: pos.left,
               zIndex: 9999,
               width: '180px',
