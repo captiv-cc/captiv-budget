@@ -50,7 +50,6 @@ import {
   CREW_STATUTS,
 } from '../../../lib/crew'
 import { confirm } from '../../../lib/confirm'
-import { useAuth } from '../../../contexts/AuthContext'
 
 // Couleurs de statut alignées sur EquipeTab.jsx (STEPS)
 const STATUT_STYLES = {
@@ -62,25 +61,10 @@ const STATUT_STYLES = {
   paie_terminee:  { color: 'var(--amber)', bg: 'var(--amber-bg)' },
 }
 
-// Style régime fiscal (badge discret à côté du poste, gated canSeeCrewBudget).
-// Format raccourci ("Int.", "Ext."…) pour ne pas concurrencer visuellement le
-// poste. Texte coloré sans fond/bordure, plus petit que les autres badges.
-function regimeBadgeStyle(regime) {
-  if (!regime) return null
-  const r = regime.toLowerCase()
-  if (r.includes('intermittent')) {
-    return { short: 'Int.', full: 'Intermittent', color: 'var(--purple)' }
-  }
-  if (r === 'interne') {
-    return { short: 'Interne', full: 'Interne', color: 'var(--blue)' }
-  }
-  if (r.includes('salarié')) {
-    return { short: 'Sal.', full: 'Salarié', color: 'var(--amber)' }
-  }
-  if (r.includes('micro') || r.includes('auto-entrepreneur')) {
-    return { short: 'Micro', full: 'Micro / Auto', color: 'var(--red)' }
-  }
-  return { short: 'Ext.', full: 'Externe', color: 'var(--green)' }
+// Helper isIntermittent : utile pour gater le statut MovinMotion qui ne
+// s'applique vraiment qu'aux intermittents.
+function isIntermittent(regime) {
+  return Boolean(regime) && regime.toLowerCase().includes('intermittent')
 }
 
 // Calcule "J-N" / "J0" / "J+N" entre une date ISO et une date de référence ISO.
@@ -112,7 +96,6 @@ export default function AttributionRow({
   onDragEnd,              // HTML5 drag end
   isDragging = false,
 }) {
-  const { canSeeCrewBudget } = useAuth()
   const persona = row.persona || {}
   const fullName = fullNameFromPersona(persona)
   const initials = initialsFromPersona(persona)
@@ -135,10 +118,9 @@ export default function AttributionRow({
 
   const nbAttached = row.attached?.length || 0
 
-  // Régime fiscal : badge visible uniquement par les rôles internes
-  // (admin / chargé prod / coordinateur — cf. canSeeCrewBudget).
+  // Régime (utilisé pour conditionner l'affichage du statut MovinMotion)
   const regime = row.regime || persona.contact?.regime || null
-  const regimeBadge = canSeeCrewBudget ? regimeBadgeStyle(regime) : null
+  const showStatutBadge = isIntermittent(regime)
 
   // Logistique condensée
   const firstPresenceDay = persona.presence_days?.length
@@ -227,17 +209,6 @@ export default function AttributionRow({
                 onUpdateRow?.(row.id, { specialite: v.trim() || null })
               }
             />
-            {/* Régime fiscal — discret, texte coloré seul (pas de badge plein).
-                Visible admin/charge_prod/coordinateur uniquement. */}
-            {regimeBadge && (
-              <span
-                className="text-[10px] font-normal shrink-0"
-                style={{ color: regimeBadge.color, opacity: 0.75 }}
-                title={`Régime fiscal : ${regimeBadge.full}`}
-              >
-                · {regimeBadge.short}
-              </span>
-            )}
             {nbAttached > 0 && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
@@ -366,7 +337,10 @@ export default function AttributionRow({
             >
               {presenceLabel || '—'}
             </span>
-            {/* Indicateurs : arrivée / retour / chauffeur / hébergement */}
+            {/* Indicateurs : arrivée / retour / chauffeur / hébergement.
+                Le delta J-N/J+N n'est affiché QUE s'il y a un décalage (≠ J0) :
+                arriver le 1er jour de présence ou repartir le dernier jour
+                est le cas standard, donc pas d'info à montrer. */}
             <span className="flex items-center gap-1 ml-auto shrink-0">
               {persona.arrival_date && (
                 <span
@@ -378,7 +352,7 @@ export default function AttributionRow({
                   title={`Arrivée ${persona.arrival_date}${arrivalDelta ? ' (' + arrivalDelta + ')' : ''}`}
                 >
                   <PlaneLanding className="w-2.5 h-2.5" />
-                  {arrivalDelta || ''}
+                  {arrivalDelta && arrivalDelta !== 'J0' ? arrivalDelta : ''}
                 </span>
               )}
               {persona.departure_date && (
@@ -391,7 +365,7 @@ export default function AttributionRow({
                   title={`Retour ${persona.departure_date}${departureDelta ? ' (' + departureDelta + ')' : ''}`}
                 >
                   <PlaneTakeoff className="w-2.5 h-2.5" />
-                  {departureDelta || ''}
+                  {departureDelta && departureDelta !== 'J0' ? departureDelta : ''}
                 </span>
               )}
               {persona.hebergement && (
@@ -428,12 +402,18 @@ export default function AttributionRow({
         <Link2 className="w-2.5 h-2.5 inline" />
       </div>
 
-      {/* Statut MovinMotion (per-row) */}
-      <StatutDropdown
-        statut={row.movinmotion_statut}
-        canEdit={canEdit}
-        onChange={(s) => onUpdateRow?.(row.id, { movinmotion_statut: s })}
-      />
+      {/* Statut MovinMotion (per-row) — pertinent uniquement pour les
+          intermittents (le statut décrit l'avancement du contrat MovinMotion).
+          Pour les externes/internes/etc., on affiche un placeholder muet. */}
+      {showStatutBadge ? (
+        <StatutDropdown
+          statut={row.movinmotion_statut}
+          canEdit={canEdit}
+          onChange={(s) => onUpdateRow?.(row.id, { movinmotion_statut: s })}
+        />
+      ) : (
+        <div style={{ minWidth: 88 }} />
+      )}
 
       {/* Menu actions */}
       <RowMenu
@@ -496,19 +476,23 @@ function PosteInline({ value, canEdit, onSave }) {
     return <span className="truncate" title={value}>{value}</span>
   }
 
-  // Cliquable pour éditer
+  // Cliquable pour éditer. Empty state = italique gris discret.
+  const isEmpty = value === '—'
   return (
     <button
       type="button"
       onClick={() => setEditing(true)}
       className="truncate text-left transition-colors hover:underline decoration-dotted"
       style={{
-        color: value === '—' ? 'var(--txt-3)' : 'var(--txt)',
+        color: isEmpty ? 'var(--txt-3)' : 'var(--txt)',
         background: 'transparent',
+        fontWeight: isEmpty ? 400 : 600,
+        fontStyle: isEmpty ? 'italic' : 'normal',
+        opacity: isEmpty ? 0.7 : 1,
       }}
-      title={value === '—' ? 'Cliquer pour saisir un poste' : `${value} (cliquer pour modifier)`}
+      title={isEmpty ? 'Cliquer pour saisir un poste' : `${value} (cliquer pour modifier)`}
     >
-      {value}
+      {isEmpty ? 'Saisir un poste…' : value}
     </button>
   )
 }
