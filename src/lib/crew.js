@@ -194,9 +194,8 @@ export async function bulkUpdateProjectMembers(ids, fields) {
  * personne sur le projet). Utilisé par useCrew.updatePersona pour ne
  * propager que les bons champs via bulkUpdate.
  *
- * P1.6 : ajout des champs logistique (arrival_date, arrival_time,
- * logistique_notes) — tous persona-level car une personne a un seul jour
- * d'arrivée / un seul transport, indépendamment de ses N rôles.
+ * P1.6 : ajout des champs arrivée + notes logistique.
+ * P1.7 : ajout des champs retour (departure_date, departure_time).
  */
 export const PERSONA_LEVEL_FIELDS = Object.freeze([
   'secteur',
@@ -206,6 +205,8 @@ export const PERSONA_LEVEL_FIELDS = Object.freeze([
   'couleur',
   'arrival_date',
   'arrival_time',
+  'departure_date',
+  'departure_time',
   'logistique_notes',
 ])
 
@@ -319,9 +320,11 @@ export function groupByPerson(members = []) {
         hebergement: m.hebergement || null,
         presence_days: m.presence_days || [],
         couleur: m.couleur || null,
-        // Logistique (P1.6)
+        // Logistique (P1.6 + P1.7)
         arrival_date: m.arrival_date || null,
         arrival_time: m.arrival_time || null,
+        departure_date: m.departure_date || null,
+        departure_time: m.departure_time || null,
         logistique_notes: m.logistique_notes || null,
         // Toutes les rows de la persona (utiles pour bulkUpdate +
         // pour le drawer "Vue par membre").

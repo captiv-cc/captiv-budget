@@ -32,7 +32,7 @@ import {
   CheckCircle,
   Calendar,
   PlaneLanding,
-  Clock,
+  PlaneTakeoff,
   StickyNote,
 } from 'lucide-react'
 import {
@@ -58,11 +58,15 @@ export default function PresenceCalendarModal({
   const initialPresence = persona?.presence_days || []
   const initialArrivalDate = persona?.arrival_date || ''
   const initialArrivalTime = persona?.arrival_time || ''
+  const initialDepartureDate = persona?.departure_date || ''
+  const initialDepartureTime = persona?.departure_time || ''
   const initialLogistique = persona?.logistique_notes || ''
 
   const [selected, setSelected] = useState(new Set(initialPresence))
   const [arrivalDate, setArrivalDate] = useState(initialArrivalDate)
   const [arrivalTime, setArrivalTime] = useState(initialArrivalTime)
+  const [departureDate, setDepartureDate] = useState(initialDepartureDate)
+  const [departureTime, setDepartureTime] = useState(initialDepartureTime)
   const [logistique, setLogistique] = useState(initialLogistique)
 
   const [viewMonth, setViewMonth] = useState(() => {
@@ -83,6 +87,8 @@ export default function PresenceCalendarModal({
       setSelected(new Set(persona?.presence_days || []))
       setArrivalDate(persona?.arrival_date || '')
       setArrivalTime(persona?.arrival_time || '')
+      setDepartureDate(persona?.departure_date || '')
+      setDepartureTime(persona?.departure_time || '')
       setLogistique(persona?.logistique_notes || '')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,13 +139,17 @@ export default function PresenceCalendarModal({
       presence_days,
       arrival_date: arrivalDate || null,
       arrival_time: arrivalTime.trim() || null,
+      departure_date: departureDate || null,
+      departure_time: departureTime.trim() || null,
       logistique_notes: logistique.trim() || null,
     })
     onClose?.()
   }
 
-  // Pour le bouton "Aligner sur le 1er jour de présence"
-  const firstPresenceDay = selected.size ? [...selected].sort()[0] : null
+  // Pour les boutons "aligner sur 1er/dernier jour de présence"
+  const sortedDays = selected.size ? [...selected].sort() : []
+  const firstPresenceDay = sortedDays[0] || null
+  const lastPresenceDay = sortedDays[sortedDays.length - 1] || null
 
   return (
     <div
@@ -286,13 +296,10 @@ export default function PresenceCalendarModal({
                 const periodKeys = dayToPeriodes.get(iso) || []
                 const primaryPeriod = periodKeys[0]
                 const periodMeta = primaryPeriod ? PERIODE_META[primaryPeriod] : null
+                const isArrival = arrivalDate && iso === arrivalDate
+                const isDeparture = departureDate && iso === departureDate
 
-                // Style selon état :
-                //   - non sélectionné + dans une période → fond couleur période
-                //   - sélectionné + pas dans une période → fond bleu plein
-                //   - sélectionné + dans une période → fond bleu plein +
-                //     bordure couleur période (pour conserver l'info)
-                //   - sinon → fond neutre
+                // Style de base
                 let bgColor = 'var(--bg-elev)'
                 let textColor = 'var(--txt)'
                 let borderColor = 'var(--brd-sub)'
@@ -304,7 +311,6 @@ export default function PresenceCalendarModal({
                   bgColor = 'var(--blue)'
                   textColor = '#fff'
                   borderColor = 'var(--blue)'
-                  // Conserver l'info de période via une box-shadow inset colorée
                   if (periodMeta) {
                     boxShadow = `inset 0 0 0 2px ${periodMeta.color}`
                   }
@@ -313,6 +319,12 @@ export default function PresenceCalendarModal({
                   textColor = periodMeta.color
                   borderColor = periodMeta.color
                 }
+
+                // Tooltip enrichi
+                const tooltipParts = [`${d.getDate()}`]
+                if (periodMeta) tooltipParts.push(periodMeta.label)
+                if (isArrival) tooltipParts.push('Arrivée')
+                if (isDeparture) tooltipParts.push('Retour')
 
                 return (
                   <button
@@ -328,12 +340,38 @@ export default function PresenceCalendarModal({
                       fontWeight: isSelected ? 600 : 400,
                       opacity: inMonth ? 1 : 0.5,
                     }}
-                    title={
-                      periodMeta
-                        ? `${d.getDate()} — ${periodMeta.label}`
-                        : `${d.getDate()}`
-                    }
+                    title={tooltipParts.join(' — ')}
                   >
+                    {/* Indicateur arrivée (coin haut-gauche) */}
+                    {isArrival && (
+                      <span
+                        className="absolute top-0 left-0 rounded-tl-md rounded-br-md flex items-center justify-center"
+                        style={{
+                          width: 12,
+                          height: 12,
+                          background: 'var(--purple)',
+                          color: '#fff',
+                        }}
+                        aria-label="Arrivée"
+                      >
+                        <PlaneLanding style={{ width: 8, height: 8 }} />
+                      </span>
+                    )}
+                    {/* Indicateur retour (coin haut-droit) */}
+                    {isDeparture && (
+                      <span
+                        className="absolute top-0 right-0 rounded-tr-md rounded-bl-md flex items-center justify-center"
+                        style={{
+                          width: 12,
+                          height: 12,
+                          background: 'var(--purple)',
+                          color: '#fff',
+                        }}
+                        aria-label="Retour"
+                      >
+                        <PlaneTakeoff style={{ width: 8, height: 8 }} />
+                      </span>
+                    )}
                     {d.getDate()}
                   </button>
                 )
@@ -341,7 +379,7 @@ export default function PresenceCalendarModal({
             </div>
           </div>
 
-          {/* ── Logistique (P1.6) ──────────────────────────────────────── */}
+          {/* ── Logistique : arrivée / retour / notes ──────────────────── */}
           <div
             className="rounded-md p-3 space-y-3"
             style={{
@@ -349,69 +387,41 @@ export default function PresenceCalendarModal({
               border: '1px solid var(--brd-sub)',
             }}
           >
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--txt-2)' }}>
+            <div
+              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--txt-2)' }}
+            >
               <PlaneLanding className="w-3.5 h-3.5" />
               Logistique
             </div>
 
-            {/* Jour + heure d'arrivée sur la même row */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label
-                  className="block text-[10px] font-semibold mb-1"
-                  style={{ color: 'var(--txt-3)' }}
-                >
-                  Jour d&rsquo;arrivée
-                </label>
-                <input
-                  type="date"
-                  value={arrivalDate || ''}
-                  onChange={(e) => setArrivalDate(e.target.value)}
-                  className="w-full text-xs px-2 py-1 rounded outline-none"
-                  style={{
-                    background: 'var(--bg-surf)',
-                    border: '1px solid var(--brd)',
-                    color: 'var(--txt)',
-                  }}
-                />
-                {firstPresenceDay && firstPresenceDay !== arrivalDate && (
-                  <button
-                    type="button"
-                    onClick={() => setArrivalDate(firstPresenceDay)}
-                    className="mt-1 text-[10px] underline transition-colors"
-                    style={{ color: 'var(--txt-3)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-                    title="Aligner sur le 1er jour de présence"
-                  >
-                    aligner sur 1<sup>er</sup> jour
-                  </button>
-                )}
-              </div>
+            {/* Arrivée */}
+            <LogistiqueRow
+              icon={<PlaneLanding className="w-3 h-3" />}
+              label="Arrivée"
+              date={arrivalDate}
+              time={arrivalTime}
+              onDateChange={setArrivalDate}
+              onTimeChange={setArrivalTime}
+              alignTarget={firstPresenceDay}
+              alignLabel="aligner sur 1er jour"
+              alignTitle="Aligner sur le 1er jour de présence"
+            />
 
-              <div>
-                <label
-                  className="flex items-center gap-1 text-[10px] font-semibold mb-1"
-                  style={{ color: 'var(--txt-3)' }}
-                >
-                  <Clock className="w-2.5 h-2.5" />
-                  Heure d&rsquo;arrivée
-                </label>
-                <input
-                  type="text"
-                  value={arrivalTime}
-                  onChange={(e) => setArrivalTime(e.target.value)}
-                  placeholder="12h50, matin, ETA 14h…"
-                  className="w-full text-xs px-2 py-1 rounded outline-none"
-                  style={{
-                    background: 'var(--bg-surf)',
-                    border: '1px solid var(--brd)',
-                    color: 'var(--txt)',
-                  }}
-                />
-              </div>
-            </div>
+            {/* Retour */}
+            <LogistiqueRow
+              icon={<PlaneTakeoff className="w-3 h-3" />}
+              label="Retour"
+              date={departureDate}
+              time={departureTime}
+              onDateChange={setDepartureDate}
+              onTimeChange={setDepartureTime}
+              alignTarget={lastPresenceDay}
+              alignLabel="aligner sur dernier jour"
+              alignTitle="Aligner sur le dernier jour de présence"
+            />
 
+            {/* Notes logistique (transport, contraintes, n° vol/train, etc.) */}
             <div>
               <label
                 className="flex items-center gap-1 text-[10px] font-semibold mb-1"
@@ -424,7 +434,7 @@ export default function PresenceCalendarModal({
                 value={logistique}
                 onChange={(e) => setLogistique(e.target.value)}
                 rows={3}
-                placeholder="Train Lyon Part-Dieu 12h50, vient en voiture, parking demandé…"
+                placeholder="Train Lyon Part-Dieu 12h50, retour TGV 18h45, voiture / parking demandé…"
                 className="w-full text-xs px-2 py-1 rounded outline-none resize-none"
                 style={{
                   background: 'var(--bg-surf)',
@@ -478,6 +488,78 @@ export default function PresenceCalendarModal({
           </div>
         </footer>
       </div>
+    </div>
+  )
+}
+
+// ─── Sous-composants ────────────────────────────────────────────────────────
+
+/**
+ * LogistiqueRow — Une ligne arrivée/retour : icône + label + date + heure.
+ * Affiche un mini-bouton "aligner sur ..." quand alignTarget est défini ET
+ * différent de la date actuelle.
+ */
+function LogistiqueRow({
+  icon,
+  label,
+  date,
+  time,
+  onDateChange,
+  onTimeChange,
+  alignTarget,
+  alignLabel,
+  alignTitle,
+}) {
+  const showAlign = alignTarget && alignTarget !== date
+  return (
+    <div className="grid grid-cols-[auto_1fr_1fr] gap-2 items-end">
+      <div
+        className="flex flex-col items-center justify-center text-[10px] font-semibold uppercase tracking-wide pb-1"
+        style={{ color: 'var(--purple)', minWidth: 50 }}
+      >
+        <span style={{ color: 'var(--purple)' }}>{icon}</span>
+        <span className="mt-0.5">{label}</span>
+      </div>
+
+      <div>
+        <input
+          type="date"
+          value={date || ''}
+          onChange={(e) => onDateChange(e.target.value)}
+          className="w-full text-xs px-2 py-1 rounded outline-none"
+          style={{
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+            color: 'var(--txt)',
+          }}
+        />
+        {showAlign && (
+          <button
+            type="button"
+            onClick={() => onDateChange(alignTarget)}
+            className="mt-0.5 text-[10px] underline transition-colors"
+            style={{ color: 'var(--txt-3)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+            title={alignTitle}
+          >
+            {alignLabel}
+          </button>
+        )}
+      </div>
+
+      <input
+        type="text"
+        value={time || ''}
+        onChange={(e) => onTimeChange(e.target.value)}
+        placeholder="12h50, matin…"
+        className="w-full text-xs px-2 py-1 rounded outline-none"
+        style={{
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          color: 'var(--txt)',
+        }}
+      />
     </div>
   )
 }
