@@ -1488,9 +1488,22 @@ function EquipeFinancesView({
 }) {
   const persons = groupByPerson(membres, crewLines, lineLotMap)
 
-  // KPIs financiers globaux
-  const totalVente = crewLines.reduce((s, l) => s + (calcLine(l).prixVenteHT || 0), 0)
-  const totalCout = crewLines.reduce((s, l) => s + (calcLine(l).coutCharge || 0), 0)
+  // KPIs financiers globaux — limités aux postes ATTRIBUÉS pour rester
+  // cohérent avec la somme des cards par personne affichées en dessous
+  // (sinon l'utilisateur ne comprend pas l'écart introduit par les postes
+  // non attribués qui n'apparaissent dans aucune card).
+  const attribuedLineIds = new Set(
+    membres.map((m) => m.devis_line_id).filter(Boolean),
+  )
+  const attribuedLines = crewLines.filter((l) => attribuedLineIds.has(l.id))
+  const totalVente = attribuedLines.reduce(
+    (s, l) => s + (calcLine(l).prixVenteHT || 0),
+    0,
+  )
+  const totalCout = attribuedLines.reduce(
+    (s, l) => s + (calcLine(l).coutCharge || 0),
+    0,
+  )
   const totalConvenu = membres.reduce((s, m) => {
     const line = crewLines.find((l) => l.id === m.devis_line_id)
     if (m.budget_convenu != null) return s + m.budget_convenu
@@ -1504,6 +1517,13 @@ function EquipeFinancesView({
     )
   }, 0)
   const hasCustomBudgetGlobal = membres.some((m) => m.budget_convenu != null)
+  // Sous-titre informatif sur le périmètre couvert par les KPI
+  const nbAttribues = attribuedLineIds.size
+  const nbTotal = crewLines.length
+  const perimeterSub =
+    nbAttribues === nbTotal
+      ? `${nbTotal} poste${nbTotal > 1 ? 's' : ''}`
+      : `${nbAttribues} / ${nbTotal} postes attribués`
 
   if (membres.length === 0)
     return (
@@ -1536,7 +1556,7 @@ function EquipeFinancesView({
               label="Vente crew HT"
               color="blue"
               value={fmtEur(totalVente)}
-              sub="total devis"
+              sub={perimeterSub}
             />
           )}
           {canSeeFinance && (
