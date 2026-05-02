@@ -34,6 +34,8 @@ import {
   PlaneLanding,
   PlaneTakeoff,
   StickyNote,
+  Home,
+  Car,
 } from 'lucide-react'
 import {
   WEEKDAYS_SHORT_FR,
@@ -62,6 +64,8 @@ export default function PresenceCalendarModal({
   const initialDepartureDate = persona?.departure_date || ''
   const initialDepartureTime = persona?.departure_time || ''
   const initialLogistique = persona?.logistique_notes || ''
+  const initialHebergement = persona?.hebergement || ''
+  const initialChauffeur = Boolean(persona?.chauffeur)
 
   const [selected, setSelected] = useState(new Set(initialPresence))
   const [arrivalDate, setArrivalDate] = useState(initialArrivalDate)
@@ -69,6 +73,12 @@ export default function PresenceCalendarModal({
   const [departureDate, setDepartureDate] = useState(initialDepartureDate)
   const [departureTime, setDepartureTime] = useState(initialDepartureTime)
   const [logistique, setLogistique] = useState(initialLogistique)
+  const [hebergement, setHebergement] = useState(initialHebergement)
+  const [chauffeur, setChauffeur] = useState(initialChauffeur)
+  // Pour l'hébergement : "actif" si le champ est utilisé (≠ vide).
+  // Toggle qui dévoile/masque l'input. Quand on désactive, on garde la valeur
+  // en mémoire au cas où (mais on ne l'enregistre pas).
+  const [hebergementOpen, setHebergementOpen] = useState(Boolean(initialHebergement))
   // pickerMode : 'presence' (default) | 'arrival' | 'departure'
   // En mode 'arrival'/'departure', click sur un jour assigne la date
   // correspondante au lieu de toggler la présence.
@@ -98,6 +108,9 @@ export default function PresenceCalendarModal({
       setDepartureDate(persona?.departure_date || '')
       setDepartureTime(persona?.departure_time || '')
       setLogistique(persona?.logistique_notes || '')
+      setHebergement(persona?.hebergement || '')
+      setHebergementOpen(Boolean(persona?.hebergement))
+      setChauffeur(Boolean(persona?.chauffeur))
       setPickerMode('presence')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,6 +189,9 @@ export default function PresenceCalendarModal({
         arrival_time: arrivalTime.trim() || null,
         departure_date: departureDate || null,
         departure_time: departureTime.trim() || null,
+        // Hebergement : null si toggle désactivé OU champ vide
+        hebergement: hebergementOpen ? hebergement.trim() || null : null,
+        chauffeur: chauffeur,
         logistique_notes: logistique.trim() || null,
       })
       onClose?.()
@@ -487,12 +503,15 @@ export default function PresenceCalendarModal({
             </div>
           </div>
 
-          {/* ── Logistique : UX progressive (P1.8) ─────────────────────── */}
+          {/* ── Logistique : UX progressive (P1.8 + P1.9) ─────────────── */}
           <LogistiqueSection
             arrivalDate={arrivalDate}
             arrivalTime={arrivalTime}
             departureDate={departureDate}
             departureTime={departureTime}
+            hebergement={hebergement}
+            hebergementOpen={hebergementOpen}
+            chauffeur={chauffeur}
             logistique={logistique}
             firstPresenceDay={firstPresenceDay}
             lastPresenceDay={lastPresenceDay}
@@ -511,6 +530,13 @@ export default function PresenceCalendarModal({
             onSetArrivalTime={setArrivalTime}
             onSetDepartureDate={setDepartureDate}
             onSetDepartureTime={setDepartureTime}
+            onToggleHebergement={() => setHebergementOpen((v) => !v)}
+            onSetHebergement={setHebergement}
+            onClearHebergement={() => {
+              setHebergement('')
+              setHebergementOpen(false)
+            }}
+            onToggleChauffeur={() => setChauffeur((v) => !v)}
             onSetLogistique={setLogistique}
           />
         </div>
@@ -580,6 +606,9 @@ function LogistiqueSection({
   arrivalTime,
   departureDate,
   departureTime,
+  hebergement,
+  hebergementOpen,
+  chauffeur,
   logistique,
   firstPresenceDay,
   lastPresenceDay,
@@ -592,15 +621,22 @@ function LogistiqueSection({
   onSetArrivalTime,
   onSetDepartureDate,
   onSetDepartureTime,
+  onToggleHebergement,
+  onSetHebergement,
+  onClearHebergement,
+  onToggleChauffeur,
   onSetLogistique,
 }) {
   const hasArrival = Boolean(arrivalDate)
   const hasDeparture = Boolean(departureDate)
-  const showNotes = hasArrival || hasDeparture
+  const hasHebergement = hebergementOpen
+  // Notes visibles dès qu'au moins UN champ logistique est rempli/ouvert
+  // (arrivée, retour, hébergement) OU si chauffeur est actif.
+  const showNotes = hasArrival || hasDeparture || hasHebergement || chauffeur
 
   return (
     <div className="space-y-2">
-      {/* Chips arrivée / retour */}
+      {/* Ligne 1 : chips arrivée / retour / hébergement / chauffeur */}
       <div className="flex flex-wrap items-center gap-2">
         {hasArrival ? (
           <LogistiqueChip
@@ -647,9 +683,40 @@ function LogistiqueSection({
             onClick={onPickDeparture}
           />
         )}
+
+        {hasHebergement ? (
+          <HebergementChip
+            value={hebergement}
+            onChange={onSetHebergement}
+            onClear={onClearHebergement}
+          />
+        ) : (
+          <PickButton
+            icon={<Home className="w-3 h-3" />}
+            label="Hébergement"
+            isActive={false}
+            onClick={onToggleHebergement}
+          />
+        )}
+
+        {/* Toggle Chauffeur — pas de "+ ajouter" ici, c'est un boolean simple */}
+        <button
+          type="button"
+          onClick={onToggleChauffeur}
+          className="text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 transition-all"
+          style={{
+            background: chauffeur ? 'var(--amber-bg)' : 'transparent',
+            color: chauffeur ? 'var(--amber)' : 'var(--txt-2)',
+            border: `1px ${chauffeur ? 'solid' : 'dashed'} ${chauffeur ? 'var(--amber)' : 'var(--brd)'}`,
+          }}
+          title={chauffeur ? 'Cette personne est chauffeur sur le projet' : 'Marquer comme chauffeur'}
+        >
+          <Car className="w-3 h-3" />
+          {chauffeur ? 'Chauffeur' : 'Chauffeur ?'}
+        </button>
       </div>
 
-      {/* Notes logistique — visible seulement si au moins une date définie */}
+      {/* Notes logistique — visible dès qu'un champ est rempli */}
       {showNotes && (
         <div
           className="rounded-md p-3"
@@ -816,6 +883,64 @@ function LogistiqueChip({
           e.currentTarget.style.background = 'transparent'
         }}
         title={`Retirer ${label.toLowerCase()}`}
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  )
+}
+
+/**
+ * HebergementChip — Chip pour saisir l'hébergement (texte libre).
+ * Pattern symétrique à LogistiqueChip mais sans date (juste un texte).
+ * Utilisé quand le toggle "+ Hébergement" est actif. Croix pour effacer
+ * (et désactiver le toggle).
+ */
+function HebergementChip({ value, onChange, onClear }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-md px-2 py-1"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+        color: 'var(--txt)',
+      }}
+    >
+      <Home className="w-3 h-3" style={{ color: 'var(--purple)' }} />
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: 'var(--purple)' }}
+      >
+        Hébergement
+      </span>
+      <input
+        type="text"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        autoFocus={!value}
+        placeholder="Hôtel Mercure, chez Marie, domicile…"
+        className="text-xs px-1.5 py-0.5 rounded outline-none"
+        style={{
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          color: 'var(--txt)',
+          width: 220,
+        }}
+      />
+      <button
+        type="button"
+        onClick={onClear}
+        className="p-0.5 rounded transition-colors"
+        style={{ color: 'var(--txt-3)' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = 'var(--red)'
+          e.currentTarget.style.background = 'var(--red-bg)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = 'var(--txt-3)'
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title="Retirer l'hébergement"
       >
         <X className="w-3 h-3" />
       </button>

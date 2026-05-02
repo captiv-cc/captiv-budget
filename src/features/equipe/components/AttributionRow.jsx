@@ -24,13 +24,15 @@
 
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import {
   Phone,
   Mail,
   MapPin,
   Car,
   Home,
-  Calendar,
+  PlaneLanding,
+  PlaneTakeoff,
   Trash2,
   ChevronDown,
   Link2,
@@ -38,6 +40,8 @@ import {
   GitMerge,
   GitBranch,
   GripVertical,
+  Shirt,
+  Utensils,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -47,6 +51,7 @@ import {
   CREW_STATUTS,
 } from '../../../lib/crew'
 import { confirm } from '../../../lib/confirm'
+import { useAuth } from '../../../contexts/AuthContext'
 
 // Couleurs de statut alignées sur EquipeTab.jsx (STEPS)
 const STATUT_STYLES = {
@@ -56,6 +61,41 @@ const STATUT_STYLES = {
   contrat_signe:  { color: 'var(--green)', bg: 'var(--green-bg)' },
   paie_en_cours:  { color: 'var(--green)', bg: 'var(--green-bg)' },
   paie_terminee:  { color: 'var(--amber)', bg: 'var(--amber-bg)' },
+}
+
+// Style régime fiscal (badge à côté du poste, gated canSeeCrewBudget).
+// Aligné sur regimeStyle de EquipeTab.jsx mais en label court pour la techlist.
+function regimeBadgeStyle(regime) {
+  if (!regime) return null
+  const r = regime.toLowerCase()
+  if (r.includes('intermittent')) {
+    return { label: 'Intermittent', color: 'var(--purple)', bg: 'var(--purple-bg)', brd: 'var(--purple-brd)' }
+  }
+  if (r === 'interne') {
+    return { label: 'Interne', color: 'var(--blue)', bg: 'var(--blue-bg)', brd: 'var(--blue-brd)' }
+  }
+  if (r.includes('salarié')) {
+    return { label: 'Salarié', color: 'var(--amber)', bg: 'var(--amber-bg)', brd: 'var(--amber-brd)' }
+  }
+  if (r.includes('micro') || r.includes('auto-entrepreneur')) {
+    return { label: 'Micro', color: 'var(--red)', bg: 'var(--red-bg)', brd: 'var(--red-brd)' }
+  }
+  return { label: 'Externe', color: 'var(--green)', bg: 'var(--green-bg)', brd: 'var(--green-brd)' }
+}
+
+// Calcule "J-N" / "J0" / "J+N" entre une date ISO et une date de référence ISO.
+// → null si l'une des deux dates est absente.
+function dayDelta(isoDate, refIsoDate) {
+  if (!isoDate || !refIsoDate) return null
+  const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  const m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(refIsoDate)
+  if (!m1 || !m2) return null
+  const d1 = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]))
+  const d2 = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3]))
+  const delta = Math.round((d1 - d2) / 86400000)
+  if (delta === 0) return 'J0'
+  if (delta < 0) return `J${delta}`
+  return `J+${delta}`
 }
 
 export default function AttributionRow({
@@ -72,6 +112,7 @@ export default function AttributionRow({
   onDragEnd,              // HTML5 drag end
   isDragging = false,
 }) {
+  const { canSeeCrewBudget } = useAuth()
   const persona = row.persona || {}
   const fullName = fullNameFromPersona(persona)
   const initials = initialsFromPersona(persona)
@@ -93,6 +134,31 @@ export default function AttributionRow({
   const canEditPoste = canEdit && !posteFromDevis
 
   const nbAttached = row.attached?.length || 0
+
+  // Régime fiscal : badge visible uniquement par les rôles internes
+  // (admin / chargé prod / coordinateur — cf. canSeeCrewBudget).
+  const regime = row.regime || persona.contact?.regime || null
+  const regimeBadge = canSeeCrewBudget ? regimeBadgeStyle(regime) : null
+
+  // Logistique condensée
+  const firstPresenceDay = persona.presence_days?.length
+    ? [...persona.presence_days].sort()[0]
+    : null
+  const lastPresenceDay = persona.presence_days?.length
+    ? [...persona.presence_days].sort()[persona.presence_days.length - 1]
+    : null
+  const arrivalDelta = dayDelta(persona.arrival_date, firstPresenceDay)
+  const departureDelta = dayDelta(persona.departure_date, lastPresenceDay)
+  const hasLogistique =
+    Boolean(presenceLabel) ||
+    Boolean(persona.arrival_date) ||
+    Boolean(persona.departure_date) ||
+    Boolean(persona.hebergement) ||
+    Boolean(persona.chauffeur)
+
+  // Régime alimentaire / taille T-shirt (depuis l'annuaire)
+  const regimeAlim = persona.contact?.regime_alimentaire || null
+  const tailleTshirt = persona.contact?.taille_tshirt || null
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -118,8 +184,11 @@ export default function AttributionRow({
       onDragEnd={() => onDragEnd?.()}
       className="grid items-center gap-2 px-3 py-2.5 transition-all"
       style={{
+        // Fusion P1.9 : 1 colonne Logistique condensée (présence+arrivée+
+        // retour+hébergement+chauffeur) au lieu des 4 colonnes séparées.
+        // Drag | Avatar+poste | Secteur | Logistique | Devis | Statut | Menu
         gridTemplateColumns:
-          'auto minmax(0, 2.2fr) 1fr 1fr auto auto auto auto auto',
+          'auto minmax(0, 2.5fr) 1fr minmax(140px, 1.7fr) auto auto auto',
         background: 'var(--bg-row)',
         borderBottom: '1px solid var(--brd-sub)',
         opacity: isDragging ? 0.4 : 1,
@@ -148,7 +217,7 @@ export default function AttributionRow({
         <div className="min-w-0 flex-1">
           {/* Le POSTE en avant — éditable si pas issu d'une ligne de devis */}
           <div
-            className="text-sm font-semibold truncate flex items-center gap-1.5"
+            className="text-sm font-semibold truncate flex items-center gap-1.5 flex-wrap"
             style={{ color: 'var(--txt)' }}
           >
             <PosteInline
@@ -158,6 +227,20 @@ export default function AttributionRow({
                 onUpdateRow?.(row.id, { specialite: v.trim() || null })
               }
             />
+            {/* Badge régime fiscal — visible admin/charge_prod/coordinateur */}
+            {regimeBadge && (
+              <span
+                className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                style={{
+                  background: regimeBadge.bg,
+                  color: regimeBadge.color,
+                  border: `1px solid ${regimeBadge.brd}`,
+                }}
+                title={`Régime fiscal : ${regimeBadge.label}`}
+              >
+                {regimeBadge.label}
+              </span>
+            )}
             {nbAttached > 0 && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
@@ -173,9 +256,23 @@ export default function AttributionRow({
               </span>
             )}
           </div>
-          {/* Le NOM en sous-titre */}
+          {/* Le NOM en sous-titre — cliquable vers /crew si contact dans annuaire */}
           <div className="text-[11px] truncate" style={{ color: 'var(--txt-2)' }}>
-            {fullName}
+            {persona.contact_id ? (
+              <Link
+                to="/crew"
+                className="transition-colors hover:underline"
+                style={{ color: 'var(--txt-2)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-2)')}
+                onClick={(e) => e.stopPropagation()}
+                title="Ouvrir l'annuaire des contacts"
+              >
+                {fullName}
+              </Link>
+            ) : (
+              <span title="Hors annuaire">{fullName}</span>
+            )}
           </div>
           {showSensitive && (persona.contact?.email || persona.contact?.telephone) && (
             <div
@@ -204,6 +301,26 @@ export default function AttributionRow({
               )}
             </div>
           )}
+          {/* Régime alim / taille T-shirt — visibles seulement avec showSensitive */}
+          {showSensitive && (regimeAlim || tailleTshirt) && (
+            <div
+              className="flex items-center gap-2 mt-0.5 text-[10px]"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              {regimeAlim && (
+                <span className="flex items-center gap-0.5" title="Régime alimentaire">
+                  <Utensils className="w-2.5 h-2.5" />
+                  {regimeAlim}
+                </span>
+              )}
+              {tailleTshirt && (
+                <span className="flex items-center gap-0.5" title="Taille T-shirt">
+                  <Shirt className="w-2.5 h-2.5" />
+                  {tailleTshirt}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -216,66 +333,95 @@ export default function AttributionRow({
         onSave={(v) => onUpdatePersona?.(row.persona_key, { secteur: v.trim() || null })}
       />
 
-      {/* Hébergement (persona-level) */}
-      <InlineText
-        value={persona.hebergement || ''}
-        placeholder="Hébergement"
-        icon={<Home className="w-3 h-3" />}
-        canEdit={canEdit}
-        onSave={(v) => onUpdatePersona?.(row.persona_key, { hebergement: v.trim() || null })}
-      />
-
-      {/* Chauffeur (persona-level) */}
-      <button
-        type="button"
-        onClick={() => canEdit && onUpdatePersona?.(row.persona_key, { chauffeur: !persona.chauffeur })}
-        disabled={!canEdit}
-        className="p-1.5 rounded-md transition-colors"
-        style={{
-          background: persona.chauffeur ? 'var(--amber-bg)' : 'transparent',
-          color: persona.chauffeur ? 'var(--amber)' : 'var(--txt-3)',
-          border: persona.chauffeur ? '1px solid var(--amber-brd)' : '1px solid transparent',
-          cursor: canEdit ? 'pointer' : 'default',
-        }}
-        title={persona.chauffeur ? 'Chauffeur' : 'Pas chauffeur'}
-        onMouseEnter={(e) => {
-          if (canEdit && !persona.chauffeur) {
-            e.currentTarget.style.color = 'var(--amber)'
-            e.currentTarget.style.background = 'var(--amber-bg)'
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (canEdit && !persona.chauffeur) {
-            e.currentTarget.style.color = 'var(--txt-3)'
-            e.currentTarget.style.background = 'transparent'
-          }
-        }}
-      >
-        <Car className="w-3.5 h-3.5" />
-      </button>
-
-      {/* Présence (persona-level — bouton ouvre modale) */}
+      {/* Logistique condensée (P1.9) — fusion présence + arrivée + retour
+          + hébergement + chauffeur. Click ouvre la modale Présence & logistique. */}
       <button
         type="button"
         onClick={onOpenPresence}
         disabled={!canEdit || !onOpenPresence}
-        className="text-xs px-2 py-1 rounded-md flex items-center gap-1.5 transition-colors min-w-[72px] justify-center"
+        className="text-xs px-2 py-1 rounded-md flex items-center gap-1.5 transition-all w-full"
         style={{
-          background: presenceLabel ? 'var(--green-bg)' : 'var(--bg-elev)',
-          color: presenceLabel ? 'var(--green)' : 'var(--txt-3)',
-          border: presenceLabel ? '1px solid var(--green-brd)' : '1px solid var(--brd-sub)',
+          background: hasLogistique ? 'var(--bg-elev)' : 'transparent',
+          color: 'var(--txt-2)',
+          border: hasLogistique ? '1px solid var(--brd-sub)' : '1px dashed var(--brd)',
           cursor: canEdit && onOpenPresence ? 'pointer' : 'default',
+          opacity: hasLogistique ? 1 : 0.7,
         }}
-        title="Jours de présence"
+        title={
+          [
+            presenceLabel ? `Présence : ${presenceLabel}` : null,
+            persona.arrival_date ? `Arrivée : ${persona.arrival_date}${persona.arrival_time ? ' ' + persona.arrival_time : ''}` : null,
+            persona.departure_date ? `Retour : ${persona.departure_date}${persona.departure_time ? ' ' + persona.departure_time : ''}` : null,
+            persona.hebergement ? `Hébergement : ${persona.hebergement}` : null,
+            persona.chauffeur ? 'Chauffeur' : null,
+          ]
+            .filter(Boolean)
+            .join('\n') || 'Cliquer pour configurer la logistique'
+        }
         onMouseEnter={(e) => {
-          if (canEdit && onOpenPresence) e.currentTarget.style.opacity = '0.85'
+          if (canEdit && onOpenPresence) e.currentTarget.style.opacity = hasLogistique ? '0.85' : '1'
         }}
-        onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+        onMouseLeave={(e) => (e.currentTarget.style.opacity = hasLogistique ? '1' : '0.7')}
       >
-        <Calendar className="w-3 h-3 shrink-0" />
-        <span className="truncate text-[11px]">
-          {presenceLabel || '—'}
-        </span>
+        {!hasLogistique ? (
+          <span className="text-[11px] italic flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
+            <Home className="w-3 h-3" />
+            Logistique
+          </span>
+        ) : (
+          <>
+            {/* Badge présence (texte principal) */}
+            <span
+              className="text-[11px] truncate flex items-center gap-1"
+              style={{
+                color: presenceLabel ? 'var(--green)' : 'var(--txt-3)',
+              }}
+            >
+              {presenceLabel || '—'}
+            </span>
+            {/* Indicateurs : arrivée / retour / chauffeur / hébergement */}
+            <span className="flex items-center gap-1 ml-auto shrink-0">
+              {persona.arrival_date && (
+                <span
+                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px]"
+                  style={{
+                    background: 'var(--purple-bg)',
+                    color: 'var(--purple)',
+                  }}
+                  title={`Arrivée ${persona.arrival_date}${arrivalDelta ? ' (' + arrivalDelta + ')' : ''}`}
+                >
+                  <PlaneLanding className="w-2.5 h-2.5" />
+                  {arrivalDelta || ''}
+                </span>
+              )}
+              {persona.departure_date && (
+                <span
+                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px]"
+                  style={{
+                    background: 'var(--purple-bg)',
+                    color: 'var(--purple)',
+                  }}
+                  title={`Retour ${persona.departure_date}${departureDelta ? ' (' + departureDelta + ')' : ''}`}
+                >
+                  <PlaneTakeoff className="w-2.5 h-2.5" />
+                  {departureDelta || ''}
+                </span>
+              )}
+              {persona.hebergement && (
+                <Home
+                  className="w-3 h-3"
+                  style={{ color: 'var(--blue)' }}
+                />
+              )}
+              {persona.chauffeur && (
+                <Car
+                  className="w-3 h-3"
+                  style={{ color: 'var(--amber)' }}
+                />
+              )}
+            </span>
+          </>
+        )}
       </button>
 
       {/* Lien vers la ligne de devis (read-only) */}
