@@ -45,6 +45,7 @@ import {
   startOfMonth,
 } from '../../planning/dateUtils'
 import { PERIODE_KEYS, PERIODE_META, expandDays, hasAnyRange } from '../../../lib/projectPeriodes'
+import { notify } from '../../../lib/notify'
 
 export default function PresenceCalendarModal({
   open,
@@ -168,15 +169,34 @@ export default function PresenceCalendarModal({
 
   async function handleSave() {
     const presence_days = [...selected].sort()
-    await onSave?.({
-      presence_days,
-      arrival_date: arrivalDate || null,
-      arrival_time: arrivalTime.trim() || null,
-      departure_date: departureDate || null,
-      departure_time: departureTime.trim() || null,
-      logistique_notes: logistique.trim() || null,
-    })
-    onClose?.()
+    try {
+      await onSave?.({
+        presence_days,
+        arrival_date: arrivalDate || null,
+        arrival_time: arrivalTime.trim() || null,
+        departure_date: departureDate || null,
+        departure_time: departureTime.trim() || null,
+        logistique_notes: logistique.trim() || null,
+      })
+      onClose?.()
+    } catch (err) {
+      // Cause typique : migration SQL pas encore passée → "column X does
+      // not exist". Sans ce try/catch, l'erreur était avalée silencieusement
+      // et l'utilisateur voyait "tout s'annule" sans comprendre pourquoi.
+      console.error('[PresenceCalendarModal] save error:', err)
+      const msg = err?.message || String(err)
+      // Détection migration manquante pour message plus parlant
+      const colMissing = /column\s+[\w."]+\s+does not exist/i.exec(msg)
+      if (colMissing) {
+        notify.error(
+          `Enregistrement impossible : ${colMissing[0]}. La migration SQL n'a probablement pas été passée — vérifiez les fichiers supabase/migrations/ avec votre admin.`,
+        )
+      } else {
+        notify.error('Enregistrement échoué : ' + msg)
+      }
+      // On NE ferme PAS la modale → l'utilisateur peut réessayer ou copier
+      // ses saisies avant de fermer manuellement.
+    }
   }
 
   // Pour les boutons "aligner sur 1er/dernier jour de présence"
