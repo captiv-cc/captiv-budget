@@ -38,11 +38,17 @@ export default function AddMemberModal({
   categories = DEFAULT_CATEGORIES,
   onCreateContact,
   onAddMember,
-  defaultCategory = 'PRODUCTION',
+  // null = boîte "À trier" (default depuis P1.5).
+  defaultCategory = null,
 }) {
+  const SENTINEL_UNCATEGORIZED = '__uncategorized__'
+  const SENTINEL_CUSTOM = '__custom__'
+
   const [contact, setContact] = useState(null)
   const [specialite, setSpecialite] = useState('')
-  const [category, setCategory] = useState(defaultCategory)
+  // category est soit SENTINEL_UNCATEGORIZED, soit une catégorie standard,
+  // soit SENTINEL_CUSTOM (pour saisie libre).
+  const [category, setCategory] = useState(defaultCategory ?? SENTINEL_UNCATEGORIZED)
   const [customCategory, setCustomCategory] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -51,7 +57,7 @@ export default function AddMemberModal({
     if (open) {
       setContact(null)
       setSpecialite('')
-      setCategory(defaultCategory)
+      setCategory(defaultCategory ?? SENTINEL_UNCATEGORIZED)
       setCustomCategory('')
       setSubmitting(false)
     }
@@ -67,13 +73,24 @@ export default function AddMemberModal({
 
   if (!open) return null
 
-  const isCustomCategory = category === '__custom__'
-  const finalCategory = (isCustomCategory ? customCategory.trim() : category).toUpperCase()
+  // Résolution de la catégorie finale :
+  //   - SENTINEL_UNCATEGORIZED → null (boîte "À trier")
+  //   - SENTINEL_CUSTOM        → customCategory.trim().toUpperCase()
+  //   - sinon                  → la valeur sélectionnée
+  let finalCategory = null
+  if (category === SENTINEL_CUSTOM) {
+    const c = customCategory.trim()
+    finalCategory = c ? c.toUpperCase() : null
+  } else if (category !== SENTINEL_UNCATEGORIZED) {
+    finalCategory = category
+  }
 
-  const canSubmit =
-    Boolean(contact) &&
-    Boolean(finalCategory) &&
-    !submitting
+  // canSubmit : contact requis. Catégorie peut être null (= À trier).
+  // Si l'utilisateur a sélectionné "Nouvelle catégorie" mais n'a rien tapé,
+  // on bloque pour éviter une catégorie vide bizarre.
+  const customSelected = category === SENTINEL_CUSTOM
+  const customMissing = customSelected && !customCategory.trim()
+  const canSubmit = Boolean(contact) && !customMissing && !submitting
 
   async function handleSubmit() {
     if (!canSubmit) return
@@ -81,11 +98,8 @@ export default function AddMemberModal({
     try {
       await onAddMember({
         contact_id: contact.id,
-        category: finalCategory,
+        category: finalCategory, // null = À trier
         specialite: specialite.trim() || null,
-        // Champs persona-level à default → reposent sur les defaults DB
-        // (sort_order=0, chauffeur=false, presence_days='{}', etc.)
-        // regime hérité du contact si présent
         regime: contact.regime || null,
       })
       notify.success(`${contact.prenom || ''} ${contact.nom || ''} ajouté(e)`.trim())
@@ -206,15 +220,18 @@ export default function AddMemberModal({
                 color: 'var(--txt)',
               }}
             >
+              <option value={SENTINEL_UNCATEGORIZED}>
+                📥 À trier (boîte de réception)
+              </option>
               {categories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
-              <option value="__custom__">+ Nouvelle catégorie…</option>
+              <option value={SENTINEL_CUSTOM}>+ Nouvelle catégorie…</option>
             </select>
 
-            {isCustomCategory && (
+            {customSelected && (
               <input
                 type="text"
                 value={customCategory}
@@ -227,6 +244,13 @@ export default function AddMemberModal({
                   color: 'var(--txt)',
                 }}
               />
+            )}
+
+            {category === SENTINEL_UNCATEGORIZED && (
+              <p className="mt-1.5 text-[10px] italic" style={{ color: 'var(--txt-3)' }}>
+                La personne arrivera dans la boîte « À trier » de la techlist.
+                Vous pourrez la classer ensuite par drag & drop.
+              </p>
             )}
           </div>
 

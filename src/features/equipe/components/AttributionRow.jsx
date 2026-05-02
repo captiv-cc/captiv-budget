@@ -1,22 +1,25 @@
 // ════════════════════════════════════════════════════════════════════════════
-// PersonaRow — Une ligne de la techlist
+// AttributionRow — Une ligne de la techlist (= 1 attribution principale)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Affiche une persona (1 personne sur le projet, qui peut avoir N rows
-// projet_membres regroupées par useCrew → groupByPerson).
+// Depuis EQUIPE-P1.5 : 1 ligne = 1 row projet_membres principale (parent_membre_id
+// IS NULL). Les rows rattachées sont représentées par un badge "+ N rôle".
 //
-// Inline edit pour les attributs persona-level :
-//   - secteur (ville d'origine, override projet)
-//   - chauffeur (toggle)
-//   - hebergement (texte libre)
-//   - presence_days (via PresenceCalendarModal — déclenchée par bouton)
-//   - statut MovinMotion (cycle au clic via dropdown)
+// Mise en avant :
+//   - Le POSTE (devis_line.produit ou specialite) en gros, blanc, gras
+//   - Le NOM de la personne en sous-titre
+//   - Avatar + initiales à gauche
 //
-// Affiche aussi (read-only ici) :
-//   - nom + initiales (avatar coloré)
-//   - spécialité (depuis la 1ère row)
-//   - n° de lignes attribuées (bouton ouvre une drawer Vue par membre — TODO Phase 1.5)
-//   - téléphone / email (si showSensitive=true)
+// Inline edits :
+//   - secteur, hebergement, chauffeur, presence_days : PERSONA-LEVEL
+//     → propagent à toutes les rows de la même persona via onUpdatePersona
+//   - movinmotion_statut : PER-ROW → onUpdateRow
+//
+// Actions :
+//   - Drag (HTML5 native) : déplace la ligne entre catégories (change la
+//     `category` de cette row uniquement, choix Y validé)
+//   - Menu kebab : Rattacher à un autre poste, Détacher (si rattaché),
+//     Retirer de l'équipe
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useRef } from 'react'
@@ -32,6 +35,9 @@ import {
   ChevronDown,
   Link2,
   MoreVertical,
+  GitMerge,
+  GitBranch,
+  GripVertical,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -52,52 +58,77 @@ const STATUT_STYLES = {
   paie_terminee:  { color: 'var(--amber)', bg: 'var(--amber-bg)' },
 }
 
-export default function PersonaRow({
-  persona,
+export default function AttributionRow({
+  row,                    // techlist row enrichie (cf. listTechlistRows)
   showSensitive = false,
   canEdit = true,
-  onUpdatePersona,           // (key, fields) => Promise
-  onRemovePersona,           // async () => Promise — supprime toutes les rows
-  onOpenPresence,            // () => void — ouvre la modale calendrier
-  onOpenDetail,              // () => void — ouvre la drawer Vue par membre (Phase 1.5)
+  onUpdateRow,            // (rowId, fields) => Promise — per-row update
+  onUpdatePersona,        // (personaKey, fields) => Promise — persona-level
+  onRemoveRow,            // async () => Promise
+  onOpenPresence,         // () => void — ouvre la modale calendrier
+  onAttach,               // () => void — ouvre la modale rattacher
+  onDetach,               // async () => Promise — détache (si row rattachée)
+  onDragStart,            // HTML5 drag start
+  onDragEnd,              // HTML5 drag end
+  isDragging = false,
 }) {
+  const persona = row.persona || {}
   const fullName = fullNameFromPersona(persona)
   const initials = initialsFromPersona(persona)
   const secteur = effectiveSecteur(persona)
   const presenceLabel = condensePresenceDays(persona.presence_days)
 
-  // Récup spécialité depuis la 1ère row si présente
-  const specialite =
+  // Le poste vient en priorité de la ligne de devis (= ce qui a été vendu),
+  // puis de la spécialité saisie sur le projet_membre, puis du contact.
+  const poste =
+    row.devis_line?.produit ||
+    row.specialite ||
     persona.contact?.specialite ||
-    persona.members?.[0]?.specialite ||
-    null
+    '—'
 
-  // Compteur de lignes de devis attribuées
-  const nbDevisLines = (persona.members || []).filter((m) => m.devis_line_id).length
-
-  const handleEdit = (fields) => onUpdatePersona?.(persona.key, fields)
+  const nbAttached = row.attached?.length || 0
 
   const handleDelete = async () => {
     const ok = await confirm({
-      title: 'Retirer de l\u2019équipe',
-      message: `Retirer ${fullName} de l\u2019équipe de ce projet ? Cette action supprimera ${persona.members.length} attribution${persona.members.length > 1 ? 's' : ''}.`,
+      title: 'Retirer cette attribution',
+      message: nbAttached > 0
+        ? `Retirer ${fullName} de "${poste}" ? Les ${nbAttached} ligne(s) rattachée(s) seront détachées et redeviendront principales.`
+        : `Retirer ${fullName} de "${poste}" ?`,
       confirmLabel: 'Retirer',
       destructive: true,
     })
-    if (ok) await onRemovePersona?.()
+    if (ok) await onRemoveRow?.()
   }
 
   return (
     <div
-      className="grid items-center gap-2 px-3 py-2.5 transition-colors"
+      draggable={canEdit}
+      onDragStart={(e) => {
+        if (!canEdit) return
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', row.id)
+        onDragStart?.(row)
+      }}
+      onDragEnd={() => onDragEnd?.()}
+      className="grid items-center gap-2 px-3 py-2.5 transition-all"
       style={{
         gridTemplateColumns:
-          'minmax(0, 2fr) 1fr 1fr auto auto auto auto auto auto',
+          'auto minmax(0, 2.2fr) 1fr 1fr auto auto auto auto auto',
         background: 'var(--bg-row)',
         borderBottom: '1px solid var(--brd-sub)',
+        opacity: isDragging ? 0.4 : 1,
+        cursor: canEdit ? 'grab' : 'default',
       }}
     >
-      {/* Avatar + nom + spécialité */}
+      {/* Drag handle visuel */}
+      <div
+        style={{ color: 'var(--txt-3)', opacity: canEdit ? 0.5 : 0 }}
+        title="Glisser pour reclasser"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </div>
+
+      {/* Poste + nom (le poste est mis en avant) */}
       <div className="flex items-center gap-2.5 min-w-0">
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
@@ -108,31 +139,33 @@ export default function PersonaRow({
         >
           {initials}
         </div>
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={onOpenDetail}
-            disabled={!onOpenDetail}
-            className="text-sm font-semibold truncate transition-colors text-left"
-            style={{
-              color: 'var(--txt)',
-              cursor: onOpenDetail ? 'pointer' : 'default',
-            }}
-            onMouseEnter={(e) => {
-              if (onOpenDetail) e.currentTarget.style.color = 'var(--blue)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--txt)'
-            }}
-            title={fullName}
+        <div className="min-w-0 flex-1">
+          {/* Le POSTE en avant */}
+          <div
+            className="text-sm font-semibold truncate flex items-center gap-1.5"
+            style={{ color: 'var(--txt)' }}
+            title={poste}
           >
+            {poste}
+            {nbAttached > 0 && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                style={{
+                  background: 'var(--purple-bg)',
+                  color: 'var(--purple)',
+                  border: '1px solid var(--purple-brd)',
+                }}
+                title={`${nbAttached} rôle(s) rattaché(s) à cette ligne`}
+              >
+                <GitMerge className="w-2.5 h-2.5 inline mr-0.5" />
+                +{nbAttached}
+              </span>
+            )}
+          </div>
+          {/* Le NOM en sous-titre */}
+          <div className="text-[11px] truncate" style={{ color: 'var(--txt-2)' }}>
             {fullName}
-          </button>
-          {specialite && (
-            <div className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
-              {specialite}
-            </div>
-          )}
+          </div>
           {showSensitive && (persona.contact?.email || persona.contact?.telephone) && (
             <div
               className="flex items-center gap-2 mt-0.5 text-[10px]"
@@ -142,6 +175,7 @@ export default function PersonaRow({
                 <a
                   href={`tel:${persona.contact.telephone}`}
                   className="flex items-center gap-0.5 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <Phone className="w-2.5 h-2.5" />
                   {persona.contact.telephone}
@@ -151,6 +185,7 @@ export default function PersonaRow({
                 <a
                   href={`mailto:${persona.contact.email}`}
                   className="flex items-center gap-0.5 hover:underline truncate"
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <Mail className="w-2.5 h-2.5 shrink-0" />
                   <span className="truncate">{persona.contact.email}</span>
@@ -161,28 +196,28 @@ export default function PersonaRow({
         </div>
       </div>
 
-      {/* Secteur (ville) inline edit */}
+      {/* Secteur (persona-level) */}
       <InlineText
         value={secteur || ''}
         placeholder="Secteur"
         icon={<MapPin className="w-3 h-3" />}
         canEdit={canEdit}
-        onSave={(v) => handleEdit({ secteur: v.trim() || null })}
+        onSave={(v) => onUpdatePersona?.(row.persona_key, { secteur: v.trim() || null })}
       />
 
-      {/* Hébergement inline edit */}
+      {/* Hébergement (persona-level) */}
       <InlineText
         value={persona.hebergement || ''}
         placeholder="Hébergement"
         icon={<Home className="w-3 h-3" />}
         canEdit={canEdit}
-        onSave={(v) => handleEdit({ hebergement: v.trim() || null })}
+        onSave={(v) => onUpdatePersona?.(row.persona_key, { hebergement: v.trim() || null })}
       />
 
-      {/* Chauffeur toggle */}
+      {/* Chauffeur (persona-level) */}
       <button
         type="button"
-        onClick={() => canEdit && handleEdit({ chauffeur: !persona.chauffeur })}
+        onClick={() => canEdit && onUpdatePersona?.(row.persona_key, { chauffeur: !persona.chauffeur })}
         disabled={!canEdit}
         className="p-1.5 rounded-md transition-colors"
         style={{
@@ -208,7 +243,7 @@ export default function PersonaRow({
         <Car className="w-3.5 h-3.5" />
       </button>
 
-      {/* Présence (bouton ouvre modale) */}
+      {/* Présence (persona-level — bouton ouvre modale) */}
       <button
         type="button"
         onClick={onOpenPresence}
@@ -232,36 +267,38 @@ export default function PersonaRow({
         </span>
       </button>
 
-      {/* Lignes devis (read-only badge) */}
+      {/* Lien vers la ligne de devis (read-only) */}
       <div
         className="text-[10px] px-1.5 py-0.5 rounded font-mono"
         style={{
-          background: nbDevisLines > 0 ? 'var(--blue-bg)' : 'transparent',
-          color: nbDevisLines > 0 ? 'var(--blue)' : 'var(--txt-3)',
-          border: nbDevisLines > 0 ? '1px solid var(--blue-brd)' : '1px solid var(--brd-sub)',
+          background: row.devis_line_id ? 'var(--blue-bg)' : 'transparent',
+          color: row.devis_line_id ? 'var(--blue)' : 'var(--txt-3)',
+          border: row.devis_line_id ? '1px solid var(--blue-brd)' : '1px solid var(--brd-sub)',
         }}
         title={
-          nbDevisLines > 0
-            ? `${nbDevisLines} ligne${nbDevisLines > 1 ? 's' : ''} de devis attribuée${nbDevisLines > 1 ? 's' : ''}`
-            : 'Aucune ligne de devis'
+          row.devis_line_id
+            ? 'Attribution liée à une ligne de devis'
+            : 'Attribution libre (sans ligne de devis)'
         }
       >
-        <Link2 className="w-2.5 h-2.5 inline mr-0.5" />
-        {nbDevisLines}
+        <Link2 className="w-2.5 h-2.5 inline" />
       </div>
 
-      {/* Statut MovinMotion */}
+      {/* Statut MovinMotion (per-row) */}
       <StatutDropdown
-        statut={persona.movinmotion_statut}
+        statut={row.movinmotion_statut}
         canEdit={canEdit}
-        onChange={(s) => handleEdit({ movinmotion_statut: s })}
+        onChange={(s) => onUpdateRow?.(row.id, { movinmotion_statut: s })}
       />
 
       {/* Menu actions */}
       <RowMenu
         canEdit={canEdit}
+        canAttach={Boolean(onAttach)}
+        canDetach={Boolean(row.parent_membre_id) && Boolean(onDetach)}
+        onAttach={onAttach}
+        onDetach={onDetach}
         onDelete={handleDelete}
-        onOpenDetail={onOpenDetail}
       />
     </div>
   )
@@ -316,16 +353,22 @@ function InlineText({ value, placeholder, icon, canEdit, onSave }) {
     )
   }
 
+  // Vide → placeholder italique discret. Rempli → texte normal.
+  const isEmpty = !value
   return (
     <button
       type="button"
       onClick={() => setEditing(true)}
       className="flex items-center gap-1 text-[11px] truncate text-left px-1.5 py-1 rounded transition-colors w-full"
-      style={{ color: value ? 'var(--txt-2)' : 'var(--txt-3)' }}
+      style={{
+        color: isEmpty ? 'var(--txt-3)' : 'var(--txt-2)',
+        fontStyle: isEmpty ? 'italic' : 'normal',
+        opacity: isEmpty ? 0.55 : 1,
+      }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
-      {icon && <span style={{ color: 'var(--txt-3)' }}>{icon}</span>}
+      {icon && <span style={{ color: 'var(--txt-3)', opacity: isEmpty ? 0.6 : 1 }}>{icon}</span>}
       <span className="truncate">{value || placeholder}</span>
     </button>
   )
@@ -343,7 +386,6 @@ function StatutDropdown({ statut, canEdit, onChange }) {
     if (!canEdit) return
     const rect = triggerRef.current?.getBoundingClientRect()
     if (rect) {
-      // Position dropdown sous le trigger, fallback au-dessus si pas de place
       const spaceBelow = window.innerHeight - rect.bottom
       const dropdownH = CREW_STATUTS.length * 32 + 8
       const top = spaceBelow < dropdownH ? rect.top - dropdownH - 4 : rect.bottom + 4
@@ -376,10 +418,7 @@ function StatutDropdown({ statut, canEdit, onChange }) {
       {open &&
         createPortal(
           <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setOpen(false)}
-            />
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div
               className="fixed z-50 rounded-md shadow-lg overflow-hidden"
               style={{
@@ -428,7 +467,7 @@ function StatutDropdown({ statut, canEdit, onChange }) {
   )
 }
 
-function RowMenu({ canEdit, onDelete, onOpenDetail }) {
+function RowMenu({ canEdit, canAttach, canDetach, onAttach, onDetach, onDelete }) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef(null)
   const [pos, setPos] = useState({ top: 0, left: 0 })
@@ -436,13 +475,14 @@ function RowMenu({ canEdit, onDelete, onOpenDetail }) {
   function handleOpen() {
     const rect = triggerRef.current?.getBoundingClientRect()
     if (rect) {
-      // Aligné à droite du trigger
       const top = rect.bottom + 4
-      const left = rect.right - 160 // largeur ~160
+      const left = rect.right - 200
       setPos({ top, left })
     }
     setOpen(true)
   }
+
+  if (!canEdit) return <div className="w-6" />
 
   return (
     <>
@@ -476,40 +516,55 @@ function RowMenu({ canEdit, onDelete, onOpenDetail }) {
                 left: pos.left,
                 background: 'var(--bg-elev)',
                 border: '1px solid var(--brd)',
-                minWidth: 160,
+                minWidth: 200,
               }}
             >
-              {onOpenDetail && (
+              {canAttach && (
                 <button
                   type="button"
                   onClick={() => {
                     setOpen(false)
-                    onOpenDetail?.()
+                    onAttach?.()
                   }}
-                  className="w-full text-left px-3 py-2 text-xs transition-colors"
+                  className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors"
                   style={{ color: 'var(--txt)' }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  Voir le détail
+                  <GitMerge className="w-3 h-3" />
+                  Rattacher à un autre poste
                 </button>
               )}
-              {canEdit && (
+              {canDetach && (
                 <button
                   type="button"
                   onClick={() => {
                     setOpen(false)
-                    onDelete?.()
+                    onDetach?.()
                   }}
                   className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors"
-                  style={{ color: 'var(--red)' }}
+                  style={{ color: 'var(--txt)' }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <Trash2 className="w-3 h-3" />
-                  Retirer de l&rsquo;équipe
+                  <GitBranch className="w-3 h-3" />
+                  Détacher
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onDelete?.()
+                }}
+                className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors border-t"
+                style={{ color: 'var(--red)', borderColor: 'var(--brd-sub)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Trash2 className="w-3 h-3" />
+                Retirer de l&rsquo;équipe
+              </button>
             </div>
           </>,
           document.body,

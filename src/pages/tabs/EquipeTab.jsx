@@ -464,21 +464,25 @@ export default function EquipeTab() {
       {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
       <div className="p-4 sm:p-6 space-y-5 flex-1">
 
-      {/* ── KPIs détaillés (mobile : 1 col, desktop : 2 col) ─────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <KpiCard
-          label="Postes"
-          color={nbAttribues === crewLines.length ? 'green' : 'blue'}
-          value={`${nbAttribues} / ${crewLines.length}`}
-          sub="attribués"
-        />
-        <KpiCard
-          label="Confirmés"
-          color="purple"
-          value={`${nbValides} / ${membres.length}`}
-          sub="validés ou réglés"
-        />
-      </div>
+      {/* ── KPIs détaillés ──────────────────────────────────────────────────
+          Affichés UNIQUEMENT en vue Attribution. La Tech list a son propre
+          header compact avec ses propres compteurs (cf. TechListView). */}
+      {activeTab === 'attribution' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <KpiCard
+            label="Postes"
+            color={nbAttribues === crewLines.length ? 'green' : 'blue'}
+            value={`${nbAttribues} / ${crewLines.length}`}
+            sub="attribués"
+          />
+          <KpiCard
+            label="Confirmés"
+            color="purple"
+            value={`${nbValides} / ${membres.length}`}
+            sub="validés ou réglés"
+          />
+        </div>
+      )}
 
       {/* ── Onglets Attribution / Équipe ─────────────────────────────────── */}
       <div

@@ -4,12 +4,15 @@
 //
 // Couvre les helpers in-memory (pas de hit Supabase) :
 //   - personaKey
-//   - groupByPerson
-//   - groupByCategory
+//   - groupByPerson         (persona-level only)
+//   - listTechlistRows      (P1.5 — 1 ligne = 1 attribution principale)
+//   - partitionByCategory   (P1.5 — uncategorized vs byCategory)
 //   - listCategories
+//   - groupByCategory       (legacy, conservé pour rétro-compat)
 //   - condensePresenceDays
 //   - distributeForfait
 //   - fullNameFromPersona / initialsFromPersona / effectiveSecteur
+//   - PERSONA_LEVEL_FIELDS  (constante figée)
 // ════════════════════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from 'vitest'
@@ -18,12 +21,15 @@ import {
   groupByPerson,
   groupByCategory,
   listCategories,
+  listTechlistRows,
+  partitionByCategory,
   condensePresenceDays,
   distributeForfait,
   fullNameFromPersona,
   initialsFromPersona,
   effectiveSecteur,
   DEFAULT_CATEGORIES,
+  PERSONA_LEVEL_FIELDS,
 } from './crew.js'
 
 describe('personaKey', () => {
@@ -83,12 +89,24 @@ describe('groupByPerson', () => {
 
   it('prend les attributs persona-level depuis la 1ère row', () => {
     const members = [
-      { id: 'm1', contact_id: 'c1', category: 'PRODUCTION', secteur: 'Paris' },
-      { id: 'm2', contact_id: 'c1', category: 'PRODUCTION', secteur: 'Paris' },
+      { id: 'm1', contact_id: 'c1', secteur: 'Paris', hebergement: 'Hôtel A' },
+      { id: 'm2', contact_id: 'c1', secteur: 'Paris', hebergement: 'Hôtel A' },
     ]
     const [p] = groupByPerson(members)
-    expect(p.category).toBe('PRODUCTION')
     expect(p.secteur).toBe('Paris')
+    expect(p.hebergement).toBe('Hôtel A')
+  })
+
+  it('n\'expose PAS les champs per-row sur la persona (P1.5)', () => {
+    // category, sort_order, movinmotion_statut sont per-row depuis P1.5.
+    // groupByPerson ne les expose plus sur la persona.
+    const [p] = groupByPerson([
+      { id: 'm1', contact_id: 'c1', category: 'PRODUCTION', sort_order: 5,
+        movinmotion_statut: 'integre' },
+    ])
+    expect(p.category).toBeUndefined()
+    expect(p.sort_order).toBeUndefined()
+    expect(p.movinmotion_statut).toBeUndefined()
   })
 
   it('preserve l\'ordre d\'apparition des personae', () => {
@@ -103,11 +121,11 @@ describe('groupByPerson', () => {
 
   it('valeurs par défaut si attributs persona-level absents', () => {
     const [p] = groupByPerson([{ id: 'm1', contact_id: 'c1' }])
-    expect(p.category).toBe('PRODUCTION')
-    expect(p.sort_order).toBe(0)
     expect(p.chauffeur).toBe(false)
     expect(p.presence_days).toEqual([])
-    expect(p.movinmotion_statut).toBe('non_applicable')
+    expect(p.secteur).toBe(null)
+    expect(p.hebergement).toBe(null)
+    expect(p.couleur).toBe(null)
   })
 
   it('retourne tableau vide pour input vide ou undefined', () => {
@@ -157,6 +175,113 @@ describe('listCategories', () => {
     const personae = [{ category: 'EQUIPE TECHNIQUE' }, { category: 'POST PRODUCTION' }]
     const cats = listCategories(personae)
     expect(cats).toEqual(DEFAULT_CATEGORIES)
+  })
+
+  it('accepte aussi les rows enrichies (item.category)', () => {
+    const rows = [{ category: 'CASTING' }, { category: 'PRODUCTION' }]
+    const cats = listCategories(rows)
+    expect(cats).toEqual([...DEFAULT_CATEGORIES, 'CASTING'])
+  })
+
+  it('ignore les items sans category (= À trier)', () => {
+    const rows = [{ category: null }, { category: undefined }, { category: '' }]
+    expect(listCategories(rows)).toEqual(DEFAULT_CATEGORIES)
+  })
+})
+
+// ─── P1.5 helpers ────────────────────────────────────────────────────────────
+
+describe('listTechlistRows', () => {
+  it('retourne tableau vide si pas de members', () => {
+    expect(listTechlistRows([])).toEqual([])
+    expect(listTechlistRows()).toEqual([])
+  })
+
+  it('ne retient que les rows principales (parent_membre_id IS NULL)', () => {
+    const members = [
+      { id: 'm1', contact_id: 'c1', parent_membre_id: null },
+      { id: 'm2', contact_id: 'c1', parent_membre_id: 'm1' }, // rattachée → masquée
+      { id: 'm3', contact_id: 'c2', parent_membre_id: null },
+    ]
+    const rows = listTechlistRows(members)
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.id).sort()).toEqual(['m1', 'm3'])
+  })
+
+  it('attache les children dans row.attached', () => {
+    const members = [
+      { id: 'm1', contact_id: 'c1', parent_membre_id: null },
+      { id: 'm2', contact_id: 'c1', parent_membre_id: 'm1' },
+      { id: 'm3', contact_id: 'c1', parent_membre_id: 'm1' },
+      { id: 'm4', contact_id: 'c2', parent_membre_id: null },
+    ]
+    const rows = listTechlistRows(members)
+    const m1Row = rows.find((r) => r.id === 'm1')
+    const m4Row = rows.find((r) => r.id === 'm4')
+    expect(m1Row.attached.map((a) => a.id).sort()).toEqual(['m2', 'm3'])
+    expect(m4Row.attached).toEqual([])
+  })
+
+  it('expose persona + persona_key sur chaque row', () => {
+    const members = [
+      { id: 'm1', contact_id: 'c1', secteur: 'Paris', parent_membre_id: null },
+      { id: 'm2', contact_id: 'c1', secteur: 'Paris' },
+    ]
+    const [r] = listTechlistRows(members)
+    expect(r.persona_key).toBe('c1')
+    expect(r.persona.secteur).toBe('Paris')
+  })
+
+  it('trie : category null en premier, puis sort_order, puis created_at', () => {
+    const members = [
+      { id: 'a', contact_id: 'c1', category: 'PRODUCTION', sort_order: 1, created_at: '2026-01-01' },
+      { id: 'b', contact_id: 'c2', category: null, sort_order: 0, created_at: '2026-01-02' },
+      { id: 'c', contact_id: 'c3', category: 'PRODUCTION', sort_order: 0, created_at: '2026-01-03' },
+      { id: 'd', contact_id: 'c4', category: null, sort_order: 0, created_at: '2026-01-04' },
+    ]
+    const rows = listTechlistRows(members)
+    expect(rows.map((r) => r.id)).toEqual(['b', 'd', 'c', 'a'])
+  })
+})
+
+describe('partitionByCategory', () => {
+  it('sépare uncategorized (category null/empty) et byCategory', () => {
+    const rows = [
+      { id: 'a', category: null },
+      { id: 'b', category: 'PRODUCTION' },
+      { id: 'c', category: '' },
+      { id: 'd', category: 'PRODUCTION' },
+      { id: 'e', category: 'POST PRODUCTION' },
+    ]
+    const { uncategorized, byCategory } = partitionByCategory(rows)
+    expect(uncategorized.map((r) => r.id)).toEqual(['a', 'c'])
+    expect(byCategory['PRODUCTION'].map((r) => r.id)).toEqual(['b', 'd'])
+    expect(byCategory['POST PRODUCTION'].map((r) => r.id)).toEqual(['e'])
+  })
+
+  it('retourne maps vides pour input vide', () => {
+    const { uncategorized, byCategory } = partitionByCategory([])
+    expect(uncategorized).toEqual([])
+    expect(byCategory).toEqual({})
+  })
+})
+
+describe('PERSONA_LEVEL_FIELDS', () => {
+  it('contient les bons champs persona-level', () => {
+    expect(PERSONA_LEVEL_FIELDS).toEqual([
+      'secteur', 'hebergement', 'chauffeur', 'presence_days', 'couleur',
+    ])
+  })
+
+  it('est figé (Object.freeze)', () => {
+    expect(Object.isFrozen(PERSONA_LEVEL_FIELDS)).toBe(true)
+  })
+
+  it('ne contient PAS les champs per-row', () => {
+    expect(PERSONA_LEVEL_FIELDS).not.toContain('category')
+    expect(PERSONA_LEVEL_FIELDS).not.toContain('sort_order')
+    expect(PERSONA_LEVEL_FIELDS).not.toContain('movinmotion_statut')
+    expect(PERSONA_LEVEL_FIELDS).not.toContain('parent_membre_id')
   })
 })
 

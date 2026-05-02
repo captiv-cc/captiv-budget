@@ -3,22 +3,34 @@
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Architecture :
-//   projet_membres (par projet, déjà existant)
-//     ├ contact_id  → contacts (annuaire org partagé)
-//     └ devis_line_id → devis_lines (attribution depuis devis, optionnel)
+//   projet_membres (par projet)
+//     ├ contact_id        → contacts (annuaire org partagé)
+//     ├ devis_line_id     → devis_lines (attribution depuis devis, optionnel)
+//     └ parent_membre_id  → projet_membres.id (rattachement, optionnel)
 //
-//   1 personne sur 1 projet = potentiellement plusieurs rows projet_membres
-//   (une row par ligne de devis attribuée). Les attributs persona-level
-//   (category, sort_order, secteur, chauffeur, hebergement, presence_days,
-//   couleur) sont stockés sur chaque row mais SYNCHRONISÉS par convention :
-//   quand on update l'un d'entre eux, on update toutes les rows de la
-//   personne en même temps via `bulkUpdateProjectMembers`.
+//   1 personne sur 1 projet = potentiellement N rows projet_membres. Sur la
+//   techlist, on n'affiche que les rows "principales" (parent_membre_id IS
+//   NULL). Les rows rattachées (parent_membre_id != NULL) restent visibles
+//   dans Attribution mais sont masquées de la techlist (cas typique : 1 row
+//   "Cadreur" 3j + 1 row "Essais caméra" 1j → la 2ème est rattachée à la
+//   1ère, sur la techlist on voit Alexandre une seule fois en "Cadreur"
+//   avec un badge "+1 rôle rattaché").
+//
+// Niveau de données :
+//   - PER-ROW (= spécifique à cette attribution) :
+//       category, sort_order, devis_line_id, specialite, regime,
+//       cout_estime, parent_membre_id, movinmotion_statut, budget_convenu
+//   - PERSONA-LEVEL (= synchronisé sur toutes les rows de la même personne) :
+//       secteur, hebergement, chauffeur, presence_days, couleur
+//     Ces champs sont stockés sur chaque row mais updated en bulk via
+//     `bulkUpdateProjectMembers` quand l'admin édite l'un d'eux.
+//
+//   `category` est PER-ROW (choix UX validé) : drag d'une seule ligne change
+//   sa catégorie sans toucher aux autres rows de la même personne.
 //
 // Principes :
-//   - RLS DB (`projet_membres_org`) gère le scoping projet → org. On reste
-//     naïf côté lib.
-//   - Helpers purs (groupByPerson, condensePresenceDays, distributeForfait)
-//     testés indépendamment dans crew.test.js.
+//   - RLS DB (`projet_membres_org`) gère le scoping projet → org.
+//   - Helpers purs testés indépendamment dans crew.test.js.
 //   - Mutations optimistic côté hook (useCrew) → reload final si erreur.
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -114,8 +126,8 @@ export async function fetchOrgContacts() {
 
 /**
  * Crée une attribution projet_membres. Le payload doit contenir au minimum
- * `project_id`. Toutes les autres colonnes ont des defaults (category =
- * 'PRODUCTION', sort_order = 0, presence_days = '{}', etc.).
+ * `project_id`. `category` est nullable : si absent, l'attribution apparaît
+ * dans la boîte "À trier" de la techlist.
  */
 export async function createProjectMember(payload) {
   const { data, error } = await supabase
@@ -163,8 +175,10 @@ export async function deleteProjectMember(id) {
 
 /**
  * Update plusieurs projet_membres en parallèle (même set de fields).
- * Utilisé pour synchroniser les attributs persona-level sur toutes les
- * rows d'une même personne (category, sort_order, presence_days, etc.).
+ * Utilisé pour synchroniser les attributs PERSONA-LEVEL sur toutes les
+ * rows d'une même personne : secteur, hebergement, chauffeur, presence_days,
+ * couleur. Les autres champs (category, sort_order, statut, etc.) sont
+ * per-row et ne devraient pas passer par ce helper.
  */
 export async function bulkUpdateProjectMembers(ids, fields) {
   if (!ids?.length) return
@@ -173,6 +187,40 @@ export async function bulkUpdateProjectMembers(ids, fields) {
     .update({ ...fields, updated_at: new Date().toISOString() })
     .in('id', ids)
   if (error) throw error
+}
+
+/**
+ * Champs persona-level (= synchronisés sur toutes les rows d'une même
+ * personne sur le projet). Utilisé par useCrew.updatePersona pour ne
+ * propager que les bons champs via bulkUpdate.
+ */
+export const PERSONA_LEVEL_FIELDS = Object.freeze([
+  'secteur',
+  'hebergement',
+  'chauffeur',
+  'presence_days',
+  'couleur',
+])
+
+/**
+ * Rattache une attribution à une autre (= "fusion" sur la techlist).
+ * `childId` n'apparaîtra plus comme ligne principale ; il sera listé en
+ * sous-élément de `parentId` dans la techlist + Attribution. Le parent doit
+ * appartenir à la MÊME persona côté UI ; ici on reste naïf et on se fie à
+ * l'admin (le front filtre la liste de parents possibles).
+ */
+export async function attachProjectMember(childId, parentId) {
+  if (childId === parentId) {
+    throw new Error('attachProjectMember: une row ne peut pas être son propre parent')
+  }
+  return updateProjectMember(childId, { parent_membre_id: parentId })
+}
+
+/**
+ * Détache une attribution rattachée → elle redevient une ligne principale.
+ */
+export async function detachProjectMember(childId) {
+  return updateProjectMember(childId, { parent_membre_id: null })
 }
 
 
@@ -227,21 +275,23 @@ export function personaKey(member) {
 }
 
 /**
- * Groupe une liste de projet_membres par persona (= 1 personne sur le
- * projet, qui peut avoir N rows attribuées).
+ * Groupe une liste de projet_membres par persona (= 1 personne sur le projet,
+ * qui peut avoir N rows attribuées). Utilisé pour les attributs persona-level
+ * (secteur, hebergement, chauffeur, presence_days, couleur) qui sont stockés
+ * sur chaque row mais représentent la personne.
  *
  * Retourne un Array de personae, chacune avec :
  *   - key             : l'identifiant pour les updates persona-level
  *   - contact_id      : si la personne est dans l'annuaire
  *   - contact         : l'objet contact joint (ou null)
- *   - category, sort_order, secteur, chauffeur, hebergement, presence_days,
- *     couleur, movinmotion_statut : valeurs prises depuis la 1ère row
- *     (les rows d'une même personne ont normalement les mêmes valeurs
- *     grâce à `bulkUpdateProjectMembers`)
+ *   - secteur, chauffeur, hebergement, presence_days, couleur :
+ *       valeurs prises depuis la 1ère row (les rows d'une même personne ont
+ *       normalement les mêmes valeurs grâce à bulkUpdateProjectMembers)
  *   - members         : Array de toutes les rows projet_membres de la personne
  *
- * L'ordre est préservé : les personae apparaissent dans l'ordre de la 1ère
- * row qui les introduit.
+ * NOTE : depuis la P1.5, `category`, `sort_order` et `movinmotion_statut`
+ * sont PER-ROW (= ne sont plus persona-level). On ne les expose plus sur la
+ * persona — ils sont à lire directement sur chaque row.
  */
 export function groupByPerson(members = []) {
   const personae = []
@@ -255,16 +305,15 @@ export function groupByPerson(members = []) {
         key,
         contact_id: m.contact_id || null,
         contact: m.contact || null,
-        // Attributs persona-level (pris depuis la 1ère row)
-        category: m.category || 'PRODUCTION',
-        sort_order: m.sort_order ?? 0,
+        // Attributs persona-level (pris depuis la 1ère row, synchronisés
+        // sur toutes les autres rows de la même personne par convention).
         secteur: m.secteur || null,
         chauffeur: Boolean(m.chauffeur),
         hebergement: m.hebergement || null,
         presence_days: m.presence_days || [],
         couleur: m.couleur || null,
-        movinmotion_statut: m.movinmotion_statut || 'non_applicable',
-        // Toutes les rows de la persona (pour le détail Attribution)
+        // Toutes les rows de la persona (utiles pour bulkUpdate +
+        // pour le drawer "Vue par membre").
         members: [m],
       }
       byKey.set(key, persona)
@@ -275,18 +324,91 @@ export function groupByPerson(members = []) {
 }
 
 /**
- * Groupe les personae par catégorie.
- * Retourne `{ categoryName: Persona[] }`. Les catégories vides ne sont
- * PAS dans le résultat (à compléter côté UI avec `listCategories`).
+ * Construit la liste des "rows techlist" affichées dans la Tech list :
+ *   1. Filtre les rows principales (parent_membre_id IS NULL).
+ *   2. Pour chacune, attache la liste de ses rattachées (children) +
+ *      les attributs persona-level dérivés (depuis n'importe quelle row de
+ *      la persona — typiquement la 1ère).
+ *   3. Trie par (category — null en premier pour "À trier"), puis sort_order,
+ *      puis created_at.
+ *
+ * Chaque row retournée a la forme :
+ *   { ...projet_membre, persona: { secteur, chauffeur, ...}, attached: [...] }
+ *
+ * Ne mute pas les inputs.
  */
-export function groupByCategory(personae = []) {
-  const map = {}
-  for (const p of personae) {
-    const cat = p.category || 'PRODUCTION'
-    if (!map[cat]) map[cat] = []
-    map[cat].push(p)
+export function listTechlistRows(members = []) {
+  if (!members?.length) return []
+
+  // Index des rows principales par id (pour rattacher les children)
+  const principals = []
+  const childrenByParent = new Map()
+  for (const m of members) {
+    if (m.parent_membre_id) {
+      const arr = childrenByParent.get(m.parent_membre_id) || []
+      arr.push(m)
+      childrenByParent.set(m.parent_membre_id, arr)
+    } else {
+      principals.push(m)
+    }
   }
-  return map
+
+  // Map persona-level depuis la 1ère row de chaque persona
+  const personae = groupByPerson(members)
+  const personaByKey = new Map(personae.map((p) => [p.key, p]))
+
+  // Enrichissement
+  const rows = principals.map((m) => {
+    const pkey = personaKey(m)
+    const persona = personaByKey.get(pkey) || null
+    return {
+      ...m,
+      persona,            // attributs persona-level (secteur, ...)
+      persona_key: pkey,  // pour les updates persona-level
+      attached: childrenByParent.get(m.id) || [], // rows rattachées
+    }
+  })
+
+  // Tri stable : category (null en premier), puis sort_order, puis created_at
+  rows.sort((a, b) => {
+    const ca = a.category ?? ''
+    const cb = b.category ?? ''
+    if (ca !== cb) {
+      // null/'' vient avant les autres
+      if (!ca) return -1
+      if (!cb) return 1
+      return ca.localeCompare(cb, 'fr')
+    }
+    const sa = a.sort_order ?? 0
+    const sb = b.sort_order ?? 0
+    if (sa !== sb) return sa - sb
+    return (a.created_at || '').localeCompare(b.created_at || '')
+  })
+
+  return rows
+}
+
+/**
+ * Partitionne une liste de rows techlist en :
+ *   - uncategorized : rows avec category IS NULL ou '' (= "À trier")
+ *   - byCategory    : { categoryName: Row[] } pour les autres
+ *
+ * Les catégories vides ne sont PAS dans byCategory ; à compléter côté UI
+ * avec `listCategories`.
+ */
+export function partitionByCategory(rows = []) {
+  const uncategorized = []
+  const byCategory = {}
+  for (const r of rows) {
+    const cat = r.category || null
+    if (!cat) {
+      uncategorized.push(r)
+    } else {
+      if (!byCategory[cat]) byCategory[cat] = []
+      byCategory[cat].push(r)
+    }
+  }
+  return { uncategorized, byCategory }
 }
 
 /**
@@ -296,16 +418,33 @@ export function groupByCategory(personae = []) {
  *
  * Permet d'avoir des sections vides "PRODUCTION" / "EQUIPE TECHNIQUE" /
  * "POST PRODUCTION" prêtes à recevoir des drops dès le premier render.
+ *
+ * Accepte soit un Array de personae, soit un Array de rows enrichies (les
+ * deux ont une `category` lisible directement).
  */
-export function listCategories(personae = []) {
+export function listCategories(items = []) {
   const used = new Set()
-  for (const p of personae) {
-    if (p.category) used.add(p.category)
+  for (const item of items) {
+    if (item?.category) used.add(item.category)
   }
   const custom = [...used]
     .filter((c) => !DEFAULT_CATEGORIES.includes(c))
     .sort((a, b) => a.localeCompare(b, 'fr'))
   return [...DEFAULT_CATEGORIES, ...custom]
+}
+
+/**
+ * Backwards compat : groupe les personae par catégorie. Conservé pour les
+ * tests existants ; le nouveau flux passe par listTechlistRows + partitionByCategory.
+ */
+export function groupByCategory(personae = []) {
+  const map = {}
+  for (const p of personae) {
+    const cat = p.category || 'PRODUCTION'
+    if (!map[cat]) map[cat] = []
+    map[cat].push(p)
+  }
+  return map
 }
 
 /**
