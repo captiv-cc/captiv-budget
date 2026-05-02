@@ -47,6 +47,7 @@ export default function TechListView({ project, projectId, canEdit = true }) {
     addContact,
     updateMember,
     updatePersona,
+    reorderCategory,
     removeMember,
     attachMember,
     detachMember,
@@ -58,6 +59,8 @@ export default function TechListView({ project, projectId, canEdit = true }) {
   const [attachFor, setAttachFor] = useState(null)
   const [draggingId, setDraggingId] = useState(null)
   const [dragOverCat, setDragOverCat] = useState(null)
+  // P1.10 : drop sur une row précise (au-dessus = before / dessous = after)
+  const [dragOverRow, setDragOverRow] = useState(null) // { id, position }
 
   // Périodes du projet pour borner le calendrier de présence
   const periodes = extractPeriodes(project?.metadata)
@@ -78,6 +81,7 @@ export default function TechListView({ project, projectId, canEdit = true }) {
 
   const handleDropOnCategory = async (categoryName) => {
     setDragOverCat(null)
+    setDragOverRow(null)
     const id = draggingId
     setDraggingId(null)
     if (!id) return
@@ -89,6 +93,48 @@ export default function TechListView({ project, projectId, canEdit = true }) {
       await updateMember(id, { category: targetCat })
     } catch (err) {
       console.error('[TechListView] drop error:', err)
+    }
+  }
+
+  /**
+   * Drop sur une row précise → insère avant/après (réordonne ou change
+   * de catégorie + place à la position voulue).
+   */
+  const handleDropOnRow = async (targetRowId, position) => {
+    setDragOverCat(null)
+    setDragOverRow(null)
+    const id = draggingId
+    setDraggingId(null)
+    if (!id || id === targetRowId) return
+    const draggedRow = members.find((m) => m.id === id)
+    const targetRow = members.find((m) => m.id === targetRowId)
+    if (!draggedRow || !targetRow) return
+    const targetCat = targetRow.category || null
+
+    // Construit l'ordre actuel des rows de la catégorie cible (principales
+    // uniquement — les rattachées ne sont pas dans la techlist).
+    const inCategory = techlistRows.filter((r) => (r.category || null) === targetCat)
+    const orderedIds = inCategory
+      .map((r) => r.id)
+      .filter((rid) => rid !== id) // retire la row dragguée si déjà dans la cat
+
+    const targetIdx = orderedIds.indexOf(targetRowId)
+    if (targetIdx === -1) {
+      // Cas exceptionnel : la cible n'est plus dans la liste filtrée.
+      // Fallback : drop dans la catégorie sans position précise.
+      await handleDropOnCategory(targetCat ?? SENTINEL_UNCATEGORIZED)
+      return
+    }
+    const insertIdx = position === 'before' ? targetIdx : targetIdx + 1
+    orderedIds.splice(insertIdx, 0, id)
+
+    try {
+      // Si on change de catégorie, on passe targetCat ; sinon undefined
+      // (= ne pas toucher à la category).
+      const changingCategory = (draggedRow.category || null) !== targetCat
+      await reorderCategory(orderedIds, changingCategory ? targetCat : undefined)
+    } catch (err) {
+      console.error('[TechListView] reorder error:', err)
     }
   }
 
@@ -215,6 +261,7 @@ export default function TechListView({ project, projectId, canEdit = true }) {
         showSensitive={showSensitive}
         isDragOver={dragOverCat === SENTINEL_UNCATEGORIZED}
         draggingId={draggingId}
+        dragOverRow={dragOverRow}
         onDragOver={(e) => {
           e.preventDefault()
           setDragOverCat(SENTINEL_UNCATEGORIZED)
@@ -225,7 +272,15 @@ export default function TechListView({ project, projectId, canEdit = true }) {
         onDragEndRow={() => {
           setDraggingId(null)
           setDragOverCat(null)
+          setDragOverRow(null)
         }}
+        onDragOverRow={(rowId, position) =>
+          setDragOverRow({ id: rowId, position })
+        }
+        onDragLeaveRow={() => {
+          // léger debounce visuel — ne reset pas si on entre une autre row
+        }}
+        onDropOnRow={handleDropOnRow}
         onUpdateRow={updateMember}
         onUpdatePersona={updatePersona}
         onRemoveRow={(rowId) => removeMember(rowId)}
@@ -248,6 +303,7 @@ export default function TechListView({ project, projectId, canEdit = true }) {
             showSensitive={showSensitive}
             isDragOver={dragOverCat === cat}
             draggingId={draggingId}
+            dragOverRow={dragOverRow}
             onDragOver={(e) => {
               e.preventDefault()
               setDragOverCat(cat)
@@ -258,7 +314,15 @@ export default function TechListView({ project, projectId, canEdit = true }) {
             onDragEndRow={() => {
               setDraggingId(null)
               setDragOverCat(null)
+              setDragOverRow(null)
             }}
+            onDragOverRow={(rowId, position) =>
+              setDragOverRow({ id: rowId, position })
+            }
+            onDragLeaveRow={() => {
+              // léger debounce visuel — ne reset pas si on entre une autre row
+            }}
+            onDropOnRow={handleDropOnRow}
             onUpdateRow={updateMember}
             onUpdatePersona={updatePersona}
             onRemoveRow={(rowId) => removeMember(rowId)}
@@ -337,11 +401,15 @@ function UncategorizedBox({
   showSensitive,
   isDragOver,
   draggingId,
+  dragOverRow,
   onDragOver,
   onDragLeave,
   onDrop,
   onDragStartRow,
   onDragEndRow,
+  onDragOverRow,
+  onDragLeaveRow,
+  onDropOnRow,
   onUpdateRow,
   onUpdatePersona,
   onRemoveRow,
@@ -406,8 +474,14 @@ function UncategorizedBox({
             canEdit={canEdit}
             showSensitive={showSensitive}
             isDragging={draggingId === row.id}
+            dropIndicator={
+              dragOverRow?.id === row.id ? dragOverRow.position : null
+            }
             onDragStart={onDragStartRow}
             onDragEnd={onDragEndRow}
+            onDragOverRow={onDragOverRow}
+            onDragLeaveRow={onDragLeaveRow}
+            onDropOnRow={onDropOnRow}
             onUpdateRow={onUpdateRow}
             onUpdatePersona={onUpdatePersona}
             onRemoveRow={() => onRemoveRow(row.id)}
@@ -428,11 +502,15 @@ function CategorySection({
   showSensitive,
   isDragOver,
   draggingId,
+  dragOverRow,
   onDragOver,
   onDragLeave,
   onDrop,
   onDragStartRow,
   onDragEndRow,
+  onDragOverRow,
+  onDragLeaveRow,
+  onDropOnRow,
   onUpdateRow,
   onUpdatePersona,
   onRemoveRow,
@@ -504,8 +582,14 @@ function CategorySection({
                 canEdit={canEdit}
                 showSensitive={showSensitive}
                 isDragging={draggingId === row.id}
+                dropIndicator={
+                  dragOverRow?.id === row.id ? dragOverRow.position : null
+                }
                 onDragStart={onDragStartRow}
                 onDragEnd={onDragEndRow}
+                onDragOverRow={onDragOverRow}
+                onDragLeaveRow={onDragLeaveRow}
+                onDropOnRow={onDropOnRow}
                 onUpdateRow={onUpdateRow}
                 onUpdatePersona={onUpdatePersona}
                 onRemoveRow={() => onRemoveRow(row.id)}

@@ -41,6 +41,7 @@ import {
   GripVertical,
   Shirt,
   Utensils,
+  StickyNote,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -94,6 +95,13 @@ export default function AttributionRow({
   onDetach,               // async () => Promise — détache (si row rattachée)
   onDragStart,            // HTML5 drag start
   onDragEnd,              // HTML5 drag end
+  // Pour le réordonnancement intra-catégorie (P1.10) : indique si on est
+  // la cible d'un drop, et avec quelle position relative ('before'|'after').
+  // Le parent (TechListView) calcule ça d'après la souris vs centre de la row.
+  onDragOverRow,          // (rowId, position) => void
+  onDragLeaveRow,         // () => void
+  onDropOnRow,            // (rowId, position) => void
+  dropIndicator = null,   // 'before' | 'after' | null
   isDragging = false,
 }) {
   const persona = row.persona || {}
@@ -164,7 +172,28 @@ export default function AttributionRow({
         onDragStart?.(row)
       }}
       onDragEnd={() => onDragEnd?.()}
-      className="grid items-center gap-2 px-3 py-2.5 transition-all"
+      onDragOver={(e) => {
+        if (!onDragOverRow) return
+        e.preventDefault()
+        e.stopPropagation()
+        // Calcule la position relative dans la row (au-dessus / en-dessous
+        // du milieu) pour décider si on insère avant ou après.
+        const rect = e.currentTarget.getBoundingClientRect()
+        const mid = rect.top + rect.height / 2
+        const position = e.clientY < mid ? 'before' : 'after'
+        onDragOverRow(row.id, position)
+      }}
+      onDragLeave={() => onDragLeaveRow?.()}
+      onDrop={(e) => {
+        if (!onDropOnRow) return
+        e.preventDefault()
+        e.stopPropagation()
+        const rect = e.currentTarget.getBoundingClientRect()
+        const mid = rect.top + rect.height / 2
+        const position = e.clientY < mid ? 'before' : 'after'
+        onDropOnRow(row.id, position)
+      }}
+      className="group grid items-center gap-2 px-3 py-2.5 transition-all relative"
       style={{
         // Fusion P1.9 : 1 colonne Logistique condensée (présence+arrivée+
         // retour+hébergement+chauffeur) au lieu des 4 colonnes séparées.
@@ -173,13 +202,21 @@ export default function AttributionRow({
           'auto minmax(0, 2.5fr) 1fr minmax(140px, 1.7fr) auto auto auto',
         background: 'var(--bg-row)',
         borderBottom: '1px solid var(--brd-sub)',
+        // Indicateur de drop : barre bleue au-dessus ou en-dessous
+        boxShadow:
+          dropIndicator === 'before'
+            ? 'inset 0 3px 0 0 var(--blue)'
+            : dropIndicator === 'after'
+            ? 'inset 0 -3px 0 0 var(--blue)'
+            : 'none',
         opacity: isDragging ? 0.4 : 1,
         cursor: canEdit ? 'grab' : 'default',
       }}
     >
-      {/* Drag handle visuel */}
+      {/* Drag handle visuel — visible UNIQUEMENT au hover de la row */}
       <div
-        style={{ color: 'var(--txt-3)', opacity: canEdit ? 0.5 : 0 }}
+        className="transition-opacity opacity-0 group-hover:opacity-50"
+        style={{ color: 'var(--txt-3)', display: canEdit ? 'block' : 'none' }}
         title="Glisser pour reclasser"
       >
         <GripVertical className="w-3.5 h-3.5" />
@@ -378,6 +415,12 @@ export default function AttributionRow({
                 <Car
                   className="w-3 h-3"
                   style={{ color: 'var(--amber)' }}
+                />
+              )}
+              {persona.logistique_notes && (
+                <StickyNote
+                  className="w-3 h-3"
+                  style={{ color: 'var(--purple)' }}
                 />
               )}
             </span>

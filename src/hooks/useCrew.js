@@ -183,6 +183,43 @@ export function useCrew(projectId) {
   }, [members, reload])
 
   /**
+   * Réordonne les rows d'une catégorie. Reçoit un Array d'IDs dans le
+   * nouvel ordre, et update `sort_order` de chaque row pour refléter
+   * cet ordre (sort_order = 0, 1, 2, ...).
+   *
+   * Optionnellement, peut aussi changer la category des rows (utile quand
+   * on déplace une row depuis une autre catégorie vers une position précise).
+   */
+  const reorderCategory = useCallback(async (orderedIds, targetCategory = undefined) => {
+    if (!orderedIds?.length) return
+    // Optimistic
+    setMembers((prev) =>
+      prev.map((m) => {
+        const idx = orderedIds.indexOf(m.id)
+        if (idx === -1) return m
+        const next = { ...m, sort_order: idx }
+        if (targetCategory !== undefined) next.category = targetCategory
+        return next
+      }),
+    )
+    try {
+      // N updates en parallèle. Acceptable jusqu'à ~30 rows ; au-delà
+      // on basculerait sur un upsert RPC dédié.
+      await Promise.all(
+        orderedIds.map((id, idx) => {
+          const fields = { sort_order: idx }
+          if (targetCategory !== undefined) fields.category = targetCategory
+          return updateProjectMember(id, fields)
+        }),
+      )
+    } catch (e) {
+      console.error('[useCrew] reorderCategory error:', e)
+      await reload()
+      throw e
+    }
+  }, [reload])
+
+  /**
    * Rattache une attribution à une autre (= "fusion" sur la techlist).
    * `childId` ne sera plus visible comme ligne principale ; il sera listé
    * en "rattaché" sous `parentId`.
@@ -254,6 +291,7 @@ export function useCrew(projectId) {
     updateMember,
     removeMember,
     updatePersona,
+    reorderCategory,
     attachMember,
     detachMember,
     addContact,
