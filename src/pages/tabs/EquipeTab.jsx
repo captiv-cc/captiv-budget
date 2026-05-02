@@ -15,6 +15,7 @@ import { notify } from '../../lib/notify'
 import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
 import { useProjet } from '../ProjetLayout'
+import TechListView from '../../features/equipe/TechListView'
 
 // Palette partagée avec BudgetReelTab / FacturesTab pour les badges de lot
 const LOT_PALETTE = [
@@ -136,7 +137,11 @@ export default function EquipeTab() {
   // Note : le mapping category_id → devis_id n'est plus nécessaire, on passe par lineLotMap
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
-  const [activeTab, setActiveTab] = useState('attribution') // 'attribution' | 'equipe'
+  // ── Onglets équipe (EQUIPE-P1) ─────────────────────────────────────────
+  // Default = 'techlist' (nouvelle Tech list). 'attribution' garde l'ancienne
+  // vue par poste de devis. La vue 'equipe' (legacy "Vue par personne") est
+  // remplacée par la Tech list.
+  const [activeTab, setActiveTab] = useState('techlist') // 'techlist' | 'attribution'
 
   // ── Persistance du collapse des lots (localStorage, par projet) ───────────
   const lotCollapseKey = `equipeTab.collapsedLots.${projectId || 'noproj'}`
@@ -481,8 +486,8 @@ export default function EquipeTab() {
         style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
       >
         {[
+          { k: 'techlist', l: 'Tech list', hint: 'Vue par personne — secteur, présence, hébergement' },
           { k: 'attribution', l: 'Attribution', hint: 'Gérer les postes un par un' },
-          { k: 'equipe', l: 'Équipe', hint: 'Vue par personne' },
         ].map(({ k, l, hint }) => (
           <button
             key={k}
@@ -506,7 +511,14 @@ export default function EquipeTab() {
       </div>
 
       {/* ── Contenu selon onglet ─────────────────────────────────────────── */}
-      {activeTab === 'attribution' ? (
+      {activeTab === 'techlist' ? (
+        /* ── Tech list (EQUIPE-P1) — nouvelle vue par personne ────────────── */
+        <TechListView
+          project={project}
+          projectId={projectId}
+          canEdit={true}
+        />
+      ) : (
         <>
           {crewLines.length === 0 ? (
             <div
@@ -540,21 +552,6 @@ export default function EquipeTab() {
           )}
 
         </>
-      ) : (
-        /* ── Vue Équipe ────────────────────────────────────────────────── */
-        <EquipeView
-          membres={membres}
-          crewLines={crewLines}
-          catMap={catMap}
-          canSeeFinance={canSeeFinance}
-          canSeeCrewBudget={canSeeCrewBudget}
-          projectId={projectId}
-          lineLotMap={lineLotMap}
-          lotInfoMap={lotInfoMap}
-          isMultiLot={isMultiLot}
-          onUpdate={updateMembre}
-          onRemove={removeMembre}
-        />
       )}
 
       </div>{/* /body */}
@@ -1438,7 +1435,11 @@ function groupByPerson(membres, crewLines, lineLotMap = {}) {
   )
 }
 
-function EquipeView({
+// Renommé _EquipeView (préfixe underscore = lint silencé) car l'ancienne
+// "Vue par personne" est remplacée par TechListView (EQUIPE-P1). Le code
+// reste en place pour faciliter une éventuelle réintroduction si besoin ;
+// il pourra être supprimé en Phase 1.5 une fois la Tech list validée.
+function _EquipeView({
   membres,
   crewLines,
   catMap = {},
