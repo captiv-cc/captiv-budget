@@ -90,19 +90,23 @@ export async function fetchProjectMembers(projectId) {
 
 /**
  * Liste les contacts de l'org (pour le ContactPicker).
- * Filtre les archivés côté JS (la table contacts a un champ `archived`).
+ * Filtre les inactifs côté JS via la colonne `actif` (boolean — true par défaut).
+ * Note : la table contacts n'a pas de colonne `archived` ; on utilise `actif`
+ * (la même que celle utilisée par la page /contacts pour archiver/restaurer).
  */
 export async function fetchOrgContacts() {
   const { data, error } = await supabase
     .from('contacts')
     .select(`
       id, nom, prenom, email, telephone, ville,
-      regime, specialite, tarif_jour_ref, archived
+      regime, specialite, tarif_jour_ref, actif
     `)
     .order('nom')
     .order('prenom')
   if (error) throw error
-  return (data || []).filter((c) => !c.archived)
+  // actif = false → contact désactivé/archivé, on l'exclut du picker.
+  // actif null/undefined (legacy) → on l'inclut par défaut.
+  return (data || []).filter((c) => c.actif !== false)
 }
 
 
