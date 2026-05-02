@@ -350,13 +350,13 @@ export default function AddMemberModal({
             </>
           )}
 
-          {/* Spécialité (commun aux 2 modes) */}
+          {/* Poste (commun aux 2 modes) — stocké dans la colonne `specialite` */}
           <div>
             <label
               className="block text-xs font-semibold mb-1.5"
               style={{ color: 'var(--txt-2)' }}
             >
-              Spécialité (optionnel)
+              Poste (optionnel)
             </label>
             <input
               type="text"
