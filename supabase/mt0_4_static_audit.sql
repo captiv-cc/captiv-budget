@@ -200,9 +200,11 @@ WITH checks AS (
     --   - grille_cc            : grille convention collective (publique légale)
     --   - outils_catalogue     : catalogue d'outils du système
     --   - minimas_convention   : minimas tarifaires CCNTA (publique légale)
-    --   - catalogue_lignes     : catalogue de lignes types pour devis (partagé,
-    --                            sera scopé par org en MT-PRE-1.B)
     --   - app_settings         : paramètres globaux du produit (MT-PRE-1.A)
+    --
+    -- Note MT-PRE-1.B (2026-05-02) : `catalogue_lignes` retirée de la
+    -- whitelist car la table a été dropée (jamais utilisée, supplantée
+    -- par `produits_bdd` qui a déjà `org_id`).
     (SELECT COUNT(*) FROM pg_policy p
      JOIN pg_class c ON c.oid = p.polrelid
      WHERE pg_get_expr(p.polqual, p.polrelid) IN ('true','(true)')
@@ -210,7 +212,6 @@ WITH checks AS (
          'grille_cc',
          'outils_catalogue',
          'minimas_convention',
-         'catalogue_lignes',
          'app_settings'
        )) AS policies_ouvertes
 )
