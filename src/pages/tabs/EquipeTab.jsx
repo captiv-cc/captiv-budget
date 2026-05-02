@@ -16,6 +16,8 @@ import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/coti
 import { getBlocInfo } from '../../lib/blocs'
 import { useProjet } from '../ProjetLayout'
 import TechListView from '../../features/equipe/TechListView'
+import ForfaitGlobalPopover from '../../features/equipe/components/ForfaitGlobalPopover'
+import { personaKey as crewPersonaKey } from '../../lib/crew'
 
 // Palette partagée avec BudgetReelTab / FacturesTab pour les badges de lot
 const LOT_PALETTE = [
@@ -41,6 +43,7 @@ import {
   ChevronDown,
   Edit2,
   ExternalLink,
+  Calculator,
 } from 'lucide-react'
 
 // ─── Statuts — clés = valeurs exactes en DB (pas de contrainte violation) ────
@@ -302,6 +305,29 @@ export default function EquipeTab() {
     showToast('Retiré', false)
   }
 
+  /**
+   * Forfait global (P2.4a) — distribue un montant total sur les N attributions
+   * d'une persona en mettant à jour leur `budget_convenu` ligne par ligne.
+   *
+   * @param {Map<lineId, number>} distribution — sortie de distributeForfait
+   * @param {Array<{m, line}>} attributions — pour retrouver le membreId depuis lineId
+   */
+  async function applyForfait(distribution, attributions) {
+    if (!distribution || distribution.size === 0) return
+    const updates = []
+    for (const [lineId, budget] of distribution) {
+      const attr = attributions.find(
+        (a) =>
+          a.line?.id === lineId ||
+          a.m?.devis_line_id === lineId ||
+          a.m?.id === lineId,
+      )
+      if (!attr) continue
+      updates.push(updateMembre(attr.m.id, { budget_convenu: budget }))
+    }
+    await Promise.all(updates)
+  }
+
   async function saveToBDD(membre) {
     if (!org?.id) return
     const { data: ct, error } = await supabase
@@ -551,7 +577,7 @@ export default function EquipeTab() {
               getMembre={getMembre}
               membres={membres}
               projectId={projectId}
-              handlers={{ addMembre, updateMembre, removeMembre, saveToBDD }}
+              handlers={{ addMembre, updateMembre, removeMembre, saveToBDD, applyForfait }}
             />
           )}
 
@@ -634,6 +660,22 @@ function AttributionView({
       ),
   )
 
+  // Persona attributions map (P2.4a) : pour chaque persona, la liste de
+  // {m, line} de ses N attributions. Sert au bouton "Forfait global" qui
+  // n'apparaît que si la personne a ≥ 2 attributions.
+  const personaAttributionsByKey = (() => {
+    const map = new Map()
+    for (const m of membres) {
+      const key = crewPersonaKey(m)
+      const line = m.devis_line_id
+        ? allCrewLines.find((l) => l.id === m.devis_line_id) || null
+        : null
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push({ m, line })
+    }
+    return map
+  })()
+
   const renderBlocsForLot = (lines) => {
     if (!lines || lines.length === 0) return null
     // Grouper par bloc canonique
@@ -672,19 +714,27 @@ function AttributionView({
               </span>
             </div>
             <div className="space-y-3">
-              {blocLines.map((line) => (
-                <PosteCard
-                  key={line.id}
-                  line={line}
-                  bloc={bloc}
-                  membre={getMembre(line)}
-                  projectId={projectId}
-                  onAdd={(c) => handlers.addMembre(line, c)}
-                  onUpdate={handlers.updateMembre}
-                  onRemove={handlers.removeMembre}
-                  onSaveToBDD={handlers.saveToBDD}
-                />
-              ))}
+              {blocLines.map((line) => {
+                const membre = getMembre(line)
+                const personaAttributions = membre
+                  ? personaAttributionsByKey.get(crewPersonaKey(membre)) || []
+                  : []
+                return (
+                  <PosteCard
+                    key={line.id}
+                    line={line}
+                    bloc={bloc}
+                    membre={membre}
+                    projectId={projectId}
+                    personaAttributions={personaAttributions}
+                    onAdd={(c) => handlers.addMembre(line, c)}
+                    onUpdate={handlers.updateMembre}
+                    onRemove={handlers.removeMembre}
+                    onSaveToBDD={handlers.saveToBDD}
+                    onApplyForfait={handlers.applyForfait}
+                  />
+                )
+              })}
             </div>
           </div>
         ))}
@@ -840,10 +890,12 @@ function PosteCard({
   bloc,
   membre,
   projectId,
+  personaAttributions = [],
   onAdd,
   onUpdate,
   onRemove,
   onSaveToBDD,
+  onApplyForfait,
 }) {
   // En multi-lot le devisId varie par ligne → on le dérive directement de la ligne
   const devisId = line.devis_id
@@ -937,7 +989,13 @@ function PosteCard({
       {/* ── Attribution ─────────────────────────────────────────────────── */}
       <div className="px-4 py-3">
         {membre ? (
-          <PersonRow membre={membre} onRemove={onRemove} onSaveToBDD={onSaveToBDD} />
+          <PersonRow
+            membre={membre}
+            onRemove={onRemove}
+            onSaveToBDD={onSaveToBDD}
+            personaAttributions={personaAttributions}
+            onApplyForfait={onApplyForfait}
+          />
         ) : (
           <PersonSearch onAdd={onAdd} roleHint={line.produit} regime={line.regime} />
         )}
@@ -947,7 +1005,18 @@ function PosteCard({
 }
 
 // ─── Ligne personne attribuée ─────────────────────────────────────────────────
-function PersonRow({ membre: m, onRemove, onSaveToBDD }) {
+function PersonRow({
+  membre: m,
+  onRemove,
+  onSaveToBDD,
+  personaAttributions = [],
+  onApplyForfait,
+}) {
+  const [forfaitOpen, setForfaitOpen] = useState(false)
+  // Bouton "Forfait global" visible si la persona a ≥ 2 attributions sur
+  // ce projet (sinon pas pertinent — il n'y a qu'une ligne à éditer).
+  const hasMultipleAttributions = personaAttributions.length >= 2
+
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <div
@@ -964,6 +1033,18 @@ function PersonRow({ membre: m, onRemove, onSaveToBDD }) {
             title="Lié à la BDD Crew"
             style={{ color: 'var(--blue)', opacity: 0.6 }}
           />
+        )}
+        {hasMultipleAttributions && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded font-medium"
+            style={{
+              background: 'var(--purple-bg)',
+              color: 'var(--purple)',
+            }}
+            title={`${personaAttributions.length} attributions sur ce projet`}
+          >
+            ×{personaAttributions.length}
+          </span>
         )}
         <button
           onClick={() => onRemove(m.id)}
@@ -1017,6 +1098,31 @@ function PersonRow({ membre: m, onRemove, onSaveToBDD }) {
           <Save className="w-3 h-3" /> Sauvegarder dans la BDD
         </button>
       )}
+
+      {/* Forfait global — uniquement si ≥ 2 attributions sur le projet (P2.4a) */}
+      {hasMultipleAttributions && onApplyForfait && (
+        <button
+          onClick={() => setForfaitOpen(true)}
+          className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg transition-all"
+          style={{
+            background: 'var(--purple-bg)',
+            color: 'var(--purple)',
+            border: '1px solid var(--purple-brd)',
+            marginLeft: m.contact_id ? 'auto' : 0,
+          }}
+          title="Distribuer un montant total négocié sur les N attributions de cette personne"
+        >
+          <Calculator className="w-3 h-3" /> Forfait global
+        </button>
+      )}
+
+      <ForfaitGlobalPopover
+        open={forfaitOpen}
+        onClose={() => setForfaitOpen(false)}
+        attributions={personaAttributions}
+        personaName={fullName(m)}
+        onApply={(distribution) => onApplyForfait?.(distribution, personaAttributions)}
+      />
     </div>
   )
 }
