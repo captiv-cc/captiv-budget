@@ -68,6 +68,10 @@ export default function PresenceCalendarModal({
   const [departureDate, setDepartureDate] = useState(initialDepartureDate)
   const [departureTime, setDepartureTime] = useState(initialDepartureTime)
   const [logistique, setLogistique] = useState(initialLogistique)
+  // pickerMode : 'presence' (default) | 'arrival' | 'departure'
+  // En mode 'arrival'/'departure', click sur un jour assigne la date
+  // correspondante au lieu de toggler la présence.
+  const [pickerMode, setPickerMode] = useState('presence')
 
   const [viewMonth, setViewMonth] = useState(() => {
     if (anchorDate instanceof Date) return startOfMonth(anchorDate)
@@ -90,9 +94,23 @@ export default function PresenceCalendarModal({
       setDepartureDate(persona?.departure_date || '')
       setDepartureTime(persona?.departure_time || '')
       setLogistique(persona?.logistique_notes || '')
+      setPickerMode('presence')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // ESC en mode picker → annule le picker (sans fermer la modale)
+  useEffect(() => {
+    if (pickerMode === 'presence') return undefined
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setPickerMode('presence')
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [pickerMode])
 
   // Map jour → liste de périodes qui le couvrent
   const dayToPeriodes = useMemo(() => {
@@ -115,6 +133,18 @@ export default function PresenceCalendarModal({
 
   function toggleDay(d) {
     const iso = fmtDateKey(d)
+    // En mode picker arrival/departure : assigne la date et sort du mode
+    if (pickerMode === 'arrival') {
+      setArrivalDate(iso)
+      setPickerMode('presence')
+      return
+    }
+    if (pickerMode === 'departure') {
+      setDepartureDate(iso)
+      setPickerMode('presence')
+      return
+    }
+    // Mode presence : toggle la sélection comme avant
     const next = new Set(selected)
     if (next.has(iso)) next.delete(iso)
     else next.add(iso)
@@ -245,6 +275,41 @@ export default function PresenceCalendarModal({
 
         {/* Calendrier + logistique (scroll si débordement) */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Banner de mode picker (arrival / departure) */}
+          {pickerMode !== 'presence' && (
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-xs"
+              style={{
+                background: 'var(--purple-bg)',
+                color: 'var(--purple)',
+                border: '1px solid var(--purple-brd)',
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                {pickerMode === 'arrival' ? (
+                  <PlaneLanding className="w-3.5 h-3.5" />
+                ) : (
+                  <PlaneTakeoff className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  Cliquez sur un jour du calendrier pour définir{' '}
+                  <strong>
+                    {pickerMode === 'arrival' ? "l'arrivée" : 'le retour'}
+                  </strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerMode('presence')}
+                className="text-[10px] underline"
+                style={{ color: 'var(--purple)' }}
+                title="Esc"
+              >
+                Annuler
+              </button>
+            </div>
+          )}
+
           {/* Calendrier */}
           <div>
             {/* Nav mois */}
@@ -325,6 +390,17 @@ export default function PresenceCalendarModal({
                 if (periodMeta) tooltipParts.push(periodMeta.label)
                 if (isArrival) tooltipParts.push('Arrivée')
                 if (isDeparture) tooltipParts.push('Retour')
+                if (pickerMode === 'arrival') tooltipParts.push('→ définir comme arrivée')
+                if (pickerMode === 'departure') tooltipParts.push('→ définir comme retour')
+
+                // Hover/cursor en mode picker
+                const cellCursor = pickerMode === 'presence' ? 'pointer' : 'crosshair'
+                // Ring violet en mode picker
+                const pickerRing =
+                  pickerMode !== 'presence' && inMonth
+                    ? `0 0 0 1px var(--purple)`
+                    : ''
+                const finalBoxShadow = [boxShadow, pickerRing].filter((s) => s && s !== 'none').join(', ') || 'none'
 
                 return (
                   <button
@@ -336,9 +412,10 @@ export default function PresenceCalendarModal({
                       background: bgColor,
                       color: textColor,
                       border: `1px solid ${borderColor}`,
-                      boxShadow,
+                      boxShadow: finalBoxShadow,
                       fontWeight: isSelected ? 600 : 400,
                       opacity: inMonth ? 1 : 0.5,
+                      cursor: cellCursor,
                     }}
                     title={tooltipParts.join(' — ')}
                   >
@@ -379,71 +456,32 @@ export default function PresenceCalendarModal({
             </div>
           </div>
 
-          {/* ── Logistique : arrivée / retour / notes ──────────────────── */}
-          <div
-            className="rounded-md p-3 space-y-3"
-            style={{
-              background: 'var(--bg-elev)',
-              border: '1px solid var(--brd-sub)',
+          {/* ── Logistique : UX progressive (P1.8) ─────────────────────── */}
+          <LogistiqueSection
+            arrivalDate={arrivalDate}
+            arrivalTime={arrivalTime}
+            departureDate={departureDate}
+            departureTime={departureTime}
+            logistique={logistique}
+            firstPresenceDay={firstPresenceDay}
+            lastPresenceDay={lastPresenceDay}
+            pickerMode={pickerMode}
+            onPickArrival={() => setPickerMode((m) => (m === 'arrival' ? 'presence' : 'arrival'))}
+            onPickDeparture={() => setPickerMode((m) => (m === 'departure' ? 'presence' : 'departure'))}
+            onClearArrival={() => {
+              setArrivalDate('')
+              setArrivalTime('')
             }}
-          >
-            <div
-              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-              style={{ color: 'var(--txt-2)' }}
-            >
-              <PlaneLanding className="w-3.5 h-3.5" />
-              Logistique
-            </div>
-
-            {/* Arrivée */}
-            <LogistiqueRow
-              icon={<PlaneLanding className="w-3 h-3" />}
-              label="Arrivée"
-              date={arrivalDate}
-              time={arrivalTime}
-              onDateChange={setArrivalDate}
-              onTimeChange={setArrivalTime}
-              alignTarget={firstPresenceDay}
-              alignLabel="aligner sur 1er jour"
-              alignTitle="Aligner sur le 1er jour de présence"
-            />
-
-            {/* Retour */}
-            <LogistiqueRow
-              icon={<PlaneTakeoff className="w-3 h-3" />}
-              label="Retour"
-              date={departureDate}
-              time={departureTime}
-              onDateChange={setDepartureDate}
-              onTimeChange={setDepartureTime}
-              alignTarget={lastPresenceDay}
-              alignLabel="aligner sur dernier jour"
-              alignTitle="Aligner sur le dernier jour de présence"
-            />
-
-            {/* Notes logistique (transport, contraintes, n° vol/train, etc.) */}
-            <div>
-              <label
-                className="flex items-center gap-1 text-[10px] font-semibold mb-1"
-                style={{ color: 'var(--txt-3)' }}
-              >
-                <StickyNote className="w-2.5 h-2.5" />
-                Notes logistique
-              </label>
-              <textarea
-                value={logistique}
-                onChange={(e) => setLogistique(e.target.value)}
-                rows={3}
-                placeholder="Train Lyon Part-Dieu 12h50, retour TGV 18h45, voiture / parking demandé…"
-                className="w-full text-xs px-2 py-1 rounded outline-none resize-none"
-                style={{
-                  background: 'var(--bg-surf)',
-                  border: '1px solid var(--brd)',
-                  color: 'var(--txt)',
-                }}
-              />
-            </div>
-          </div>
+            onClearDeparture={() => {
+              setDepartureDate('')
+              setDepartureTime('')
+            }}
+            onSetArrivalDate={setArrivalDate}
+            onSetArrivalTime={setArrivalTime}
+            onSetDepartureDate={setDepartureDate}
+            onSetDepartureTime={setDepartureTime}
+            onSetLogistique={setLogistique}
+          />
         </div>
 
         {/* Footer */}
@@ -495,71 +533,269 @@ export default function PresenceCalendarModal({
 // ─── Sous-composants ────────────────────────────────────────────────────────
 
 /**
- * LogistiqueRow — Une ligne arrivée/retour : icône + label + date + heure.
- * Affiche un mini-bouton "aligner sur ..." quand alignTarget est défini ET
- * différent de la date actuelle.
+ * LogistiqueSection — UX progressive (P1.8) :
+ *
+ *   - État initial (rien de défini) : 2 boutons compacts [+ Arrivée] [+ Retour].
+ *   - Click sur [+ Arrivée] → entre en mode picker (état parent), banner
+ *     s'affiche au-dessus du calendrier, click sur un jour assigne la date.
+ *   - Une fois la date définie : la chip se transforme en
+ *     [↘ 11/05  heure ✕] (modifiable, croix pour effacer).
+ *   - Notes logistique n'apparaît QUE si arrival OU departure défini.
+ *
+ * @param pickerMode  'presence' | 'arrival' | 'departure'
  */
-function LogistiqueRow({
+function LogistiqueSection({
+  arrivalDate,
+  arrivalTime,
+  departureDate,
+  departureTime,
+  logistique,
+  firstPresenceDay,
+  lastPresenceDay,
+  pickerMode,
+  onPickArrival,
+  onPickDeparture,
+  onClearArrival,
+  onClearDeparture,
+  onSetArrivalDate,
+  onSetArrivalTime,
+  onSetDepartureDate,
+  onSetDepartureTime,
+  onSetLogistique,
+}) {
+  const hasArrival = Boolean(arrivalDate)
+  const hasDeparture = Boolean(departureDate)
+  const showNotes = hasArrival || hasDeparture
+
+  return (
+    <div className="space-y-2">
+      {/* Chips arrivée / retour */}
+      <div className="flex flex-wrap items-center gap-2">
+        {hasArrival ? (
+          <LogistiqueChip
+            icon={<PlaneLanding className="w-3 h-3" />}
+            label="Arrivée"
+            date={arrivalDate}
+            time={arrivalTime}
+            onTimeChange={onSetArrivalTime}
+            onPick={onPickArrival}
+            onClear={onClearArrival}
+            isPicking={pickerMode === 'arrival'}
+            alignTarget={firstPresenceDay}
+            alignLabel="aligner 1er jour"
+            onAlign={() => onSetArrivalDate(firstPresenceDay)}
+          />
+        ) : (
+          <PickButton
+            icon={<PlaneLanding className="w-3 h-3" />}
+            label="Arrivée"
+            isActive={pickerMode === 'arrival'}
+            onClick={onPickArrival}
+          />
+        )}
+
+        {hasDeparture ? (
+          <LogistiqueChip
+            icon={<PlaneTakeoff className="w-3 h-3" />}
+            label="Retour"
+            date={departureDate}
+            time={departureTime}
+            onTimeChange={onSetDepartureTime}
+            onPick={onPickDeparture}
+            onClear={onClearDeparture}
+            isPicking={pickerMode === 'departure'}
+            alignTarget={lastPresenceDay}
+            alignLabel="aligner dernier jour"
+            onAlign={() => onSetDepartureDate(lastPresenceDay)}
+          />
+        ) : (
+          <PickButton
+            icon={<PlaneTakeoff className="w-3 h-3" />}
+            label="Retour"
+            isActive={pickerMode === 'departure'}
+            onClick={onPickDeparture}
+          />
+        )}
+      </div>
+
+      {/* Notes logistique — visible seulement si au moins une date définie */}
+      {showNotes && (
+        <div
+          className="rounded-md p-3"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd-sub)',
+          }}
+        >
+          <label
+            className="flex items-center gap-1 text-[10px] font-semibold mb-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            <StickyNote className="w-2.5 h-2.5" />
+            Notes logistique
+          </label>
+          <textarea
+            value={logistique}
+            onChange={(e) => onSetLogistique(e.target.value)}
+            rows={3}
+            placeholder="Train Lyon Part-Dieu 12h50, retour TGV 18h45, voiture / parking demandé…"
+            className="w-full text-xs px-2 py-1 rounded outline-none resize-none"
+            style={{
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Bouton compact pour activer le picker (état "rien de défini").
+ */
+function PickButton({ icon, label, isActive, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 transition-all"
+      style={{
+        background: isActive ? 'var(--purple-bg)' : 'transparent',
+        color: isActive ? 'var(--purple)' : 'var(--txt-2)',
+        border: `1px dashed ${isActive ? 'var(--purple)' : 'var(--brd)'}`,
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive) {
+          e.currentTarget.style.background = 'var(--bg-hov)'
+          e.currentTarget.style.color = 'var(--purple)'
+          e.currentTarget.style.borderColor = 'var(--purple)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) {
+          e.currentTarget.style.background = 'transparent'
+          e.currentTarget.style.color = 'var(--txt-2)'
+          e.currentTarget.style.borderColor = 'var(--brd)'
+        }
+      }}
+      title={`Définir le jour d'${label.toLowerCase()}`}
+    >
+      <span style={{ color: isActive ? 'var(--purple)' : 'var(--txt-3)' }}>+</span>
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Chip représentant une date d'arrivée/retour définie. Click sur la date →
+ * réactive le mode picker. Champ heure éditable inline. Croix pour effacer.
+ */
+function LogistiqueChip({
   icon,
   label,
   date,
   time,
-  onDateChange,
   onTimeChange,
+  onPick,
+  onClear,
+  isPicking,
   alignTarget,
   alignLabel,
-  alignTitle,
+  onAlign,
 }) {
+  // Format date FR compact : "11/05/26"
+  const dateLabel = formatDateCompactFr(date)
   const showAlign = alignTarget && alignTarget !== date
-  return (
-    <div className="grid grid-cols-[auto_1fr_1fr] gap-2 items-end">
-      <div
-        className="flex flex-col items-center justify-center text-[10px] font-semibold uppercase tracking-wide pb-1"
-        style={{ color: 'var(--purple)', minWidth: 50 }}
-      >
-        <span style={{ color: 'var(--purple)' }}>{icon}</span>
-        <span className="mt-0.5">{label}</span>
-      </div>
 
-      <div>
-        <input
-          type="date"
-          value={date || ''}
-          onChange={(e) => onDateChange(e.target.value)}
-          className="w-full text-xs px-2 py-1 rounded outline-none"
-          style={{
-            background: 'var(--bg-surf)',
-            border: '1px solid var(--brd)',
-            color: 'var(--txt)',
-          }}
-        />
-        {showAlign && (
-          <button
-            type="button"
-            onClick={() => onDateChange(alignTarget)}
-            className="mt-0.5 text-[10px] underline transition-colors"
-            style={{ color: 'var(--txt-3)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-            title={alignTitle}
-          >
-            {alignLabel}
-          </button>
-        )}
-      </div>
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-md px-2 py-1"
+      style={{
+        background: isPicking ? 'var(--purple-bg)' : 'var(--bg-elev)',
+        border: `1px solid ${isPicking ? 'var(--purple)' : 'var(--brd-sub)'}`,
+        color: 'var(--txt)',
+      }}
+      title={`${label} : ${dateLabel}`}
+    >
+      <span style={{ color: 'var(--purple)' }}>{icon}</span>
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: 'var(--purple)' }}
+      >
+        {label}
+      </span>
+
+      <button
+        type="button"
+        onClick={onPick}
+        className="text-xs font-medium px-1.5 py-0.5 rounded transition-colors"
+        style={{
+          color: 'var(--txt)',
+          background: 'transparent',
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+        title="Cliquer pour modifier la date"
+      >
+        {dateLabel}
+      </button>
 
       <input
         type="text"
         value={time || ''}
         onChange={(e) => onTimeChange(e.target.value)}
-        placeholder="12h50, matin…"
-        className="w-full text-xs px-2 py-1 rounded outline-none"
+        placeholder="heure"
+        className="text-xs px-1.5 py-0.5 rounded outline-none"
         style={{
           background: 'var(--bg-surf)',
           border: '1px solid var(--brd)',
           color: 'var(--txt)',
+          width: 80,
         }}
       />
+
+      {showAlign && (
+        <button
+          type="button"
+          onClick={onAlign}
+          className="text-[9px] underline transition-colors"
+          style={{ color: 'var(--txt-3)' }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+          title={`Aligner sur ${alignLabel}`}
+        >
+          {alignLabel}
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={onClear}
+        className="p-0.5 rounded transition-colors"
+        style={{ color: 'var(--txt-3)' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = 'var(--red)'
+          e.currentTarget.style.background = 'var(--red-bg)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = 'var(--txt-3)'
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title={`Retirer ${label.toLowerCase()}`}
+      >
+        <X className="w-3 h-3" />
+      </button>
     </div>
   )
+}
+
+/** "2026-05-11" → "11/05/26" */
+function formatDateCompactFr(iso) {
+  if (!iso) return ''
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return iso
+  return `${m[3]}/${m[2]}/${m[1].slice(2)}`
 }
