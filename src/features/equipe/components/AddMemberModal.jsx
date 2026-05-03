@@ -281,7 +281,7 @@ export default function AddMemberModal({
                     type="text"
                     value={adhocPrenom}
                     onChange={(e) => setAdhocPrenom(e.target.value)}
-                    placeholder="Hugo"
+                    placeholder="Prénom"
                     autoFocus
                     className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
                     style={{
@@ -302,7 +302,7 @@ export default function AddMemberModal({
                     type="text"
                     value={adhocNom}
                     onChange={(e) => setAdhocNom(e.target.value)}
-                    placeholder="Martin"
+                    placeholder="Nom"
                     className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
                     style={{
                       background: 'var(--bg-elev)',
@@ -325,7 +325,7 @@ export default function AddMemberModal({
                     type="email"
                     value={adhocEmail}
                     onChange={(e) => setAdhocEmail(e.target.value)}
-                    placeholder="hugo@example.fr"
+                    placeholder="email@exemple.fr"
                     className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
                     style={{
                       background: 'var(--bg-elev)',

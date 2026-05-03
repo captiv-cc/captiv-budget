@@ -889,7 +889,7 @@ function AdhocIdentityPanel({ persona, canEdit, onUpdatePersona }) {
             disabled={!canEdit}
             onChange={(e) => setPrenom(e.target.value)}
             onBlur={() => commit('prenom', prenom.trim(), persona.prenom)}
-            placeholder="Hugo"
+            placeholder="Prénom"
             className="w-full text-sm px-2 py-1 rounded outline-none"
             style={{
               background: 'var(--bg-elev)',
@@ -905,7 +905,7 @@ function AdhocIdentityPanel({ persona, canEdit, onUpdatePersona }) {
             disabled={!canEdit}
             onChange={(e) => setNom(e.target.value)}
             onBlur={() => commit('nom', nom.trim(), persona.nom)}
-            placeholder="Martin"
+            placeholder="Nom"
             className="w-full text-sm px-2 py-1 rounded outline-none"
             style={{
               background: 'var(--bg-elev)',
@@ -923,7 +923,7 @@ function AdhocIdentityPanel({ persona, canEdit, onUpdatePersona }) {
           disabled={!canEdit}
           onChange={(e) => setEmail(e.target.value)}
           onBlur={() => commit('email', email.trim().toLowerCase(), persona.email)}
-          placeholder="hugo@example.fr"
+          placeholder="email@exemple.fr"
           className="w-full text-sm px-2 py-1 rounded outline-none"
           style={{
             background: 'var(--bg-elev)',
@@ -1112,7 +1112,7 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
             value={prenom}
             onChange={(e) => setPrenom(e.target.value)}
             onBlur={() => commit('prenom', prenom, c.prenom)}
-            placeholder="Hugo"
+            placeholder="Prénom"
             className="w-full text-sm px-2 py-1 rounded outline-none"
             style={{
               background: 'var(--bg-elev)',
@@ -1127,7 +1127,7 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
             value={nom}
             onChange={(e) => setNom(e.target.value)}
             onBlur={() => commit('nom', nom, c.nom)}
-            placeholder="Martin"
+            placeholder="Nom"
             className="w-full text-sm px-2 py-1 rounded outline-none"
             style={{
               background: 'var(--bg-elev)',
@@ -1144,7 +1144,7 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onBlur={() => commit('email', email.toLowerCase(), c.email)}
-          placeholder="hugo@example.fr"
+          placeholder="email@exemple.fr"
           className="w-full text-sm px-2 py-1 rounded outline-none"
           style={{
             background: 'var(--bg-elev)',
@@ -1176,7 +1176,7 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
           value={ville}
           onChange={(e) => setVille(e.target.value)}
           onBlur={() => commit('ville', ville, c.ville)}
-          placeholder="Montpellier"
+          placeholder="Ville"
           className="w-full text-sm px-2 py-1 rounded outline-none"
           style={{
             background: 'var(--bg-elev)',
