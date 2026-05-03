@@ -183,7 +183,7 @@ export async function reorderPlanCategories(orderedIds = []) {
 /* ─── Plans (CRUD) ──────────────────────────────────────────────────────── */
 
 const PLAN_COLS =
-  'id, project_id, category_id, name, description, tags, storage_path, file_type, file_size, page_count, applicable_date, current_version, sort_order, is_archived, created_at, created_by, updated_at, updated_by'
+  'id, project_id, category_id, name, description, tags, storage_path, thumbnail_path, file_type, file_size, page_count, applicable_dates, current_version, sort_order, is_archived, created_at, created_by, updated_at, updated_by'
 
 export async function listPlans({ projectId, includeArchived = false } = {}) {
   if (!projectId) throw new Error('listPlans : projectId requis')
@@ -228,7 +228,7 @@ export async function createPlan({
   name,
   description = null,
   tags = [],
-  applicableDate = null,
+  applicableDates = [],
   file,
 }) {
   if (!projectId) throw new Error('createPlan : projectId requis')
@@ -257,7 +257,7 @@ export async function createPlan({
         file_type: fileType,
         file_size: file.size,
         page_count: null, // calculé côté front pour PDF (pdf.js), null pour images
-        applicable_date: applicableDate || null,
+        applicable_dates: Array.isArray(applicableDates) ? applicableDates : [],
         current_version: 1,
       },
     ])
@@ -315,8 +315,10 @@ export async function updatePlan(planId, fields = {}) {
   if (fields.tags !== undefined) {
     patch.tags = Array.isArray(fields.tags) ? fields.tags : []
   }
-  if (fields.applicable_date !== undefined) {
-    patch.applicable_date = fields.applicable_date || null
+  if (fields.applicable_dates !== undefined) {
+    patch.applicable_dates = Array.isArray(fields.applicable_dates)
+      ? fields.applicable_dates
+      : []
   }
   if (fields.sort_order !== undefined) patch.sort_order = fields.sort_order
   if (fields.is_archived !== undefined) {

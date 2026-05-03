@@ -27,6 +27,7 @@ import {
   mimeTypeToFileType,
 } from '../../lib/plans'
 import { notify } from '../../lib/notify'
+import PlanDatesPickerModal from './PlanDatesPickerModal'
 
 export default function PlanFormModal({
   open,
@@ -35,6 +36,7 @@ export default function PlanFormModal({
   plan = null,             // requis en mode edit
   categories = [],
   allTags = [],
+  projectMetadata = null,  // pour afficher prépa/tournage en arrière-plan du datepicker
   actions,                 // { createPlan, updatePlan, replacePlanFile }
 }) {
   const isEdit = mode === 'edit'
@@ -45,7 +47,8 @@ export default function PlanFormModal({
   const [categoryId, setCategoryId] = useState('')
   const [tags, setTags] = useState([])
   const [tagInput, setTagInput] = useState('')
-  const [applicableDate, setApplicableDate] = useState('')
+  const [applicableDates, setApplicableDates] = useState([])
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [file, setFile] = useState(null)
   const [replaceComment, setReplaceComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -58,7 +61,7 @@ export default function PlanFormModal({
       setDescription(plan.description || '')
       setCategoryId(plan.category_id || '')
       setTags(plan.tags || [])
-      setApplicableDate(plan.applicable_date ? String(plan.applicable_date).slice(0, 10) : '')
+      setApplicableDates(Array.isArray(plan.applicable_dates) ? plan.applicable_dates : [])
       setFile(null)
       setReplaceComment('')
     } else {
@@ -66,7 +69,7 @@ export default function PlanFormModal({
       setDescription('')
       setCategoryId('')
       setTags([])
-      setApplicableDate('')
+      setApplicableDates([])
       setFile(null)
       setReplaceComment('')
     }
@@ -142,7 +145,7 @@ export default function PlanFormModal({
           description,
           category_id: categoryId,
           tags,
-          applicable_date: applicableDate || null,
+          applicable_dates: applicableDates,
         })
         // 2. Si nouveau fichier fourni → replacePlanFile (archive ancien).
         if (file) {
@@ -157,7 +160,7 @@ export default function PlanFormModal({
           description: description || null,
           categoryId,
           tags,
-          applicableDate: applicableDate || null,
+          applicableDates,
           file,
         })
         notify.success('Plan ajouté')
@@ -210,7 +213,7 @@ export default function PlanFormModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex : Plan caméra principal — Live Concert"
+              placeholder="Nom du plan"
               maxLength={120}
               className="w-full text-sm px-3 py-1.5 rounded-md outline-none"
               style={{
@@ -245,7 +248,7 @@ export default function PlanFormModal({
           {/* Tags */}
           <Field
             label="Tags"
-            hint="Optionnel — pour recherche rapide (ex: jour 1, extérieur, live)"
+            hint="Optionnel — pour recherche rapide"
           >
             <div
               className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-md"
@@ -315,7 +318,7 @@ export default function PlanFormModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              placeholder="Notes, contexte du plan, validation par le DOP, …"
+              placeholder="Notes, contexte, validations…"
               className="w-full text-sm px-3 py-1.5 rounded-md outline-none resize-none"
               style={{
                 background: 'var(--bg-elev)',
@@ -325,35 +328,36 @@ export default function PlanFormModal({
             />
           </Field>
 
-          {/* Date applicable */}
+          {/* Jours d'application */}
           <Field
-            label="Date applicable"
+            label="Jours d'application"
             hint="Optionnel — laisser vide si le plan vaut pour tous les jours"
           >
-            <div className="flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
-              <input
-                type="date"
-                value={applicableDate}
-                onChange={(e) => setApplicableDate(e.target.value)}
-                className="flex-1 text-sm px-3 py-1.5 rounded-md outline-none"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt)',
-                  border: '1px solid var(--brd)',
-                }}
-              />
-              {applicableDate && (
-                <button
-                  type="button"
-                  onClick={() => setApplicableDate('')}
-                  className="text-[11px] px-2"
-                  style={{ color: 'var(--txt-3)' }}
+            <button
+              type="button"
+              onClick={() => setDatePickerOpen(true)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-all"
+              style={{
+                background: 'var(--bg-elev)',
+                color: applicableDates.length ? 'var(--txt)' : 'var(--txt-3)',
+                border: '1px solid var(--brd)',
+              }}
+            >
+              <Calendar className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+              <span className="flex-1 text-sm truncate">
+                {applicableDates.length === 0
+                  ? 'Tous les jours'
+                  : formatDatesSummary(applicableDates)}
+              </span>
+              {applicableDates.length > 0 && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                  style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
                 >
-                  Effacer
-                </button>
+                  {applicableDates.length}
+                </span>
               )}
-            </div>
+            </button>
           </Field>
 
           {/* Fichier */}
@@ -425,8 +429,57 @@ export default function PlanFormModal({
           </button>
         </footer>
       </div>
+
+      {/* Modale calendrier multi-sélection — au-dessus de la modale form */}
+      <PlanDatesPickerModal
+        open={datePickerOpen}
+        onClose={() => setDatePickerOpen(false)}
+        initialDates={applicableDates}
+        projectMetadata={projectMetadata}
+        onSave={(dates) => setApplicableDates(dates)}
+      />
     </div>
   )
+}
+
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Résumé compact d'un tableau de dates ISO.
+ *  - 1 date  → "12/05/2026"
+ *  - 2-3     → "12, 13, 14/05"
+ *  - 4+ contigus → "12 → 17/05"
+ *  - 4+ non contigus → "5 jours"
+ */
+function formatDatesSummary(dates) {
+  if (!Array.isArray(dates) || dates.length === 0) return ''
+  const sorted = [...dates].sort()
+  if (sorted.length === 1) return formatFR(sorted[0], true)
+  // Détection contiguïté
+  const allContiguous = sorted.every((iso, i) => {
+    if (i === 0) return true
+    const prev = new Date(sorted[i - 1])
+    const cur = new Date(iso)
+    const diffDays = Math.round((cur - prev) / 86400000)
+    return diffDays === 1
+  })
+  if (allContiguous && sorted.length >= 4) {
+    return `${formatFR(sorted[0], false)} → ${formatFR(sorted.at(-1), true)}`
+  }
+  if (sorted.length <= 3) {
+    const days = sorted.map((iso, i) => formatFR(iso, i === sorted.length - 1)).join(', ')
+    return days
+  }
+  return `${sorted.length} jours`
+}
+
+function formatFR(iso, withYear = false) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return withYear ? `${dd}/${mm}/${d.getFullYear()}` : `${dd}/${mm}`
 }
 
 /* ─── Sous-composants ─────────────────────────────────────────────────────── */

@@ -175,29 +175,30 @@ export default function PlansTab() {
 
   return (
     <div className="px-4 sm:px-6 py-4 sm:py-6">
-      {/* Header */}
-      <header className="flex items-center gap-3 mb-4">
+      {/* Header — aligné sur le pattern MaterielHeader (grosse icône + stats + actions) */}
+      <header className="flex items-start gap-3 mb-5">
         <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
           style={{ background: 'var(--blue-bg)' }}
         >
-          <MapIcon className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+          <MapIcon className="w-5 h-5" style={{ color: 'var(--blue)' }} />
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
+          <h1 className="text-xl font-bold leading-tight" style={{ color: 'var(--txt)' }}>
             Plans
           </h1>
-          <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
             {plans.filter((p) => !p.is_archived).length} plan
             {plans.filter((p) => !p.is_archived).length > 1 ? 's' : ''}
-            {project?.titre ? ` · ${project.titre}` : ''}
+            {categories.filter((c) => !c.is_archived).length > 0 &&
+              ` · ${categories.filter((c) => !c.is_archived).length} catégorie${categories.filter((c) => !c.is_archived).length > 1 ? 's' : ''}`}
           </p>
         </div>
         {canEdit && (
           <button
             type="button"
             onClick={openCreate}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md"
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md shrink-0"
             style={{ background: 'var(--blue)', color: 'white' }}
           >
             <Plus className="w-3.5 h-3.5" />
@@ -309,6 +310,7 @@ export default function PlansTab() {
         plan={editingPlan}
         categories={categories.filter((c) => !c.is_archived)}
         allTags={allTags}
+        projectMetadata={project?.metadata || null}
         actions={actions}
       />
     </div>
@@ -417,10 +419,10 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
             )}
             <span className="uppercase">{plan.file_type}</span>
             <span>{formatFileSize(plan.file_size)}</span>
-            {plan.applicable_date && (
-              <span className="inline-flex items-center gap-0.5">
+            {plan.applicable_dates?.length > 0 && (
+              <span className="inline-flex items-center gap-0.5" title={plan.applicable_dates.join(', ')}>
                 <Calendar className="w-3 h-3" />
-                {formatDateFR(plan.applicable_date)}
+                {formatDatesShort(plan.applicable_dates)}
               </span>
             )}
           </div>
@@ -587,7 +589,31 @@ function EmptyState({ canEdit, hasFilters, onCreate }) {
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
-function formatDateFR(iso) {
+/**
+ * Affichage compact d'un tableau de dates pour la card.
+ *  - 1 → "12/05"
+ *  - 2-3 → "12, 13/05"
+ *  - 4+ contigus → "12 → 17/05"
+ *  - 4+ non contigus → "5 jours"
+ */
+function formatDatesShort(dates) {
+  if (!Array.isArray(dates) || dates.length === 0) return ''
+  const sorted = [...dates].sort()
+  if (sorted.length === 1) return ddmm(sorted[0])
+  const allContiguous = sorted.every((iso, i) => {
+    if (i === 0) return true
+    const prev = new Date(sorted[i - 1])
+    const cur = new Date(iso)
+    return Math.round((cur - prev) / 86400000) === 1
+  })
+  if (allContiguous && sorted.length >= 4) {
+    return `${ddmm(sorted[0]).slice(0, 2)} → ${ddmm(sorted.at(-1))}`
+  }
+  if (sorted.length <= 3) return sorted.map(ddmm).join(', ')
+  return `${sorted.length} jours`
+}
+
+function ddmm(iso) {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
