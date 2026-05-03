@@ -112,10 +112,10 @@ export default function TechListView({
   const [shareOpen, setShareOpen] = useState(false)
   // P4-CATEGORIES : catégories "vides" ajoutées manuellement par l'admin
   // (pas encore de row associée). Persistées en localStorage par projet
-  // pour qu'elles survivent à un refresh, jusqu'à ce qu'une row soit
-  // déposée dedans (auquel cas la catégorie devient "réelle" via la
-  // colonne `category` sur projet_membres et l'entrée localStorage peut
-  // être nettoyée).
+  // ET dans projects.metadata.equipe.extra_categories pour synchro entre
+  // devices (admin sur desktop + mobile = même vue).
+  // localStorage = cache instant render ; metadata DB = source de vérité
+  // cross-device (cf. useEffect d'hydratation un peu plus bas).
   const extraCatsKey = `equipe.extraCategories.${projectId || 'noproj'}`
   const [extraCategories, setExtraCategories] = useState(() => {
     try {
@@ -127,7 +127,8 @@ export default function TechListView({
       return []
     }
   })
-  // Persiste les extraCategories à chaque changement
+  // Persiste les extraCategories à chaque changement (localStorage seulement ;
+  // la persistance DB se fait dans le useEffect combiné plus bas, debouncé).
   useEffect(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -232,23 +233,58 @@ export default function TechListView({
     return ordered
   }, [categories, extraCategories, hiddenCategories, categoryOrder, members])
 
-  // P4-CATEGORIES : persiste l'ordre AFFICHÉ (allCategories — incluant les
-  // catégories par défaut + custom dans leur ordre de rendu) dans
-  // projects.metadata.equipe.category_order. Sans ça, le partage public
-  // (/share/equipe/:token) ne peut pas reproduire l'ordre côté admin.
+  // P4-CATEGORIES : hydratation depuis projects.metadata.equipe au mount.
+  // Quand un admin configure ses catégories (extras / hidden / order) sur
+  // desktop, on les sauve aussi en DB pour que d'autres devices (mobile,
+  // autre browser) en héritent au lieu de retomber sur les defaults.
   //
-  // On écrit allCategories (ordre rendu réel) et non categoryOrder (drag
-  // explicite), pour que la metadata soit immédiatement peuplée même si
+  // On hydrate UNE FOIS par projet (hydratedFromDbRef). Sans ça, les
+  // changements locaux post-mount seraient écrasés par chaque arrivée de
+  // données. Si la DB est vide (cas legacy), on garde le state local
+  // (init depuis localStorage).
+  const hydratedFromDbRef = useRef(null)
+  useEffect(() => {
+    if (!projectId) return
+    if (hydratedFromDbRef.current === projectId) return
+    const meta = project?.metadata?.equipe
+    if (!meta || typeof meta !== 'object') return
+    if (Array.isArray(meta.extra_categories)) {
+      setExtraCategories(meta.extra_categories)
+    }
+    if (Array.isArray(meta.hidden_categories)) {
+      setHiddenCategories(meta.hidden_categories)
+    }
+    if (Array.isArray(meta.category_order)) {
+      setCategoryOrder(meta.category_order)
+    }
+    hydratedFromDbRef.current = projectId
+  }, [projectId, project?.metadata?.equipe])
+
+  // P4-CATEGORIES : persiste les 3 réglages (extra_categories,
+  // hidden_categories, category_order) dans projects.metadata.equipe
+  // pour synchro cross-device + partage public (/share/equipe/:token,
+  // qui n'utilise QUE category_order).
+  //
+  // On écrit allCategories (ordre RENDU) plutôt que categoryOrder (drag
+  // explicite) pour que la metadata soit immédiatement peuplée même si
   // l'admin n'a jamais drag — et reflète exactement le rendu courant.
   //
   // Debouncé 600ms pour éviter les writes en cascade lors d'un drag rapide.
   // Ignore les erreurs (le localStorage reste source de vérité côté admin).
-  const lastWrittenOrderRef = useRef(null)
+  const lastWrittenMetaRef = useRef(null)
   useEffect(() => {
     if (!projectId || !canEdit) return undefined
+    // Ne pas écrire avant d'avoir hydraté depuis la DB (sinon on overwrite
+    // la DB avec les valeurs initiales du localStorage avant d'avoir lu).
+    if (hydratedFromDbRef.current !== projectId) return undefined
     if (!allCategories || allCategories.length === 0) return undefined
-    const serialized = JSON.stringify(allCategories)
-    if (lastWrittenOrderRef.current === serialized) return undefined
+    const payload = {
+      extra_categories: extraCategories,
+      hidden_categories: hiddenCategories,
+      category_order: allCategories,
+    }
+    const serialized = JSON.stringify(payload)
+    if (lastWrittenMetaRef.current === serialized) return undefined
     const t = setTimeout(async () => {
       try {
         const { data, error } = await supabase
@@ -259,19 +295,22 @@ export default function TechListView({
         if (error) throw error
         const currentMeta = data?.metadata || {}
         const currentEquipe = currentMeta.equipe || {}
-        // Skip si la valeur DB est déjà identique (évite le write inutile
-        // au tout premier mount d'un projet déjà à jour).
-        if (
-          JSON.stringify(currentEquipe.category_order || null) === serialized
-        ) {
-          lastWrittenOrderRef.current = serialized
+        // Skip si toutes les valeurs DB sont déjà identiques (évite le
+        // write inutile au tout premier mount d'un projet déjà à jour).
+        const currentSerialized = JSON.stringify({
+          extra_categories: currentEquipe.extra_categories || [],
+          hidden_categories: currentEquipe.hidden_categories || [],
+          category_order: currentEquipe.category_order || [],
+        })
+        if (currentSerialized === serialized) {
+          lastWrittenMetaRef.current = serialized
           return
         }
         const nextMeta = {
           ...currentMeta,
           equipe: {
             ...currentEquipe,
-            category_order: allCategories,
+            ...payload,
           },
         }
         const { error: updErr } = await supabase
@@ -279,16 +318,16 @@ export default function TechListView({
           .update({ metadata: nextMeta })
           .eq('id', projectId)
         if (updErr) throw updErr
-        lastWrittenOrderRef.current = serialized
+        lastWrittenMetaRef.current = serialized
       } catch (err) {
         console.warn(
-          '[TechListView] persist category_order DB failed:',
+          '[TechListView] persist categories metadata DB failed:',
           err?.message || err,
         )
       }
     }, 600)
     return () => clearTimeout(t)
-  }, [projectId, canEdit, allCategories])
+  }, [projectId, canEdit, allCategories, extraCategories, hiddenCategories])
 
   // P4-DRAWER : édition d'un contact annuaire depuis le drawer.
   // Met à jour la table `contacts` directement (source de vérité partagée
