@@ -337,10 +337,15 @@ function PdfPagesViewer({ signedUrl }) {
 }
 
 function PdfPage({ dataUrl, pageNum, totalPages }) {
+  // Sizing : la page doit toujours tenir dans la viewport visible (header
+  // 64px + padding ~32px = 96px à retirer de 100vh). On combine max-w +
+  // max-h sur l'<img>, qui garde son ratio natif. Avec ce sizing, page A4
+  // portrait ≈ 75 % de hauteur viewport, page 16:9 ≈ pleine largeur.
+  // L'utilisateur peut ensuite zoomer pour lire les détails.
   return (
     <div
-      className="relative w-full max-w-[1600px] rounded overflow-hidden shadow-lg"
-      style={{ background: '#fff' }}
+      className="relative rounded overflow-hidden shadow-lg flex items-center justify-center"
+      style={{ background: '#fff', maxWidth: '100%' }}
     >
       <TransformWrapper
         initialScale={1}
@@ -355,14 +360,20 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
         {({ zoomIn, zoomOut, resetTransform }) => (
           <>
             <TransformComponent
-              wrapperStyle={{ width: '100%' }}
-              contentStyle={{ width: '100%' }}
+              wrapperStyle={{ display: 'flex' }}
+              contentStyle={{ display: 'flex' }}
             >
               <img
                 src={dataUrl}
                 alt={`Page ${pageNum}`}
-                className="w-full h-auto block select-none"
+                className="block select-none"
                 draggable={false}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: 'calc(100vh - 96px)',
+                  width: 'auto',
+                  height: 'auto',
+                }}
               />
             </TransformComponent>
             <ZoomControls
