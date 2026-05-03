@@ -21,9 +21,11 @@
  */
 
 import { supabase } from './supabase'
+import { generateThumbnail } from './plansThumbnail'
 
 const BUCKET = 'plans'
 const SIGNED_URL_TTL_SEC = 10 * 60 // 10 minutes
+const THUMBNAIL_FILENAME = '_thumb.jpg'
 
 /* ─── Constantes ────────────────────────────────────────────────────────── */
 
@@ -54,6 +56,38 @@ function buildStoragePath({ projectId, planId, filename, versionNum = null }) {
   const safeName = sanitizeFilename(filename)
   const prefix = versionNum != null ? `v${versionNum}-` : ''
   return `${projectId}/${planId}/${prefix}${safeName}`
+}
+
+/**
+ * Construit le path Storage du thumbnail JPG d'un plan.
+ * Convention : <project_id>/<plan_id>/_thumb.jpg
+ */
+function buildThumbnailPath({ projectId, planId }) {
+  return `${projectId}/${planId}/${THUMBNAIL_FILENAME}`
+}
+
+/**
+ * Génère + upload le thumbnail si possible. Best-effort : ne throw jamais.
+ * Renvoie le path Storage si OK, null sinon.
+ */
+async function generateAndUploadThumbnail({ projectId, planId, file }) {
+  try {
+    const blob = await generateThumbnail(file)
+    if (!blob) return null
+    const path = buildThumbnailPath({ projectId, planId })
+    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+      contentType: 'image/jpeg',
+      upsert: true, // overwrite si déjà existe (cas du replace)
+    })
+    if (error) {
+      console.warn('[plans] thumbnail upload échoué', error)
+      return null
+    }
+    return path
+  } catch (err) {
+    console.warn('[plans] generateAndUploadThumbnail erreur', err)
+    return null
+  }
 }
 
 /**
@@ -284,16 +318,28 @@ export async function createPlan({
     throw uploadErr
   }
 
-  // 3. Update le storage_path.
+  // 3. Génération + upload du thumbnail (best-effort, parallèle au update final).
+  const thumbnailPath = await generateAndUploadThumbnail({
+    projectId,
+    planId: planRow.id,
+    file,
+  })
+
+  // 4. Update le storage_path + thumbnail_path.
   const { data: updated, error: updateErr } = await supabase
     .from('plans')
-    .update({ storage_path: storagePath })
+    .update({
+      storage_path: storagePath,
+      thumbnail_path: thumbnailPath, // null si génération a échoué
+    })
     .eq('id', planRow.id)
     .select(PLAN_COLS)
     .single()
   if (updateErr) {
-    // Cleanup : supprime la ligne + le fichier uploadé.
-    await supabase.storage.from(BUCKET).remove([storagePath])
+    // Cleanup : supprime la ligne + le fichier uploadé (+ thumb si OK).
+    const toRemove = [storagePath]
+    if (thumbnailPath) toRemove.push(thumbnailPath)
+    await supabase.storage.from(BUCKET).remove(toRemove)
     await supabase.from('plans').delete().eq('id', planRow.id)
     throw updateErr
   }
@@ -411,11 +457,19 @@ export async function replacePlanFile(planId, file, { comment = null } = {}) {
     })
   if (uploadErr) throw uploadErr
 
-  // 4. Update le plan.
+  // 4. Régénère le thumbnail (overwrite l'ancien au même path via upsert).
+  const thumbnailPath = await generateAndUploadThumbnail({
+    projectId: plan.project_id,
+    planId: plan.id,
+    file,
+  })
+
+  // 5. Update le plan.
   const { data: updated, error: updateErr } = await supabase
     .from('plans')
     .update({
       storage_path: newPath,
+      thumbnail_path: thumbnailPath, // null si génération a échoué
       file_type: fileType,
       file_size: file.size,
       page_count: null, // recalculé côté front si PDF
@@ -447,10 +501,13 @@ export async function restorePlan(planId) {
 export async function hardDeletePlan(planId) {
   if (!planId) throw new Error('hardDeletePlan : planId requis')
   const plan = await getPlan(planId)
-  // 1. Liste tous les paths à supprimer (courant + archives).
+  // 1. Liste tous les paths à supprimer (courant + archives + thumbnail).
   const paths = []
   if (plan.storage_path && plan.storage_path !== 'pending') {
     paths.push(plan.storage_path)
+  }
+  if (plan.thumbnail_path) {
+    paths.push(plan.thumbnail_path)
   }
   const { data: versions } = await supabase
     .from('plan_versions')

@@ -16,7 +16,7 @@
 // 4/5 du chantier — clic sur card l'ouvrira via URL state ?plan=<id>.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Calendar,
@@ -357,6 +357,28 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
   const FileIcon = plan.file_type === 'pdf' ? FileText : ImageIcon
   const archived = plan.is_archived
 
+  // Vignette : signed URL générée à la volée (cache 10 min via Supabase).
+  // Si pas de thumbnail_path (vieux plan ou génération échouée), on fallback
+  // sur l'icône fichier classique. Pas de bloquant.
+  const [thumbUrl, setThumbUrl] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    if (!plan.thumbnail_path) {
+      setThumbUrl(null)
+      return undefined
+    }
+    getSignedUrl(plan.thumbnail_path)
+      .then((url) => {
+        if (!cancelled) setThumbUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setThumbUrl(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [plan.thumbnail_path])
+
   return (
     <li
       className="rounded-lg overflow-hidden transition-all"
@@ -373,15 +395,30 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
         className="w-full text-left p-3 flex items-start gap-3"
       >
         <div
-          className="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+          className="w-14 h-14 rounded-md overflow-hidden flex items-center justify-center shrink-0"
           style={{
-            background: category ? `${category.color}1f` : 'var(--bg-elev)',
+            background: thumbUrl
+              ? '#ffffff'
+              : category
+                ? `${category.color}1f`
+                : 'var(--bg-elev)',
+            border: thumbUrl ? '1px solid var(--brd-sub)' : 'none',
           }}
         >
-          <FileIcon
-            className="w-5 h-5"
-            style={{ color: category ? category.color : 'var(--txt-2)' }}
-          />
+          {thumbUrl ? (
+            <img
+              src={thumbUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={() => setThumbUrl(null)}
+            />
+          ) : (
+            <FileIcon
+              className="w-6 h-6"
+              style={{ color: category ? category.color : 'var(--txt-2)' }}
+            />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-1.5">
