@@ -16,8 +16,8 @@
 // 4/5 du chantier — clic sur card l'ouvrira via URL state ?plan=<id>.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
   Calendar,
   Edit3,
@@ -41,6 +41,7 @@ import { getSignedUrl, formatFileSize } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import PlanFormModal from '../../features/plans/PlanFormModal'
+import PlanViewer from '../../features/plans/PlanViewer'
 
 const OUTIL_KEY = 'plans'
 
@@ -110,16 +111,28 @@ export default function PlansTab() {
     setFormOpen(true)
   }
 
-  // ── Actions card ────────────────────────────────────────────────────────
-  async function handleOpenPlan(plan) {
-    try {
-      const url = await getSignedUrl(plan.storage_path)
-      if (!url) throw new Error('URL non disponible')
-      window.open(url, '_blank', 'noopener,noreferrer')
-    } catch (err) {
-      notify.error('Impossible d\u2019ouvrir le plan : ' + (err?.message || err))
-    }
-  }
+  // ── PlanViewer (URL state ?plan=<id>) ──────────────────────────────────
+  // L'état "plan ouvert" vit dans l'URL. Avantages :
+  //   - le bouton back natif ferme la modale (mobile + desktop + swipe-back iOS)
+  //   - URL partageable (envoyer le lien direct sur le plan caméra)
+  //   - deeplink fonctionne (ouvre la tab + le plan d'un coup)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openedPlanId = searchParams.get('plan')
+
+  const handleOpenPlan = useCallback(
+    (plan) => {
+      const next = new URLSearchParams(searchParams)
+      next.set('plan', plan.id)
+      setSearchParams(next, { replace: false })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const handleCloseViewer = useCallback(() => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('plan')
+    setSearchParams(next, { replace: false })
+  }, [searchParams, setSearchParams])
 
   async function handleArchive(plan) {
     const ok = await confirm({
@@ -313,6 +326,9 @@ export default function PlansTab() {
         projectMetadata={project?.metadata || null}
         actions={actions}
       />
+
+      {/* Viewer plein écran (ouvert via URL state ?plan=<id>) */}
+      <PlanViewer planId={openedPlanId} onClose={handleCloseViewer} />
     </div>
   )
 }
