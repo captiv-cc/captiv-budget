@@ -56,7 +56,11 @@ export default function Block({
   canEdit = true,
   detailed = false,
   // ─── Drag & drop (depuis BlockList, pattern identique à ItemRow) ─────────
-  isDragOver = false,
+  // dragInsertPosition = 'before' | 'after' | null : indique où la ligne
+  // d'insertion bleue doit s'afficher (au-dessus / en-dessous / nulle part).
+  // Calculé par BlockList depuis la position relative du curseur (clientY)
+  // dans la bounding box du bloc — voir handleBlockDragOver.
+  dragInsertPosition = null,
   onBlockDragStart,
   onBlockDragOver,
   onBlockDrop,
@@ -285,18 +289,27 @@ export default function Block({
       }
     : undefined
 
+  // Calcule la position relative du curseur dans le bloc (above/below mid-line)
+  // pour qu'on puisse afficher une ligne d'insertion ciblée plutôt qu'un
+  // outline ambigu sur tout le bloc. Pattern courant (Notion / Linear / Figma).
+  const computeInsertPosition = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offsetY = e.clientY - rect.top
+    return offsetY < rect.height / 2 ? 'before' : 'after'
+  }
+
   const handleBlockDragOver = blockDndEnabled
     ? (e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
-        onBlockDragOver?.()
+        onBlockDragOver?.(computeInsertPosition(e))
       }
     : undefined
 
   const handleBlockDragEnter = blockDndEnabled
     ? (e) => {
         e.preventDefault()
-        onBlockDragOver?.()
+        onBlockDragOver?.(computeInsertPosition(e))
       }
     : undefined
 
@@ -309,6 +322,17 @@ export default function Block({
     : undefined
 
   const handleBlockDragEndCb = blockDndEnabled ? onBlockDragEnd : undefined
+
+  // Indicateur d'insertion : box-shadow EXTERNE (3px bleu) au-dessus si on
+  // drop avant, en-dessous si on drop après. `overflow-hidden` n'affecte
+  // PAS les box-shadow externes (seulement les enfants débordants), donc
+  // ce trick fonctionne sans toucher au clipping des coins arrondis.
+  const insertShadow =
+    dragInsertPosition === 'before'
+      ? '0 -3px 0 0 var(--blue)'
+      : dragInsertPosition === 'after'
+        ? '0 3px 0 0 var(--blue)'
+        : 'none'
 
   return (
     <section
@@ -324,9 +348,8 @@ export default function Block({
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
-        outline: isDragOver ? '2px solid var(--blue)' : 'none',
-        outlineOffset: isDragOver ? '-2px' : 0,
-        transition: 'outline 120ms ease',
+        boxShadow: insertShadow,
+        transition: 'box-shadow 100ms ease',
       }}
     >
       {/* Header de bloc — zone de drop (les events dragover/drop bubblent

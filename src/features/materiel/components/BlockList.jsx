@@ -46,21 +46,35 @@ export default function BlockList({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  // Drag & drop des blocs : ref pour l'index source (capté au dragStart),
-  // state pour l'index survolé (rendu visuel). Pattern identique à Block / ItemRow.
+  // Drag & drop des blocs.
+  //   - dragBlockIdx (ref)       : index source, capté au dragStart.
+  //   - dragOverInfo (state)     : { idx, position: 'before'|'after' } —
+  //                                 affiche la ligne d'insertion directionnelle
+  //                                 (au-dessus ou en-dessous du bloc cible)
+  //                                 selon la position du curseur dans la
+  //                                 bounding box du bloc survolé.
   const dragBlockIdx = useRef(null)
-  const [dragOverBlockIdx, setDragOverBlockIdx] = useState(null)
+  const [dragOverInfo, setDragOverInfo] = useState(null)
 
   // Reorder : splice local + persistance via actions.reorderBlocks(orderedIds).
+  // `targetIdx` = idx du bloc survolé. `position` = 'before'|'after'.
+  // On calcule l'index final puis on ajuste pour le shift causé par le
+  // splice de retrait (si fromIdx < finalToIdx, l'index cible glisse de -1).
   const handleReorderBlocks = useCallback(
-    async (fromIdx, toIdx) => {
-      if (fromIdx === toIdx) return
-      if (fromIdx < 0 || toIdx < 0) return
-      if (fromIdx >= blocks.length || toIdx >= blocks.length) return
+    async (fromIdx, targetIdx, position) => {
+      if (fromIdx < 0 || targetIdx < 0) return
+      if (fromIdx >= blocks.length || targetIdx >= blocks.length) return
+
+      const finalToIdx = position === 'after' ? targetIdx + 1 : targetIdx
+      // Adjust pour le retrait préalable.
+      const adjustedTo = fromIdx < finalToIdx ? finalToIdx - 1 : finalToIdx
+      // No-op : on dépose le bloc à sa propre position (avant lui-même
+      // ou après le voisin qui le précède).
+      if (adjustedTo === fromIdx) return
 
       const next = blocks.slice()
       const [moved] = next.splice(fromIdx, 1)
-      next.splice(toIdx, 0, moved)
+      next.splice(adjustedTo, 0, moved)
       const orderedIds = next.map((b) => b.id)
 
       try {
@@ -159,21 +173,34 @@ export default function BlockList({
           actions={actions}
           canEdit={canEdit}
           detailed={detailed}
-          isDragOver={dragOverBlockIdx === idx}
+          dragInsertPosition={
+            dragOverInfo?.idx === idx ? dragOverInfo.position : null
+          }
           onBlockDragStart={() => {
             dragBlockIdx.current = idx
           }}
-          onBlockDragOver={() => setDragOverBlockIdx(idx)}
+          onBlockDragOver={(position) => {
+            // Évite re-renders inutiles si position inchangée.
+            setDragOverInfo((prev) =>
+              prev?.idx === idx && prev?.position === position
+                ? prev
+                : { idx, position },
+            )
+          }}
           onBlockDrop={() => {
-            if (dragBlockIdx.current !== null && dragBlockIdx.current !== idx) {
-              handleReorderBlocks(dragBlockIdx.current, idx)
+            if (dragBlockIdx.current !== null && dragOverInfo) {
+              handleReorderBlocks(
+                dragBlockIdx.current,
+                dragOverInfo.idx,
+                dragOverInfo.position,
+              )
             }
             dragBlockIdx.current = null
-            setDragOverBlockIdx(null)
+            setDragOverInfo(null)
           }}
           onBlockDragEnd={() => {
             dragBlockIdx.current = null
-            setDragOverBlockIdx(null)
+            setDragOverInfo(null)
           }}
         />
       ))}
