@@ -507,6 +507,54 @@ export function useMateriel(projectId) {
     [bumpReload],
   )
 
+  // MAT : déplacement d'un item d'un bloc vers un autre + recompute des
+  // sort_order des deux blocs concernés. Optimistic patch local pour que
+  // l'UI réagisse immédiatement (l'item bascule de bloc + ré-ordonnancement),
+  // bumpReload() resync à la fin (rollback en cas d'erreur).
+  const moveItemAcrossBlocksAction = useCallback(
+    async ({ itemId, targetBlockId, sourceOrderedIds, targetOrderedIds }) => {
+      // Optimistic : assigne le nouveau block_id + les nouveaux sort_order
+      // immédiatement. Construire un map id→sort_order par bloc, puis patcher.
+      setItems((prev) => {
+        const sourceOrderMap = new Map(
+          (sourceOrderedIds || []).map((id, idx) => [id, idx]),
+        )
+        const targetOrderMap = new Map(
+          (targetOrderedIds || []).map((id, idx) => [id, idx]),
+        )
+        return prev.map((it) => {
+          if (it.id === itemId) {
+            return {
+              ...it,
+              block_id: targetBlockId,
+              sort_order: targetOrderMap.get(it.id) ?? it.sort_order,
+            }
+          }
+          if (sourceOrderMap.has(it.id)) {
+            return { ...it, sort_order: sourceOrderMap.get(it.id) }
+          }
+          if (targetOrderMap.has(it.id)) {
+            return { ...it, sort_order: targetOrderMap.get(it.id) }
+          }
+          return it
+        })
+      })
+      try {
+        await M.moveItemAcrossBlocks({
+          itemId,
+          targetBlockId,
+          sourceOrderedIds,
+          targetOrderedIds,
+        })
+        bumpReload()
+      } catch (err) {
+        bumpReload() // rollback via refetch
+        throw err
+      }
+    },
+    [bumpReload],
+  )
+
   // MAT-9B-opt : toggleCheck flippe `${type}_check_at` localement avant la
   // roundtrip. Sur `check` → timestamp ISO + by=null (le serveur rattachera
   // auth.uid() au refetch). Sur `uncheck` → null/null. bumpReload en fin
@@ -719,6 +767,7 @@ export function useMateriel(projectId) {
       updateItem: updateItemAction,
       deleteItem: deleteItemAction,
       reorderItems: reorderItemsAction,
+      moveItemAcrossBlocks: moveItemAcrossBlocksAction,
       toggleCheck: toggleCheckAction,
       setFlag: setFlagAction,
       // Loueurs pivots

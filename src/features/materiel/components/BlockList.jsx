@@ -46,17 +46,34 @@ export default function BlockList({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  // Drag & drop des blocs.
-  //   - dragBlockIdx (ref)       : index source, capté au dragStart.
-  //   - dragOverInfo (state)     : { idx, position: 'before'|'after' } —
-  //                                 affiche la ligne d'insertion directionnelle
-  //                                 (au-dessus ou en-dessous du bloc cible)
-  //                                 selon la position du curseur dans la
-  //                                 bounding box du bloc survolé.
+  // ─── DnD state ──────────────────────────────────────────────────────────
+  // On gère 2 types de drag (mutuellement exclusifs) :
+  //   - blocs : grip header → déplace le bloc complet
+  //   - items : ligne d'item → déplace l'item (intra OU cross-bloc)
+  //
+  // L'état des items est lifted ICI (et plus dans Block.jsx) pour permettre
+  // le drag cross-bloc : la source vient d'un bloc, la cible peut être un
+  // autre bloc. Si on gardait l'état dans chaque Block, chacun ne saurait
+  // que ses propres items et le hover/drop entre blocs ne marcherait pas.
+
+  // Drag des blocs (inchangé).
   const dragBlockIdx = useRef(null)
   const [dragOverInfo, setDragOverInfo] = useState(null)
 
-  // Reorder : splice local + persistance via actions.reorderBlocks(orderedIds).
+  // Drag des items.
+  //   - itemDragSource (ref)   : { blockIdx, itemIdx, itemId } — capté au
+  //                              dragstart d'un ItemRow.
+  //   - itemDragOver (state)   : { blockIdx, itemIdx, position } — position
+  //                              cible courante (= ligne d'insertion).
+  // `dragKind` ('block' | 'item' | null) sert juste à empêcher la confusion
+  // visuelle quand un item est dragué AU-DESSUS d'un autre bloc : la section
+  // du bloc afficherait sinon ses propres indicateurs (block-reorder) en
+  // plus de la ligne d'insertion item.
+  const itemDragSource = useRef(null)
+  const [itemDragOver, setItemDragOver] = useState(null)
+  const dragKind = useRef(null)
+
+  // Reorder blocs : splice local + persistance via actions.reorderBlocks.
   // `targetIdx` = idx du bloc survolé. `position` = 'before'|'after'.
   // On calcule l'index final puis on ajuste pour le shift causé par le
   // splice de retrait (si fromIdx < finalToIdx, l'index cible glisse de -1).
@@ -66,10 +83,7 @@ export default function BlockList({
       if (fromIdx >= blocks.length || targetIdx >= blocks.length) return
 
       const finalToIdx = position === 'after' ? targetIdx + 1 : targetIdx
-      // Adjust pour le retrait préalable.
       const adjustedTo = fromIdx < finalToIdx ? finalToIdx - 1 : finalToIdx
-      // No-op : on dépose le bloc à sa propre position (avant lui-même
-      // ou après le voisin qui le précède).
       if (adjustedTo === fromIdx) return
 
       const next = blocks.slice()
@@ -85,6 +99,92 @@ export default function BlockList({
     },
     [actions, blocks],
   )
+
+  // Drop d'un item : décide entre intra-bloc (reorderItems) et cross-bloc
+  // (moveItemAcrossBlocks). Calcule le nouvel ordre dans les deux cas et
+  // gère l'ajustement d'index dû au splice de retrait préalable.
+  const handleDropItem = useCallback(async () => {
+    const source = itemDragSource.current
+    const target = itemDragOver
+    if (!source || !target) return
+
+    const sourceBlock = blocks[source.blockIdx]
+    const targetBlock = blocks[target.blockIdx]
+    if (!sourceBlock || !targetBlock) return
+
+    const sourceItems = itemsByBlock?.get(sourceBlock.id) || []
+    const targetItems = itemsByBlock?.get(targetBlock.id) || []
+
+    if (source.blockIdx === target.blockIdx) {
+      // ── Cas 1 : intra-bloc (reorder) ─────────────────────────────────
+      const finalToIdx =
+        target.position === 'after' ? target.itemIdx + 1 : target.itemIdx
+      const adjustedTo =
+        source.itemIdx < finalToIdx ? finalToIdx - 1 : finalToIdx
+      if (adjustedTo === source.itemIdx) return // no-op
+
+      const next = sourceItems.slice()
+      const [moved] = next.splice(source.itemIdx, 1)
+      next.splice(adjustedTo, 0, moved)
+      const orderedIds = next.map((i) => i.id)
+
+      try {
+        await actions.reorderItems(orderedIds)
+      } catch (err) {
+        notify.error('Erreur réorganisation : ' + (err?.message || err))
+      }
+    } else {
+      // ── Cas 2 : cross-bloc (move) ────────────────────────────────────
+      // Source : on retire l'item.
+      const newSource = sourceItems.filter((_, idx) => idx !== source.itemIdx)
+      const sourceOrderedIds = newSource.map((i) => i.id)
+
+      // Target : on insère l'item au bon endroit.
+      const finalToIdx =
+        target.position === 'after' ? target.itemIdx + 1 : target.itemIdx
+      const newTarget = targetItems.slice()
+      newTarget.splice(finalToIdx, 0, sourceItems[source.itemIdx])
+      const targetOrderedIds = newTarget.map((i) => i.id)
+
+      try {
+        await actions.moveItemAcrossBlocks({
+          itemId: source.itemId,
+          targetBlockId: targetBlock.id,
+          sourceOrderedIds,
+          targetOrderedIds,
+        })
+      } catch (err) {
+        notify.error('Erreur déplacement : ' + (err?.message || err))
+      }
+    }
+  }, [actions, blocks, itemsByBlock, itemDragOver])
+
+  // Handlers item → exposés à Block.jsx (qui les transmet à ItemRow).
+  const handleItemDragStart = useCallback((blockIdx, itemIdx, itemId) => {
+    itemDragSource.current = { blockIdx, itemIdx, itemId }
+    dragKind.current = 'item'
+  }, [])
+
+  const handleItemDragOver = useCallback((blockIdx, itemIdx, position) => {
+    setItemDragOver((prev) =>
+      prev?.blockIdx === blockIdx &&
+      prev?.itemIdx === itemIdx &&
+      prev?.position === position
+        ? prev
+        : { blockIdx, itemIdx, position },
+    )
+  }, [])
+
+  const handleItemDragEnd = useCallback(() => {
+    itemDragSource.current = null
+    dragKind.current = null
+    setItemDragOver(null)
+  }, [])
+
+  const handleItemDropFromBlock = useCallback(async () => {
+    await handleDropItem()
+    handleItemDragEnd()
+  }, [handleDropItem, handleItemDragEnd])
 
   useEffect(() => {
     if (!addMenuOpen) return undefined
@@ -173,14 +273,18 @@ export default function BlockList({
           actions={actions}
           canEdit={canEdit}
           detailed={detailed}
+          // Drag bloc (inchangé)
           dragInsertPosition={
             dragOverInfo?.idx === idx ? dragOverInfo.position : null
           }
           onBlockDragStart={() => {
             dragBlockIdx.current = idx
+            dragKind.current = 'block'
           }}
           onBlockDragOver={(position) => {
-            // Évite re-renders inutiles si position inchangée.
+            // Si un item est en cours de drag, on ignore : c'est l'item DnD
+            // qui pilote l'indicateur visuel (pas le block-reorder).
+            if (dragKind.current === 'item') return
             setDragOverInfo((prev) =>
               prev?.idx === idx && prev?.position === position
                 ? prev
@@ -196,12 +300,29 @@ export default function BlockList({
               )
             }
             dragBlockIdx.current = null
+            dragKind.current = null
             setDragOverInfo(null)
           }}
           onBlockDragEnd={() => {
             dragBlockIdx.current = null
+            dragKind.current = null
             setDragOverInfo(null)
           }}
+          // Drag item (lifted) — chaque ligne wire ses callbacks vers les
+          // handlers parents pour permettre le cross-bloc.
+          itemDragOverInfo={
+            itemDragOver?.blockIdx === idx
+              ? { idx: itemDragOver.itemIdx, position: itemDragOver.position }
+              : null
+          }
+          onItemDragStart={(itemIdx, itemId) =>
+            handleItemDragStart(idx, itemIdx, itemId)
+          }
+          onItemDragOver={(itemIdx, position) =>
+            handleItemDragOver(idx, itemIdx, position)
+          }
+          onItemDrop={handleItemDropFromBlock}
+          onItemDragEnd={handleItemDragEnd}
         />
       ))}
 

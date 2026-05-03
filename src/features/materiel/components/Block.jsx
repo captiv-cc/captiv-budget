@@ -55,16 +55,20 @@ export default function Block({
   actions,
   canEdit = true,
   detailed = false,
-  // ─── Drag & drop (depuis BlockList, pattern identique à ItemRow) ─────────
-  // dragInsertPosition = 'before' | 'after' | null : indique où la ligne
-  // d'insertion bleue doit s'afficher (au-dessus / en-dessous / nulle part).
-  // Calculé par BlockList depuis la position relative du curseur (clientY)
-  // dans la bounding box du bloc — voir handleBlockDragOver.
+  // ─── Drag bloc (insertion line directionnelle entre blocs) ────────────
   dragInsertPosition = null,
   onBlockDragStart,
   onBlockDragOver,
   onBlockDrop,
   onBlockDragEnd,
+  // ─── Drag items (lifted dans BlockList — permet le cross-bloc) ────────
+  // itemDragOverInfo = { idx, position } | null — relatif à CE bloc
+  // (BlockList filtre déjà sur blockIdx avant de transmettre).
+  itemDragOverInfo = null,
+  onItemDragStart,   // (itemIdx, itemId) => void
+  onItemDragOver,    // (itemIdx, position) => void
+  onItemDrop,        // () => void
+  onItemDragEnd,     // () => void
 }) {
   const [titleEditing, setTitleEditing] = useState(false)
   const [title, setTitle] = useState(block.titre || '')
@@ -81,16 +85,11 @@ export default function Block({
   const bp = useBreakpoint()
   const isMobile = bp.isMobile
 
-  // Drag & drop des items (interne au bloc).
-  //   - dragIdx (ref)        : index source, capté au dragStart.
-  //   - dragOverInfo (state) : { idx, position: 'before'|'after' } —
-  //                            ligne d'insertion directionnelle (pattern
-  //                            aligné sur le DnD des blocs / BlockList).
-  const dragIdx = useRef(null)
-  const [dragOverItemInfo, setDragOverItemInfo] = useState(null)
-
-  // DnD du bloc lui-même : activé uniquement si canEdit ET handlers fournis.
+  // DnD : activé uniquement si canEdit ET handlers fournis.
+  // - blocs : grip du header
+  // - items : ligne (gérée intégralement par BlockList — cross-bloc inclus)
   const blockDndEnabled = canEdit && Boolean(onBlockDragStart)
+  const itemDndEnabled = canEdit && Boolean(onItemDragStart)
 
   useEffect(() => {
     setTitle(block.titre || '')
@@ -224,37 +223,9 @@ export default function Block({
     [actions, block.id, canEdit],
   )
 
-  // ─── Drag & drop : reorder ───────────────────────────────────────────────
-  // Reçoit les index source / destination dans le tableau `items` local, calcule
-  // le nouvel ordre par splice, puis persiste en un seul UPDATE des sort_order
-  // via actions.reorderItems (déjà disponible côté hook/lib matériel).
-  const handleReorderItems = useCallback(
-    async (fromIdx, targetIdx, position) => {
-      if (fromIdx < 0 || targetIdx < 0) return
-      if (fromIdx >= items.length || targetIdx >= items.length) return
-
-      // Même math que pour les blocs (cf. BlockList.handleReorderBlocks) :
-      // on compute l'index final selon position before/after, puis on
-      // ajuste pour tenir compte du shift causé par le splice de retrait.
-      const finalToIdx = position === 'after' ? targetIdx + 1 : targetIdx
-      const adjustedTo = fromIdx < finalToIdx ? finalToIdx - 1 : finalToIdx
-      // No-op : drop à sa propre position (avant lui-même OU après son
-      // voisin direct = pas de mouvement).
-      if (adjustedTo === fromIdx) return
-
-      const next = items.slice()
-      const [moved] = next.splice(fromIdx, 1)
-      next.splice(adjustedTo, 0, moved)
-      const orderedIds = next.map((i) => i.id)
-
-      try {
-        await actions.reorderItems(orderedIds)
-      } catch (err) {
-        notify.error('Erreur réorganisation : ' + (err?.message || err))
-      }
-    },
-    [actions, items],
-  )
+  // NB : la logique de reorder/move des items est dans BlockList (lifted)
+  // pour permettre le cross-bloc. On ne garde ici que les callbacks de
+  // suppression et la transmission des handlers DnD.
 
   const handleDeleteItem = useCallback(
     async (item) => {
@@ -698,36 +669,22 @@ export default function Block({
                   detailed={detailed}
                   onDelete={handleDeleteItem}
                   dragInsertPosition={
-                    dragOverItemInfo?.idx === idx
-                      ? dragOverItemInfo.position
+                    itemDragOverInfo?.idx === idx
+                      ? itemDragOverInfo.position
                       : null
                   }
-                  onDragStart={() => {
-                    dragIdx.current = idx
-                  }}
-                  onDragOver={(position) => {
-                    // Évite re-renders inutiles si position inchangée.
-                    setDragOverItemInfo((prev) =>
-                      prev?.idx === idx && prev?.position === position
-                        ? prev
-                        : { idx, position },
-                    )
-                  }}
-                  onDrop={() => {
-                    if (dragIdx.current !== null && dragOverItemInfo) {
-                      handleReorderItems(
-                        dragIdx.current,
-                        dragOverItemInfo.idx,
-                        dragOverItemInfo.position,
-                      )
-                    }
-                    dragIdx.current = null
-                    setDragOverItemInfo(null)
-                  }}
-                  onDragEnd={() => {
-                    dragIdx.current = null
-                    setDragOverItemInfo(null)
-                  }}
+                  onDragStart={
+                    itemDndEnabled
+                      ? () => onItemDragStart?.(idx, item.id)
+                      : undefined
+                  }
+                  onDragOver={
+                    itemDndEnabled
+                      ? (position) => onItemDragOver?.(idx, position)
+                      : undefined
+                  }
+                  onDrop={itemDndEnabled ? onItemDrop : undefined}
+                  onDragEnd={itemDndEnabled ? onItemDragEnd : undefined}
                 />
               ))
             )}

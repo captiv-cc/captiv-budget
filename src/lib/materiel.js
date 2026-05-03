@@ -725,6 +725,42 @@ export async function reorderItems(orderedIds) {
   }
 }
 
+/**
+ * Déplace un item d'un bloc vers un autre + recompute les sort_order des
+ * deux blocs concernés. Atomicité best-effort (3 round-trips séquentiels).
+ *
+ * @param {object}   args
+ * @param {string}   args.itemId             id de l'item déplacé
+ * @param {string}   args.targetBlockId      id du bloc destination
+ * @param {string[]} args.sourceOrderedIds   ids restants dans le bloc source,
+ *                                            dans le nouvel ordre (sans l'item)
+ * @param {string[]} args.targetOrderedIds   ids du bloc cible dans le nouvel
+ *                                            ordre (incluant l'item déplacé)
+ */
+export async function moveItemAcrossBlocks({
+  itemId,
+  targetBlockId,
+  sourceOrderedIds,
+  targetOrderedIds,
+}) {
+  if (!itemId || !targetBlockId) {
+    throw new Error('moveItemAcrossBlocks : itemId + targetBlockId requis')
+  }
+  // 1. Update block_id de l'item (RLS : on autorise via la policy
+  // matos_items_scoped_write qui regarde mb.version_id côté NEW row).
+  const { error: blockErr } = await supabase
+    .from('matos_items')
+    .update({ block_id: targetBlockId })
+    .eq('id', itemId)
+  if (blockErr) throw blockErr
+
+  // 2. Recompute sort_orders des deux blocs.
+  if (Array.isArray(sourceOrderedIds) && sourceOrderedIds.length) {
+    await reorderItems(sourceOrderedIds)
+  }
+  await reorderItems(targetOrderedIds)
+}
+
 export async function deleteItem(itemId) {
   const { error } = await supabase.from('matos_items').delete().eq('id', itemId)
   if (error) throw error
