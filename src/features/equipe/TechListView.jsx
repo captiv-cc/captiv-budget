@@ -50,6 +50,17 @@ export default function TechListView({
   project,
   projectId,
   canEdit = true,
+  // EQUIPE-PERM (2026-05) — Capabilities granulaires propagées par
+  // EquipeTab. Ces flags pilotent l'affichage des actions sensibles que
+  // tout user en canEdit n'a pas forcément le droit de faire (ex. un
+  // prestataire en canEdit peut ajouter un membre mais pas modifier
+  // l'annuaire ni supprimer une attribution).
+  // - canEditAnnuaire        : édition fiche contacts (table contacts)
+  // - canDeleteEquipeMember  : suppression d'une row projet_membres
+  // - canShareEquipeWeb      : créer / configurer des liens de partage
+  canEditAnnuaire = true,
+  canDeleteEquipeMember = true,
+  canShareEquipeWeb = true,
   // P3 — filtre par lot (partagé avec Attribution + Finances)
   selectedLotId = null,    // string | null (null = "Tous")
   lineLotMap = {},         // { [devis_line_id]: lotId }
@@ -1135,13 +1146,18 @@ export default function TechListView({
         personaKeyValue={membreDrawerKey}
         members={members}
         canEdit={canEdit}
+        // EQUIPE-PERM : un prestataire en canEdit ne peut pas supprimer
+        // une attribution. Réservé aux rôles internes admin/cp/coord.
+        canDeleteMember={canDeleteEquipeMember}
         lots={lotsWithRef}
         lotInfoMap={lotInfoMap}
         lineLotMap={lineLotMap}
         categories={categories}
         onUpdateMember={updateMember}
         onUpdatePersona={updatePersona}
-        onRemoveMember={removeMember}
+        // EQUIPE-PERM : onRemoveMember gated — null si pas de droit
+        // (le bouton Retirer disparaît du drawer côté MembreDrawer).
+        onRemoveMember={canDeleteEquipeMember ? removeMember : null}
         onDetachMember={detachMember}
         onOpenPresence={(persona) => {
           setPresenceFor({ persona, persona_key: persona.key })
@@ -1151,9 +1167,10 @@ export default function TechListView({
         // comme childRow ; le drawer se ferme côté MembreDrawer pour ne
         // pas empiler les panneaux.
         onOpenAttach={(row) => setAttachFor(row)}
-        // P4-DRAWER : édition contact annuaire depuis le drawer (admin).
-        // Disponible uniquement si canEdit (gating UI + RLS côté DB).
-        onUpdateContact={canEdit ? updateContact : null}
+        // EQUIPE-PERM : édition contact annuaire (table contacts) — réservé
+        // aux rôles internes. Un prestataire en canEdit ne peut PAS
+        // modifier la fiche annuaire (le crayon disparaît côté drawer).
+        onUpdateContact={canEditAnnuaire ? updateContact : null}
       />
 
       {/* P4.1 — Preview du PDF généré (réutilise PdfPreviewModal de Matériel) */}
@@ -1245,31 +1262,38 @@ export default function TechListView({
                 )
               })}
 
-            {/* Section : Partage (P4.2) — ouvre la modale TechlistShareModal */}
-            <div
-              className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide"
-              style={{
-                color: 'var(--txt-3)',
-                borderTop: '1px solid var(--brd-sub)',
-                borderBottom: '1px solid var(--brd-sub)',
-              }}
-            >
-              Partage
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setExportOpen(false)
-                setShareOpen(true)
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs"
-              style={{ color: 'var(--txt-2)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />
-              <span className="flex-1">Lien web partageable</span>
-            </button>
+            {/* Section : Partage (P4.2) — ouvre la modale TechlistShareModal.
+                EQUIPE-PERM : section masquée pour les users qui n'ont pas
+                canShareEquipeWeb (= prestataire en mode "vue") — ils gardent
+                accès à l'export PDF mais pas à la création de liens publics. */}
+            {canShareEquipeWeb && (
+              <>
+                <div
+                  className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide"
+                  style={{
+                    color: 'var(--txt-3)',
+                    borderTop: '1px solid var(--brd-sub)',
+                    borderBottom: '1px solid var(--brd-sub)',
+                  }}
+                >
+                  Partage
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExportOpen(false)
+                    setShareOpen(true)
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs"
+                  style={{ color: 'var(--txt-2)' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />
+                  <span className="flex-1">Lien web partageable</span>
+                </button>
+              </>
+            )}
           </div>,
           document.body,
         )}

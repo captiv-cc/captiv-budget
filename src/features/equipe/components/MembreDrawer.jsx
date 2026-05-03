@@ -66,10 +66,14 @@ export default function MembreDrawer({
   lineLotMap = {}, // { [devis_line_id]: lotId } — lot dérivé via devis
   // Catégories disponibles (pour le sélecteur Catégorie par row)
   categories = [],
+  // EQUIPE-PERM (2026-05) — gating fin sur la suppression. Si false (cas
+  // typique : prestataire en canEdit), le bouton Retirer disparaît de
+  // chaque PosteCard. La suppression reste réservée aux rôles internes.
+  canDeleteMember = true,
   // Actions (depuis useCrew)
   onUpdateMember, // (id, fields) => Promise
   onUpdatePersona, // (key, fields) => Promise
-  onRemoveMember, // (id) => Promise
+  onRemoveMember, // (id) => Promise — null si pas de droit
   onDetachMember, // (id) => Promise
   // Ouvrir la modale Présence (réutilisée)
   onOpenPresence, // (persona) => void
@@ -374,24 +378,25 @@ export default function MembreDrawer({
                     row={row}
                     isChild={isChild}
                     canEdit={canEdit}
+                    // EQUIPE-PERM : la suppression d'une row est une action
+                    // distincte de canEdit (un prestataire en canEdit ne
+                    // peut PAS supprimer). Le bouton Retirer est masqué
+                    // dans la PosteCard si canDeleteMember=false.
+                    canDelete={canDeleteMember}
                     lots={lots}
                     lotInfoMap={lotInfoMap}
                     lineLotMap={lineLotMap}
                     categories={categories}
-                    // Rattacher disponible uniquement s'il existe au moins
-                    // un autre poste pour cette persona (sinon AttachModal
-                    // afficherait "aucun candidat").
                     hasAttachCandidates={personaRows.length >= 2}
                     onUpdateMember={onUpdateMember}
-                    onRemove={() => handleRemoveRow(row)}
+                    onRemove={
+                      canDeleteMember ? () => handleRemoveRow(row) : null
+                    }
                     onDetach={isChild ? () => handleDetachRow(row) : null}
                     onAttach={
                       onOpenAttach && personaRows.length >= 2 && !isChild
                         ? () => {
                             onOpenAttach(row)
-                            // Le drawer se ferme tout seul (TechListView
-                            // gère l'AttachModal en parallèle), pour ne pas
-                            // empiler les 2 panneaux à droite.
                             onClose?.()
                           }
                         : null
@@ -486,6 +491,10 @@ function PosteCard({
   row,
   isChild,
   canEdit,
+  // EQUIPE-PERM : gate fin sur la suppression. canEdit=true sans
+  // canDelete (= prestataire en canEdit) → tout le reste éditable mais
+  // pas le bouton Retirer.
+  canDelete = true,
   lots,
   lotInfoMap,
   lineLotMap,
@@ -731,7 +740,10 @@ function PosteCard({
             Détacher
           </button>
         )}
-        {canEdit && (
+        {/* EQUIPE-PERM : Retirer gated par canDelete (= canDeleteMember au
+            niveau drawer). Un prestataire en canEdit ne peut pas voir
+            ce bouton — la suppression reste réservée aux rôles internes. */}
+        {canEdit && canDelete && onRemove && (
           <button
             type="button"
             onClick={onRemove}

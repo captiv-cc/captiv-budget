@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import { notify } from '../../lib/notify'
 import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/cotisations'
 import { getBlocInfo } from '../../lib/blocs'
@@ -107,7 +109,29 @@ function regimeStyle(regime) {
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function EquipeTab() {
   const { project, projectId, lots, refDevisByLot } = useProjet()
-  const { canSeeFinance, canSeeCrewBudget, org } = useAuth()
+  const { canSeeFinance, canSeeCrewBudget, org, isInternal } = useAuth()
+
+  // ── EQUIPE-PERM (2026-05) — Permissions par projet ────────────────────────
+  // Capabilities dérivées :
+  //   canReadEquipe        : tout le monde qui a au moins read sur OUTILS.EQUIPE
+  //   canEditEquipe        : edit sur OUTILS.EQUIPE — pilote tout le mode
+  //                          édition (Crew list + add/remove/share/etc.)
+  //   canSeeAttribution    : Attribution n'est visible qu'en mode edit
+  //                          (en mode "vue prestataire" → cachée)
+  //   canEditAnnuaire      : modifier les fiches contacts (table contacts)
+  //                          → réservé aux rôles internes uniquement
+  //   canDeleteEquipeMember: supprimer une attribution (projet_membres)
+  //                          → réservé aux rôles internes (un prestataire
+  //                          en canEdit ne peut PAS supprimer)
+  //   canShareEquipeWeb    : créer / configurer des liens de partage public
+  //                          → autorisé dès que canEditEquipe (admin + cp +
+  //                          coord + prestataire en canEdit)
+  const { can: canProject } = useProjectPermissions(projectId)
+  const canEditEquipe = canProject(OUTILS.EQUIPE, ACTIONS.EDIT)
+  const canSeeAttribution = canEditEquipe
+  const canEditAnnuaire = isInternal
+  const canDeleteEquipeMember = isInternal
+  const canShareEquipeWeb = canEditEquipe
 
   // ── Présence collaborative (EQUIPE-RT-PRESENCE) ──────────────────────────
   // Channel Realtime Presence scopé au projet : qui est sur la page +
@@ -153,7 +177,15 @@ export default function EquipeTab() {
   // ── Onglets équipe ─────────────────────────────────────────────────────
   // 3 modes : techlist (vue terrain) / attribution (vue par poste de devis)
   // / finances (vue par personne avec totaux financiers, gated canSeeCrewBudget).
+  // EQUIPE-PERM : un prestataire en mode "vue" n'a accès QU'à la techlist —
+  // les onglets Attribution + Finances sont masqués (cf. canSeeAttribution +
+  // canSeeCrewBudget). Si l'utilisateur retombe sur un tab qu'il ne peut
+  // plus voir (ex: ses droits ont changé), on le ramène sur 'techlist'.
   const [activeTab, setActiveTab] = useState('techlist') // 'techlist' | 'attribution' | 'finances'
+  useEffect(() => {
+    if (activeTab === 'attribution' && !canSeeAttribution) setActiveTab('techlist')
+    if (activeTab === 'finances' && !canSeeCrewBudget) setActiveTab('techlist')
+  }, [activeTab, canSeeAttribution, canSeeCrewBudget])
 
   // ── Persistance du collapse des lots (localStorage, par projet) ───────────
   const lotCollapseKey = `equipeTab.collapsedLots.${projectId || 'noproj'}`
@@ -209,7 +241,7 @@ export default function EquipeTab() {
   }, [selectedLotId, lotFilterKey])
 
   const load = useCallback(async () => {
-    if (!projectId || refDevisIds.length === 0) {
+    if (!projectId) {
       setCrewLines([])
       setMembres([])
       setCatMap({})
@@ -218,16 +250,12 @@ export default function EquipeTab() {
     }
     setLoading(true)
     try {
-      const [linesRes, catsRes, memsRes] = await Promise.all([
-        supabase
-          .from('devis_lines')
-          .select('*')
-          .in('devis_id', refDevisIds)
-          .order('sort_order'),
-        supabase
-          .from('devis_categories')
-          .select('id, name, devis_id')
-          .in('devis_id', refDevisIds),
+      // EQUIPE-PERM : on charge TOUJOURS projet_membres, indépendamment de
+      // l'accès aux devis. Un prestataire peut ne pas voir les devis (RLS)
+      // mais doit pouvoir consulter / contribuer à l'équipe. Si refDevisIds
+      // est vide → on saute le fetch lignes/catégories (qui retournerait
+      // [] de toute façon) et on n'affiche pas la vue Attribution.
+      const promises = [
         supabase
           .from('projet_membres')
           .select(
@@ -235,13 +263,30 @@ export default function EquipeTab() {
           )
           .eq('project_id', projectId)
           .order('created_at'),
-      ])
+      ]
+      if (refDevisIds.length > 0) {
+        promises.push(
+          supabase
+            .from('devis_lines')
+            .select('*')
+            .in('devis_id', refDevisIds)
+            .order('sort_order'),
+          supabase
+            .from('devis_categories')
+            .select('id, name, devis_id')
+            .in('devis_id', refDevisIds),
+        )
+      }
+      const results = await Promise.all(promises)
+      const memsRes = results[0]
+      const linesRes = results[1] || { data: [] }
+      const catsRes = results[2] || { data: [] }
+
       const crew = (linesRes.data || []).filter(
         (l) => l.is_crew === true || CATS_HUMAINS.includes(l.regime),
       )
       setCrewLines(crew)
       setMembres(memsRes.data || [])
-      // Construire la map category_id → infos du bloc canonique
       const map = {}
       for (const cat of catsRes.data || []) {
         map[cat.id] = getBlocInfo(cat.name)
@@ -492,7 +537,12 @@ export default function EquipeTab() {
       </div>
     )
 
-  if (lotsWithRef.length === 0)
+  // EQUIPE-PERM : empty state affiché UNIQUEMENT quand il n'y a vraiment
+  // rien — ni lots visibles, ni membres déjà ajoutés. Avant ce fix, dès
+  // qu'un user (typiquement prestataire avec RLS limitée) ne voyait pas
+  // les devis, on bloquait toute la page sur cet écran "Aucun devis"
+  // alors qu'il pouvait avoir des projet_membres parfaitement visibles.
+  if (lotsWithRef.length === 0 && membres.length === 0)
     return (
       <div className="flex items-center justify-center p-16">
         <div className="text-center">
@@ -586,7 +636,11 @@ export default function EquipeTab() {
       >
         {[
           { k: 'techlist', l: 'Crew list', hint: 'Vue terrain — qui est là quand, secteur, présence, hébergement' },
-          { k: 'attribution', l: 'Attribution', hint: 'Gérer les postes du devis un par un' },
+          // EQUIPE-PERM : Attribution masquée pour un prestataire en mode
+          // "vue" (canSeeAttribution = canEditEquipe).
+          ...(canSeeAttribution
+            ? [{ k: 'attribution', l: 'Attribution', hint: 'Gérer les postes du devis un par un' }]
+            : []),
           // Vue Finances : visible uniquement par les rôles internes (admin /
           // chargé prod / coordinateur) car expose les budgets HT.
           ...(canSeeCrewBudget
@@ -620,7 +674,13 @@ export default function EquipeTab() {
         <TechListView
           project={project}
           projectId={projectId}
-          canEdit={true}
+          canEdit={canEditEquipe}
+          // EQUIPE-PERM : capabilities granulaires propagées aux composants
+          // descendants (drawer, share modal, etc.). Voir le bloc en haut
+          // du fichier pour la doc.
+          canEditAnnuaire={canEditAnnuaire}
+          canDeleteEquipeMember={canDeleteEquipeMember}
+          canShareEquipeWeb={canShareEquipeWeb}
           selectedLotId={selectedLotId}
           lineLotMap={lineLotMap}
           lotInfoMap={lotInfoMap}
