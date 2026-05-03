@@ -381,108 +381,127 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
 
   return (
     <li
-      className="rounded-lg overflow-hidden transition-all"
+      className="rounded-lg overflow-hidden transition-all flex flex-col"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
         opacity: archived ? 0.6 : 1,
       }}
     >
-      {/* Click area = ouvrir le plan */}
+      {/* Vignette en haut, pleine largeur, ratio 4:3 — clic = ouvrir le plan.
+          Si pas de thumbnail (génération échouée ou plan ancien), on
+          affiche l'icône fichier centrée dans la même zone, sur fond
+          coloré teinté de la catégorie. */}
       <button
         type="button"
         onClick={onOpen}
-        className="w-full text-left p-3 flex items-start gap-3"
+        className="relative w-full overflow-hidden flex items-center justify-center"
+        style={{
+          aspectRatio: '4 / 3',
+          background: thumbUrl
+            ? '#ffffff'
+            : category
+              ? `${category.color}1f`
+              : 'var(--bg-elev)',
+          borderBottom: '1px solid var(--brd-sub)',
+        }}
+        title="Ouvrir le plan"
       >
-        <div
-          className="w-14 h-14 rounded-md overflow-hidden flex items-center justify-center shrink-0"
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt={plan.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={() => setThumbUrl(null)}
+          />
+        ) : (
+          <FileIcon
+            className="w-12 h-12"
+            style={{
+              color: category ? category.color : 'var(--txt-2)',
+              opacity: 0.6,
+            }}
+          />
+        )}
+        {/* Badge version en overlay top-right */}
+        {plan.current_version > 1 && (
+          <span
+            className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+            style={{
+              background: 'rgba(0,0,0,0.6)',
+              color: 'white',
+              backdropFilter: 'blur(4px)',
+            }}
+            title={`Version ${plan.current_version}`}
+          >
+            V{plan.current_version}
+          </span>
+        )}
+        {/* Badge type fichier en overlay bottom-right */}
+        <span
+          className="absolute bottom-2 right-2 text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase shadow-sm"
           style={{
-            background: thumbUrl
-              ? '#ffffff'
-              : category
-                ? `${category.color}1f`
-                : 'var(--bg-elev)',
-            border: thumbUrl ? '1px solid var(--brd-sub)' : 'none',
+            background: 'rgba(0,0,0,0.6)',
+            color: 'white',
+            backdropFilter: 'blur(4px)',
           }}
         >
-          {thumbUrl ? (
-            <img
-              src={thumbUrl}
-              alt=""
-              className="w-full h-full object-cover"
-              loading="lazy"
-              onError={() => setThumbUrl(null)}
-            />
-          ) : (
-            <FileIcon
-              className="w-6 h-6"
-              style={{ color: category ? category.color : 'var(--txt-2)' }}
-            />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-1.5">
-            <h3 className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
-              {plan.name}
-            </h3>
-            {plan.current_version > 1 && (
-              <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
-                style={{
-                  background: 'var(--bg-hov)',
-                  color: 'var(--txt-3)',
-                }}
-                title={`Version ${plan.current_version}`}
-              >
-                V{plan.current_version}
-              </span>
-            )}
-          </div>
-          <div
-            className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            {category && (
-              <span className="inline-flex items-center gap-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: category.color }}
-                />
-                {category.label}
-                {category.is_archived && (
-                  <span style={{ color: 'var(--orange)' }}>(archivée)</span>
-                )}
-              </span>
-            )}
-            <span className="uppercase">{plan.file_type}</span>
-            <span>{formatFileSize(plan.file_size)}</span>
-            {plan.applicable_dates?.length > 0 && (
-              <span className="inline-flex items-center gap-0.5" title={plan.applicable_dates.join(', ')}>
-                <Calendar className="w-3 h-3" />
-                {formatDatesShort(plan.applicable_dates)}
-              </span>
-            )}
-          </div>
-          {plan.tags?.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {plan.tags.slice(0, 4).map((t) => (
-                <span
-                  key={t}
-                  className="text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
-                >
-                  {t}
-                </span>
-              ))}
-              {plan.tags.length > 4 && (
-                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                  +{plan.tags.length - 4}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+          {plan.file_type}
+        </span>
       </button>
+
+      {/* Bloc texte sous la vignette */}
+      <div className="p-3 flex-1 flex flex-col gap-1.5 min-w-0">
+        <h3 className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+          {plan.name}
+        </h3>
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {category && (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: category.color }}
+              />
+              {category.label}
+              {category.is_archived && (
+                <span style={{ color: 'var(--orange)' }}>(archivée)</span>
+              )}
+            </span>
+          )}
+          <span>{formatFileSize(plan.file_size)}</span>
+          {plan.applicable_dates?.length > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5"
+              title={plan.applicable_dates.join(', ')}
+            >
+              <Calendar className="w-3 h-3" />
+              {formatDatesShort(plan.applicable_dates)}
+            </span>
+          )}
+        </div>
+        {plan.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {plan.tags.slice(0, 4).map((t) => (
+              <span
+                key={t}
+                className="text-[10px] px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
+              >
+                {t}
+              </span>
+            ))}
+            {plan.tags.length > 4 && (
+              <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                +{plan.tags.length - 4}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Footer actions */}
       <div
