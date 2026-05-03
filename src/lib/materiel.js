@@ -643,11 +643,17 @@ export async function duplicateBlock(blockId) {
 }
 
 export async function reorderBlocks(orderedIds) {
-  await Promise.all(
+  // Important : on inspecte chaque `{error}` car supabase-js ne throw PAS
+  // sur erreur RLS / contrainte. Avant ce check, un échec silencieux laissait
+  // l'UI revenir à l'ordre initial après bumpReload sans aucun feedback.
+  const results = await Promise.all(
     orderedIds.map((id, idx) =>
       supabase.from('matos_blocks').update({ sort_order: idx }).eq('id', id),
     ),
   )
+  for (const res of results) {
+    if (res?.error) throw res.error
+  }
 }
 
 export async function deleteBlock(blockId) {
@@ -707,11 +713,16 @@ export async function updateItem(itemId, fields) {
 }
 
 export async function reorderItems(orderedIds) {
-  await Promise.all(
+  // Idem reorderBlocks : on inspecte chaque erreur sinon les RLS / contraintes
+  // échouent silencieusement.
+  const results = await Promise.all(
     orderedIds.map((id, idx) =>
       supabase.from('matos_items').update({ sort_order: idx }).eq('id', id),
     ),
   )
+  for (const res of results) {
+    if (res?.error) throw res.error
+  }
 }
 
 export async function deleteItem(itemId) {

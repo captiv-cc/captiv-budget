@@ -395,10 +395,38 @@ export function useMateriel(projectId) {
     [bumpReload],
   )
 
+  // MAT-9B-opt : reorder blocs avec optimistic update + rollback.
+  // Avant : on attendait simplement le write DB puis bumpReload(). Si le
+  // write échouait silencieusement (cf. reorderBlocks lib pré-fix erreur),
+  // bumpReload remettait l'ancien ordre sans feedback.
+  // Maintenant : on patche `sort_order` localement immédiatement (UI à jour
+  // dès le drop), puis le bumpReload final resynchronise. En cas d'erreur,
+  // bumpReload aussi → rollback implicite via refetch + propagation throw
+  // pour que BlockList affiche `notify.error`.
   const reorderBlocksAction = useCallback(
     async (orderedIds) => {
-      await M.reorderBlocks(orderedIds)
-      bumpReload()
+      // Patch optimiste : applique le nouvel ordre tout de suite.
+      setBlocks((prev) => {
+        const byId = new Map(prev.map((b) => [b.id, b]))
+        const reordered = []
+        orderedIds.forEach((id, idx) => {
+          const block = byId.get(id)
+          if (block) {
+            reordered.push({ ...block, sort_order: idx })
+            byId.delete(id)
+          }
+        })
+        // Conserve les blocs non listés (paranoïa : ne devrait pas arriver).
+        for (const remaining of byId.values()) reordered.push(remaining)
+        return reordered
+      })
+      try {
+        await M.reorderBlocks(orderedIds)
+        bumpReload()
+      } catch (err) {
+        bumpReload() // rollback via refetch
+        throw err
+      }
     },
     [bumpReload],
   )
