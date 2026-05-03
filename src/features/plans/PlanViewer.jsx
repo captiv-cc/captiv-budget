@@ -261,15 +261,27 @@ function PdfPagesViewer({ signedUrl }) {
         // Render chaque page sur un canvas → toDataURL pour <img>.
         // Échelle adaptative selon la largeur du container (×2 pour la
         // densité écran / hi-dpi).
+        // targetWidth = largeur cible du rendu logique (avant scale hi-dpi).
+        // On cap à 2400px pour permettre au rendu d'être net même au zoom
+        // max ×6 sans trop exploser la mémoire (PDF rendu à environ
+        // 2400 × renderScaleFactor pixels sur le canvas source).
         const containerWidth = containerRef.current?.clientWidth || 800
-        const targetWidth = Math.min(containerWidth - 32, 1600) // padding
+        const targetWidth = Math.min(containerWidth - 16, 2400)
         const dataUrls = []
+
+        // Échelle de rendu : on prend en compte le device pixel ratio
+        // pour rester net même sur écrans Retina / Pro Motion. Multiplié
+        // par 2 supplémentaires pour anticiper le zoom utilisateur (max
+        // ×6 dans le viewer). Cap à ×6 absolu pour ne pas exploser la
+        // mémoire sur PDF déjà très grands.
+        const dpr = window.devicePixelRatio || 1
+        const renderScaleFactor = Math.min(Math.max(dpr * 2, 3), 6)
 
         for (let pageNum = 1; pageNum <= numPages; pageNum++) {
           if (cancelled) return
           const page = await pdfDoc.getPage(pageNum)
           const baseViewport = page.getViewport({ scale: 1 })
-          const scale = (targetWidth / baseViewport.width) * 2 // ×2 pour hi-dpi
+          const scale = (targetWidth / baseViewport.width) * renderScaleFactor
           const viewport = page.getViewport({ scale })
           const canvas = document.createElement('canvas')
           canvas.width = Math.ceil(viewport.width)
@@ -303,7 +315,7 @@ function PdfPagesViewer({ signedUrl }) {
   }, [signedUrl])
 
   return (
-    <div ref={containerRef} className="w-full pt-12 pb-4 px-4 flex flex-col items-center gap-4">
+    <div ref={containerRef} className="w-full pt-12 pb-4 px-0 sm:px-4 flex flex-col items-center gap-3 sm:gap-4">
       {pages.map((page, idx) => (
         <PdfPage
           key={page.num}
@@ -366,12 +378,18 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
               <img
                 src={dataUrl}
                 alt={`Page ${pageNum}`}
-                className="block select-none"
+                // Sizing :
+                //   - mobile (<640px) : pleine largeur viewport, hauteur
+                //     naturelle. L'user scroll verticalement dans la page,
+                //     ce qui est plus pratique pour lire les détails sans
+                //     avoir à zoomer constamment.
+                //   - desktop (≥640px) : page entière visible à l'écran
+                //     (max-h: calc(100vh - 96px)) → controls toujours
+                //     accessibles, l'user zoom pour les détails.
+                className="block select-none w-full sm:w-auto sm:max-h-[calc(100vh-96px)]"
                 draggable={false}
                 style={{
                   maxWidth: '100%',
-                  maxHeight: 'calc(100vh - 96px)',
-                  width: 'auto',
                   height: 'auto',
                 }}
               />
