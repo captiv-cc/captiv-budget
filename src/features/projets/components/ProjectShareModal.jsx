@@ -1195,8 +1195,10 @@ function LivrablesSubForm({ config, onConfigChange }) {
 
 // ─── Sub-form Matériel ──────────────────────────────────────────────────────
 //
-// Mode version (active suivante / snapshot figé) + 6 toggles. Strictement
-// aligné sur MaterielShareModal pour cohérence côté admin.
+// Mode version (active suivante / snapshot figé) + 2 toggles configurables
+// (loueurs, remarques). Les autres options (qté, flags, checklist, photos)
+// sont figées côté front via normalizeShareConfig (cf. matosShare.js).
+// Strictement aligné sur MaterielShareModal pour cohérence côté admin.
 
 function MaterielSubForm({ config, onConfigChange, versions = [] }) {
   const versionMode = config?.version_id ? 'snapshot' : 'active'
@@ -1296,34 +1298,10 @@ function MaterielSubForm({ config, onConfigChange, versions = [] }) {
           hint="Affiche les fournisseurs (numéro de série jamais exposé)"
         />
         <Toggle
-          checked={config?.show_quantites !== false}
-          onChange={(v) => onConfigChange({ show_quantites: v })}
-          label="Quantités"
-          hint="Colonne Qté"
-        />
-        <Toggle
           checked={Boolean(config?.show_remarques)}
           onChange={(v) => onConfigChange({ show_remarques: v })}
           label="Remarques"
           hint="Notes internes (à activer si pertinentes pour le destinataire)"
-        />
-        <Toggle
-          checked={Boolean(config?.show_flags)}
-          onChange={(v) => onConfigChange({ show_flags: v })}
-          label="Flags (OK / Attention / Problème)"
-          hint="État de chaque item"
-        />
-        <Toggle
-          checked={Boolean(config?.show_checklist)}
-          onChange={(v) => onConfigChange({ show_checklist: v })}
-          label="Checklist (Pré / Post / Prod)"
-          hint="Mode tournage — états des cases cochées"
-        />
-        <Toggle
-          checked={Boolean(config?.show_photos)}
-          onChange={(v) => onConfigChange({ show_photos: v })}
-          label="Photos"
-          hint="Photos d\u2019item / pelicase (V2 — pas encore visible côté public)"
         />
       </div>
     </>

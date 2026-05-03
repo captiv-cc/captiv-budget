@@ -46,14 +46,14 @@ export const DEFAULT_PAGE_CONFIGS = {
     show_envoi_prevu: true,
     show_feedback: true,
   },
+  // Matériel : seuls 2 toggles sont configurables côté admin (loueurs,
+  // remarques). Les autres options (qté, flags, checklist, photos) sont
+  // figées à des valeurs fixes côté front via normalizeShareConfig dans
+  // matosShare.js — peu importe ce qui est stocké dans le payload.
   materiel: {
     version_id: null,
     show_loueurs: true,
-    show_quantites: true,
     show_remarques: false,
-    show_flags: false,
-    show_checklist: false,
-    show_photos: false,
   },
 }
 

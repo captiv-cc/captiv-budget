@@ -21,33 +21,40 @@ const TOKEN_BYTES = 24 // 24 bytes → 32 chars base64url
 /* ─── Config par défaut ─────────────────────────────────────────────────── */
 
 /**
- * Toggles d'affichage par défaut. Cohérent avec la décision Hugo :
- *   - Loueurs + qté visibles (utile pour le client / DOP)
- *   - Remarques + flags + checklist + photos masqués (interne par défaut)
+ * Toggles d'affichage par défaut.
+ *
+ * Décision Hugo (matos-share-polish-2) : seuls 2 toggles restent
+ * configurables par l'admin pour simplifier la modale. Les 4 autres
+ * sont figés à des valeurs fixes côté front via normalizeShareConfig :
+ *   - show_quantites : toujours ON (info de base utile)
+ *   - show_flags     : toujours OFF (interne)
+ *   - show_checklist : toujours OFF (mode tournage interne)
+ *   - show_photos    : toujours OFF (V2 — pas encore implémenté)
+ *
+ * Si la DB d'un vieux token a `show_flags=true` (avant la simplification),
+ * la valeur est ignorée — c'est volontaire, on aligne le comportement
+ * sur les nouveaux tokens.
  */
 export const DEFAULT_SHARE_CONFIG = Object.freeze({
   show_loueurs:    true,
-  show_quantites:  true,
   show_remarques:  false,
-  show_flags:      false,
-  show_checklist:  false,
-  show_photos:     false,
 })
 
 /**
  * Garantit qu'une config est toujours complète (merge avec defaults).
- * Utile pour la lecture côté UI quand un vieux token aurait une shape
- * partielle.
+ * Force les 4 toggles non-configurables à leurs valeurs fixes (cf. doc
+ * de DEFAULT_SHARE_CONFIG) — peu importe ce qui est stocké en DB.
  */
 export function normalizeShareConfig(config) {
   const c = config && typeof config === 'object' ? config : {}
   return {
     show_loueurs:    c.show_loueurs    !== undefined ? Boolean(c.show_loueurs)    : DEFAULT_SHARE_CONFIG.show_loueurs,
-    show_quantites:  c.show_quantites  !== undefined ? Boolean(c.show_quantites)  : DEFAULT_SHARE_CONFIG.show_quantites,
     show_remarques:  c.show_remarques  !== undefined ? Boolean(c.show_remarques)  : DEFAULT_SHARE_CONFIG.show_remarques,
-    show_flags:      c.show_flags      !== undefined ? Boolean(c.show_flags)      : DEFAULT_SHARE_CONFIG.show_flags,
-    show_checklist:  c.show_checklist  !== undefined ? Boolean(c.show_checklist)  : DEFAULT_SHARE_CONFIG.show_checklist,
-    show_photos:     c.show_photos     !== undefined ? Boolean(c.show_photos)     : DEFAULT_SHARE_CONFIG.show_photos,
+    // Toggles figés (non-configurables côté admin)
+    show_quantites:  true,
+    show_flags:      false,
+    show_checklist:  false,
+    show_photos:     false,
   }
 }
 

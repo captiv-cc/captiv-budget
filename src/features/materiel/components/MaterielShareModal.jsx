@@ -8,7 +8,8 @@
 //   1. Créer un nouveau lien /share/materiel/:token avec :
 //      - Label interne
 //      - Mode version (active suivante OU snapshot figé sur Vx)
-//      - 6 toggles (loueurs, qté, remarques, flags, checklist, photos)
+//      - 2 toggles (loueurs, remarques) — les autres sont figés côté front
+//        (cf. normalizeShareConfig dans matosShare.js)
 //      - Expiration optionnelle
 //   2. Lister les liens actifs + révoqués/expirés du projet
 //   3. Copier l'URL, ouvrir, renommer, révoquer/restaurer, supprimer
@@ -598,34 +599,10 @@ function CreateFormSection({
                 hint="Affiche les fournisseurs (numéro de série jamais exposé)"
               />
               <Toggle
-                checked={config.show_quantites}
-                onChange={(v) => setConfig({ ...config, show_quantites: v })}
-                label="Quantités"
-                hint="Colonne Qté"
-              />
-              <Toggle
                 checked={config.show_remarques}
                 onChange={(v) => setConfig({ ...config, show_remarques: v })}
                 label="Remarques"
                 hint="Notes internes (à activer si pertinentes pour le destinataire)"
-              />
-              <Toggle
-                checked={config.show_flags}
-                onChange={(v) => setConfig({ ...config, show_flags: v })}
-                label="Flags (OK / Attention / Problème)"
-                hint="État de chaque item"
-              />
-              <Toggle
-                checked={config.show_checklist}
-                onChange={(v) => setConfig({ ...config, show_checklist: v })}
-                label="Checklist (Pré / Post / Prod)"
-                hint="Mode tournage — états des cases cochées"
-              />
-              <Toggle
-                checked={config.show_photos}
-                onChange={(v) => setConfig({ ...config, show_photos: v })}
-                label="Photos"
-                hint="Photos d\u2019item / pelicase (V2 — pas encore visible côté public)"
               />
             </div>
           </Field>
@@ -789,17 +766,14 @@ function TokenCard({
             </code>
           </div>
 
-          {/* Config résumée */}
+          {/* Config résumée — seuls les 2 toggles configurables sont
+              affichés (les autres sont figés, cf. matosShare.js) */}
           <div
             className="mt-1.5 flex items-center gap-1 flex-wrap text-[10px]"
             style={{ color: 'var(--txt-3)' }}
           >
             {cfg.show_loueurs   && <ConfigPill label="Loueurs" />}
-            {cfg.show_quantites && <ConfigPill label="Qté" />}
             {cfg.show_remarques && <ConfigPill label="Remarques" />}
-            {cfg.show_flags     && <ConfigPill label="Flags" />}
-            {cfg.show_checklist && <ConfigPill label="Checklist" />}
-            {cfg.show_photos    && <ConfigPill label="Photos" />}
           </div>
         </div>
       </div>
