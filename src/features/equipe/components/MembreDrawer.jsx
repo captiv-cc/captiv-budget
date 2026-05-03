@@ -29,6 +29,8 @@ import {
   Trash2,
   Link2,
   GitMerge,
+  Edit2,
+  Check,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -963,6 +965,11 @@ function AdhocIdentityPanel({ persona, canEdit, onUpdatePersona }) {
 // projets de l'org). Modifier ici = modifier la fiche annuaire pour TOUS
 // les projets — c'est l'effet attendu d'un changement de coordonnées.
 //
+// Toggle d'édition : par défaut on affiche un récap read-only (Mail/Phone/
+// MapPin + valeurs). Un petit bouton crayon en haut à droite passe en
+// mode édition (5 inputs : prenom, nom, email, telephone, ville). Re-clic
+// sur le bouton (devenu coche) repasse en read-only.
+//
 // L'admin doit avoir le droit d'éditer la BDD contacts (canEdit=true côté
 // MembreDrawer + onUpdateContact fourni par TechListView). Les modifs sont
 // commit on-blur ; un appel à reload() se fait côté useCrew après l'update
@@ -973,6 +980,7 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
   // n'utilise pas persona.email/telephone/ville (qui peuvent inclure des
   // overrides projet_membres) pour ne pas créer d'incohérence.
   const c = persona.contact || {}
+  const [editing, setEditing] = useState(false)
   const [prenom, setPrenom] = useState(c.prenom || '')
   const [nom, setNom] = useState(c.nom || '')
   const [email, setEmail] = useState(c.email || '')
@@ -986,6 +994,19 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
   useEffect(() => setTelephone(c.telephone || ''), [c.telephone])
   useEffect(() => setVille(c.ville || ''), [c.ville])
 
+  // Quand on quitte l'édition, on resync les drafts depuis la source
+  // (annule les modifications non commitées en cas de toggle rapide).
+  useEffect(() => {
+    if (!editing) {
+      setPrenom(c.prenom || '')
+      setNom(c.nom || '')
+      setEmail(c.email || '')
+      setTelephone(c.telephone || '')
+      setVille(c.ville || '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing])
+
   function commit(field, value, current) {
     if (!persona.contact_id) return
     const trimmed = typeof value === 'string' ? value.trim() : value
@@ -994,12 +1015,97 @@ function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
     onUpdateContact?.(persona.contact_id, { [field]: next })
   }
 
+  // ─── Mode read-only (par défaut) ──────────────────────────────────────
+  // Reprend l'affichage compact "icone + valeur" historique. Le bouton
+  // crayon est positionné en absolute top-right pour ne pas pousser le
+  // contenu. On affiche le panneau même si toutes les coords sont vides
+  // (pour permettre d'entrer en édition et les remplir).
+  if (!editing) {
+    const hasAnyInfo = c.email || c.telephone || c.ville
+    return (
+      <div
+        className="relative rounded-md p-3 space-y-1.5 text-xs"
+        style={{
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd-sub)',
+          color: 'var(--txt-2)',
+        }}
+      >
+        {/* Bouton crayon — icône seule, top-right */}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="absolute top-2 right-2 p-1.5 rounded-md transition-colors"
+          style={{ color: 'var(--txt-3)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--blue)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+          title="Modifier les informations annuaire"
+          aria-label="Modifier les informations annuaire"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+        </button>
+
+        {hasAnyInfo ? (
+          <>
+            {c.email && (
+              <div className="flex items-center gap-2 pr-7">
+                <Mail className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                <span className="truncate">{c.email}</span>
+              </div>
+            )}
+            {c.telephone && (
+              <div className="flex items-center gap-2 pr-7">
+                <Phone className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                <span>{c.telephone}</span>
+              </div>
+            )}
+            {c.ville && (
+              <div className="flex items-center gap-2 pr-7">
+                <MapPin className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                <span>{c.ville}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] italic pr-7" style={{ color: 'var(--txt-3)' }}>
+            Aucune coordonnée renseignée. Cliquer le crayon pour en ajouter.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Mode édition ────────────────────────────────────────────────────
   return (
     <div
-      className="rounded-md p-3 space-y-2"
+      className="relative rounded-md p-3 space-y-2"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
     >
-      <div className="grid grid-cols-2 gap-2">
+      {/* Bouton coche pour quitter l'édition (re-passe en read-only) */}
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="absolute top-2 right-2 p-1.5 rounded-md transition-colors z-[1]"
+        style={{ color: 'var(--green, #10b981)' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-hov)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title="Terminer l'édition"
+        aria-label="Terminer l'édition"
+      >
+        <Check className="w-3.5 h-3.5" />
+      </button>
+
+      <div className="grid grid-cols-2 gap-2 pr-7">
         <Field label="Prénom" icon={<User className="w-3 h-3" />}>
           <input
             type="text"
