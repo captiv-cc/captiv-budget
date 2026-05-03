@@ -464,9 +464,15 @@ function Row({
   lotInfoMap,
   devisIdToLotId,
 }) {
+  // Poste résolu (cohérent avec l'admin Crew list / AttributionRow) :
+  // 1. m.specialite — override local sur l'attribution (rename par l'admin).
+  // 2. m.devis_line.produit — poste original de la ligne de devis.
+  // 3. m.contact.specialite — spécialité annuaire (fallback contact ad-hoc).
+  // L'override gagne pour que les renames côté Crew list soient propagés
+  // dans le partage public.
   const poste =
-    m.devis_line?.produit ||
     m.specialite ||
+    m.devis_line?.produit ||
     m.contact?.specialite ||
     '—'
   const fullName = `${m.prenom || ''} ${m.nom || ''}`.trim() || '—'
@@ -717,9 +723,15 @@ function Card({
   lotInfoMap,
   devisIdToLotId,
 }) {
+  // Poste résolu (cohérent avec l'admin Crew list / AttributionRow) :
+  // 1. m.specialite — override local sur l'attribution (rename par l'admin).
+  // 2. m.devis_line.produit — poste original de la ligne de devis.
+  // 3. m.contact.specialite — spécialité annuaire (fallback contact ad-hoc).
+  // L'override gagne pour que les renames côté Crew list soient propagés
+  // dans le partage public.
   const poste =
-    m.devis_line?.produit ||
     m.specialite ||
+    m.devis_line?.produit ||
     m.contact?.specialite ||
     '—'
   const fullName = `${m.prenom || ''} ${m.nom || ''}`.trim() || '—'

@@ -476,9 +476,12 @@ function computeRowGeometry(doc, row, cols) {
   const posteCol = cols.find((c) => c.key === 'poste')
   if (!posteCol) return { rowH: ROW_H, posteLines: ['—'] }
   const persona = row.persona || {}
+  // Override > devis > contact : cohérent avec AttributionRow + share web.
+  // Si l'admin a renommé le poste côté Crew list (row.specialite), on
+  // affiche ce nom plutôt que la valeur d'origine de la ligne de devis.
   const poste =
-    row.devis_line?.produit ||
     row.specialite ||
+    row.devis_line?.produit ||
     persona.contact?.specialite ||
     '—'
   doc.setFont('helvetica', 'bold')

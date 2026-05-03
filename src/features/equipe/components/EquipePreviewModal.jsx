@@ -424,7 +424,9 @@ function Section({ section, showLotDot, presenceDays, lotInfoMap, lineLotMap, br
 }
 
 function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
-  const poste = m.devis_line?.produit || m.specialite || m.contact?.specialite || '—'
+  // Override > devis > contact : cohérent avec AttributionRow (le rename
+  // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
+  const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
   const fullName = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
   const tel = formatPhone(m.contact?.telephone || m.telephone || '')
   const email = m.contact?.email || m.email || ''
@@ -556,7 +558,9 @@ function CardSection({
 }
 
 function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
-  const poste = m.devis_line?.produit || m.specialite || m.contact?.specialite || '—'
+  // Override > devis > contact : cohérent avec AttributionRow (le rename
+  // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
+  const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
   const fullName =
     `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
   const tel = formatPhone(m.contact?.telephone || m.telephone || '')
