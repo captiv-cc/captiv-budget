@@ -503,9 +503,20 @@ function CardsList({ items, config, compact = false }) {
 }
 
 function ItemCard({ item, config, compact = false }) {
+  // Loueurs inline à droite avec la qté (au lieu d'une ligne dédiée)
+  // pour économiser de la hauteur sur mobile (retour Hugo). Si vraiment
+  // beaucoup de loueurs ou noms très longs, le texte truncate (lecture
+  // tronquée acceptable côté share — le destinataire a le contexte).
+  const hasLoueurs =
+    config.show_loueurs && Array.isArray(item.loueurs) && item.loueurs.length > 0
+  const loueursText = hasLoueurs
+    ? item.loueurs.map((l) => l.nom || '—').join(' · ')
+    : null
+  const showRightMeta = config.show_quantites || hasLoueurs
+
   return (
     <li className={`px-3 ${compact ? 'py-1.5' : 'py-2.5'} space-y-1`}>
-      {/* Row 1 : flag + label + designation + qté */}
+      {/* Row 1 : flag + label + designation + (qté · loueurs) */}
       <div className="flex items-center gap-2 min-w-0">
         {config.show_flags && (
           <FlagBadge flag={item.flag} />
@@ -526,32 +537,29 @@ function ItemCard({ item, config, compact = false }) {
             {item.designation}
           </span>
         </div>
-        {config.show_quantites && (
-          <span
-            className="text-sm font-bold shrink-0 tabular-nums"
-            style={{ color: 'var(--txt)' }}
-          >
-            ×{item.quantite ?? '?'}
-          </span>
+        {showRightMeta && (
+          <div className="flex items-center gap-2 shrink-0 min-w-0">
+            {config.show_quantites && (
+              <span
+                className="text-sm font-bold tabular-nums shrink-0"
+                style={{ color: 'var(--txt)' }}
+              >
+                ×{item.quantite ?? '?'}
+              </span>
+            )}
+            {hasLoueurs && (
+              <span
+                className="text-[11px] truncate"
+                style={{ color: 'var(--txt-3)', maxWidth: '40vw' }}
+                title={loueursText}
+              >
+                {loueursText}
+              </span>
+            )}
+          </div>
         )}
       </div>
-      {/* Row 2 : loueurs */}
-      {config.show_loueurs && Array.isArray(item.loueurs) && item.loueurs.length > 0 && (
-        <div
-          className="text-[11px] flex flex-wrap gap-x-1.5"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          {item.loueurs.map((l, idx) => (
-            <span key={l.id || idx}>
-              {l.nom || '—'}
-              {idx < item.loueurs.length - 1 && (
-                <span style={{ color: 'var(--txt-3)' }}> · </span>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-      {/* Row 3 : checklist (si toggle) */}
+      {/* Row 2 : checklist (si toggle) */}
       {config.show_checklist && (
         <div className="text-[10px] flex gap-3" style={{ color: 'var(--txt-3)' }}>
           <ChecklistMicro label="Pré"  done={Boolean(item.pre_check_at)} />
@@ -559,7 +567,7 @@ function ItemCard({ item, config, compact = false }) {
           <ChecklistMicro label="Prod" done={Boolean(item.prod_check_at)} />
         </div>
       )}
-      {/* Row 4 : remarques */}
+      {/* Row 3 : remarques */}
       {config.show_remarques && item.remarques && (
         <p
           className="text-[11px] italic"
