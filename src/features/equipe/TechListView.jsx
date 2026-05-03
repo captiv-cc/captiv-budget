@@ -240,25 +240,41 @@ export default function TechListView({
   //
   // On hydrate UNE FOIS par projet (hydratedFromDbRef). Sans ça, les
   // changements locaux post-mount seraient écrasés par chaque arrivée de
-  // données. Si la DB est vide (cas legacy), on garde le state local
-  // (init depuis localStorage).
+  // données. Si la DB est vide (cas legacy / projet jamais configuré),
+  // on garde le state local (init depuis localStorage) MAIS on marque
+  // l'hydratation comme done pour DÉBLOQUER la persistance DB qui va
+  // alors écrire les valeurs localStorage en base — c'est ce qui permet
+  // le 1er sync : un admin desktop avec des données dans son localStorage
+  // les pousse en DB dès qu'il ouvre la Crew list, et les autres devices
+  // peuvent ensuite hériter.
+  //
+  // Garde-fou : on attend que le project soit bien défini (project?.id
+  // === projectId) avant de marquer hydraté, sinon on pourrait hydrater
+  // contre un project encore null et bloquer pour rien.
   const hydratedFromDbRef = useRef(null)
   useEffect(() => {
     if (!projectId) return
     if (hydratedFromDbRef.current === projectId) return
+    // Attendre que le project soit chargé pour ce projectId avant de
+    // marquer l'hydratation faite.
+    if (!project || project.id !== projectId) return
     const meta = project?.metadata?.equipe
-    if (!meta || typeof meta !== 'object') return
-    if (Array.isArray(meta.extra_categories)) {
-      setExtraCategories(meta.extra_categories)
+    if (meta && typeof meta === 'object') {
+      if (Array.isArray(meta.extra_categories)) {
+        setExtraCategories(meta.extra_categories)
+      }
+      if (Array.isArray(meta.hidden_categories)) {
+        setHiddenCategories(meta.hidden_categories)
+      }
+      if (Array.isArray(meta.category_order)) {
+        setCategoryOrder(meta.category_order)
+      }
     }
-    if (Array.isArray(meta.hidden_categories)) {
-      setHiddenCategories(meta.hidden_categories)
-    }
-    if (Array.isArray(meta.category_order)) {
-      setCategoryOrder(meta.category_order)
-    }
+    // Toujours marquer comme hydraté, MÊME si la DB est vide — ça
+    // débloque la persistance qui écrira les valeurs localStorage en DB
+    // (donc les autres devices pourront ensuite les hériter).
     hydratedFromDbRef.current = projectId
-  }, [projectId, project?.metadata?.equipe])
+  }, [projectId, project])
 
   // P4-CATEGORIES : persiste les 3 réglages (extra_categories,
   // hidden_categories, category_order) dans projects.metadata.equipe
