@@ -285,7 +285,7 @@ export default function PlansTab() {
       {filteredPlans.length === 0 ? (
         <EmptyState canEdit={canEdit} hasFilters={search || activeCategoryId !== 'all'} onCreate={openCreate} />
       ) : (
-        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <ul className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {filteredPlans.map((plan) => (
             <PlanCard
               key={plan.id}
@@ -389,21 +389,27 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
       }}
     >
       {/* Vignette en haut, pleine largeur, ratio 4:3 — clic = ouvrir le plan.
-          Si pas de thumbnail (génération échouée ou plan ancien), on
-          affiche l'icône fichier centrée dans la même zone, sur fond
-          coloré teinté de la catégorie. */}
+          - cursor zoom-in pour signaler l'interaction
+          - max-height 280px pour cap mobile 1 col (la grille est en 2 col par
+            défaut désormais, mais on garde la safety au cas où layout change)
+          - group + group-hover:scale sur l'image pour effet "vivant" au hover
+          - Si pas de thumbnail (génération échouée ou plan ancien), on
+            affiche l'icône fichier centrée dans la même zone, sur fond
+            coloré teinté de la catégorie. */}
       <button
         type="button"
         onClick={onOpen}
-        className="relative w-full overflow-hidden flex items-center justify-center"
+        className="relative w-full overflow-hidden flex items-center justify-center group"
         style={{
           aspectRatio: '4 / 3',
+          maxHeight: '280px',
           background: thumbUrl
             ? '#ffffff'
             : category
               ? `${category.color}1f`
               : 'var(--bg-elev)',
           borderBottom: '1px solid var(--brd-sub)',
+          cursor: 'zoom-in',
         }}
         title="Ouvrir le plan"
       >
@@ -411,13 +417,13 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
           <img
             src={thumbUrl}
             alt={plan.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
             loading="lazy"
             onError={() => setThumbUrl(null)}
           />
         ) : (
           <FileIcon
-            className="w-12 h-12"
+            className="w-12 h-12 transition-transform duration-200 group-hover:scale-110"
             style={{
               color: category ? category.color : 'var(--txt-2)',
               opacity: 0.6,
