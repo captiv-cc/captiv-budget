@@ -200,8 +200,10 @@ export default function PresenceCalendarModal({
   const lastPresenceDay = sortedDays[sortedDays.length - 1] || null
 
   return (
+    // z-[60] : doit passer au-dessus du MembreDrawer (z-50) quand on
+    // l'ouvre depuis le drawer (sinon le panel droit recouvre la modale).
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6"
       style={{ background: 'rgba(0,0,0,0.5)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose?.()
