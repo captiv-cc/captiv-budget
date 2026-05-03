@@ -21,7 +21,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react'
-import { Download, FileText, Loader2, X } from 'lucide-react'
+import { Download, FileText, Loader2, Maximize, Minus, Plus, X } from 'lucide-react'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import { getSignedUrl, getPlan } from '../../lib/plans'
 import { notify } from '../../lib/notify'
@@ -188,7 +188,7 @@ export default function PlanViewer({ planId, onClose }) {
 
 function ImageViewer({ src, alt }) {
   return (
-    <div className="w-full h-full flex items-center justify-center p-4">
+    <div className="relative w-full h-full flex items-center justify-center p-4">
       <TransformWrapper
         initialScale={1}
         minScale={0.5}
@@ -199,23 +199,32 @@ function ImageViewer({ src, alt }) {
         panning={{ velocityDisabled: true }}
         centerOnInit
       >
-        <TransformComponent
-          wrapperStyle={{ width: '100%', height: '100%' }}
-          contentStyle={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <img
-            src={src}
-            alt={alt}
-            className="max-w-full max-h-full object-contain select-none"
-            draggable={false}
-          />
-        </TransformComponent>
+        {({ zoomIn, zoomOut, resetTransform }) => (
+          <>
+            <TransformComponent
+              wrapperStyle={{ width: '100%', height: '100%' }}
+              contentStyle={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={src}
+                alt={alt}
+                className="max-w-full max-h-full object-contain select-none"
+                draggable={false}
+              />
+            </TransformComponent>
+            <ZoomControls
+              onZoomIn={() => zoomIn()}
+              onZoomOut={() => zoomOut()}
+              onReset={() => resetTransform()}
+            />
+          </>
+        )}
       </TransformWrapper>
     </div>
   )
@@ -294,7 +303,7 @@ function PdfPagesViewer({ signedUrl }) {
   }, [signedUrl])
 
   return (
-    <div ref={containerRef} className="w-full pt-16 pb-4 px-4 flex flex-col items-center gap-4">
+    <div ref={containerRef} className="w-full pt-12 pb-4 px-4 flex flex-col items-center gap-4">
       {pages.map((page, idx) => (
         <PdfPage
           key={page.num}
@@ -330,7 +339,7 @@ function PdfPagesViewer({ signedUrl }) {
 function PdfPage({ dataUrl, pageNum, totalPages }) {
   return (
     <div
-      className="relative w-full max-w-[1200px] rounded overflow-hidden shadow-lg"
+      className="relative w-full max-w-[1600px] rounded overflow-hidden shadow-lg"
       style={{ background: '#fff' }}
     >
       <TransformWrapper
@@ -343,17 +352,26 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
         panning={{ velocityDisabled: true, disabled: false }}
         centerOnInit
       >
-        <TransformComponent
-          wrapperStyle={{ width: '100%' }}
-          contentStyle={{ width: '100%' }}
-        >
-          <img
-            src={dataUrl}
-            alt={`Page ${pageNum}`}
-            className="w-full h-auto block select-none"
-            draggable={false}
-          />
-        </TransformComponent>
+        {({ zoomIn, zoomOut, resetTransform }) => (
+          <>
+            <TransformComponent
+              wrapperStyle={{ width: '100%' }}
+              contentStyle={{ width: '100%' }}
+            >
+              <img
+                src={dataUrl}
+                alt={`Page ${pageNum}`}
+                className="w-full h-auto block select-none"
+                draggable={false}
+              />
+            </TransformComponent>
+            <ZoomControls
+              onZoomIn={() => zoomIn()}
+              onZoomOut={() => zoomOut()}
+              onReset={() => resetTransform()}
+            />
+          </>
+        )}
       </TransformWrapper>
       {/* Badge numéro de page bottom-right */}
       <span
@@ -367,5 +385,52 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
         {pageNum} / {totalPages}
       </span>
     </div>
+  )
+}
+
+/* ─── ZoomControls — barre flottante [+] [-] [Reset] en bas-left ───────── */
+
+function ZoomControls({ onZoomIn, onZoomOut, onReset }) {
+  // Boutons stop-propagation pour ne pas déclencher le toggle "mode immersif"
+  // du parent (clic sur la zone de contenu = cache header). Le user veut
+  // zoomer, pas cacher l'UI.
+  function stop(e) {
+    e.stopPropagation()
+  }
+
+  return (
+    <div
+      onClick={stop}
+      className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md p-1"
+      style={{
+        background: 'rgba(0,0,0,0.65)',
+        backdropFilter: 'blur(6px)',
+      }}
+    >
+      <ZoomBtn onClick={onZoomOut} icon={Minus} title="Dézoomer" />
+      <ZoomBtn onClick={onReset} icon={Maximize} title="Ajuster à l'écran" />
+      <ZoomBtn onClick={onZoomIn} icon={Plus} title="Zoomer" />
+    </div>
+  )
+}
+
+function ZoomBtn({ onClick, icon: Icon, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-7 h-7 flex items-center justify-center rounded transition-colors"
+      style={{ color: 'white' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+      title={title}
+      aria-label={title}
+    >
+      <Icon className="w-3.5 h-3.5" />
+    </button>
   )
 }
