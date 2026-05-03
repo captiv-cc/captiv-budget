@@ -22,16 +22,18 @@ const TOKEN_BYTES = 24 // 24 bytes → 32 chars base64url
 /* ─── Constantes ────────────────────────────────────────────────────────── */
 
 // Pages éligibles dans le portail projet. Pour ajouter une page :
-//   1. Ajouter sa clé ici (ex: 'logistique', 'materiel')
+//   1. Ajouter sa clé ici (ex: 'logistique')
 //   2. Créer la RPC share_projet_<page>_fetch côté SQL
 //   3. Ajouter le fetcher correspondant dans ce fichier
 //   4. Ajouter le hook + la page React + la carte du hub
-export const SHARE_PAGES = ['equipe', 'livrables']
+export const SHARE_PAGES = ['equipe', 'livrables', 'materiel']
 
 // Configuration par défaut pour chaque page (utilisée à la création d'un
 // token si l'admin ne précise rien). Conventions miroir des share dédiés :
 //   - equipe : scope='all', pas de filtre lot, coordonnées visibles
 //   - livrables : pas de calendrier, périodes/envoi/feedback visibles
+//   - materiel : version_id=null (mode 'active'), loueurs+qté visibles,
+//                remarques/flags/checklist/photos masqués
 export const DEFAULT_PAGE_CONFIGS = {
   equipe: {
     scope: 'all',
@@ -43,6 +45,15 @@ export const DEFAULT_PAGE_CONFIGS = {
     show_periodes: true,
     show_envoi_prevu: true,
     show_feedback: true,
+  },
+  materiel: {
+    version_id: null,
+    show_loueurs: true,
+    show_quantites: true,
+    show_remarques: false,
+    show_flags: false,
+    show_checklist: false,
+    show_photos: false,
   },
 }
 
@@ -367,6 +378,20 @@ export async function fetchLivrablesPayload(token, password = null) {
   })
   if (error) {
     console.error('[projectShare] share_projet_livrables_fetch error', error)
+    throw error
+  }
+  if (!data) throw new Error('Token invalide ou page non activée')
+  return data
+}
+
+export async function fetchMaterielPayload(token, password = null) {
+  if (!token) throw new Error('fetchMaterielPayload : token requis')
+  const { data, error } = await supabase.rpc('share_projet_materiel_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
+  if (error) {
+    console.error('[projectShare] share_projet_materiel_fetch error', error)
     throw error
   }
   if (!data) throw new Error('Token invalide ou page non activée')

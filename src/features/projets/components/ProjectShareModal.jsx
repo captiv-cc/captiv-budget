@@ -33,6 +33,7 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Package,
   Pencil,
   Plus,
   RotateCcw,
@@ -41,6 +42,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { supabase } from '../../../lib/supabase'
 import {
   DEFAULT_PAGE_CONFIGS,
   SHARE_PAGES,
@@ -79,6 +81,13 @@ const PAGE_DEFS = {
     color: 'var(--blue)',
     bgColor: 'var(--blue-bg)',
   },
+  materiel: {
+    label: 'Matériel',
+    description: 'Liste matériel — version active ou figée',
+    Icon: Package,
+    color: 'var(--orange)',
+    bgColor: 'var(--orange-bg)',
+  },
 }
 
 // ─── Helpers config ─────────────────────────────────────────────────────────
@@ -111,6 +120,38 @@ export default function ProjectShareModal({
 }) {
   const { tokens, loading, create, update, revoke, restore, remove } =
     useProjectShareTokens(open ? projectId : null)
+
+  // MATOS-SHARE-5 : on charge les matos_versions du projet à l'ouverture
+  // pour alimenter le sub-form "Matériel" (radio active/snapshot + select de
+  // version). Pas de hook dédié — la donnée n'est utilisée qu'ici, dans cette
+  // modale. Retourne tableau vide si aucune version (cas d'un projet matériel
+  // jamais peuplé) → le sub-form se contente alors du mode 'active'.
+  const [materielVersions, setMaterielVersions] = useState([])
+  useEffect(() => {
+    if (!open || !projectId) {
+      setMaterielVersions([])
+      return undefined
+    }
+    let cancelled = false
+    supabase
+      .from('matos_versions')
+      .select('id, numero, label, is_active, created_at')
+      .eq('project_id', projectId)
+      .order('numero', { ascending: true })
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          console.error('[ProjectShareModal] matos_versions fetch', error)
+          setMaterielVersions([])
+          return
+        }
+        setMaterielVersions(data || [])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectId])
 
   const [showRevoked, setShowRevoked] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -467,6 +508,7 @@ export default function ProjectShareModal({
             updatePageConfig={updatePageConfig}
             lots={lots}
             lotInfoMap={lotInfoMap}
+            materielVersions={materielVersions}
             passwordEnabled={passwordEnabled}
             setPasswordEnabled={setPasswordEnabled}
             passwordValue={passwordValue}
@@ -572,6 +614,7 @@ function CreateFormSection({
   updatePageConfig,
   lots,
   lotInfoMap,
+  materielVersions = [],
   passwordEnabled,
   setPasswordEnabled,
   passwordValue,
@@ -710,6 +753,7 @@ function CreateFormSection({
                   }
                   lots={lots}
                   lotInfoMap={lotInfoMap}
+                  materielVersions={materielVersions}
                 />
               ))}
             </div>
@@ -795,6 +839,7 @@ function PageCard({
   onConfigChange,
   lots,
   lotInfoMap,
+  materielVersions = [],
 }) {
   const def = PAGE_DEFS[pageKey]
   if (!def) return null
@@ -858,6 +903,13 @@ function PageCard({
             <LivrablesSubForm
               config={config}
               onConfigChange={onConfigChange}
+            />
+          )}
+          {pageKey === 'materiel' && (
+            <MaterielSubForm
+              config={config}
+              onConfigChange={onConfigChange}
+              versions={materielVersions}
             />
           )}
         </div>
@@ -1139,6 +1191,151 @@ function LivrablesSubForm({ config, onConfigChange }) {
       </div>
     </>
   )
+}
+
+// ─── Sub-form Matériel ──────────────────────────────────────────────────────
+//
+// Mode version (active suivante / snapshot figé) + 6 toggles. Strictement
+// aligné sur MaterielShareModal pour cohérence côté admin.
+
+function MaterielSubForm({ config, onConfigChange, versions = [] }) {
+  const versionMode = config?.version_id ? 'snapshot' : 'active'
+  const activeVersion = versions.find((v) => v.is_active) || null
+
+  return (
+    <>
+      <div>
+        <label
+          className="block text-[10px] font-semibold mb-1"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Version partagée
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => onConfigChange({ version_id: null })}
+            className="text-left rounded px-2 py-1.5 transition-all"
+            style={{
+              background: versionMode === 'active' ? 'var(--blue-bg)' : 'var(--bg-elev)',
+              border: `1px solid ${versionMode === 'active' ? 'var(--blue)' : 'var(--brd)'}`,
+              color: versionMode === 'active' ? 'var(--blue)' : 'var(--txt)',
+            }}
+          >
+            <div className="text-[11px] font-semibold">Version active</div>
+            <div
+              className="text-[9px] mt-0.5 leading-snug"
+              style={{
+                color: versionMode === 'active' ? 'var(--blue)' : 'var(--txt-3)',
+              }}
+            >
+              {activeVersion
+                ? `Suit la courante (${formatVersionLabel(activeVersion)}).`
+                : 'Suit la version active courante du projet.'}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              // Si aucune version sélectionnée, on prend la première dispo
+              // pour démarrer (sinon le bouton resterait inerte).
+              if (!config?.version_id) {
+                const fallback = activeVersion?.id || versions[0]?.id || null
+                if (fallback) onConfigChange({ version_id: fallback })
+                else onConfigChange({}) // pas de versions — laisse comme tel
+              }
+            }}
+            disabled={versions.length === 0}
+            className="text-left rounded px-2 py-1.5 transition-all"
+            style={{
+              background: versionMode === 'snapshot' ? 'var(--blue-bg)' : 'var(--bg-elev)',
+              border: `1px solid ${versionMode === 'snapshot' ? 'var(--blue)' : 'var(--brd)'}`,
+              color: versionMode === 'snapshot' ? 'var(--blue)' : 'var(--txt)',
+              opacity: versions.length === 0 ? 0.5 : 1,
+              cursor: versions.length === 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <div className="text-[11px] font-semibold">Version figée</div>
+            <div
+              className="text-[9px] mt-0.5 leading-snug"
+              style={{
+                color: versionMode === 'snapshot' ? 'var(--blue)' : 'var(--txt-3)',
+              }}
+            >
+              Snapshot — le lien ne change pas si une autre version devient active.
+            </div>
+          </button>
+        </div>
+        {versionMode === 'snapshot' && (
+          <select
+            value={config?.version_id || ''}
+            onChange={(e) => onConfigChange({ version_id: e.target.value || null })}
+            className="mt-2 w-full text-xs px-2 py-1.5 rounded outline-none"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            <option value="">Sélectionner une version…</option>
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {formatVersionLabel(v)}
+                {v.is_active ? ' · active' : ''}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        <Toggle
+          checked={config?.show_loueurs !== false}
+          onChange={(v) => onConfigChange({ show_loueurs: v })}
+          label="Loueur(s)"
+          hint="Affiche les fournisseurs (numéro de série jamais exposé)"
+        />
+        <Toggle
+          checked={config?.show_quantites !== false}
+          onChange={(v) => onConfigChange({ show_quantites: v })}
+          label="Quantités"
+          hint="Colonne Qté"
+        />
+        <Toggle
+          checked={Boolean(config?.show_remarques)}
+          onChange={(v) => onConfigChange({ show_remarques: v })}
+          label="Remarques"
+          hint="Notes internes (à activer si pertinentes pour le destinataire)"
+        />
+        <Toggle
+          checked={Boolean(config?.show_flags)}
+          onChange={(v) => onConfigChange({ show_flags: v })}
+          label="Flags (OK / Attention / Problème)"
+          hint="État de chaque item"
+        />
+        <Toggle
+          checked={Boolean(config?.show_checklist)}
+          onChange={(v) => onConfigChange({ show_checklist: v })}
+          label="Checklist (Pré / Post / Prod)"
+          hint="Mode tournage — états des cases cochées"
+        />
+        <Toggle
+          checked={Boolean(config?.show_photos)}
+          onChange={(v) => onConfigChange({ show_photos: v })}
+          label="Photos"
+          hint="Photos d\u2019item / pelicase (V2 — pas encore visible côté public)"
+        />
+      </div>
+    </>
+  )
+}
+
+function formatVersionLabel(v) {
+  if (!v) return 'Version'
+  if (v.label) {
+    return `${v.numero ? `V${v.numero} ` : ''}${v.label}`
+  }
+  return v.numero ? `V${v.numero}` : 'Version'
 }
 
 // ════════════════════════════════════════════════════════════════════════════

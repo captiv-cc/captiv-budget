@@ -27,6 +27,7 @@ import {
   fetchHubPayload,
   fetchEquipePayload,
   fetchLivrablesPayload,
+  fetchMaterielPayload,
   getStoredSharePassword,
   storeSharePassword,
   detectPasswordError,
@@ -145,4 +146,8 @@ export function useProjectShareEquipe(token) {
 
 export function useProjectShareLivrables(token) {
   return useProjectSharePayload(token, fetchLivrablesPayload)
+}
+
+export function useProjectShareMateriel(token) {
+  return useProjectSharePayload(token, fetchMaterielPayload)
 }

@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  AlertCircle, Loader2, Users, CheckSquare, ChevronRight,
+  AlertCircle, Loader2, Users, CheckSquare, Package, ChevronRight,
 } from 'lucide-react'
 import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -60,6 +60,20 @@ const PAGE_REGISTRY = {
       if (!t) return null
       const count = Number(t.count || 0)
       return `${count} livrable${count > 1 ? 's' : ''}`
+    },
+  },
+  materiel: {
+    label: 'Matériel',
+    description: 'Liste matériel — version active ou figée',
+    Icon: Package,
+    color: 'var(--orange)',
+    bgColor: 'var(--orange-bg)',
+    teaser: (hub) => {
+      const t = hub?.teasers?.materiel
+      if (!t) return null
+      const items = Number(t.items || 0)
+      const blocks = Number(t.blocks || 0)
+      return `${items} item${items > 1 ? 's' : ''} · ${blocks} bloc${blocks > 1 ? 's' : ''}`
     },
   },
 }
