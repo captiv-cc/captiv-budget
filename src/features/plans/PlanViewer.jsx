@@ -11,17 +11,28 @@
 // Mobile-first : pinch-zoom + pan natif (via react-zoom-pan-pinch),
 // double-tap pour fit/100 %, mode immersif (header se cache au tap).
 //
-// PDF multi-pages : toutes les pages rendues en stack vertical scrollable.
-// Chaque page est dans son propre TransformWrapper indépendant pour pouvoir
-// zoomer page par page sans interférer avec le scroll global. Les plans
-// techniques font typiquement 1-5 pages, pas de pagination explicite.
+// PDF multi-pages : pagination explicite (pattern Adobe Reader / Preview macOS).
+// Une seule page rendue à la fois en plein écran, dans son propre
+// TransformWrapper (pinch-zoom indépendant). Footer flottant [‹ N/M ›] +
+// raccourcis ← / → au clavier. Ce pattern évite que le TransformWrapper
+// intercepte le scroll/touch et empêche le défilement entre pages.
 //
 // Téléchargement : bouton qui ouvre la signed URL dans un nouvel onglet
 // (laisse le navigateur gérer le download natif).
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react'
-import { Download, FileText, Loader2, Maximize, Minus, Plus, X } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  Maximize,
+  Minus,
+  Plus,
+  X,
+} from 'lucide-react'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import { getSignedUrl, getPlan } from '../../lib/plans'
 import { notify } from '../../lib/notify'
@@ -230,12 +241,13 @@ function ImageViewer({ src, alt }) {
   )
 }
 
-/* ─── PDF — pages rendues en stack vertical, chaque page zoomable ──────── */
+/* ─── PDF — pagination explicite (1 page à la fois + boutons nav) ──────── */
 
 function PdfPagesViewer({ signedUrl }) {
   const [pages, setPages] = useState([])
   const [loading, setLoading] = useState(true)
   const [renderError, setRenderError] = useState(null)
+  const [currentIdx, setCurrentIdx] = useState(0)
   const containerRef = useRef(null)
 
   useEffect(() => {
@@ -314,40 +326,142 @@ function PdfPagesViewer({ signedUrl }) {
     }
   }, [signedUrl])
 
+  // Clamp currentIdx si pages disparaît (cas reload ou erreur).
+  const safeIdx = Math.max(0, Math.min(currentIdx, pages.length - 1))
+  const currentPage = pages[safeIdx]
+  const totalPages = pages.length
+
+  // Navigation clavier ← / → entre pages (desktop uniquement, mais pas
+  // de check device — flèches sur mobile = pas de clavier physique de
+  // toute façon).
+  useEffect(() => {
+    function handleKey(e) {
+      if (e.key === 'ArrowLeft' && safeIdx > 0) {
+        setCurrentIdx(safeIdx - 1)
+      } else if (e.key === 'ArrowRight' && safeIdx < totalPages - 1) {
+        setCurrentIdx(safeIdx + 1)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [safeIdx, totalPages])
+
   return (
-    <div ref={containerRef} className="w-full" style={{ paddingTop: '64px' }}>
-      {pages.map((page) => (
+    <div ref={containerRef} className="relative w-full h-full">
+      {/* Page courante (full-screen). key={num} pour forcer remount + reset
+          zoom à chaque changement de page (sinon le TransformWrapper garde
+          le scale précédent, qui peut désorienter). */}
+      {currentPage && (
         <PdfPage
-          key={page.num}
-          dataUrl={page.dataUrl}
-          pageNum={page.num}
-          totalPages={pages.length || '?'}
+          key={currentPage.num}
+          dataUrl={currentPage.dataUrl}
+          pageNum={currentPage.num}
         />
-      ))}
-      {loading && (
-        <div className="flex flex-col items-center gap-2 py-4">
+      )}
+
+      {/* Loading overlay tant qu'aucune page n'est encore prête */}
+      {loading && pages.length === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <Loader2
-            className="w-6 h-6 animate-spin"
+            className="w-8 h-8 animate-spin"
             style={{ color: 'rgba(255,255,255,0.6)' }}
           />
           <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
-            Rendu des pages PDF…
+            Chargement du PDF…
           </p>
         </div>
       )}
+
       {renderError && pages.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-12 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
           <FileText className="w-8 h-8" style={{ color: 'rgba(255,255,255,0.4)' }} />
           <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>
             Impossible d&apos;afficher ce PDF
           </p>
         </div>
       )}
+
+      {/* Footer pagination — visible si > 1 page. Floating en bas-center. */}
+      {totalPages > 1 && (
+        <PageNav
+          current={safeIdx + 1}
+          total={totalPages}
+          onPrev={() => setCurrentIdx(Math.max(0, safeIdx - 1))}
+          onNext={() => setCurrentIdx(Math.min(totalPages - 1, safeIdx + 1))}
+        />
+      )}
     </div>
   )
 }
 
-function PdfPage({ dataUrl, pageNum, totalPages }) {
+/* ─── PageNav — footer flottant [‹] [N/M] [›] pour PDF multi-pages ──── */
+
+function PageNav({ current, total, onPrev, onNext }) {
+  const atFirst = current <= 1
+  const atLast = current >= total
+  // Stop propagation pour ne pas trigger le toggle "mode immersif" du
+  // PlanViewer parent quand l'user clique dans la zone des boutons.
+  function stop(e) {
+    e.stopPropagation()
+  }
+  return (
+    <div
+      onClick={stop}
+      className="absolute left-1/2 bottom-4 z-10 flex items-center gap-1 rounded-full px-2 py-1 -translate-x-1/2"
+      style={{
+        background: 'rgba(0,0,0,0.7)',
+        backdropFilter: 'blur(8px)',
+      }}
+    >
+      <NavBtn
+        onClick={onPrev}
+        disabled={atFirst}
+        icon={ChevronLeft}
+        title="Page précédente (←)"
+      />
+      <span
+        className="text-xs font-semibold tabular-nums px-2 select-none"
+        style={{ color: 'white', minWidth: 60, textAlign: 'center' }}
+      >
+        {current} / {total}
+      </span>
+      <NavBtn
+        onClick={onNext}
+        disabled={atLast}
+        icon={ChevronRight}
+        title="Page suivante (→)"
+      />
+    </div>
+  )
+}
+
+function NavBtn({ onClick, disabled, icon: Icon, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+      style={{
+        color: 'white',
+        opacity: disabled ? 0.3 : 1,
+        cursor: disabled ? 'default' : 'pointer',
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+      title={title}
+      aria-label={title}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  )
+}
+
+function PdfPage({ dataUrl, pageNum }) {
   // Sizing : pattern "lecteur image classique" (Apple Photos, Adobe Reader
   // mobile). Chaque page = canvas plein écran (100vh - header 64px),
   // l'image flotte en object-contain au centre. Au zoom, le wrapper laisse
@@ -357,6 +471,9 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
   // Pas de fond blanc sur le wrapper : le fond noir #0a0a0a du parent
   // PlanViewer ressort autour de l'image PDF (qui est déjà blanche dans
   // le rendu canvas). Effet "lightbox" immersif.
+  //
+  // L'indicateur de page (N/M) est centralisé dans <PageNav>, pas de badge
+  // ici — pour ne pas dupliquer l'info.
   return (
     <div
       className="relative w-full"
@@ -406,17 +523,6 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
           </>
         )}
       </TransformWrapper>
-      {/* Badge numéro de page bottom-right */}
-      <span
-        className="absolute bottom-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded"
-        style={{
-          background: 'rgba(0,0,0,0.6)',
-          color: 'white',
-          backdropFilter: 'blur(4px)',
-        }}
-      >
-        {pageNum} / {totalPages}
-      </span>
     </div>
   )
 }
