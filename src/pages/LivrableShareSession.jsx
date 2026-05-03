@@ -322,3 +322,16 @@ function ErrorState({ error }) {
     </div>
   )
 }
+
+// ─── Réutilisation par le portail projet ─────────────────────────────────────
+// PROJECT-SHARE-2/5 : on expose ShareContent sous le nom LivrableShareView
+// pour que la sous-page /share/projet/:token/livrables puisse le réutiliser
+// avec le payload retourné par la RPC share_projet_livrables_fetch (même
+// shape que share_livrables_fetch).
+//
+// Signature attendue :
+//   <LivrableShareView
+//     payload project share org blocks livrables versions etapes
+//     eventTypes config calendarLevel theme onToggleTheme
+//   />
+export { ShareContent as LivrableShareView }

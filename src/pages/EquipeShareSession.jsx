@@ -924,3 +924,14 @@ function isLightColor(hex) {
   const b = parseInt(v.slice(4, 6), 16)
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160
 }
+
+// ─── Réutilisation par le portail projet ─────────────────────────────────────
+// PROJECT-SHARE-2/5 : on expose ShareContent sous le nom EquipeShareView
+// pour que la sous-page /share/projet/:token/equipe puisse le réutiliser
+// avec le payload retourné par la RPC share_projet_equipe_fetch (même
+// shape que share_equipe_fetch). Aucune modification du composant lui-même
+// — c'est exactement le rendu utilisé par /share/equipe/:token, juste
+// rendu accessible depuis un autre module.
+//
+// Signature attendue : <EquipeShareView payload setTheme theme />
+export { ShareContent as EquipeShareView }
