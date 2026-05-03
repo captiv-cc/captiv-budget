@@ -336,9 +336,34 @@ function BlockSection({ block, items, config, compact = false }) {
 // ─── Mode 'liste' (desktop) : tableau dense ─────────────────────────────────
 
 function ItemsTable({ items, config, compact = false }) {
+  // table-layout: fixed + colgroup → toutes les tables (peu importe le bloc)
+  // tombent EXACTEMENT sur les mêmes colonnes. Indispensable pour aligner
+  // visuellement les blocs entre eux. Sans ça, chaque table auto-calcule ses
+  // largeurs en fonction du contenu et l'œil saute à chaque bloc.
+  //
+  // Largeurs : Désignation prend le reste (auto / pas de width), les autres
+  // colonnes ont des largeurs absolues OU pourcentages. Loueurs et Remarques
+  // sont les colonnes "secondaires" et reçoivent une largeur en %.
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+      <table
+        className="w-full text-xs"
+        style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}
+      >
+        <colgroup>
+          {config.show_flags && <col style={{ width: '36px' }} />}
+          <col /> {/* Désignation : flex (reste de la largeur) */}
+          {config.show_quantites && <col style={{ width: '64px' }} />}
+          {config.show_loueurs && <col style={{ width: '20%' }} />}
+          {config.show_checklist && (
+            <>
+              <col style={{ width: '44px' }} />
+              <col style={{ width: '44px' }} />
+              <col style={{ width: '44px' }} />
+            </>
+          )}
+          {config.show_remarques && <col style={{ width: '24%' }} />}
+        </colgroup>
         <thead>
           <tr
             style={{
@@ -346,15 +371,15 @@ function ItemsTable({ items, config, compact = false }) {
               borderBottom: '1px solid var(--brd-sub)',
             }}
           >
-            {config.show_flags && <Th width="32px" align="center">Flag</Th>}
+            {config.show_flags && <Th align="center">Flag</Th>}
             <Th>Désignation</Th>
-            {config.show_quantites && <Th width="60px" align="right">Qté</Th>}
+            {config.show_quantites && <Th align="right">Qté</Th>}
             {config.show_loueurs && <Th>Loueur(s)</Th>}
             {config.show_checklist && (
               <>
-                <Th width="40px" align="center">Pré</Th>
-                <Th width="40px" align="center">Post</Th>
-                <Th width="40px" align="center">Prod</Th>
+                <Th align="center">Pré</Th>
+                <Th align="center">Post</Th>
+                <Th align="center">Prod</Th>
               </>
             )}
             {config.show_remarques && <Th>Remarques</Th>}
@@ -549,7 +574,9 @@ function ItemCard({ item, config, compact = false }) {
 
 // ─── Helpers UI ─────────────────────────────────────────────────────────────
 
-function Th({ children, width = null, align = 'left' }) {
+function Th({ children, align = 'left' }) {
+  // Largeurs gérées par <colgroup> dans ItemsTable (table-layout: fixed)
+  // pour que toutes les tables (1 par bloc) tombent sur les mêmes colonnes.
   const justify = align === 'right' ? 'right' : align === 'center' ? 'center' : 'left'
   return (
     <th
@@ -557,7 +584,6 @@ function Th({ children, width = null, align = 'left' }) {
       style={{
         color: 'var(--txt-2)',
         textAlign: justify,
-        ...(width ? { width } : {}),
       }}
     >
       {children}
