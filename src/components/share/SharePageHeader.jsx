@@ -16,25 +16,32 @@
 //
 // API à slots / props typés :
 //   - pageTitle  (string, required) — titre principal de la page
+//   - kicker     (string, optionnel) — eyebrow uppercase microscopique
+//                  affiché AU-DESSUS du H1 (ex: "Portail projet" sur le hub
+//                  où le H1 devient le nom du projet)
 //   - project    ({ title, ref_projet, cover_url })
 //   - org        ({ display_name, legal_name, logo_url_clair, logo_url_sombre,
 //                   logo_banner_url, brand_color, website_url, tagline,
 //                   share_intro_text })
-//   - metaItems  (Array<{ type: 'ref'|'scope'|'label'|'date', value, color? }>)
+//   - metaItems  (Array<{ type: 'ref'|'scope'|'label'|'date'|'lock', value, color? }>)
 //   - theme      ('light' | 'dark') + onToggleTheme (function)
 //   - actions    (ReactNode) — boutons custom (PDF, partage, etc.)
+//
+// Si pageTitle === project.title (cas du hub portail où on remonte le projet
+// en H1), le H2 est masqué pour éviter le doublon visuel.
 //
 // L'overlay du hero est sombre quel que soit le thème de la page (cohérence
 // avec le pattern existant), donc les couleurs internes sont en dur (pas de
 // CSS vars).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Film, Moon, Sun } from 'lucide-react'
+import { Film, Lock, Moon, Sun } from 'lucide-react'
 import { pickOrgLogo } from '../../lib/branding'
 import { formatDateTimeFR } from '../../lib/dateFormat'
 
 export default function SharePageHeader({
   pageTitle,
+  kicker = null,
   project,
   org = null,
   metaItems = [],
@@ -149,15 +156,30 @@ export default function SharePageHeader({
 
           {/* Bloc titres + meta */}
           <div className="flex-1 min-w-0">
-            {/* H1 : nom de la page (dominant) — plus petit en mobile */}
+            {/* Kicker (eyebrow uppercase) — utilisé sur le hub portail où le
+                H1 devient le nom du projet et où on remonte "Portail projet"
+                ici en libellé contextuel. */}
+            {kicker && (
+              <div
+                className="text-[10px] sm:text-[11px] uppercase tracking-widest font-bold mb-0.5 sm:mb-1"
+                style={{
+                  color: 'rgba(255,255,255,0.7)',
+                  textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                }}
+              >
+                {kicker}
+              </div>
+            )}
+            {/* H1 : titre principal */}
             <h1
               className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-bold leading-tight tracking-tight break-words text-white"
               style={{ textShadow: '0 2px 8px rgba(0,0,0,0.55)' }}
             >
               {pageTitle}
             </h1>
-            {/* H2 : nom du projet (subordonné) */}
-            {projectTitle && (
+            {/* H2 : nom du projet (subordonné). Masqué quand le H1 est déjà
+                le projet (cas du hub) pour éviter le doublon. */}
+            {projectTitle && projectTitle !== pageTitle && (
               <h2
                 className="mt-0.5 sm:mt-1.5 text-sm sm:text-base md:text-lg lg:text-xl font-semibold leading-snug break-words"
                 style={{
@@ -242,6 +264,24 @@ function MetaRow({ items }) {
                 }}
               >
                 Mis à jour {formatDateTimeFR(item.value)}
+              </span>
+            )
+          case 'lock':
+            // Badge "Portail privé" — discret rappel après auth réussie pour
+            // signaler au visiteur que le lien ne doit pas être partagé.
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded backdrop-blur"
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  color: 'rgba(255,255,255,0.95)',
+                }}
+                title="Portail protégé par mot de passe — ne pas partager le lien"
+              >
+                <Lock className="w-2.5 h-2.5" />
+                {item.value || 'Portail privé'}
               </span>
             )
           default:

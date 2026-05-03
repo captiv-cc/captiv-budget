@@ -119,10 +119,21 @@ export default function ProjectShareSession() {
 
   const onToggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'))
 
-  // MetaItems pour le SharePageHeader : ref + label si présent.
+  // MetaItems pour le SharePageHeader. Choix UX (cf. retours Hugo) :
+  //   - On NE pousse PAS share.label (libellé interne admin "Régisseur Paul",
+  //     pas pertinent pour le visiteur côté hub).
+  //   - On pousse ref_projet, le badge "Portail privé" (si protégé), et la
+  //     date de génération en dernier (sm:ml-auto pour passer à droite).
   const metaItems = []
-  if (project.ref_projet) metaItems.push({ type: 'ref', value: project.ref_projet })
-  if (share.label) metaItems.push({ type: 'label', value: share.label })
+  if (project.ref_projet) {
+    metaItems.push({ type: 'ref', value: project.ref_projet })
+  }
+  if (share.password_protected) {
+    metaItems.push({ type: 'lock', value: 'Portail privé' })
+  }
+  if (payload.generated_at) {
+    metaItems.push({ type: 'date', value: payload.generated_at })
+  }
 
   return (
     <div
@@ -130,8 +141,13 @@ export default function ProjectShareSession() {
       style={{ background: 'var(--bg)', color: 'var(--txt)' }}
     >
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 share-fade-in">
+        {/* Hub : on remonte le projet en H1 (titre dominant pour le visiteur)
+            et on dégrade "Portail projet" en kicker uppercase au-dessus.
+            Le SharePageHeader masque automatiquement le H2 si le H1 ===
+            project.title pour éviter le doublon visuel. */}
         <SharePageHeader
-          pageTitle="Portail projet"
+          pageTitle={project.title || 'Portail projet'}
+          kicker="Portail projet"
           project={project}
           org={org}
           metaItems={metaItems}
