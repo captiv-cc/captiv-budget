@@ -141,6 +141,17 @@ function ErrorState({ error, token }) {
   const lower = msg.toLowerCase()
   const isInvalid = lower.includes('invalid') || lower.includes('expired')
   const isNotEnabled = lower.includes('non activée') || lower.includes('not enabled')
+
+  // Détails techniques (code + message + hint + details) pour aider à diagnostiquer
+  // un faux fallback. Seulement affiché si on n'est pas en cas isInvalid (le
+  // destinataire externe n'a pas besoin de voir le code Postgres pour un lien
+  // expiré). Mirror du pattern LivrableShareSession.
+  const techDetail = !isInvalid
+    ? [error?.code, error?.message, error?.hint, error?.details]
+        .filter(Boolean)
+        .join(' · ')
+    : null
+
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4"
@@ -168,10 +179,30 @@ function ErrorState({ error, token }) {
               ? 'La page Livrables n\u2019est pas activée pour ce portail.'
               : 'Impossible de charger les livrables pour le moment. Réessayez dans quelques instants.'}
         </p>
+        {techDetail && (
+          <details className="mt-4 text-left">
+            <summary
+              className="cursor-pointer text-[10px] uppercase tracking-wider"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Détails techniques
+            </summary>
+            <pre
+              className="mt-2 text-[10px] whitespace-pre-wrap break-all p-2 rounded"
+              style={{
+                color: 'var(--txt-3)',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+              }}
+            >
+              {techDetail}
+            </pre>
+          </details>
+        )}
         {token && (
           <Link
             to={`/share/projet/${encodeURIComponent(token)}`}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold mt-4"
             style={{ color: 'var(--blue)' }}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
