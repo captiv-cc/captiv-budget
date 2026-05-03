@@ -9,10 +9,11 @@
  */
 
 import { useState } from 'react'
-import { Shield, Wrench, Building2, CalendarClock } from 'lucide-react'
+import { Shield, Wrench, Building2, CalendarClock, Map as MapIcon } from 'lucide-react'
 import TemplatesMetiersTab from './TemplatesMetiersTab'
 import EventTypesTab from './EventTypesTab'
 import OrganisationTab from './OrganisationTab'
+import PlanCategoriesTab from './PlanCategoriesTab'
 
 function Placeholder({ title }) {
   return (
@@ -31,6 +32,7 @@ function Placeholder({ title }) {
 const TABS = [
   { key: 'metiers', label: 'Templates métiers', icon: Shield, component: TemplatesMetiersTab },
   { key: 'event_types', label: "Types d'événements", icon: CalendarClock, component: EventTypesTab },
+  { key: 'plan_categories', label: 'Catégories de plans', icon: MapIcon, component: PlanCategoriesTab },
   // placeholders pour plus tard
   {
     key: 'outils',
