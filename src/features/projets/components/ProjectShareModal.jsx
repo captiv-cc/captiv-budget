@@ -53,7 +53,7 @@ import {
   CALENDAR_LEVEL_DESCRIPTIONS,
 } from '../../../lib/livrableShare'
 import { useProjectShareTokens } from '../../../hooks/useProjectShareTokens'
-import { confirm, prompt } from '../../../lib/confirm'
+import { confirm } from '../../../lib/confirm'
 import { notify } from '../../../lib/notify'
 
 // ─── Métadonnées des pages (icône, couleur, libellé) ────────────────────────
@@ -111,28 +111,34 @@ export default function ProjectShareModal({
     useProjectShareTokens(open ? projectId : null)
 
   const [showRevoked, setShowRevoked] = useState(false)
-  const [creating, setCreating] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
-  // Form state
+  // Form state. `editingTokenId === null` → mode création ; sinon mode édition
+  // d'un token existant (le form est pré-rempli avec ses valeurs et le submit
+  // appelle update au lieu de create).
+  const [editingTokenId, setEditingTokenId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [label, setLabel] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [enabledPages, setEnabledPages] = useState(makeInitialEnabled)
   const [pageConfigs, setPageConfigs] = useState(makeInitialConfigs)
 
-  // Pré-déplie le form si aucun token actif (UX au 1er coup d'œil)
+  // Pré-déplie le form si aucun token actif (UX au 1er coup d'œil) — mais
+  // seulement en mode création (l'édition gère elle-même l'ouverture).
   useEffect(() => {
     if (!open) return
+    if (editingTokenId) return
     const hasActive = tokens.some(
       (t) => getProjectShareTokenState(t) === 'active',
     )
     setFormOpen(!hasActive)
-  }, [open, tokens])
+  }, [open, tokens, editingTokenId])
 
   // Reset form à chaque fermeture
   useEffect(() => {
     if (!open) {
       setShowRevoked(false)
+      setEditingTokenId(null)
       setLabel('')
       setExpiresAt('')
       setEnabledPages(makeInitialEnabled())
@@ -167,11 +173,52 @@ export default function ProjectShareModal({
     }))
   }
 
-  const canSubmit = enabledPages.length > 0 && !creating
+  const canSubmit = enabledPages.length > 0 && !submitting
+  const isEditMode = editingTokenId !== null
 
-  async function handleCreate() {
+  // Bascule la modale en mode édition d'un token existant : pré-remplit tous
+  // les champs du form avec les valeurs du token et l'ouvre. Préserve la
+  // shape complète des configs (DEFAULT merge avec ce qui était stocké) pour
+  // que les sub-forms aient toutes les clés attendues.
+  function handleStartEdit(t) {
+    const tokenEnabled = Array.isArray(t.enabled_pages)
+      ? t.enabled_pages.filter((p) => SHARE_PAGES.includes(p))
+      : []
+    const stored = (t.page_configs && typeof t.page_configs === 'object')
+      ? t.page_configs
+      : {}
+    const mergedConfigs = makeInitialConfigs()
+    for (const p of SHARE_PAGES) {
+      mergedConfigs[p] = {
+        ...mergedConfigs[p],
+        ...(stored[p] || {}),
+      }
+    }
+    // expires_at en DB est un timestamptz ISO, l'input type=date attend
+    // 'YYYY-MM-DD'. On tronque la partie temps.
+    const expiresShort = t.expires_at
+      ? String(t.expires_at).slice(0, 10)
+      : ''
+    setEditingTokenId(t.id)
+    setLabel(t.label || '')
+    setExpiresAt(expiresShort)
+    setEnabledPages(tokenEnabled.length > 0 ? tokenEnabled : makeInitialEnabled())
+    setPageConfigs(mergedConfigs)
+    setFormOpen(true)
+  }
+
+  // Sort du mode édition et remet le form en état "création vierge".
+  function handleCancelEdit() {
+    setEditingTokenId(null)
+    setLabel('')
+    setExpiresAt('')
+    setEnabledPages(makeInitialEnabled())
+    setPageConfigs(makeInitialConfigs())
+  }
+
+  async function handleSubmit() {
     if (!canSubmit) return
-    setCreating(true)
+    setSubmitting(true)
     try {
       const expiresIso = expiresAt ? `${expiresAt}T23:59:59` : null
       // Ne transmet à la DB que les configs des pages effectivement activées
@@ -181,29 +228,49 @@ export default function ProjectShareModal({
       for (const p of enabledPages) {
         finalConfigs[p] = pageConfigs[p]
       }
-      const newToken = await create({
-        label: label.trim() || null,
-        enabledPages,
-        pageConfigs: finalConfigs,
-        expiresAt: expiresIso,
-      })
-      try {
-        await navigator.clipboard.writeText(buildProjectShareUrl(newToken.token))
-        notify.success('Portail créé et lien copié')
-      } catch {
-        notify.success('Portail créé')
+      if (isEditMode) {
+        await update(editingTokenId, {
+          label: label.trim() || null,
+          expiresAt: expiresIso,
+          enabledPages,
+          pageConfigs: finalConfigs,
+        })
+        notify.success('Portail mis à jour')
+        // Reset + sortie du mode édition
+        setEditingTokenId(null)
+        setLabel('')
+        setExpiresAt('')
+        setEnabledPages(makeInitialEnabled())
+        setPageConfigs(makeInitialConfigs())
+        setFormOpen(false)
+      } else {
+        const newToken = await create({
+          label: label.trim() || null,
+          enabledPages,
+          pageConfigs: finalConfigs,
+          expiresAt: expiresIso,
+        })
+        try {
+          await navigator.clipboard.writeText(buildProjectShareUrl(newToken.token))
+          notify.success('Portail créé et lien copié')
+        } catch {
+          notify.success('Portail créé')
+        }
+        setLabel('')
+        setExpiresAt('')
+        setEnabledPages(makeInitialEnabled())
+        setPageConfigs(makeInitialConfigs())
+        setFormOpen(false)
       }
-      // Reset
-      setLabel('')
-      setExpiresAt('')
-      setEnabledPages(makeInitialEnabled())
-      setPageConfigs(makeInitialConfigs())
-      setFormOpen(false)
     } catch (err) {
-      console.error('[ProjectShareModal] create error', err)
-      notify.error('Création échouée : ' + (err?.message || err))
+      console.error('[ProjectShareModal] submit error', err)
+      notify.error(
+        (isEditMode ? 'Mise à jour' : 'Création') +
+          ' échouée : ' +
+          (err?.message || err),
+      )
     } finally {
-      setCreating(false)
+      setSubmitting(false)
     }
   }
 
@@ -218,23 +285,6 @@ export default function ProjectShareModal({
 
   function handleOpen(t) {
     window.open(buildProjectShareUrl(t.token), '_blank', 'noopener,noreferrer')
-  }
-
-  async function handleRename(t) {
-    const newLabel = await prompt({
-      title: 'Renommer le portail',
-      message: 'Nouveau libellé interne :',
-      initialValue: t.label || '',
-      placeholder: 'Ex : Régisseur Paul, Client Renault…',
-      confirmLabel: 'Renommer',
-    })
-    if (newLabel === null) return
-    try {
-      await update(t.id, { label: newLabel })
-      notify.success('Portail renommé')
-    } catch (err) {
-      notify.error('Renommage échoué : ' + (err?.message || err))
-    }
   }
 
   async function handleRevoke(t) {
@@ -332,7 +382,7 @@ export default function ProjectShareModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Form de création repliable */}
+          {/* Form (création ou édition selon editingTokenId) */}
           <CreateFormSection
             open={formOpen}
             onToggle={() => setFormOpen((v) => !v)}
@@ -346,10 +396,12 @@ export default function ProjectShareModal({
             updatePageConfig={updatePageConfig}
             lots={lots}
             lotInfoMap={lotInfoMap}
-            creating={creating}
+            submitting={submitting}
             canSubmit={canSubmit}
-            onSubmit={handleCreate}
+            onSubmit={handleSubmit}
             hasAnyActive={activeTokens.length > 0}
+            isEditMode={isEditMode}
+            onCancelEdit={handleCancelEdit}
           />
 
           {/* Liens actifs */}
@@ -373,9 +425,10 @@ export default function ProjectShareModal({
                   <TokenCard
                     key={t.id}
                     token={t}
+                    isEditing={editingTokenId === t.id}
                     onCopy={() => handleCopy(t)}
                     onOpen={() => handleOpen(t)}
-                    onRename={() => handleRename(t)}
+                    onEdit={() => handleStartEdit(t)}
                     onRevoke={() => handleRevoke(t)}
                     onDelete={() => handleDelete(t)}
                   />
@@ -441,45 +494,64 @@ function CreateFormSection({
   updatePageConfig,
   lots,
   lotInfoMap,
-  creating,
+  submitting,
   canSubmit,
   onSubmit,
   hasAnyActive,
+  isEditMode = false,
+  onCancelEdit = null,
 }) {
+  // En mode édition la section reste forcée ouverte (toggle UX désactivé) —
+  // on a explicitement choisi d'éditer un token, donc on doit voir le form.
+  // L'admin sort du mode via le bouton "Annuler".
+  const HeaderIcon = isEditMode ? Pencil : Plus
+  const headerTitle = isEditMode
+    ? 'Modifier le portail'
+    : hasAnyActive
+      ? 'Nouveau portail'
+      : 'Créer votre premier portail'
+  const headerSubtitle = isEditMode
+    ? 'Le lien public reste le même — seules les pages et options changent.'
+    : 'Choisissez un destinataire et les pages à exposer.'
+
   return (
     <section
       className="rounded-lg"
       style={{
         background: 'var(--bg-elev)',
-        border: '1px solid var(--brd-sub)',
+        border: `1px solid ${isEditMode ? 'var(--blue)' : 'var(--brd-sub)'}`,
       }}
     >
       <button
         type="button"
-        onClick={onToggle}
+        onClick={isEditMode ? undefined : onToggle}
+        disabled={isEditMode}
         className="w-full flex items-center gap-2 px-4 py-3 text-left"
+        style={{ cursor: isEditMode ? 'default' : 'pointer' }}
       >
         <div
           className="w-7 h-7 rounded-md flex items-center justify-center"
           style={{ background: 'var(--blue-bg)' }}
         >
-          <Plus className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />
+          <HeaderIcon className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
-            {hasAnyActive ? 'Nouveau portail' : 'Créer votre premier portail'}
+            {headerTitle}
           </div>
           <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-            Choisissez un destinataire et les pages à exposer.
+            {headerSubtitle}
           </div>
         </div>
-        <ChevronDown
-          className="w-4 h-4 transition-transform"
-          style={{
-            color: 'var(--txt-3)',
-            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
-          }}
-        />
+        {!isEditMode && (
+          <ChevronDown
+            className="w-4 h-4 transition-transform"
+            style={{
+              color: 'var(--txt-3)',
+              transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+            }}
+          />
+        )}
       </button>
 
       {open && (
@@ -567,7 +639,22 @@ function CreateFormSection({
           </Field>
 
           {/* Bouton créer */}
-          <div className="flex justify-end pt-1">
+          <div className="flex justify-end items-center gap-2 pt-1">
+            {isEditMode && onCancelEdit && (
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                disabled={submitting}
+                className="text-xs font-medium px-3 py-1.5 rounded-md"
+                style={{
+                  background: 'transparent',
+                  color: 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                }}
+              >
+                Annuler
+              </button>
+            )}
             <button
               type="button"
               onClick={onSubmit}
@@ -581,8 +668,18 @@ function CreateFormSection({
                 cursor: canSubmit ? 'pointer' : 'not-allowed',
               }}
             >
-              <Plus className="w-3 h-3" />
-              {creating ? 'Création…' : 'Créer le portail'}
+              {isEditMode ? (
+                <Pencil className="w-3 h-3" />
+              ) : (
+                <Plus className="w-3 h-3" />
+              )}
+              {submitting
+                ? isEditMode
+                  ? 'Enregistrement…'
+                  : 'Création…'
+                : isEditMode
+                  ? 'Enregistrer'
+                  : 'Créer le portail'}
             </button>
           </div>
         </div>
@@ -832,9 +929,11 @@ function LivrablesSubForm({ config, onConfigChange }) {
 
 function TokenCard({
   token,
+  isEditing = false,
   onCopy,
   onOpen,
   onRename,
+  onEdit,
   onRevoke,
   onRestore,
   onDelete,
@@ -852,7 +951,9 @@ function TokenCard({
       className="rounded-lg p-3"
       style={{
         background: 'var(--bg-elev)',
-        border: '1px solid var(--brd-sub)',
+        // En mode édition courante on souligne la card en bleu pour ancrer
+        // visuellement le lien avec le form en haut.
+        border: `1px solid ${isEditing ? 'var(--blue)' : 'var(--brd-sub)'}`,
         opacity: state === 'active' ? 1 : 0.7,
       }}
     >
@@ -964,7 +1065,14 @@ function TokenCard({
       >
         <ActionButton onClick={onCopy} icon={Copy} label="Copier" />
         <ActionButton onClick={onOpen} icon={ExternalLink} label="Ouvrir" />
-        {!readOnly && state === 'active' && onRename && (
+        {!readOnly && state === 'active' && onEdit && (
+          <ActionButton
+            onClick={onEdit}
+            icon={Pencil}
+            label={isEditing ? 'En cours…' : 'Modifier'}
+          />
+        )}
+        {!readOnly && state === 'active' && !onEdit && onRename && (
           <ActionButton onClick={onRename} icon={Pencil} label="Renommer" />
         )}
         <div className="ml-auto flex items-center gap-1.5">
