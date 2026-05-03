@@ -681,6 +681,10 @@ function LevelCell({ tpl, override, onSetLevel }) {
     : 'var(--bg-elev)'
   const border = isOverride ? meta.color : 'var(--brd-sub)'
 
+  // Layout : on rend toujours le slot du bouton ↺ (visibility hidden quand
+  // pas d'override) pour figer la position horizontale du bouton principal.
+  // Sinon, l'apparition du ↺ décale le bouton principal — visuellement
+  // peu pro et cause des micro-sauts pendant le cycle.
   return (
     <td className="text-center px-3 py-1.5">
       <div className="inline-flex items-center gap-1">
@@ -698,29 +702,33 @@ function LevelCell({ tpl, override, onSetLevel }) {
         >
           <Icon className="w-3.5 h-3.5" />
         </button>
-        {isOverride && (
-          <button
-            onClick={() => onSetLevel(null)}
-            className="inline-flex items-center justify-center w-6 h-7 rounded-md transition-colors"
-            style={{
-              background: 'transparent',
-              color: 'var(--txt-3)',
-              border: '1px solid var(--brd-sub)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hov)'
-              e.currentTarget.style.color = 'var(--txt-2)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'var(--txt-3)'
-            }}
-            title="Réinitialiser sur le métier"
-            aria-label="Réinitialiser sur le métier"
-          >
-            <RotateCcw className="w-3 h-3" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onSetLevel(null)}
+          disabled={!isOverride}
+          aria-hidden={!isOverride}
+          tabIndex={isOverride ? 0 : -1}
+          className="inline-flex items-center justify-center w-6 h-7 rounded-md transition-colors"
+          style={{
+            background: 'transparent',
+            color: 'var(--txt-3)',
+            border: '1px solid var(--brd-sub)',
+            visibility: isOverride ? 'visible' : 'hidden',
+          }}
+          onMouseEnter={(e) => {
+            if (!isOverride) return
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt-2)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+          title="Réinitialiser sur le métier"
+          aria-label="Réinitialiser sur le métier"
+        >
+          <RotateCcw className="w-3 h-3" />
+        </button>
       </div>
     </td>
   )
