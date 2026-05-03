@@ -21,6 +21,7 @@ import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
 import EquipeShareSession from './pages/EquipeShareSession'
+import MatosShareSession from './pages/MatosShareSession'
 import ProjectShareSession from './pages/ProjectShareSession'
 import ProjectShareEquipeSession from './pages/ProjectShareEquipeSession'
 import ProjectShareLivrablesSession from './pages/ProjectShareLivrablesSession'
@@ -115,6 +116,12 @@ function AppRoutes() {
           la RPC share_livrables_fetch (SECURITY DEFINER). Hors Layout app. */}
       <Route path="/share/livrables/:token" element={<LivrableShareSession />} />
       <Route path="/share/equipe/:token" element={<EquipeShareSession />} />
+      {/* Partage public matériel (MATOS-SHARE). Vue READ-ONLY filtrée par
+          token.config (loueurs, qté, remarques, flags, checklist, photos).
+          La RPC share_matos_fetch est SECURITY DEFINER et applique les
+          filtres sensibles (numero_reference loueurs jamais exposé, etc.).
+          Hors Layout app. */}
+      <Route path="/share/materiel/:token" element={<MatosShareSession />} />
       {/* Portail projet (PROJECT-SHARE). Lien public unique qui agrège
           plusieurs sous-pages share (équipe, livrables, …). Le hub liste les
           pages activées pour le token et chaque sous-route délègue le rendu
