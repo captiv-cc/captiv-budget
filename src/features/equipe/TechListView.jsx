@@ -637,7 +637,11 @@ export default function TechListView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (loading) {
+  // Spinner uniquement au chargement INITIAL (pas sur les reloads après une
+  // action — sinon le drawer/modals démontent et perdent leur state local
+  // type "editing", brouillon non commité, etc.). Une fois qu'on a des
+  // données, on garde l'UI montée même pendant un reload background.
+  if (loading && members.length === 0) {
     return (
       <div
         className="flex items-center justify-center py-12 text-sm"
