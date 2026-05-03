@@ -25,6 +25,8 @@ import {
   AlertCircle,
   Loader2,
   Package,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { useMatosShareSession } from '../hooks/useMatosShareSession'
 import { normalizeShareConfig } from '../lib/matosShare'
@@ -101,6 +103,13 @@ function ShareContent({ payload, theme, onToggleTheme }) {
     return map
   }, [items])
 
+  // Mode compact (densité réduite) — utile sur projets très chargés. État
+  // local par session, pas de persistance (le visiteur reset à l'ouverture).
+  // Auto-default à true si plus de 50 items pour éviter le scroll infini.
+  const totalItems = stats.total_items || 0
+  const [compact, setCompact] = useState(() => totalItems > 50)
+  // Si le total change (refetch), on ne re-bascule pas — respect du choix user.
+
   // MetaItems pour le SharePageHeader (typés).
   const metaItems = []
   if (project.ref_projet) {
@@ -141,15 +150,40 @@ function ShareContent({ payload, theme, onToggleTheme }) {
           onToggleTheme={onToggleTheme}
         />
 
-        {/* Stats compactes */}
-        <p
-          className="text-sm mt-4 mb-3"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          {stats.total_items || 0} item{(stats.total_items || 0) > 1 ? 's' : ''}
-          {' · '}
-          {stats.total_blocks || 0} bloc{(stats.total_blocks || 0) > 1 ? 's' : ''}
-        </p>
+        {/* Stats compactes + toggle densité */}
+        <div className="mt-4 mb-3 flex items-center justify-between gap-3">
+          <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
+            {stats.total_items || 0} item{(stats.total_items || 0) > 1 ? 's' : ''}
+            {' · '}
+            {stats.total_blocks || 0} bloc{(stats.total_blocks || 0) > 1 ? 's' : ''}
+          </p>
+          <button
+            type="button"
+            onClick={() => setCompact((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
+            style={{
+              background: 'var(--bg-surf)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd-sub)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-surf)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+            title={compact ? 'Mode confort (lignes aérées)' : 'Mode compact (lignes denses)'}
+          >
+            {compact ? (
+              <Maximize2 className="w-3 h-3" />
+            ) : (
+              <Minimize2 className="w-3 h-3" />
+            )}
+            {compact ? 'Confort' : 'Compact'}
+          </button>
+        </div>
 
         {/* Légende des flags si toggle ON */}
         {config.show_flags && (
@@ -160,13 +194,14 @@ function ShareContent({ payload, theme, onToggleTheme }) {
         {blocks.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="space-y-4 sm:space-y-5">
+          <div className={compact ? 'space-y-2 sm:space-y-3' : 'space-y-4 sm:space-y-5'}>
             {blocks.map((block) => (
               <BlockSection
                 key={block.id}
                 block={block}
                 items={itemsByBlock[block.id] || []}
                 config={config}
+                compact={compact}
               />
             ))}
           </div>
@@ -220,16 +255,11 @@ function FlagDot({ flag, label }) {
 
 // ─── Section par bloc ───────────────────────────────────────────────────────
 
-function BlockSection({ block, items, config }) {
-  // Décision Hugo (matos-share polish) : on aligne le rendu des blocs
-  // affichage='config' sur le rendu 'liste' classique pour avoir un visuel
-  // homogène (mêmes colonnes Qté / Loueurs / Checklist / Remarques quand
-  // les toggles sont ON). Le `label` reste rendu en eyebrow uppercase devant
-  // la designation par <ItemRow> / <ItemCard> — ça matérialise toujours le
-  // côté "config caméra" (CORPS CAMÉRA / OPTIQUE / etc.).
+function BlockSection({ block, items, config, compact = false }) {
   const couleur = block.couleur || null
   const headerBg = couleur || 'var(--bg-elev)'
   const headerColor = couleur ? '#FFFFFF' : 'var(--txt)'
+  const description = block.description?.trim() || null
 
   return (
     <section
@@ -241,7 +271,7 @@ function BlockSection({ block, items, config }) {
     >
       {/* Header bloc — couleur custom si définie */}
       <header
-        className="px-3 sm:px-4 py-2 flex items-center gap-2"
+        className={`px-3 sm:px-4 ${compact ? 'py-1.5' : 'py-2'} flex items-center gap-2`}
         style={{
           background: headerBg,
           color: headerColor,
@@ -259,9 +289,30 @@ function BlockSection({ block, items, config }) {
         </span>
       </header>
 
+      {/* Description bloc (si renseignée). Affichée sous le header avec un
+          fond légèrement décalé pour bien la séparer du header coloré et de
+          la liste. Multi-ligne respectée (whitespace-pre-line). */}
+      {description && (
+        <div
+          className={`px-3 sm:px-4 ${compact ? 'py-1.5' : 'py-2'}`}
+          style={{
+            background: 'var(--bg-elev)',
+            borderBottom: '1px solid var(--brd-sub)',
+            color: 'var(--txt-2)',
+          }}
+        >
+          <p
+            className="text-[11px] sm:text-xs leading-snug whitespace-pre-line"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            {description}
+          </p>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <p
-          className="px-4 py-3 text-xs italic"
+          className={`px-4 ${compact ? 'py-2' : 'py-3'} text-xs italic`}
           style={{ color: 'var(--txt-3)' }}
         >
           Aucun item dans ce bloc.
@@ -270,11 +321,11 @@ function BlockSection({ block, items, config }) {
         <>
           {/* Mobile (<sm) : cards */}
           <div className="block sm:hidden">
-            <CardsList items={items} config={config} />
+            <CardsList items={items} config={config} compact={compact} />
           </div>
           {/* Tablette + desktop : tableau */}
           <div className="hidden sm:block">
-            <ItemsTable items={items} config={config} />
+            <ItemsTable items={items} config={config} compact={compact} />
           </div>
         </>
       )}
@@ -284,7 +335,7 @@ function BlockSection({ block, items, config }) {
 
 // ─── Mode 'liste' (desktop) : tableau dense ─────────────────────────────────
 
-function ItemsTable({ items, config }) {
+function ItemsTable({ items, config, compact = false }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
@@ -316,6 +367,7 @@ function ItemsTable({ items, config }) {
               item={it}
               zebra={i % 2 === 1}
               config={config}
+              compact={compact}
             />
           ))}
         </tbody>
@@ -324,7 +376,20 @@ function ItemsTable({ items, config }) {
   )
 }
 
-function ItemRow({ item, zebra, config }) {
+// Cell padding selon le mode. Compact = lignes denses pour gros projets.
+function cellY(compact) {
+  return compact ? 'py-1' : 'py-2'
+}
+
+// Style discret pour les cellules vides (loueur absent, qté null, etc.) —
+// cohérent dans tout le tableau.
+const EMPTY_DASH_STYLE = {
+  color: 'var(--txt-3)',
+  opacity: 0.45,
+}
+
+function ItemRow({ item, zebra, config, compact = false }) {
+  const py = cellY(compact)
   return (
     <tr
       style={{
@@ -333,11 +398,11 @@ function ItemRow({ item, zebra, config }) {
       }}
     >
       {config.show_flags && (
-        <td className="px-2 py-2 align-middle text-center">
+        <td className={`px-2 ${py} align-middle text-center`}>
           <FlagBadge flag={item.flag} />
         </td>
       )}
-      <td className="px-3 py-2 align-middle" style={{ color: 'var(--txt)' }}>
+      <td className={`px-3 ${py} align-middle`} style={{ color: 'var(--txt)' }}>
         {item.label && (
           <span
             className="text-[10px] font-semibold uppercase tracking-wider mr-1.5"
@@ -350,14 +415,14 @@ function ItemRow({ item, zebra, config }) {
       </td>
       {config.show_quantites && (
         <td
-          className="px-3 py-2 align-middle text-right tabular-nums font-semibold"
+          className={`px-3 ${py} align-middle text-right tabular-nums font-semibold`}
           style={{ color: 'var(--txt)' }}
         >
-          {item.quantite ?? '—'}
+          {item.quantite ?? <span style={EMPTY_DASH_STYLE}>—</span>}
         </td>
       )}
       {config.show_loueurs && (
-        <td className="px-3 py-2 align-middle" style={{ color: 'var(--txt-2)' }}>
+        <td className={`px-3 ${py} align-middle`} style={{ color: 'var(--txt-2)' }}>
           {Array.isArray(item.loueurs) && item.loueurs.length > 0 ? (
             <span className="inline-flex flex-wrap gap-x-1.5 gap-y-0.5">
               {item.loueurs.map((l, idx) => (
@@ -370,29 +435,29 @@ function ItemRow({ item, zebra, config }) {
               ))}
             </span>
           ) : (
-            <span style={{ color: 'var(--txt-3)' }}>—</span>
+            <span style={EMPTY_DASH_STYLE}>—</span>
           )}
         </td>
       )}
       {config.show_checklist && (
         <>
-          <td className="px-2 py-2 align-middle text-center">
+          <td className={`px-2 ${py} align-middle text-center`}>
             <CheckMark done={Boolean(item.pre_check_at)} />
           </td>
-          <td className="px-2 py-2 align-middle text-center">
+          <td className={`px-2 ${py} align-middle text-center`}>
             <CheckMark done={Boolean(item.post_check_at)} />
           </td>
-          <td className="px-2 py-2 align-middle text-center">
+          <td className={`px-2 ${py} align-middle text-center`}>
             <CheckMark done={Boolean(item.prod_check_at)} />
           </td>
         </>
       )}
       {config.show_remarques && (
-        <td className="px-3 py-2 align-middle" style={{ color: 'var(--txt-2)' }}>
+        <td className={`px-3 ${py} align-middle`} style={{ color: 'var(--txt-2)' }}>
           {item.remarques ? (
             <span className="text-[11px] italic">{item.remarques}</span>
           ) : (
-            <span style={{ color: 'var(--txt-3)' }}>—</span>
+            <span style={EMPTY_DASH_STYLE}>—</span>
           )}
         </td>
       )}
@@ -402,19 +467,19 @@ function ItemRow({ item, zebra, config }) {
 
 // ─── Mode 'liste' (mobile) : cards par item ─────────────────────────────────
 
-function CardsList({ items, config }) {
+function CardsList({ items, config, compact = false }) {
   return (
     <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
       {items.map((it) => (
-        <ItemCard key={it.id} item={it} config={config} />
+        <ItemCard key={it.id} item={it} config={config} compact={compact} />
       ))}
     </ul>
   )
 }
 
-function ItemCard({ item, config }) {
+function ItemCard({ item, config, compact = false }) {
   return (
-    <li className="px-3 py-2.5 space-y-1">
+    <li className={`px-3 ${compact ? 'py-1.5' : 'py-2.5'} space-y-1`}>
       {/* Row 1 : flag + label + designation + qté */}
       <div className="flex items-center gap-2 min-w-0">
         {config.show_flags && (
