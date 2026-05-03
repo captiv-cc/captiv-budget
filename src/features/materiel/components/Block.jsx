@@ -81,11 +81,13 @@ export default function Block({
   const bp = useBreakpoint()
   const isMobile = bp.isMobile
 
-  // Drag & drop des items (interne au bloc) : ref pour l'index source
-  // (capté au dragStart), state pour l'index survolé (rendu visuel).
-  // Pattern identique à CategoryBlock/DevisLine.
+  // Drag & drop des items (interne au bloc).
+  //   - dragIdx (ref)        : index source, capté au dragStart.
+  //   - dragOverInfo (state) : { idx, position: 'before'|'after' } —
+  //                            ligne d'insertion directionnelle (pattern
+  //                            aligné sur le DnD des blocs / BlockList).
   const dragIdx = useRef(null)
-  const [dragOverIdx, setDragOverIdx] = useState(null)
+  const [dragOverItemInfo, setDragOverItemInfo] = useState(null)
 
   // DnD du bloc lui-même : activé uniquement si canEdit ET handlers fournis.
   const blockDndEnabled = canEdit && Boolean(onBlockDragStart)
@@ -227,14 +229,22 @@ export default function Block({
   // le nouvel ordre par splice, puis persiste en un seul UPDATE des sort_order
   // via actions.reorderItems (déjà disponible côté hook/lib matériel).
   const handleReorderItems = useCallback(
-    async (fromIdx, toIdx) => {
-      if (fromIdx === toIdx) return
-      if (fromIdx < 0 || toIdx < 0) return
-      if (fromIdx >= items.length || toIdx >= items.length) return
+    async (fromIdx, targetIdx, position) => {
+      if (fromIdx < 0 || targetIdx < 0) return
+      if (fromIdx >= items.length || targetIdx >= items.length) return
+
+      // Même math que pour les blocs (cf. BlockList.handleReorderBlocks) :
+      // on compute l'index final selon position before/after, puis on
+      // ajuste pour tenir compte du shift causé par le splice de retrait.
+      const finalToIdx = position === 'after' ? targetIdx + 1 : targetIdx
+      const adjustedTo = fromIdx < finalToIdx ? finalToIdx - 1 : finalToIdx
+      // No-op : drop à sa propre position (avant lui-même OU après son
+      // voisin direct = pas de mouvement).
+      if (adjustedTo === fromIdx) return
 
       const next = items.slice()
       const [moved] = next.splice(fromIdx, 1)
-      next.splice(toIdx, 0, moved)
+      next.splice(adjustedTo, 0, moved)
       const orderedIds = next.map((i) => i.id)
 
       try {
@@ -687,21 +697,36 @@ export default function Block({
                   canEdit={canEdit}
                   detailed={detailed}
                   onDelete={handleDeleteItem}
-                  isDragOver={dragOverIdx === idx}
+                  dragInsertPosition={
+                    dragOverItemInfo?.idx === idx
+                      ? dragOverItemInfo.position
+                      : null
+                  }
                   onDragStart={() => {
                     dragIdx.current = idx
                   }}
-                  onDragOver={() => setDragOverIdx(idx)}
+                  onDragOver={(position) => {
+                    // Évite re-renders inutiles si position inchangée.
+                    setDragOverItemInfo((prev) =>
+                      prev?.idx === idx && prev?.position === position
+                        ? prev
+                        : { idx, position },
+                    )
+                  }}
                   onDrop={() => {
-                    if (dragIdx.current !== null && dragIdx.current !== idx) {
-                      handleReorderItems(dragIdx.current, idx)
+                    if (dragIdx.current !== null && dragOverItemInfo) {
+                      handleReorderItems(
+                        dragIdx.current,
+                        dragOverItemInfo.idx,
+                        dragOverItemInfo.position,
+                      )
                     }
                     dragIdx.current = null
-                    setDragOverIdx(null)
+                    setDragOverItemInfo(null)
                   }}
                   onDragEnd={() => {
                     dragIdx.current = null
-                    setDragOverIdx(null)
+                    setDragOverItemInfo(null)
                   }}
                 />
               ))

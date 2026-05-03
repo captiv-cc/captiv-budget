@@ -46,8 +46,12 @@ export default function ItemRow({
   canEdit = true,
   detailed = false,
   onDelete,
-  // ─── Drag & drop (pattern identique à DevisLine) ─────────────────────────
-  isDragOver = false,
+  // ─── Drag & drop (pattern aligné sur Block / BlockList) ─────────────────
+  // dragInsertPosition = 'before' | 'after' | null : indique où la ligne
+  // d'insertion bleue doit s'afficher (au-dessus / en-dessous / nulle part).
+  // Calculée par le parent (Block) via clientY vs middle of bounding rect
+  // dans handleItemDragOver.
+  dragInsertPosition = null,
   onDragStart,
   onDragOver,
   onDrop,
@@ -137,6 +141,24 @@ export default function ItemRow({
   // sur les lignes en lecture seule (partage client, rôle Visiteur…).
   const dndEnabled = canEdit && Boolean(onDragStart)
 
+  // Calcule la position relative du curseur dans la ligne pour afficher la
+  // ligne d'insertion (above/below mid-line) — pattern identique à Block.
+  const computeInsertPosition = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offsetY = e.clientY - rect.top
+    return offsetY < rect.height / 2 ? 'before' : 'after'
+  }
+
+  // Indicateur d'insertion : box-shadow externe 3px bleu au-dessus si on
+  // drop avant, en-dessous si on drop après. Fonctionne sur <tr> en mode
+  // border-collapse: separate (défaut sans tailwind class).
+  const insertShadow =
+    dragInsertPosition === 'before'
+      ? '0 -3px 0 0 var(--blue)'
+      : dragInsertPosition === 'after'
+        ? '0 3px 0 0 var(--blue)'
+        : 'none'
+
   return (
     <tr
       draggable={dndEnabled}
@@ -153,7 +175,7 @@ export default function ItemRow({
           ? (e) => {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'move'
-              onDragOver?.()
+              onDragOver?.(computeInsertPosition(e))
             }
           : undefined
       }
@@ -168,10 +190,8 @@ export default function ItemRow({
       onDragEnd={dndEnabled ? onDragEnd : undefined}
       style={{
         borderBottom: '1px solid var(--brd-sub)',
-        background: isDragOver ? 'var(--bg-hov)' : 'transparent',
-        outline: isDragOver ? '2px solid var(--blue)' : 'none',
-        outlineOffset: isDragOver ? '-2px' : 0,
-        transition: 'background 120ms ease',
+        boxShadow: insertShadow,
+        transition: 'box-shadow 100ms ease',
       }}
     >
       {/* Grip drag handle */}
