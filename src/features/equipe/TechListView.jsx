@@ -199,51 +199,6 @@ export default function TechListView({
     } catch { /* no-op */ }
   }, [catOrderKey, categoryOrder])
 
-  // P4-CATEGORIES : persiste également l'ordre dans projects.metadata pour
-  // que la page de partage publique (/share/equipe/:token) puisse en hériter
-  // (le localStorage du browser admin n'est pas accessible côté lecteur
-  // anonyme). Debouncé légèrement pour éviter de spammer l'API en cas de
-  // drag rapide. Ignore les erreurs : le localStorage reste source de vérité
-  // pour l'UI, la DB est best-effort pour la propagation share.
-  const lastWrittenOrderRef = useRef(null)
-  useEffect(() => {
-    if (!projectId || !canEdit) return undefined
-    // Skip le tout premier mount avec valeur initiale identique à la DB
-    // (on n'a pas accès à project.metadata directement ici, mais on évite
-    // les writes redondants en mémorisant la dernière valeur écrite).
-    const serialized = JSON.stringify(categoryOrder || [])
-    if (lastWrittenOrderRef.current === serialized) return undefined
-    const t = setTimeout(async () => {
-      try {
-        // Lit la metadata courante pour faire un merge (préserve les autres
-        // sous-clés metadata.equipe.* + metadata.* hors equipe).
-        const { data, error } = await supabase
-          .from('projects')
-          .select('metadata')
-          .eq('id', projectId)
-          .single()
-        if (error) throw error
-        const currentMeta = data?.metadata || {}
-        const currentEquipe = currentMeta.equipe || {}
-        const nextMeta = {
-          ...currentMeta,
-          equipe: {
-            ...currentEquipe,
-            category_order: categoryOrder,
-          },
-        }
-        const { error: updErr } = await supabase
-          .from('projects')
-          .update({ metadata: nextMeta })
-          .eq('id', projectId)
-        if (updErr) throw updErr
-        lastWrittenOrderRef.current = serialized
-      } catch (err) {
-        console.warn('[TechListView] persist categoryOrder DB failed:', err?.message || err)
-      }
-    }, 600)
-    return () => clearTimeout(t)
-  }, [projectId, canEdit, categoryOrder])
 
   // P4-CATEGORIES : drag d'un header de catégorie pour réorganiser.
   const [draggingCategory, setDraggingCategory] = useState(null)
@@ -276,6 +231,64 @@ export default function TechListView({
     }
     return ordered
   }, [categories, extraCategories, hiddenCategories, categoryOrder, members])
+
+  // P4-CATEGORIES : persiste l'ordre AFFICHÉ (allCategories — incluant les
+  // catégories par défaut + custom dans leur ordre de rendu) dans
+  // projects.metadata.equipe.category_order. Sans ça, le partage public
+  // (/share/equipe/:token) ne peut pas reproduire l'ordre côté admin.
+  //
+  // On écrit allCategories (ordre rendu réel) et non categoryOrder (drag
+  // explicite), pour que la metadata soit immédiatement peuplée même si
+  // l'admin n'a jamais drag — et reflète exactement le rendu courant.
+  //
+  // Debouncé 600ms pour éviter les writes en cascade lors d'un drag rapide.
+  // Ignore les erreurs (le localStorage reste source de vérité côté admin).
+  const lastWrittenOrderRef = useRef(null)
+  useEffect(() => {
+    if (!projectId || !canEdit) return undefined
+    if (!allCategories || allCategories.length === 0) return undefined
+    const serialized = JSON.stringify(allCategories)
+    if (lastWrittenOrderRef.current === serialized) return undefined
+    const t = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('metadata')
+          .eq('id', projectId)
+          .single()
+        if (error) throw error
+        const currentMeta = data?.metadata || {}
+        const currentEquipe = currentMeta.equipe || {}
+        // Skip si la valeur DB est déjà identique (évite le write inutile
+        // au tout premier mount d'un projet déjà à jour).
+        if (
+          JSON.stringify(currentEquipe.category_order || null) === serialized
+        ) {
+          lastWrittenOrderRef.current = serialized
+          return
+        }
+        const nextMeta = {
+          ...currentMeta,
+          equipe: {
+            ...currentEquipe,
+            category_order: allCategories,
+          },
+        }
+        const { error: updErr } = await supabase
+          .from('projects')
+          .update({ metadata: nextMeta })
+          .eq('id', projectId)
+        if (updErr) throw updErr
+        lastWrittenOrderRef.current = serialized
+      } catch (err) {
+        console.warn(
+          '[TechListView] persist category_order DB failed:',
+          err?.message || err,
+        )
+      }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [projectId, canEdit, allCategories])
 
   // Helpers exposés à CategorySection
   const handleDeleteCategory = (cat) => {
