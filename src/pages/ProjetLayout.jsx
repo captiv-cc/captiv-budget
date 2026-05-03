@@ -51,8 +51,10 @@ import {
   Package,
   Shield,
   Menu,
+  Share2,
 } from 'lucide-react'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
+import ProjectShareModal from '../features/projets/components/ProjectShareModal'
 import ProjectSideNav from '../components/ProjectSideNav'
 import { buildGlobalNavSections } from '../lib/globalNav'
 
@@ -158,6 +160,15 @@ const ALL_TABS = [
   },
 ]
 
+// Palette pour le badge lot dans la modale de partage projet — alignée sur
+// EquipeTab (LOT_PALETTE) pour cohérence visuelle entre la sidebar équipe et
+// le sub-form équipe du share. La couleur d'un lot est déterministe : index
+// dans le tableau lots ordonné par sort_order.
+const SHARE_LOT_PALETTE = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#f97316', '#14b8a6',
+]
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function ProjetLayout() {
   const { id } = useParams()
@@ -204,6 +215,11 @@ export default function ProjetLayout() {
   const [devisList, setDevisList] = useState([])
   const [devisStats, setDevisStats] = useState({})
   const [loading, setLoading] = useState(true)
+
+  // PROJECT-SHARE-5/5 : modale de gestion des tokens portail projet, ouverte
+  // depuis le bouton Share2 du banner. Réservé aux internes (admin, charge_prod,
+  // coordinateur attaché — gating ci-dessous via isInternal).
+  const [shareModalOpen, setShareModalOpen] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -334,6 +350,26 @@ export default function ProjetLayout() {
     }
     return map
   }, [lots, devisByLot])
+
+  // PROJECT-SHARE-5/5 : map lotId → { title, color } pour le sub-form équipe
+  // de ProjectShareModal (badge lot). On ne garde que les lots qui ont un
+  // refDevis (= ceux qui peuvent porter une crew list partageable). En mono-lot
+  // ou sans devis, la map sera vide → le dropdown de scope est caché.
+  const shareLotsForEquipe = useMemo(
+    () => lots.filter((l) => refDevisByLot[l.id]),
+    [lots, refDevisByLot],
+  )
+  const shareLotInfoMap = useMemo(() => {
+    const map = {}
+    for (let i = 0; i < shareLotsForEquipe.length; i++) {
+      const lot = shareLotsForEquipe[i]
+      map[lot.id] = {
+        title: lot.title,
+        color: SHARE_LOT_PALETTE[i % SHARE_LOT_PALETTE.length],
+      }
+    }
+    return map
+  }, [shareLotsForEquipe])
 
   // Onglet actif depuis l'URL
   const pathSegments = location.pathname.split('/')
@@ -535,9 +571,38 @@ export default function ProjetLayout() {
                 </div>
               </div>
 
-              {/* KPIs header supprimés — les infos budget/marge/versions
-                  sont déjà visibles dans les onglets Devis et Budget Réel.
-                  Les onglets ont migré vers la sidebar latérale (chantier UI-1). */}
+              {/* Droite : actions header projet. Pour l'instant uniquement le
+                  bouton "Partager le projet" (PROJECT-SHARE-5/5) — gated
+                  isInternal. Si on ajoute d'autres actions plus tard
+                  (export global, etc.) elles s'aligneront ici. */}
+              {isInternal && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShareModalOpen(true)}
+                    aria-label="Partager le projet"
+                    title="Partager le projet"
+                    className="flex items-center justify-center rounded-md transition-colors"
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      color: 'var(--txt-2)',
+                      background: 'var(--bg-hov)',
+                      border: '1px solid var(--brd-sub)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-elev)'
+                      e.currentTarget.style.color = 'var(--txt)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'var(--bg-hov)'
+                      e.currentTarget.style.color = 'var(--txt-2)'
+                    }}
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -546,6 +611,20 @@ export default function ProjetLayout() {
             <Outlet context={ctx} />
           </div>
         </div>
+
+        {/* ── Modale de partage projet (PROJECT-SHARE-5/5) ──────────────── */}
+        {/* Gated isInternal côté caller (le bouton n'apparaît même pas pour
+            les prestataires). On garde quand même un guard côté render pour
+            défense en profondeur. */}
+        {isInternal && (
+          <ProjectShareModal
+            open={shareModalOpen}
+            onClose={() => setShareModalOpen(false)}
+            projectId={id}
+            lots={shareLotsForEquipe}
+            lotInfoMap={shareLotInfoMap}
+          />
+        )}
 
         {/* ── Drawer mobile (overlay) ─────────────────────────────────────── */}
         {/* On injecte globalNavSections : en mobile la sidebar globale 64px
