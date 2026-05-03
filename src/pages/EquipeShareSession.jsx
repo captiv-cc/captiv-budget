@@ -697,12 +697,18 @@ function CardSection({
         </span>
       </header>
 
-      {/* Cards de la section */}
-      <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
-        {section.rows.map((m) => (
+      {/* Cards de la section.
+          Pas de `divide-y` ici : sur mobile en dark mode, les fins traits
+          1px ressortaient comme des lignes claires sur le fond sombre et
+          alourdissaient la lecture (cf. retour Hugo sur la share matos).
+          On utilise une légère alternance de fond (zebra striping) alignée
+          sur le pattern du tableau desktop (Row zebra). */}
+      <ul>
+        {section.rows.map((m, i) => (
           <Card
             key={m.id}
             m={m}
+            zebra={i % 2 === 1}
             showLotDot={showLotDot}
             showSensitive={showSensitive}
             presenceDays={presenceDays}
@@ -717,6 +723,7 @@ function CardSection({
 
 function Card({
   m,
+  zebra = false,
   showLotDot,
   showSensitive,
   presenceDays,
@@ -746,7 +753,10 @@ function Card({
   const presenceSet = new Set(m.presence_days || [])
 
   return (
-    <li className="px-3 py-2.5">
+    <li
+      className="px-3 py-2.5"
+      style={{ background: zebra ? 'var(--bg-elev)' : 'transparent' }}
+    >
       {/* Row 1 : lot dot + Poste */}
       <div className="flex items-center gap-2">
         {showLotDot && lotInfo && (
