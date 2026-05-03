@@ -46,6 +46,7 @@ export const OUTILS = {
   PRODUCTION: 'production',
   LIVRABLES: 'livrables',
   MATERIEL: 'materiel',
+  PLANS: 'plans',
   DECORS: 'decors',
   // BUDGET-PERM (2026-04-20) — gating granulaire des onglets financiers :
   //   DEVIS  → onglet Devis (catalogue, versions, validation client)
