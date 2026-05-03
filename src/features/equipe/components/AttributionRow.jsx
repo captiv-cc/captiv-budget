@@ -18,8 +18,9 @@
 // Actions :
 //   - Drag (HTML5 native) : déplace la ligne entre catégories (change la
 //     `category` de cette row uniquement, choix Y validé)
-//   - Menu kebab : Rattacher à un autre poste, Détacher (si rattaché),
-//     Retirer de l'équipe
+//   - Bouton engrenage : ouvre le MembreDrawer (Vue par membre) qui regroupe
+//     toutes les actions : Rattacher / Détacher / Retirer / édition contact
+//     annuaire / présence / catégorie. Cohérent avec le clic sur le nom.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState, useRef } from 'react'
@@ -31,12 +32,10 @@ import {
   Calendar,
   PlaneLanding,
   PlaneTakeoff,
-  Trash2,
   ChevronDown,
   Link2,
-  MoreVertical,
+  Settings,
   GitMerge,
-  GitBranch,
   GripVertical,
   Shirt,
   Utensils,
@@ -48,7 +47,6 @@ import {
   condensePresenceDays,
   CREW_STATUTS,
 } from '../../../lib/crew'
-import { confirm } from '../../../lib/confirm'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 
 // Couleurs de statut alignées sur EquipeTab.jsx (STEPS)
@@ -82,10 +80,11 @@ export default function AttributionRow({
   canEdit = true,
   onUpdateRow,            // (rowId, fields) => Promise — per-row update
   onUpdatePersona,        // (personaKey, fields) => Promise — persona-level
-  onRemoveRow,            // async () => Promise
   onOpenPresence,         // () => void — ouvre la modale calendrier
-  onAttach,               // () => void — ouvre la modale rattacher
-  onDetach,               // async () => Promise — détache (si row rattachée)
+  // EQUIPE-P4 : onAttach / onDetach / onRemoveRow ne sont plus utilisés
+  // ici — toutes ces actions sont déléguées au MembreDrawer (ouvert via le
+  // bouton engrenage). Les props restent acceptées par TechListView pour
+  // compat mais ne sont plus consommées par cette row.
   onDragStart,            // HTML5 drag start
   onDragEnd,              // HTML5 drag end
   // Pour le réordonnancement intra-catégorie (P1.10) : indique si on est
@@ -170,18 +169,6 @@ export default function AttributionRow({
   // Régime alimentaire / taille T-shirt (depuis l'annuaire)
   const regimeAlim = persona.contact?.regime_alimentaire || null
   const tailleTshirt = persona.contact?.taille_tshirt || null
-
-  const handleDelete = async () => {
-    const ok = await confirm({
-      title: 'Retirer cette attribution',
-      message: nbAttached > 0
-        ? `Retirer ${fullName} de "${poste}" ? Les ${nbAttached} ligne(s) rattachée(s) seront détachées et redeviendront principales.`
-        : `Retirer ${fullName} de "${poste}" ?`,
-      confirmLabel: 'Retirer',
-      destructive: true,
-    })
-    if (ok) await onRemoveRow?.()
-  }
 
   // EQUIPE-RT-PRESENCE — handlers focus pour broadcast l'état d'édition.
   // onFocusCapture : focus entre dans la row (ou un de ses descendants).
@@ -643,15 +630,15 @@ export default function AttributionRow({
         />
       </div>
 
-      {/* Menu actions */}
+      {/* Action unique : ouvre le MembreDrawer (qui regroupe Rattacher /
+          Détacher / Retirer + édition contact annuaire + présence). On a
+          remplacé l'ancien menu kebab "..." par un bouton engrenage pour
+          centraliser toutes les actions au même endroit (cohérent avec
+          le clic sur le nom qui ouvre déjà le drawer). */}
       <div style={{ gridArea: isCompact ? 'menu' : undefined }}>
-        <RowMenu
+        <RowSettingsButton
           canEdit={canEdit}
-          canAttach={Boolean(onAttach)}
-          canDetach={Boolean(row.parent_membre_id) && Boolean(onDetach)}
-          onAttach={onAttach}
-          onDetach={onDetach}
-          onDelete={handleDelete}
+          onClick={() => onOpenMembre?.(row)}
         />
       </div>
     </div>
@@ -888,108 +875,31 @@ function StatutDropdown({ statut, canEdit, onChange }) {
   )
 }
 
-function RowMenu({ canEdit, canAttach, canDetach, onAttach, onDetach, onDelete }) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef(null)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
-
-  function handleOpen() {
-    const rect = triggerRef.current?.getBoundingClientRect()
-    if (rect) {
-      const top = rect.bottom + 4
-      const left = rect.right - 200
-      setPos({ top, left })
-    }
-    setOpen(true)
-  }
-
+// EQUIPE-P4 : remplace l'ancien RowMenu kebab par un simple bouton
+// engrenage qui ouvre le MembreDrawer. Le drawer regroupe maintenant
+// toutes les actions (Rattacher / Détacher / Retirer / édition contact
+// / présence / catégorie) — plus besoin de dropdown spécifique sur la
+// row. UX cohérente avec le clic sur le nom (qui ouvre déjà le drawer).
+function RowSettingsButton({ canEdit, onClick }) {
   if (!canEdit) return <div className="w-6" />
-
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={handleOpen}
-        className="p-1.5 rounded-md transition-colors"
-        style={{ color: 'var(--txt-3)' }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--bg-hov)'
-          e.currentTarget.style.color = 'var(--txt)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--txt-3)'
-        }}
-        title="Actions"
-      >
-        <MoreVertical className="w-3.5 h-3.5" />
-      </button>
-
-      {open &&
-        createPortal(
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <div
-              className="fixed z-50 rounded-md shadow-lg overflow-hidden"
-              style={{
-                top: pos.top,
-                left: pos.left,
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--brd)',
-                minWidth: 200,
-              }}
-            >
-              {canAttach && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onAttach?.()
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors"
-                  style={{ color: 'var(--txt)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <GitMerge className="w-3 h-3" />
-                  Rattacher à un autre poste
-                </button>
-              )}
-              {canDetach && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onDetach?.()
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors"
-                  style={{ color: 'var(--txt)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <GitBranch className="w-3 h-3" />
-                  Détacher
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onDelete?.()
-                }}
-                className="w-full text-left px-3 py-2 text-xs flex items-center gap-1.5 transition-colors border-t"
-                style={{ color: 'var(--red)', borderColor: 'var(--brd-sub)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <Trash2 className="w-3 h-3" />
-                Retirer de l&rsquo;équipe
-              </button>
-            </div>
-          </>,
-          document.body,
-        )}
-    </>
+    <button
+      type="button"
+      onClick={onClick}
+      className="p-1.5 rounded-md transition-colors"
+      style={{ color: 'var(--txt-3)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--bg-hov)'
+        e.currentTarget.style.color = 'var(--blue)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+        e.currentTarget.style.color = 'var(--txt-3)'
+      }}
+      title="Réglages du membre"
+      aria-label="Ouvrir les réglages du membre"
+    >
+      <Settings className="w-3.5 h-3.5" />
+    </button>
   )
 }
