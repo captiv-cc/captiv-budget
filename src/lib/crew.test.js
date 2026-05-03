@@ -268,11 +268,15 @@ describe('partitionByCategory', () => {
 
 describe('PERSONA_LEVEL_FIELDS', () => {
   it('contient les bons champs persona-level', () => {
+    // P1.7 : ajout des champs retour (departure_date, departure_time).
+    // P4.3 : ajout de prenom/nom/email/telephone (identité ad-hoc, propagée
+    //         à toutes les rows de la persona via bulkUpdate).
     expect(PERSONA_LEVEL_FIELDS).toEqual([
       'secteur', 'hebergement', 'chauffeur', 'presence_days', 'couleur',
       'arrival_date', 'arrival_time',
       'departure_date', 'departure_time',
       'logistique_notes',
+      'prenom', 'nom', 'email', 'telephone',
     ])
   })
 
