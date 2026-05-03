@@ -71,6 +71,10 @@ export default function MembreDrawer({
   onDetachMember, // (id) => Promise
   // Ouvrir la modale Présence (réutilisée)
   onOpenPresence, // (persona) => void
+  // Ouvrir l'AttachModal pour rattacher cette row à un autre poste de la
+  // même persona (cas typique : merger 2 lignes Cadreur + Essais cams en
+  // 1 seule visuellement). (row) => void
+  onOpenAttach,
 }) {
   // ─── Escape pour fermer ────────────────────────────────────────────────
   useEffect(() => {
@@ -331,9 +335,24 @@ export default function MembreDrawer({
                   lotInfoMap={lotInfoMap}
                   lineLotMap={lineLotMap}
                   categories={categories}
+                  // Rattacher disponible uniquement s'il existe au moins
+                  // un autre poste pour cette persona (sinon AttachModal
+                  // affiche "aucun candidat").
+                  hasAttachCandidates={personaRows.length >= 2}
                   onUpdateMember={onUpdateMember}
                   onRemove={() => handleRemoveRow(principalRow)}
                   onDetach={null}
+                  onAttach={
+                    onOpenAttach && personaRows.length >= 2
+                      ? () => {
+                          onOpenAttach(principalRow)
+                          // Le drawer se ferme tout seul (TechListView
+                          // gère l'AttachModal en parallèle), pour ne pas
+                          // empiler les 2 panneaux à droite.
+                          onClose?.()
+                        }
+                      : null
+                  }
                 />
               )}
               {childRows.map((c) => (
@@ -346,9 +365,18 @@ export default function MembreDrawer({
                   lotInfoMap={lotInfoMap}
                   lineLotMap={lineLotMap}
                   categories={categories}
+                  hasAttachCandidates={personaRows.length >= 2}
                   onUpdateMember={onUpdateMember}
                   onRemove={() => handleRemoveRow(c)}
                   onDetach={() => handleDetachRow(c)}
+                  onAttach={
+                    onOpenAttach && personaRows.length >= 2
+                      ? () => {
+                          onOpenAttach(c)
+                          onClose?.()
+                        }
+                      : null
+                  }
                 />
               ))}
             </div>
@@ -442,9 +470,11 @@ function PosteCard({
   lotInfoMap,
   lineLotMap,
   categories,
+  hasAttachCandidates = false,
   onUpdateMember,
   onRemove,
   onDetach,
+  onAttach,
 }) {
   const posteFromDevis = row.devis_line?.produit || null
   const canEditPoste = canEdit && !posteFromDevis
@@ -642,6 +672,28 @@ function PosteCard({
             </option>
           ))}
         </select>
+        {/* Rattacher : disponible si au moins 2 postes existent pour cette
+            persona ET pour les rows non rattachées (les rattachées peuvent
+            être réattachées via Détacher → Rattacher autre).
+            Cohérent avec le menu kebab d'AttributionRow. */}
+        {canEdit && !isChild && onAttach && hasAttachCandidates && (
+          <button
+            type="button"
+            onClick={onAttach}
+            className="text-[10px] px-2 py-0.5 rounded-md transition-colors inline-flex items-center gap-1"
+            style={{
+              background: 'transparent',
+              color: 'var(--blue)',
+              border: '1px solid var(--blue)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-bg)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            title="Rattacher ce poste à un autre — le poste devient enfant et n'apparaît plus comme ligne séparée."
+          >
+            <GitMerge className="w-2.5 h-2.5" />
+            Rattacher
+          </button>
+        )}
         {canEdit && isChild && onDetach && (
           <button
             type="button"

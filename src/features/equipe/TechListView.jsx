@@ -1053,6 +1053,11 @@ export default function TechListView({
         onOpenPresence={(persona) => {
           setPresenceFor({ persona, persona_key: persona.key })
         }}
+        // P4-DRAWER : action "Rattacher à un autre poste" depuis le drawer.
+        // On ouvre l'AttachModal global de TechListView en passant la row
+        // comme childRow ; le drawer se ferme côté MembreDrawer pour ne
+        // pas empiler les panneaux.
+        onOpenAttach={(row) => setAttachFor(row)}
       />
 
       {/* P4.1 — Preview du PDF généré (réutilise PdfPreviewModal de Matériel) */}
