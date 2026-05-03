@@ -49,6 +49,7 @@ import {
   Clapperboard,
   CheckSquare,
   Package,
+  Map,
   Shield,
   Menu,
   Share2,
@@ -124,6 +125,14 @@ const ALL_TABS = [
     path: 'materiel',
     finance: false,
     outil: 'materiel',
+  },
+  {
+    key: 'plans',
+    label: 'Plans',
+    icon: Map,
+    path: 'plans',
+    finance: false,
+    outil: 'plans',
   },
   {
     key: 'budget',

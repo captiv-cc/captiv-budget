@@ -69,7 +69,7 @@ const STORAGE_KEY = 'captiv:project-sidenav-collapsed'
 const GROUPS = [
   { label: 'Aperçu', keys: ['projet'] },
   { label: 'Commercial', keys: ['devis', 'factures'] },
-  { label: 'Production', keys: ['equipe', 'planning', 'production', 'livrables', 'materiel'] },
+  { label: 'Production', keys: ['equipe', 'planning', 'production', 'livrables', 'materiel', 'plans'] },
   { label: 'Analyse', keys: ['budget', 'dashboard'] },
   { label: 'Admin', keys: ['access'] },
 ]

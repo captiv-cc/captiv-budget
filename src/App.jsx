@@ -46,6 +46,7 @@ import PlanningTab from './pages/tabs/PlanningTab'
 import ProductionTab from './pages/tabs/ProductionTab'
 import LivrablesTab from './pages/tabs/LivrablesTab'
 import MaterielTab from './pages/tabs/MaterielTab'
+import PlansTab from './pages/tabs/PlansTab'
 import AccessTab from './pages/tabs/AccessTab'
 
 // Pages placeholders (à créer si besoin)
@@ -249,6 +250,7 @@ function AppRoutes() {
           <Route path="production" element={<ProductionTab />} />
           <Route path="livrables" element={<LivrablesTab />} />
           <Route path="materiel" element={<MaterielTab />} />
+          <Route path="plans" element={<PlansTab />} />
           <Route path="budget" element={<BudgetReelTab />} />
           <Route path="factures" element={<FacturesTab />} />
           <Route path="dashboard" element={<DashboardProjetTab />} />
