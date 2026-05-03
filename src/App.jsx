@@ -21,6 +21,9 @@ import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
 import EquipeShareSession from './pages/EquipeShareSession'
+import ProjectShareSession from './pages/ProjectShareSession'
+import ProjectShareEquipeSession from './pages/ProjectShareEquipeSession'
+import ProjectShareLivrablesSession from './pages/ProjectShareLivrablesSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -112,6 +115,21 @@ function AppRoutes() {
           la RPC share_livrables_fetch (SECURITY DEFINER). Hors Layout app. */}
       <Route path="/share/livrables/:token" element={<LivrableShareSession />} />
       <Route path="/share/equipe/:token" element={<EquipeShareSession />} />
+      {/* Portail projet (PROJECT-SHARE). Lien public unique qui agrège
+          plusieurs sous-pages share (équipe, livrables, …). Le hub liste les
+          pages activées pour le token et chaque sous-route délègue le rendu
+          aux composants share existants (EquipeShareView / LivrableShareView).
+          Les RPC share_projet_*_fetch sont SECURITY DEFINER et appliquent les
+          mêmes filtres que les share dédiés. Hors Layout app. */}
+      <Route path="/share/projet/:token" element={<ProjectShareSession />} />
+      <Route
+        path="/share/projet/:token/equipe"
+        element={<ProjectShareEquipeSession />}
+      />
+      <Route
+        path="/share/projet/:token/livrables"
+        element={<ProjectShareLivrablesSession />}
+      />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
       <Route
