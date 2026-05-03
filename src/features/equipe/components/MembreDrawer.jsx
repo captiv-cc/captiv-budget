@@ -75,6 +75,11 @@ export default function MembreDrawer({
   // même persona (cas typique : merger 2 lignes Cadreur + Essais cams en
   // 1 seule visuellement). (row) => void
   onOpenAttach,
+  // Édition d'un contact annuaire — met à jour la fiche dans la table
+  // `contacts` (= source de vérité partagée par tous les projets de l'org).
+  // Optionnel : si non fourni, l'identity panel annuaire reste read-only.
+  // (contactId, fields) => Promise
+  onUpdateContact,
 }) {
   // ─── Escape pour fermer ────────────────────────────────────────────────
   useEffect(() => {
@@ -280,40 +285,50 @@ export default function MembreDrawer({
               - Hors annuaire : champs prenom/nom/email/téléphone éditables.
                 Les modifications se propagent à toutes les rows ad-hoc
                 de la persona via bulkUpdate (PERSONA_LEVEL_FIELDS étendu).
-              - Annuaire : affichage read-only avec hint "modifiable dans
-                l'annuaire" — la source de vérité est `contacts.*`. */}
+              - Annuaire :
+                - Si canEdit + onUpdateContact fournis → panneau éditable
+                  qui met à jour la table `contacts` directement (source de
+                  vérité partagée par tous les projets de l'org).
+                - Sinon → affichage read-only avec hint. */}
           {isFromAnnuaire ? (
-            (persona.email || persona.telephone || persona.ville) && (
-              <div
-                className="rounded-md p-3 space-y-1.5 text-xs"
-                style={{
-                  background: 'var(--bg-surf)',
-                  border: '1px solid var(--brd-sub)',
-                  color: 'var(--txt-2)',
-                }}
-              >
-                {persona.email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
-                    <span className="truncate">{persona.email}</span>
-                  </div>
-                )}
-                {persona.telephone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
-                    <span>{persona.telephone}</span>
-                  </div>
-                )}
-                {persona.ville && (
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
-                    <span>{persona.ville}</span>
-                  </div>
-                )}
-                <p className="text-[10px] italic pt-1" style={{ color: 'var(--txt-3)' }}>
-                  Modifiable dans l&rsquo;annuaire de l&rsquo;organisation.
-                </p>
-              </div>
+            canEdit && onUpdateContact && persona.contact_id ? (
+              <AnnuaireIdentityPanel
+                persona={persona}
+                onUpdateContact={onUpdateContact}
+              />
+            ) : (
+              (persona.email || persona.telephone || persona.ville) && (
+                <div
+                  className="rounded-md p-3 space-y-1.5 text-xs"
+                  style={{
+                    background: 'var(--bg-surf)',
+                    border: '1px solid var(--brd-sub)',
+                    color: 'var(--txt-2)',
+                  }}
+                >
+                  {persona.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
+                      <span className="truncate">{persona.email}</span>
+                    </div>
+                  )}
+                  {persona.telephone && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
+                      <span>{persona.telephone}</span>
+                    </div>
+                  )}
+                  {persona.ville && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
+                      <span>{persona.ville}</span>
+                    </div>
+                  )}
+                  <p className="text-[10px] italic pt-1" style={{ color: 'var(--txt-3)' }}>
+                    Modifiable dans l&rsquo;annuaire de l&rsquo;organisation.
+                  </p>
+                </div>
+              )
             )
           ) : (
             <AdhocIdentityPanel
@@ -936,6 +951,141 @@ function AdhocIdentityPanel({ persona, canEdit, onUpdatePersona }) {
       <p className="text-[10px] italic pt-1" style={{ color: 'var(--txt-3)' }}>
         Cette personne n&rsquo;est pas dans l&rsquo;annuaire. Vous pouvez
         éditer ses infos ici.
+      </p>
+    </div>
+  )
+}
+
+// ─── AnnuaireIdentityPanel — Édition d'un contact annuaire ──────────────────
+//
+// Pour les rows liées à un contact (contact_id IS NOT NULL), les infos sont
+// stockées dans la table `contacts` (source de vérité partagée par tous les
+// projets de l'org). Modifier ici = modifier la fiche annuaire pour TOUS
+// les projets — c'est l'effet attendu d'un changement de coordonnées.
+//
+// L'admin doit avoir le droit d'éditer la BDD contacts (canEdit=true côté
+// MembreDrawer + onUpdateContact fourni par TechListView). Les modifs sont
+// commit on-blur ; un appel à reload() se fait côté useCrew après l'update
+// pour rafraîchir le join contacts.
+
+function AnnuaireIdentityPanel({ persona, onUpdateContact }) {
+  // Source de vérité = persona.contact (joint depuis projet_membres). On
+  // n'utilise pas persona.email/telephone/ville (qui peuvent inclure des
+  // overrides projet_membres) pour ne pas créer d'incohérence.
+  const c = persona.contact || {}
+  const [prenom, setPrenom] = useState(c.prenom || '')
+  const [nom, setNom] = useState(c.nom || '')
+  const [email, setEmail] = useState(c.email || '')
+  const [telephone, setTelephone] = useState(c.telephone || '')
+  const [ville, setVille] = useState(c.ville || '')
+
+  // Sync drafts si la fiche contact change ailleurs (autre tab → reload)
+  useEffect(() => setPrenom(c.prenom || ''), [c.prenom])
+  useEffect(() => setNom(c.nom || ''), [c.nom])
+  useEffect(() => setEmail(c.email || ''), [c.email])
+  useEffect(() => setTelephone(c.telephone || ''), [c.telephone])
+  useEffect(() => setVille(c.ville || ''), [c.ville])
+
+  function commit(field, value, current) {
+    if (!persona.contact_id) return
+    const trimmed = typeof value === 'string' ? value.trim() : value
+    const next = trimmed === '' ? null : trimmed
+    if (next === (current || null)) return
+    onUpdateContact?.(persona.contact_id, { [field]: next })
+  }
+
+  return (
+    <div
+      className="rounded-md p-3 space-y-2"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Prénom" icon={<User className="w-3 h-3" />}>
+          <input
+            type="text"
+            value={prenom}
+            onChange={(e) => setPrenom(e.target.value)}
+            onBlur={() => commit('prenom', prenom, c.prenom)}
+            placeholder="Hugo"
+            className="w-full text-sm px-2 py-1 rounded outline-none"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
+          />
+        </Field>
+        <Field label="Nom" icon={<User className="w-3 h-3" />}>
+          <input
+            type="text"
+            value={nom}
+            onChange={(e) => setNom(e.target.value)}
+            onBlur={() => commit('nom', nom, c.nom)}
+            placeholder="Martin"
+            className="w-full text-sm px-2 py-1 rounded outline-none"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt)',
+            }}
+          />
+        </Field>
+      </div>
+
+      <Field label="Email" icon={<Mail className="w-3 h-3" />}>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onBlur={() => commit('email', email.toLowerCase(), c.email)}
+          placeholder="hugo@example.fr"
+          className="w-full text-sm px-2 py-1 rounded outline-none"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            color: 'var(--txt)',
+          }}
+        />
+      </Field>
+
+      <Field label="Téléphone" icon={<Phone className="w-3 h-3" />}>
+        <input
+          type="tel"
+          value={telephone}
+          onChange={(e) => setTelephone(e.target.value)}
+          onBlur={() => commit('telephone', telephone, c.telephone)}
+          placeholder="06…"
+          className="w-full text-sm px-2 py-1 rounded outline-none"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            color: 'var(--txt)',
+          }}
+        />
+      </Field>
+
+      <Field label="Ville" icon={<MapPin className="w-3 h-3" />}>
+        <input
+          type="text"
+          value={ville}
+          onChange={(e) => setVille(e.target.value)}
+          onBlur={() => commit('ville', ville, c.ville)}
+          placeholder="Montpellier"
+          className="w-full text-sm px-2 py-1 rounded outline-none"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            color: 'var(--txt)',
+          }}
+        />
+      </Field>
+
+      <p
+        className="text-[10px] italic pt-1 leading-snug"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Ces modifications mettent à jour la fiche dans l&rsquo;annuaire de
+        l&rsquo;organisation — visible sur tous les projets.
       </p>
     </div>
   )

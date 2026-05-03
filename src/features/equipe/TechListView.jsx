@@ -290,6 +290,40 @@ export default function TechListView({
     return () => clearTimeout(t)
   }, [projectId, canEdit, allCategories])
 
+  // P4-DRAWER : édition d'un contact annuaire depuis le drawer.
+  // Met à jour la table `contacts` directement (source de vérité partagée
+  // par tous les projets de l'org), puis appelle reload() pour rafraîchir
+  // le join contacts côté useCrew (la subscription Realtime est sur
+  // projet_membres, pas sur contacts → reload manuel nécessaire).
+  // Conversion "" → null pour les champs typés Postgres (idem Contacts.jsx).
+  const updateContact = async (contactId, fields) => {
+    if (!contactId || !fields) return
+    const NULLABLE_FIELDS = [
+      'date_naissance', 'email', 'telephone', 'address', 'code_postal',
+      'ville', 'pays', 'specialite', 'regime', 'regime_alimentaire',
+      'taille_tshirt', 'permis', 'siret', 'tva_intracommunautaire',
+      'iban', 'bic', 'numero_secu', 'notes', 'user_id',
+    ]
+    const payload = { ...fields }
+    for (const k of NULLABLE_FIELDS) {
+      if (k in payload && (payload[k] === '' || payload[k] === undefined)) {
+        payload[k] = null
+      }
+    }
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .update(payload)
+        .eq('id', contactId)
+      if (error) throw error
+      notify.success('Fiche annuaire mise à jour')
+      // Reload pour rafraîchir le join contacts dans members
+      await reload()
+    } catch (err) {
+      notify.error('Erreur : ' + (err.message || JSON.stringify(err)))
+    }
+  }
+
   // Helpers exposés à CategorySection
   const handleDeleteCategory = (cat) => {
     // Sécurité : on ne supprime que si la cat est vide (vérifié aussi
@@ -1058,6 +1092,9 @@ export default function TechListView({
         // comme childRow ; le drawer se ferme côté MembreDrawer pour ne
         // pas empiler les panneaux.
         onOpenAttach={(row) => setAttachFor(row)}
+        // P4-DRAWER : édition contact annuaire depuis le drawer (admin).
+        // Disponible uniquement si canEdit (gating UI + RLS côté DB).
+        onUpdateContact={canEdit ? updateContact : null}
       />
 
       {/* P4.1 — Preview du PDF généré (réutilise PdfPreviewModal de Matériel) */}
