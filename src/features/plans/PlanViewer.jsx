@@ -315,14 +315,13 @@ function PdfPagesViewer({ signedUrl }) {
   }, [signedUrl])
 
   return (
-    <div ref={containerRef} className="w-full pt-12 pb-4 px-0 sm:px-4 flex flex-col items-center gap-3 sm:gap-4">
-      {pages.map((page, idx) => (
+    <div ref={containerRef} className="w-full" style={{ paddingTop: '64px' }}>
+      {pages.map((page) => (
         <PdfPage
           key={page.num}
           dataUrl={page.dataUrl}
           pageNum={page.num}
           totalPages={pages.length || '?'}
-          isFirst={idx === 0}
         />
       ))}
       {loading && (
@@ -349,15 +348,19 @@ function PdfPagesViewer({ signedUrl }) {
 }
 
 function PdfPage({ dataUrl, pageNum, totalPages }) {
-  // Sizing : la page doit toujours tenir dans la viewport visible (header
-  // 64px + padding ~32px = 96px à retirer de 100vh). On combine max-w +
-  // max-h sur l'<img>, qui garde son ratio natif. Avec ce sizing, page A4
-  // portrait ≈ 75 % de hauteur viewport, page 16:9 ≈ pleine largeur.
-  // L'utilisateur peut ensuite zoomer pour lire les détails.
+  // Sizing : pattern "lecteur image classique" (Apple Photos, Adobe Reader
+  // mobile). Chaque page = canvas plein écran (100vh - header 64px),
+  // l'image flotte en object-contain au centre. Au zoom, le wrapper laisse
+  // librement déborder dans tout l'espace écran — pas de "box" qui borne
+  // l'image à sa taille naturelle (cf. retour Hugo).
+  //
+  // Pas de fond blanc sur le wrapper : le fond noir #0a0a0a du parent
+  // PlanViewer ressort autour de l'image PDF (qui est déjà blanche dans
+  // le rendu canvas). Effet "lightbox" immersif.
   return (
     <div
-      className="relative rounded overflow-hidden shadow-lg flex items-center justify-center"
-      style={{ background: '#fff', maxWidth: '100%' }}
+      className="relative w-full"
+      style={{ height: 'calc(100vh - 64px)' }}
     >
       <TransformWrapper
         initialScale={1}
@@ -372,25 +375,26 @@ function PdfPage({ dataUrl, pageNum, totalPages }) {
         {({ zoomIn, zoomOut, resetTransform }) => (
           <>
             <TransformComponent
-              wrapperStyle={{ display: 'flex' }}
-              contentStyle={{ display: 'flex' }}
+              wrapperStyle={{ width: '100%', height: '100%' }}
+              contentStyle={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
               <img
                 src={dataUrl}
                 alt={`Page ${pageNum}`}
-                // Sizing :
-                //   - mobile (<640px) : pleine largeur viewport, hauteur
-                //     naturelle. L'user scroll verticalement dans la page,
-                //     ce qui est plus pratique pour lire les détails sans
-                //     avoir à zoomer constamment.
-                //   - desktop (≥640px) : page entière visible à l'écran
-                //     (max-h: calc(100vh - 96px)) → controls toujours
-                //     accessibles, l'user zoom pour les détails.
-                className="block select-none w-full sm:w-auto sm:max-h-[calc(100vh-96px)]"
+                className="block select-none"
                 draggable={false}
                 style={{
                   maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: 'auto',
                   height: 'auto',
+                  objectFit: 'contain',
                 }}
               />
             </TransformComponent>
