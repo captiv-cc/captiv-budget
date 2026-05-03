@@ -18,7 +18,7 @@
 // Accès : clic sur le nom dans une AttributionRow → onOpenMembre(row).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   X,
   User,
@@ -763,14 +763,33 @@ function PosteCard({
 // où ils dorment / comment on les transporte".
 
 function PresencePanel({ persona, canEdit, onUpdatePersona, onOpenPresence }) {
-  const [secteur, setSecteur] = useState(persona.secteur || '')
+  // Pré-remplissage : si la persona n'a pas de secteur projet-spécifique,
+  // on affiche par défaut la ville de l'annuaire (cohérent avec
+  // effectiveSecteur dans crew.js et avec ce qu'on rend dans le PDF /
+  // Crew list / Share). Une fois affiché, le commit on-blur ne sauve QUE
+  // si l'utilisateur a effectivement modifié la valeur (sinon on évite un
+  // write inutile qui figerait la ville et casserait le fallback dynamique
+  // si la fiche annuaire change plus tard).
+  const initialValue = persona.secteur || persona.contact?.ville || ''
+  const [secteur, setSecteur] = useState(initialValue)
+  const initialRef = useRef(initialValue)
 
-  // Sync draft si la persona change (autre tab via Realtime, ou bulk update)
-  useEffect(() => setSecteur(persona.secteur || ''), [persona.secteur])
+  // Sync draft si la persona change (autre tab via Realtime, ou bulk update,
+  // ou si la fiche annuaire est modifiée). La ref initialValue suit aussi
+  // pour que le check "valeur inchangée vs initial" reste correct.
+  useEffect(() => {
+    const v = persona.secteur || persona.contact?.ville || ''
+    setSecteur(v)
+    initialRef.current = v
+  }, [persona.secteur, persona.contact?.ville])
 
   function commitSecteur() {
     if (!canEdit) return
-    const next = secteur.trim() || null
+    const trimmed = secteur.trim()
+    // L'utilisateur n'a pas touché → ne rien commit (évite de figer la
+    // ville annuaire comme secteur projet-spécifique).
+    if (trimmed === initialRef.current.trim()) return
+    const next = trimmed || null
     if (next === (persona.secteur || null)) return
     onUpdatePersona?.(persona.key, { secteur: next })
   }
