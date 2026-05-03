@@ -329,15 +329,16 @@ export default function Block({
         transition: 'outline 120ms ease',
       }}
     >
-      {/* Header de bloc — drag source (draggable) + drop target dupliqué
-          (les events dragover/drop bubblent déjà vers <section>, mais certains
-          navigateurs avalent les bubbles de drag ; on double la ceinture).
-          Le drag est désactivé sur mobile : pas de cible visible (pas de
-          grip), et le long-press natif entre en conflit avec le tap usuel. */}
+      {/* Header de bloc — zone de drop (les events dragover/drop bubblent
+          déjà vers <section>, mais certains navigateurs avalent les bubbles
+          de drag ; on double la ceinture).
+          NB : le drag SOURCE n'est PAS sur le header — il est sur la poignée
+          GripVertical dédiée ci-dessous. Sinon le bouton de titre (cursor:text)
+          intercepte le mousedown et empêche le drag de démarrer (Chrome /
+          Safari). Pattern adopté après retour utilisateur ("je n'arrive pas à
+          drag les blocs"). */}
       <header
         className="flex items-center gap-2 px-4 py-2.5"
-        draggable={blockDndEnabled && !isMobile}
-        onDragStart={isMobile ? undefined : handleBlockDragStart}
         onDragOver={isMobile ? undefined : handleBlockDragOver}
         onDragEnter={isMobile ? undefined : handleBlockDragEnter}
         onDrop={isMobile ? undefined : handleBlockDrop}
@@ -345,17 +346,37 @@ export default function Block({
         style={{
           background: 'var(--bg-elev)',
           borderBottom: collapsed ? '1px solid var(--brd)' : '1px solid var(--brd-sub)',
-          cursor: blockDndEnabled && !isMobile ? 'grab' : 'default',
         }}
       >
-        {/* Grip drag handle (affordance visuelle). Masqué sur mobile : pas
-            de hover et ça grappille de l'espace précieux pour le titre. */}
+        {/* Poignée drag dédiée. Seul élément `draggable` du header — évite
+            le conflit avec le bouton-titre (cursor:text). cursor:grab pour
+            une affordance claire. Masquée sur mobile : pas de hover et le
+            long-press natif entre en conflit avec le tap usuel. */}
         {blockDndEnabled && !isMobile && (
-          <GripVertical
-            className="w-3.5 h-3.5 shrink-0"
-            style={{ color: 'var(--txt-3)', opacity: 0.5 }}
-            aria-hidden="true"
-          />
+          <div
+            draggable
+            onDragStart={handleBlockDragStart}
+            onDragEnd={handleBlockDragEndCb}
+            className="shrink-0 p-1 -ml-1 rounded transition-all"
+            style={{
+              cursor: 'grab',
+              color: 'var(--txt-3)',
+              touchAction: 'none',
+              userSelect: 'none',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--txt)'
+              e.currentTarget.style.background = 'var(--bg-hov)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--txt-3)'
+              e.currentTarget.style.background = 'transparent'
+            }}
+            title="Glisser pour réordonner le bloc"
+            aria-label="Réordonner le bloc"
+          >
+            <GripVertical className="w-4 h-4" aria-hidden="true" />
+          </div>
         )}
 
         {/* Chevron collapse/expand */}
