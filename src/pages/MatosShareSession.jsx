@@ -539,14 +539,6 @@ function ItemCard({ item, config, compact = false }) {
         </div>
         {showRightMeta && (
           <div className="flex items-center gap-2 shrink-0 min-w-0">
-            {config.show_quantites && (
-              <span
-                className="text-sm font-bold tabular-nums shrink-0"
-                style={{ color: 'var(--txt)' }}
-              >
-                ×{item.quantite ?? '?'}
-              </span>
-            )}
             {hasLoueurs && (
               <span
                 className="text-[11px] truncate"
@@ -554,6 +546,14 @@ function ItemCard({ item, config, compact = false }) {
                 title={loueursText}
               >
                 {loueursText}
+              </span>
+            )}
+            {config.show_quantites && (
+              <span
+                className="text-sm font-bold tabular-nums shrink-0"
+                style={{ color: 'var(--txt)' }}
+              >
+                ×{item.quantite ?? '?'}
               </span>
             )}
           </div>
