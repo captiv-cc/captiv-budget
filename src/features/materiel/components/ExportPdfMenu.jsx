@@ -1,16 +1,21 @@
 // ════════════════════════════════════════════════════════════════════════════
-// ExportPdfMenu — bouton dropdown "Export PDF" pour la page Matériel
+// ExportPdfMenu — bouton dropdown "Partager" pour la page Matériel
+// (renommé MAT-SHARE-4 : ex "Export PDF", maintenant unifié avec lien web)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Déroule un menu avec trois options :
-//   - Liste globale  → onExportGlobal()
-//   - Par loueur…    → onExportByLoueur()   (ouvre une modale de sélection)
-//   - Checklist      → onExportChecklist()
+// Déroule un menu avec quatre options :
+//   - Lien web partageable → onShareLink()        (ouvre la modale tokens)
+//   - ─────────── (séparateur) ──────────────
+//   - Liste globale (PDF)  → onExportGlobal()
+//   - Par loueur… (PDF)    → onExportByLoueur()   (ouvre modale sélection)
+//   - Checklist (PDF)      → onExportChecklist()
 //
-// L'appelant gère tous les handlers (génération + preview). Ce composant ne
-// fait qu'afficher le menu et fermer au clic extérieur / Échap.
+// L'appelant gère tous les handlers. Si `onShareLink` n'est pas fourni
+// (ex: utilisateur sans droit de partage), l'entrée + le séparateur sont
+// masqués et le menu redevient "Export PDF" classique.
 //
 // Props :
+//   - onShareLink()        — optionnel, ouvre MaterielShareModal
 //   - onExportGlobal()
 //   - onExportByLoueur()
 //   - onExportChecklist()
@@ -20,13 +25,15 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
-  Download,
   FileText,
+  Link2,
   ListChecks,
+  Share2,
   Users,
 } from 'lucide-react'
 
 export default function ExportPdfMenu({
+  onShareLink = null,
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
@@ -85,12 +92,12 @@ export default function ExportPdfMenu({
             e.currentTarget.style.color = 'var(--txt-2)'
           }
         }}
-        title="Exporter en PDF"
+        title={onShareLink ? 'Partager (lien ou PDF)' : 'Exporter en PDF'}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Download className="w-3 h-3" />
-        Export PDF
+        <Share2 className="w-3 h-3" />
+        {onShareLink ? 'Partager' : 'Export PDF'}
         <ChevronDown
           className="w-3 h-3 transition-transform"
           style={{ transform: open ? 'rotate(180deg)' : 'none' }}
@@ -102,27 +109,48 @@ export default function ExportPdfMenu({
           role="menu"
           className="absolute right-0 mt-1 z-40 rounded-lg overflow-hidden"
           style={{
-            minWidth: '220px',
+            minWidth: '240px',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.25)',
           }}
         >
+          {/* MAT-SHARE-4 : entrée Lien web en premier (action moderne).
+              Si pas fournie, le menu reste "Export PDF" classique. */}
+          {onShareLink && (
+            <>
+              <MenuItem
+                icon={<Link2 className="w-3.5 h-3.5" />}
+                label="Lien web partageable"
+                hint="Vue READ-ONLY pour client / DOP / régisseur"
+                onClick={() => pick(onShareLink)}
+                accent
+              />
+              <div
+                role="separator"
+                style={{
+                  height: '1px',
+                  background: 'var(--brd-sub)',
+                  margin: '2px 0',
+                }}
+              />
+            </>
+          )}
           <MenuItem
             icon={<FileText className="w-3.5 h-3.5" />}
-            label="Liste globale"
+            label="Liste globale (PDF)"
             hint="Tous les items par bloc"
             onClick={() => pick(onExportGlobal)}
           />
           <MenuItem
             icon={<Users className="w-3.5 h-3.5" />}
-            label="Par loueur…"
+            label="Par loueur… (PDF)"
             hint="Combiné ou ZIP"
             onClick={() => pick(onExportByLoueur)}
           />
           <MenuItem
             icon={<ListChecks className="w-3.5 h-3.5" />}
-            label="Checklist"
+            label="Checklist (PDF)"
             hint="Mode tournage (A4 paysage)"
             onClick={() => pick(onExportChecklist)}
           />
@@ -132,7 +160,8 @@ export default function ExportPdfMenu({
   )
 }
 
-function MenuItem({ icon, label, hint, onClick }) {
+function MenuItem({ icon, label, hint, onClick, accent = false }) {
+  // accent = entrée mise en avant visuellement (ex: "Lien web partageable")
   return (
     <button
       type="button"
@@ -140,16 +169,16 @@ function MenuItem({ icon, label, hint, onClick }) {
       onClick={onClick}
       className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all"
       style={{
-        background: 'transparent',
-        color: 'var(--txt-2)',
+        background: accent ? 'var(--blue-bg)' : 'transparent',
+        color: accent ? 'var(--blue)' : 'var(--txt-2)',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = 'var(--bg-hov)'
         e.currentTarget.style.color = 'var(--txt)'
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'transparent'
-        e.currentTarget.style.color = 'var(--txt-2)'
+        e.currentTarget.style.background = accent ? 'var(--blue-bg)' : 'transparent'
+        e.currentTarget.style.color = accent ? 'var(--blue)' : 'var(--txt-2)'
       }}
     >
       <span className="shrink-0" style={{ color: 'var(--blue)' }}>

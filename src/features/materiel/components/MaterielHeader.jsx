@@ -87,6 +87,10 @@ export default function MaterielHeader({
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
+  // MAT-SHARE-4 : ouvre la MaterielShareModal pour gérer les tokens de
+  // partage public web. Si null, l'entrée "Lien web" est masquée du menu
+  // Partager (qui redevient le classique "Export PDF").
+  onShareLink = null,
   onPreviewBilan,
   onCloseEssais,
   onReopenEssais,
@@ -149,6 +153,19 @@ export default function MaterielHeader({
       label: detailed ? 'Masquer les détails' : 'Afficher les détails',
       onClick: () => onToggleDetailed?.(!detailed),
     })
+  }
+  // MAT-SHARE-4 : entrée Lien web partageable en tête des actions
+  // d'export (mobile). Mise en avant via variant='primary' pour matcher
+  // l'accent du menu desktop.
+  if (activeVersion && onShareLink) {
+    moreActions.push({
+      id: 'share-link',
+      icon: Share2,
+      label: 'Lien web partageable',
+      variant: 'primary',
+      onClick: onShareLink,
+    })
+    moreActions.push({ id: 'sep-share', type: 'separator' })
   }
   if (activeVersion && onExportGlobal) {
     moreActions.push({
@@ -336,6 +353,7 @@ export default function MaterielHeader({
 
           {!isMobile && (
             <ExportPdfMenu
+              onShareLink={onShareLink}
               onExportGlobal={onExportGlobal}
               onExportByLoueur={onExportByLoueur}
               onExportChecklist={onExportChecklist}

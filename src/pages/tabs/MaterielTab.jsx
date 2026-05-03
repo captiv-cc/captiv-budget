@@ -32,6 +32,7 @@ import ExportLoueurModal from '../../features/materiel/components/ExportLoueurMo
 import PdfPreviewModal from '../../features/materiel/components/PdfPreviewModal'
 import BilanExportModal from '../../features/materiel/components/BilanExportModal'
 import ShareChecklistModal from '../../features/materiel/components/ShareChecklistModal'
+import MaterielShareModal from '../../features/materiel/components/MaterielShareModal'
 import LoueurDocsPanel from '../../features/materiel/components/LoueurDocsPanel'
 import {
   exportMatosGlobalPDF,
@@ -99,6 +100,11 @@ export default function MaterielTab() {
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  // MAT-SHARE-4 : modale de gestion des tokens de partage public web
+  // (read-only). Ouverte depuis l'entrée "Lien web partageable" du menu
+  // Partager (cf. ExportPdfMenu). Distincte de ShareChecklistModal qui
+  // pilote les tokens de mode chantier (anon, écriture).
+  const [shareWebOpen, setShareWebOpen] = useState(false)
   // MAT-13C : phase initiale du ShareChecklistModal. 'essais' quand ouvert
   // depuis le dropdown Essais, 'rendu' depuis le dropdown Rendu. L'utilisateur
   // peut ensuite basculer via les chips intra-modal.
@@ -628,6 +634,9 @@ export default function MaterielTab() {
         onExportGlobal={handleExportGlobal}
         onExportByLoueur={handleExportByLoueur}
         onExportChecklist={handleExportChecklist}
+        // MAT-SHARE-4 : ouvre la modale tokens partage public web. Gated
+        // canEdit (les non-éditeurs ne voient pas l'entrée du menu).
+        onShareLink={canEdit ? () => setShareWebOpen(true) : null}
         onPreviewBilan={handlePreviewBilan}
         onCloseEssais={handleCloseEssais}
         onReopenEssais={handleReopenEssais}
@@ -729,6 +738,18 @@ export default function MaterielTab() {
         onClose={() => setShareOpen(false)}
         activeVersion={activeVersion}
         initialPhase={sharePhase}
+      />
+
+      {/* MAT-SHARE-4 : Modale de partage public web (read-only). Distincte du
+          ShareChecklistModal ci-dessus qui sert au mode chantier (anon
+          écriture via matos_check_tokens). Ici on gère les tokens
+          matos_share_tokens — vue read-only filtrée par config. */}
+      <MaterielShareModal
+        open={shareWebOpen}
+        onClose={() => setShareWebOpen(false)}
+        projectId={projectId}
+        versions={versions}
+        activeVersion={activeVersion}
       />
 
       {/* MAT-11D : Panneau Photos (slide-over) — monté conditionnellement pour
