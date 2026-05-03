@@ -493,21 +493,27 @@ function ItemRow({ item, zebra, config, compact = false }) {
 // ─── Mode 'liste' (mobile) : cards par item ─────────────────────────────────
 
 function CardsList({ items, config, compact = false }) {
-  // Pas de `divide-y` ici : sur mobile en dark mode, les fins traits 1px
-  // entre items ressortaient comme des lignes claires sur le fond sombre
-  // et alourdissaient visuellement la liste (retour Hugo). On laisse le
-  // padding vertical de chaque ItemCard faire la séparation. Le contour
-  // du bloc parent suffit à délimiter l'ensemble.
+  // Pas de `divide-y` (les traits 1px entre items en dark mode
+  // ressortaient comme des lignes claires sur le fond sombre — retour
+  // Hugo). On utilise à la place une légère alternance de fond
+  // (zebra striping) alignée sur le pattern du tableau desktop, qui
+  // démarque visuellement les lignes sans les "couper".
   return (
     <ul>
-      {items.map((it) => (
-        <ItemCard key={it.id} item={it} config={config} compact={compact} />
+      {items.map((it, i) => (
+        <ItemCard
+          key={it.id}
+          item={it}
+          zebra={i % 2 === 1}
+          config={config}
+          compact={compact}
+        />
       ))}
     </ul>
   )
 }
 
-function ItemCard({ item, config, compact = false }) {
+function ItemCard({ item, zebra = false, config, compact = false }) {
   // Loueurs inline à droite avec la qté (au lieu d'une ligne dédiée)
   // pour économiser de la hauteur sur mobile (retour Hugo). Si vraiment
   // beaucoup de loueurs ou noms très longs, le texte truncate (lecture
@@ -520,7 +526,10 @@ function ItemCard({ item, config, compact = false }) {
   const showRightMeta = config.show_quantites || hasLoueurs
 
   return (
-    <li className={`px-3 ${compact ? 'py-1.5' : 'py-2.5'} space-y-1`}>
+    <li
+      className={`px-3 ${compact ? 'py-1.5' : 'py-2.5'} space-y-1`}
+      style={{ background: zebra ? 'var(--bg-elev)' : 'transparent' }}
+    >
       {/* Row 1 : flag + label + designation + (qté · loueurs) */}
       <div className="flex items-center gap-2 min-w-0">
         {config.show_flags && (
