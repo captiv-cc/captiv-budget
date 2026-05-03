@@ -30,8 +30,10 @@ import {
   UserPlus,
   Trash2,
   X,
-  Check,
-  Minus,
+  Eye,
+  MessageSquare,
+  Edit2,
+  RotateCcw,
   ChevronDown,
   ChevronRight,
   Shield,
@@ -43,6 +45,55 @@ import {
   Briefcase,
   ExternalLink,
 } from 'lucide-react'
+
+// ─── Helpers permissions (UI simplifiée 4 états) ─────────────────────────────
+//
+// Le modèle DB reste 3 booléens nullables (can_read / can_comment / can_edit).
+// L'UI les expose comme un seul niveau parmi 4 valeurs possibles, mutuellement
+// exclusives, et appliquées en bloc :
+//
+//   none    : aucun accès        → {read:false, comment:false, edit:false}
+//   read    : lire seulement     → {read:true,  comment:false, edit:false}
+//   comment : commenter + lire   → {read:true,  comment:true,  edit:false}
+//   edit    : éditer + commenter → {read:true,  comment:true,  edit:true}
+//
+// L'état "hérité" reste géré : si AUCUN override n'existe pour (user, projet,
+// outil), la cellule affiche le niveau du métier en visuel discret. Le clic
+// crée un override (niveau suivant dans le cycle). Le bouton ↺ supprime
+// l'override → on retombe sur le métier.
+
+const LEVEL_CYCLE = ['none', 'read', 'comment', 'edit']
+
+function permsToLevel({ read, comment, edit } = {}) {
+  if (edit) return 'edit'
+  if (comment) return 'comment'
+  if (read) return 'read'
+  return 'none'
+}
+
+function levelToPerms(level) {
+  switch (level) {
+    case 'edit':    return { can_read: true,  can_comment: true,  can_edit: true }
+    case 'comment': return { can_read: true,  can_comment: true,  can_edit: false }
+    case 'read':    return { can_read: true,  can_comment: false, can_edit: false }
+    case 'none':    return { can_read: false, can_comment: false, can_edit: false }
+    default:        return null
+  }
+}
+
+function nextLevel(current) {
+  const i = LEVEL_CYCLE.indexOf(current)
+  if (i === -1) return 'read'
+  return LEVEL_CYCLE[(i + 1) % LEVEL_CYCLE.length]
+}
+
+// Métadonnées d'affichage par niveau (icône, couleur, label).
+const LEVEL_META = {
+  none:    { Icon: X,             color: 'var(--red)',    label: 'Aucun accès' },
+  read:    { Icon: Eye,           color: 'var(--blue)',   label: 'Lire' },
+  comment: { Icon: MessageSquare, color: 'var(--purple)', label: 'Commenter' },
+  edit:    { Icon: Edit2,         color: 'var(--green)',  label: 'Éditer' },
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const ROLE_LABELS = {
@@ -192,31 +243,22 @@ export default function AccessTab() {
     loadAll()
   }
 
-  // ─── Actions : override d'une permission ────────────────────────────────
-  // Cycle : hérité (NULL) → forcé TRUE → forcé FALSE → hérité
-  async function cycleOverride(userId, outilKey, action) {
-    const current = overrides[userId]?.[outilKey] || {}
-    const currentVal = current[action] // true | false | null | undefined
-    let nextVal
-    if (currentVal === null || currentVal === undefined) nextVal = true
-    else if (currentVal === true) nextVal = false
-    else nextVal = null
+  // ─── Actions : override d'une permission (UI simplifiée 4 états) ────────
+  //
+  // setOverrideLevel(userId, outilKey, level)
+  //   level ∈ {'none','read','comment','edit'} → upsert override absolu
+  //   level === null                            → DELETE override (retour
+  //                                                au métier hérité)
+  //
+  // Note : le moteur côté serveur gère toujours la monotonie via normalize().
+  // Ici on stocke directement les 3 booléens cohérents (jamais d'état mixte
+  // genre {read:true, comment:null, edit:null}) → simplifie aussi la lecture
+  // côté DB.
+  async function setOverrideLevel(userId, outilKey, level) {
+    const perms = levelToPerms(level)
 
-    // Construction de la row complète (3 champs) : on ne touche que l'action
-    // mais il faut envoyer les 3 pour upsert
-    const row = {
-      user_id: userId,
-      project_id: projectId,
-      outil_key: outilKey,
-      can_read: action === 'read' ? nextVal : (current.read ?? null),
-      can_comment: action === 'comment' ? nextVal : (current.comment ?? null),
-      can_edit: action === 'edit' ? nextVal : (current.edit ?? null),
-    }
-
-    // Si les 3 valeurs sont NULL → supprimer la row (pas de surcharge)
-    const allNull = row.can_read === null && row.can_comment === null && row.can_edit === null
-
-    if (allNull) {
+    if (perms === null) {
+      // Reset : on supprime l'override → retour à l'hérité du métier
       const { error } = await supabase
         .from('project_access_permissions')
         .delete()
@@ -227,29 +269,38 @@ export default function AccessTab() {
         notify.error(error.message)
         return
       }
-    } else {
-      const { error } = await supabase
-        .from('project_access_permissions')
-        .upsert(row, { onConflict: 'user_id,project_id,outil_key' })
-      if (error) {
-        notify.error(error.message)
-        return
-      }
+      setOverrides((prev) => {
+        const next = { ...prev }
+        if (next[userId]) {
+          next[userId] = { ...next[userId] }
+          delete next[userId][outilKey]
+        }
+        return next
+      })
+      return
     }
 
-    // Mise à jour locale
+    const row = {
+      user_id: userId,
+      project_id: projectId,
+      outil_key: outilKey,
+      ...perms,
+    }
+    const { error } = await supabase
+      .from('project_access_permissions')
+      .upsert(row, { onConflict: 'user_id,project_id,outil_key' })
+    if (error) {
+      notify.error(error.message)
+      return
+    }
     setOverrides((prev) => {
       const next = { ...prev }
       if (!next[userId]) next[userId] = {}
       else next[userId] = { ...next[userId] }
-      if (allNull) {
-        delete next[userId][outilKey]
-      } else {
-        next[userId][outilKey] = {
-          read: row.can_read,
-          comment: row.can_comment,
-          edit: row.can_edit,
-        }
+      next[userId][outilKey] = {
+        read: perms.can_read,
+        comment: perms.can_comment,
+        edit: perms.can_edit,
       }
       return next
     })
@@ -500,7 +551,7 @@ export default function AccessTab() {
                       a.metier_template_id ? templatePerms[a.metier_template_id] || {} : {}
                     }
                     userOverrides={overrides[a.user_id] || {}}
-                    onCycle={(outil, action) => cycleOverride(a.user_id, outil, action)}
+                    onSetLevel={(outil, level) => setOverrideLevel(a.user_id, outil, level)}
                   />
                 )}
               </div>
@@ -529,13 +580,20 @@ export default function AccessTab() {
   )
 }
 
-// ─── Sous-composant : matrice outil × action ────────────────────────────────
-function PermissionsMatrix({ outils, templatePerms, userOverrides, onCycle }) {
+// ─── Sous-composant : matrice outil × droit (1 picker à 4 états) ───────────
+//
+// UI simplifiée 2026-05 (Hugo) : on remplace la grille 3 colonnes
+// (Lire/Commenter/Éditer) × 3 états (hérité/OUI/NON) par 1 colonne unique
+// "Droit" avec un bouton qui cycle parmi 4 niveaux mutuellement exclusifs
+// (Aucun / Lire / Commenter / Éditer). L'état "hérité du métier" est géré
+// par le visuel (icône grise translucide) + un bouton ↺ pour réinitialiser.
+function PermissionsMatrix({ outils, templatePerms, userOverrides, onSetLevel }) {
   return (
     <div className="p-3" style={{ background: 'var(--bg)', borderTop: '1px solid var(--brd-sub)' }}>
       <p className="text-[11px] mb-2" style={{ color: 'var(--txt-3)' }}>
-        <strong style={{ color: 'var(--txt-2)' }}>Clic sur une case</strong> pour cycler : hérité du
-        métier → forcer OUI → forcer NON → hérité.
+        <strong style={{ color: 'var(--txt-2)' }}>Clic sur le bouton</strong> pour cycler les
+        droits ; <strong style={{ color: 'var(--txt-2)' }}>↺</strong> pour réinitialiser sur le
+        métier.
       </p>
       <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--brd-sub)' }}>
         <table className="w-full text-xs">
@@ -545,48 +603,26 @@ function PermissionsMatrix({ outils, templatePerms, userOverrides, onCycle }) {
                 Outil
               </th>
               <th
-                className="text-center px-3 py-2 font-medium w-24"
-                style={{ color: 'var(--txt-2)' }}
+                className="text-center px-3 py-2 font-medium"
+                style={{ color: 'var(--txt-2)', width: 140 }}
               >
-                Lire
-              </th>
-              <th
-                className="text-center px-3 py-2 font-medium w-24"
-                style={{ color: 'var(--txt-2)' }}
-              >
-                Commenter
-              </th>
-              <th
-                className="text-center px-3 py-2 font-medium w-24"
-                style={{ color: 'var(--txt-2)' }}
-              >
-                Éditer
+                Droit
               </th>
             </tr>
           </thead>
           <tbody>
             {outils.map((o) => {
               const tpl = templatePerms[o.key] || {}
-              const ov = userOverrides[o.key] || {}
+              const ov = userOverrides[o.key]
               return (
                 <tr key={o.key} style={{ borderTop: '1px solid var(--brd-sub)' }}>
                   <td className="px-3 py-2" style={{ color: 'var(--txt)' }}>
                     {o.label}
                   </td>
-                  <PermCell
-                    tpl={tpl.read}
-                    override={ov.read}
-                    onClick={() => onCycle(o.key, 'read')}
-                  />
-                  <PermCell
-                    tpl={tpl.comment}
-                    override={ov.comment}
-                    onClick={() => onCycle(o.key, 'comment')}
-                  />
-                  <PermCell
-                    tpl={tpl.edit}
-                    override={ov.edit}
-                    onClick={() => onCycle(o.key, 'edit')}
+                  <LevelCell
+                    tpl={tpl}
+                    override={ov}
+                    onSetLevel={(level) => onSetLevel(o.key, level)}
                   />
                 </tr>
               )
@@ -598,54 +634,94 @@ function PermissionsMatrix({ outils, templatePerms, userOverrides, onCycle }) {
   )
 }
 
-// ─── Sous-composant : cellule permission 3 états ────────────────────────────
-function PermCell({ tpl, override, onClick }) {
-  // Valeur effective : override si défini, sinon template
-  const effective = override !== null && override !== undefined ? override : tpl || false
-  const isOverride = override !== null && override !== undefined
+// ─── Sous-composant : cellule droit (1 bouton cyclique 4 états + ↺) ────────
+//
+// Props :
+//   tpl      : { read, comment, edit } depuis le métier (ou {} si pas de
+//              template) — utilisé pour calculer le niveau hérité.
+//   override : { read, comment, edit } depuis project_access_permissions
+//              (undefined si aucun override → on hérite du métier).
+//   onSetLevel(level) : level ∈ {'none','read','comment','edit'} → upsert
+//                       l'override ; level === null → DELETE override.
+//
+// Affichage :
+//   - Pas d'override → icône en gris translucide ; tooltip "Hérité du métier"
+//   - Override actif → icône colorée + bouton ↺ visible
+//
+// Au clic sur le bouton principal, on calcule le niveau effectif courant et
+// on passe au suivant dans le cycle [none, read, comment, edit]. Premier
+// clic depuis l'hérité = avancer d'un cran depuis le niveau du métier.
+function LevelCell({ tpl, override, onSetLevel }) {
+  const isOverride = Boolean(override)
+  const tplLevel = permsToLevel({
+    read: tpl.read || false,
+    comment: tpl.comment || false,
+    edit: tpl.edit || false,
+  })
+  const ovLevel = isOverride
+    ? permsToLevel({
+        read: override.read || false,
+        comment: override.comment || false,
+        edit: override.edit || false,
+      })
+    : null
 
-  let bg, color, Icon, title
-  if (isOverride) {
-    if (override === true) {
-      bg = 'rgba(0,200,117,.18)'
-      color = 'var(--green)'
-      Icon = Check
-      title = 'Forcé OUI (surcharge)'
-    } else {
-      bg = 'rgba(255,59,48,.15)'
-      color = 'var(--red)'
-      Icon = X
-      title = 'Forcé NON (surcharge)'
-    }
-  } else {
-    // Hérité
-    if (effective) {
-      bg = 'rgba(0,122,255,.10)'
-      color = 'var(--blue)'
-      Icon = Check
-      title = 'Hérité du métier : OUI'
-    } else {
-      bg = 'var(--bg-elev)'
-      color = 'var(--txt-3)'
-      Icon = Minus
-      title = 'Hérité du métier : NON'
-    }
-  }
+  const effectiveLevel = ovLevel ?? tplLevel
+  const meta = LEVEL_META[effectiveLevel]
+  const Icon = meta.Icon
+
+  const tooltip = isOverride
+    ? `${meta.label} (override pour ce projet)`
+    : `${meta.label} (hérité du métier)`
+
+  // Couleurs : si override, plein. Si hérité, gris translucide (50%).
+  const iconColor = isOverride ? meta.color : 'var(--txt-3)'
+  const bg = isOverride
+    ? `color-mix(in srgb, ${meta.color} 14%, transparent)`
+    : 'var(--bg-elev)'
+  const border = isOverride ? meta.color : 'var(--brd-sub)'
 
   return (
     <td className="text-center px-3 py-1.5">
-      <button
-        onClick={onClick}
-        className="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all"
-        style={{
-          background: bg,
-          color,
-          border: isOverride ? `1px solid ${color}` : '1px solid var(--brd-sub)',
-        }}
-        title={title}
-      >
-        <Icon className="w-3.5 h-3.5" />
-      </button>
+      <div className="inline-flex items-center gap-1">
+        <button
+          onClick={() => onSetLevel(nextLevel(effectiveLevel))}
+          className="inline-flex items-center justify-center w-8 h-7 rounded-md transition-all"
+          style={{
+            background: bg,
+            color: iconColor,
+            border: `1px solid ${border}`,
+            opacity: isOverride ? 1 : 0.65,
+          }}
+          title={tooltip}
+          aria-label={tooltip}
+        >
+          <Icon className="w-3.5 h-3.5" />
+        </button>
+        {isOverride && (
+          <button
+            onClick={() => onSetLevel(null)}
+            className="inline-flex items-center justify-center w-6 h-7 rounded-md transition-colors"
+            style={{
+              background: 'transparent',
+              color: 'var(--txt-3)',
+              border: '1px solid var(--brd-sub)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+            title="Réinitialiser sur le métier"
+            aria-label="Réinitialiser sur le métier"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+        )}
+      </div>
     </td>
   )
 }
