@@ -98,10 +98,16 @@ export default function MembreDrawer({
     () => personaRows.find((r) => !r.parent_membre_id) || personaRows[0] || null,
     [personaRows],
   )
-  const childRows = useMemo(
-    () => personaRows.filter((r) => r.parent_membre_id),
-    [personaRows],
-  )
+  // Tous les postes de la persona, triés : principaux d'abord, puis enfants.
+  // Important : une persona peut avoir PLUSIEURS principaux (ex. Hugo Martin
+  // a "1er Assistant réalisateur" et "Essais cams" tant qu'aucun n'est
+  // rattaché à l'autre). Il faut tous les afficher dans le drawer pour
+  // permettre à l'admin de les voir + de pouvoir rattacher l'un sous l'autre.
+  const orderedPosteRows = useMemo(() => {
+    const principals = personaRows.filter((r) => !r.parent_membre_id)
+    const children = personaRows.filter((r) => r.parent_membre_id)
+    return [...principals, ...children]
+  }, [personaRows])
 
   // Persona "synthétique" (pour le header + les fields persona-level).
   // Source : la 1ère row, par convention les attributs persona-level sont
@@ -326,59 +332,56 @@ export default function MembreDrawer({
               Postes sur ce projet
             </SectionTitle>
             <div className="space-y-2 mt-2">
-              {principalRow && (
-                <PosteCard
-                  row={principalRow}
-                  isChild={false}
-                  canEdit={canEdit}
-                  lots={lots}
-                  lotInfoMap={lotInfoMap}
-                  lineLotMap={lineLotMap}
-                  categories={categories}
-                  // Rattacher disponible uniquement s'il existe au moins
-                  // un autre poste pour cette persona (sinon AttachModal
-                  // affiche "aucun candidat").
-                  hasAttachCandidates={personaRows.length >= 2}
-                  onUpdateMember={onUpdateMember}
-                  onRemove={() => handleRemoveRow(principalRow)}
-                  onDetach={null}
-                  onAttach={
-                    onOpenAttach && personaRows.length >= 2
-                      ? () => {
-                          onOpenAttach(principalRow)
-                          // Le drawer se ferme tout seul (TechListView
-                          // gère l'AttachModal en parallèle), pour ne pas
-                          // empiler les 2 panneaux à droite.
-                          onClose?.()
-                        }
-                      : null
-                  }
-                />
+              {/* Hint expliquant Rattacher quand 2+ postes existent. Cas
+                  typique : Hugo Martin a "1er Assistant" + "Essais cams"
+                  → Rattacher Essais cams → choisir 1er Assistant comme
+                  parent → les 2 fusionnent en 1 ligne sur la techlist. */}
+              {personaRows.length >= 2 && (
+                <p
+                  className="text-[10.5px] leading-snug -mt-0.5 mb-0.5"
+                  style={{ color: 'var(--txt-3)' }}
+                >
+                  Astuce : pour fusionner 2 postes en une seule ligne (sous-poste),
+                  cliquer{' '}
+                  <span style={{ color: 'var(--blue)', fontWeight: 600 }}>
+                    Rattacher
+                  </span>{' '}
+                  sur le poste secondaire et choisir le poste principal.
+                </p>
               )}
-              {childRows.map((c) => (
-                <PosteCard
-                  key={c.id}
-                  row={c}
-                  isChild
-                  canEdit={canEdit}
-                  lots={lots}
-                  lotInfoMap={lotInfoMap}
-                  lineLotMap={lineLotMap}
-                  categories={categories}
-                  hasAttachCandidates={personaRows.length >= 2}
-                  onUpdateMember={onUpdateMember}
-                  onRemove={() => handleRemoveRow(c)}
-                  onDetach={() => handleDetachRow(c)}
-                  onAttach={
-                    onOpenAttach && personaRows.length >= 2
-                      ? () => {
-                          onOpenAttach(c)
-                          onClose?.()
-                        }
-                      : null
-                  }
-                />
-              ))}
+              {orderedPosteRows.map((row) => {
+                const isChild = Boolean(row.parent_membre_id)
+                return (
+                  <PosteCard
+                    key={row.id}
+                    row={row}
+                    isChild={isChild}
+                    canEdit={canEdit}
+                    lots={lots}
+                    lotInfoMap={lotInfoMap}
+                    lineLotMap={lineLotMap}
+                    categories={categories}
+                    // Rattacher disponible uniquement s'il existe au moins
+                    // un autre poste pour cette persona (sinon AttachModal
+                    // afficherait "aucun candidat").
+                    hasAttachCandidates={personaRows.length >= 2}
+                    onUpdateMember={onUpdateMember}
+                    onRemove={() => handleRemoveRow(row)}
+                    onDetach={isChild ? () => handleDetachRow(row) : null}
+                    onAttach={
+                      onOpenAttach && personaRows.length >= 2 && !isChild
+                        ? () => {
+                            onOpenAttach(row)
+                            // Le drawer se ferme tout seul (TechListView
+                            // gère l'AttachModal en parallèle), pour ne pas
+                            // empiler les 2 panneaux à droite.
+                            onClose?.()
+                          }
+                        : null
+                    }
+                  />
+                )
+              })}
             </div>
           </section>
 
