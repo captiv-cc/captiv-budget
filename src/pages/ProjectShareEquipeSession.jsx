@@ -22,10 +22,14 @@ import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
 import { useProjectShareEquipe } from '../hooks/useProjectShareSession'
 import { EquipeShareView } from './EquipeShareSession'
 import { PROJECT_SHARE_THEME_KEY } from './ProjectShareSession'
+import ProjectSharePasswordGate from '../components/share/ProjectSharePasswordGate'
 
 export default function ProjectShareEquipeSession() {
   const { token } = useParams()
-  const { payload, loading, error } = useProjectShareEquipe(token)
+  const {
+    payload, loading, error,
+    requirePassword, passwordHint, passwordKind, submitPassword,
+  } = useProjectShareEquipe(token)
 
   // Thème partagé avec le hub (clé localStorage commune) : si l'utilisateur
   // toggle ici, le hub se recharge dans la même variante. Default 'dark'
@@ -46,6 +50,16 @@ export default function ProjectShareEquipeSession() {
     }
   }, [theme])
 
+  if (requirePassword) {
+    return (
+      <ProjectSharePasswordGate
+        kind={passwordKind || 'missing'}
+        hint={passwordHint}
+        onSubmit={submitPassword}
+        pageLabel="l\u2019équipe"
+      />
+    )
+  }
   if (loading) {
     return (
       <FullScreenStatus

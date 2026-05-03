@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Lock,
   Pencil,
   Plus,
   RotateCcw,
@@ -45,6 +46,7 @@ import {
   SHARE_PAGES,
   buildProjectShareUrl,
   getProjectShareTokenState,
+  isProjectShareTokenProtected,
   totalViews,
 } from '../../../lib/projectShare'
 import {
@@ -123,6 +125,19 @@ export default function ProjectShareModal({
   const [enabledPages, setEnabledPages] = useState(makeInitialEnabled)
   const [pageConfigs, setPageConfigs] = useState(makeInitialConfigs)
 
+  // Password gate (PROJECT-SHARE-PWD)
+  //   - passwordEnabled : true = portail protégé (input visible)
+  //   - passwordValue   : mdp en clair tapé dans le form (jamais persisté en
+  //                       state au refetch — purge à chaque ouverture)
+  //   - passwordHint    : indice optionnel (visible en clair côté gate)
+  //   - hadPasswordOnEntry : true si on est entré en mode édition d'un token
+  //                          déjà protégé. Permet de garder le mdp inchangé
+  //                          si l'admin ne re-tape rien.
+  const [passwordEnabled, setPasswordEnabled] = useState(false)
+  const [passwordValue, setPasswordValue] = useState('')
+  const [passwordHint, setPasswordHint] = useState('')
+  const [hadPasswordOnEntry, setHadPasswordOnEntry] = useState(false)
+
   // Pré-déplie le form si aucun token actif (UX au 1er coup d'œil) — mais
   // seulement en mode création (l'édition gère elle-même l'ouverture).
   useEffect(() => {
@@ -143,6 +158,10 @@ export default function ProjectShareModal({
       setExpiresAt('')
       setEnabledPages(makeInitialEnabled())
       setPageConfigs(makeInitialConfigs())
+      setPasswordEnabled(false)
+      setPasswordValue('')
+      setPasswordHint('')
+      setHadPasswordOnEntry(false)
     }
   }, [open])
 
@@ -173,8 +192,16 @@ export default function ProjectShareModal({
     }))
   }
 
-  const canSubmit = enabledPages.length > 0 && !submitting
   const isEditMode = editingTokenId !== null
+  // Password validation : en création, si le toggle est activé il FAUT un
+  // mdp non vide. En édition, si on entre avec un mdp existant, on peut
+  // laisser le champ vide pour garder l'ancien (cf. computePasswordPayload).
+  const passwordOk = !passwordEnabled
+    ? true
+    : isEditMode && hadPasswordOnEntry
+      ? true // ok de garder l'ancien
+      : passwordValue.length > 0
+  const canSubmit = enabledPages.length > 0 && passwordOk && !submitting
 
   // Bascule la modale en mode édition d'un token existant : pré-remplit tous
   // les champs du form avec les valeurs du token et l'ouvre. Préserve la
@@ -199,11 +226,16 @@ export default function ProjectShareModal({
     const expiresShort = t.expires_at
       ? String(t.expires_at).slice(0, 10)
       : ''
+    const protectedToken = isProjectShareTokenProtected(t)
     setEditingTokenId(t.id)
     setLabel(t.label || '')
     setExpiresAt(expiresShort)
     setEnabledPages(tokenEnabled.length > 0 ? tokenEnabled : makeInitialEnabled())
     setPageConfigs(mergedConfigs)
+    setPasswordEnabled(protectedToken)
+    setPasswordValue('') // le hash n'est jamais relu — placeholder "(inchangé)" géré côté UI
+    setPasswordHint(t.password_hint || '')
+    setHadPasswordOnEntry(protectedToken)
     setFormOpen(true)
   }
 
@@ -214,6 +246,32 @@ export default function ProjectShareModal({
     setExpiresAt('')
     setEnabledPages(makeInitialEnabled())
     setPageConfigs(makeInitialConfigs())
+    setPasswordEnabled(false)
+    setPasswordValue('')
+    setPasswordHint('')
+    setHadPasswordOnEntry(false)
+  }
+
+  // Calcule la clé `password` à transmettre à create/update :
+  //   - undefined → ne touche pas au mdp existant (édition silencieuse)
+  //   - null      → efface le mdp (token redevient public)
+  //   - string    → pose ou remplace le mdp
+  function computePasswordPayload() {
+    if (!passwordEnabled) {
+      // Toggle off → on veut clear (sauf en création où NULL = pas de mdp,
+      // équivalent à undefined côté DB).
+      if (isEditMode && hadPasswordOnEntry) return null // explicit clear
+      return undefined
+    }
+    // Toggle on
+    if (passwordValue && passwordValue.length > 0) return passwordValue
+    // Toggle on mais champ vide
+    if (isEditMode && hadPasswordOnEntry) {
+      // L'admin garde l'ancien mdp tel quel → ne pas envoyer la clé
+      return undefined
+    }
+    // En création, toggle on + champ vide = pas accepté (validé via canSubmit)
+    return undefined
   }
 
   async function handleSubmit() {
@@ -221,27 +279,35 @@ export default function ProjectShareModal({
     setSubmitting(true)
     try {
       const expiresIso = expiresAt ? `${expiresAt}T23:59:59` : null
-      // Ne transmet à la DB que les configs des pages effectivement activées
-      // (les autres seront ignorées par la lib de toute façon, mais autant
-      // garder le payload minimal).
       const finalConfigs = {}
       for (const p of enabledPages) {
         finalConfigs[p] = pageConfigs[p]
       }
+      const passwordPayload = computePasswordPayload()
+      const hintPayload = passwordEnabled
+        ? (passwordHint || '').trim() || null
+        : null
+
       if (isEditMode) {
-        await update(editingTokenId, {
+        const patch = {
           label: label.trim() || null,
           expiresAt: expiresIso,
           enabledPages,
           pageConfigs: finalConfigs,
-        })
+          passwordHint: hintPayload,
+        }
+        if (passwordPayload !== undefined) patch.password = passwordPayload
+        await update(editingTokenId, patch)
         notify.success('Portail mis à jour')
-        // Reset + sortie du mode édition
         setEditingTokenId(null)
         setLabel('')
         setExpiresAt('')
         setEnabledPages(makeInitialEnabled())
         setPageConfigs(makeInitialConfigs())
+        setPasswordEnabled(false)
+        setPasswordValue('')
+        setPasswordHint('')
+        setHadPasswordOnEntry(false)
         setFormOpen(false)
       } else {
         const newToken = await create({
@@ -249,6 +315,8 @@ export default function ProjectShareModal({
           enabledPages,
           pageConfigs: finalConfigs,
           expiresAt: expiresIso,
+          password: passwordEnabled && passwordValue ? passwordValue : null,
+          passwordHint: hintPayload,
         })
         try {
           await navigator.clipboard.writeText(buildProjectShareUrl(newToken.token))
@@ -260,6 +328,9 @@ export default function ProjectShareModal({
         setExpiresAt('')
         setEnabledPages(makeInitialEnabled())
         setPageConfigs(makeInitialConfigs())
+        setPasswordEnabled(false)
+        setPasswordValue('')
+        setPasswordHint('')
         setFormOpen(false)
       }
     } catch (err) {
@@ -396,6 +467,13 @@ export default function ProjectShareModal({
             updatePageConfig={updatePageConfig}
             lots={lots}
             lotInfoMap={lotInfoMap}
+            passwordEnabled={passwordEnabled}
+            setPasswordEnabled={setPasswordEnabled}
+            passwordValue={passwordValue}
+            setPasswordValue={setPasswordValue}
+            passwordHint={passwordHint}
+            setPasswordHint={setPasswordHint}
+            hadPasswordOnEntry={hadPasswordOnEntry}
             submitting={submitting}
             canSubmit={canSubmit}
             onSubmit={handleSubmit}
@@ -494,6 +572,13 @@ function CreateFormSection({
   updatePageConfig,
   lots,
   lotInfoMap,
+  passwordEnabled,
+  setPasswordEnabled,
+  passwordValue,
+  setPasswordValue,
+  passwordHint,
+  setPasswordHint,
+  hadPasswordOnEntry = false,
   submitting,
   canSubmit,
   onSubmit,
@@ -638,6 +723,18 @@ function CreateFormSection({
             )}
           </Field>
 
+          {/* Protection par mot de passe (PROJECT-SHARE-PWD) */}
+          <PasswordSection
+            enabled={passwordEnabled}
+            setEnabled={setPasswordEnabled}
+            value={passwordValue}
+            setValue={setPasswordValue}
+            hint={passwordHint}
+            setHint={setPasswordHint}
+            hadPasswordOnEntry={hadPasswordOnEntry}
+            isEditMode={isEditMode}
+          />
+
           {/* Bouton créer */}
           <div className="flex justify-end items-center gap-2 pt-1">
             {isEditMode && onCancelEdit && (
@@ -763,6 +860,127 @@ function PageCard({
               onConfigChange={onConfigChange}
             />
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Section mot de passe (PROJECT-SHARE-PWD) ───────────────────────────────
+//
+// UI repliable : un toggle "Protéger par mot de passe" + 2 champs (mdp + indice
+// optionnel) quand activé. En édition, si le token avait déjà un mdp, le champ
+// affiche un placeholder "(inchangé)" — l'admin peut taper un nouveau mdp pour
+// le remplacer, ou laisser vide pour garder l'ancien.
+
+function PasswordSection({
+  enabled,
+  setEnabled,
+  value,
+  setValue,
+  hint,
+  setHint,
+  hadPasswordOnEntry,
+  isEditMode,
+}) {
+  return (
+    <div
+      className="rounded-md overflow-hidden"
+      style={{
+        background: 'var(--bg-surf)',
+        border: `1px solid ${enabled ? 'var(--blue)' : 'var(--brd-sub)'}`,
+        transition: 'border-color 120ms ease',
+      }}
+    >
+      <label
+        className="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none"
+      >
+        <input
+          type="checkbox"
+          checked={Boolean(enabled)}
+          onChange={(e) => setEnabled(e.target.checked)}
+          className="cursor-pointer"
+        />
+        <div
+          className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+          style={{ background: 'var(--blue-bg)' }}
+        >
+          <Lock className="w-3.5 h-3.5" style={{ color: 'var(--blue)' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
+            Protéger par mot de passe
+          </div>
+          <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            {enabled
+              ? 'Le destinataire devra saisir le mot de passe pour accéder au portail.'
+              : 'Désactivé — le portail est accessible directement avec le lien.'}
+          </div>
+        </div>
+      </label>
+
+      {enabled && (
+        <div
+          className="px-3 pb-3 pt-1 space-y-2"
+          style={{ borderTop: '1px solid var(--brd-sub)' }}
+        >
+          <div>
+            <label
+              className="block text-[10px] font-semibold mb-1"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Mot de passe
+            </label>
+            <input
+              type="text" /* texte clair pour faciliter la copie/transmission par l'admin */
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={
+                isEditMode && hadPasswordOnEntry
+                  ? '(inchangé — taper un nouveau mdp pour le remplacer)'
+                  : 'Ex : Renault2026, codeProd…'
+              }
+              autoComplete="new-password"
+              className="w-full text-sm px-3 py-1.5 rounded outline-none font-mono"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--txt)',
+                border: '1px solid var(--brd)',
+              }}
+            />
+            {!isEditMode && enabled && !value && (
+              <p
+                className="text-[10px] mt-1"
+                style={{ color: 'var(--orange)' }}
+              >
+                Mot de passe requis pour activer la protection.
+              </p>
+            )}
+          </div>
+          <div>
+            <label
+              className="block text-[10px] font-semibold mb-1"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Indice (optionnel)
+            </label>
+            <input
+              type="text"
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              placeholder='Ex : "Code projet", "Demande à Paul"'
+              maxLength={120}
+              className="w-full text-sm px-3 py-1.5 rounded outline-none"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--txt)',
+                border: '1px solid var(--brd)',
+              }}
+            />
+            <p className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
+              Affiché AVANT authentification — éviter d&rsquo;y mettre le mdp.
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -968,6 +1186,19 @@ function TokenCard({
               {token.label || 'Portail sans label'}
             </h4>
             <StateBadge state={state} expiresAt={token.expires_at} />
+            {isProjectShareTokenProtected(token) && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-1"
+                style={{
+                  background: 'var(--blue-bg)',
+                  color: 'var(--blue)',
+                }}
+                title="Portail protégé par mot de passe"
+              >
+                <Lock className="w-2.5 h-2.5" />
+                Protégé
+              </span>
+            )}
           </div>
 
           {/* Méta */}

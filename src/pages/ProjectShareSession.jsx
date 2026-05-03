@@ -24,6 +24,7 @@ import {
 import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
+import ProjectSharePasswordGate from '../components/share/ProjectSharePasswordGate'
 
 // Clé localStorage commune au hub + sous-pages → toggle thème cohérent
 // quand l'utilisateur navigue d'une page à l'autre.
@@ -65,7 +66,10 @@ const PAGE_REGISTRY = {
 
 export default function ProjectShareSession() {
   const { token } = useParams()
-  const { payload, loading, error } = useProjectShareHub(token)
+  const {
+    payload, loading, error,
+    requirePassword, passwordHint, passwordKind, submitPassword,
+  } = useProjectShareHub(token)
 
   // Toggle thème — partagé entre hub + sous-pages via la clé commune.
   // Default 'dark' (cohérent avec EquipeShareSession). Peut évoluer plus
@@ -86,6 +90,15 @@ export default function ProjectShareSession() {
     }
   }, [theme])
 
+  if (requirePassword) {
+    return (
+      <ProjectSharePasswordGate
+        kind={passwordKind || 'missing'}
+        hint={passwordHint}
+        onSubmit={submitPassword}
+      />
+    )
+  }
   if (loading) {
     return (
       <FullScreenStatus

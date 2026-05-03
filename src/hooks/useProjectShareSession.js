@@ -7,8 +7,17 @@
 //   - useProjectShareEquipe(token)     → payload sous-page équipe
 //   - useProjectShareLivrables(token)  → payload sous-page livrables
 //
-// Pas d'auth (token = identification). Pas de Realtime (instantané).
-// Le hook expose : { loading, error, payload, refresh }.
+// Pas d'auth user (token = identification). Pas de Realtime (instantané).
+// Le hook expose :
+//   { payload, loading, error, refresh,
+//     requirePassword, passwordHint, passwordKind, submitPassword }
+//
+// Password gate (PROJECT-SHARE-PWD) :
+//   Si la RPC raise 28P01 (mdp requis ou invalide), on expose
+//   `requirePassword=true` + `passwordKind` ('missing' | 'invalid') + `passwordHint`.
+//   Le composant page rend alors un <ProjectSharePasswordGate /> qui appelle
+//   `submitPassword(plain)`. Le mdp est stocké en sessionStorage pour la durée
+//   de l'onglet et réutilisé sur les autres sous-pages du même portail.
 //
 // Pattern aligné sur useEquipeShareSession + useLivrableShareSession.
 // ════════════════════════════════════════════════════════════════════════════
@@ -18,6 +27,9 @@ import {
   fetchHubPayload,
   fetchEquipePayload,
   fetchLivrablesPayload,
+  getStoredSharePassword,
+  storeSharePassword,
+  detectPasswordError,
 } from '../lib/projectShare'
 
 /**
@@ -31,6 +43,11 @@ function useProjectSharePayload(token, fetcher) {
   const [error, setError] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
 
+  // Password gate state
+  const [requirePassword, setRequirePassword] = useState(false)
+  const [passwordHint, setPasswordHint] = useState(null)
+  const [passwordKind, setPasswordKind] = useState(null) // 'missing' | 'invalid'
+
   const aliveRef = useRef(true)
   useEffect(() => {
     aliveRef.current = true
@@ -40,6 +57,21 @@ function useProjectSharePayload(token, fetcher) {
   }, [])
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), [])
+
+  /**
+   * Soumet le mot de passe entré par l'utilisateur sur le password gate.
+   * Stocke en sessionStorage et déclenche un refetch.
+   */
+  const submitPassword = useCallback(
+    (plain) => {
+      if (!token) return
+      storeSharePassword(token, plain)
+      setRequirePassword(false)
+      setPasswordKind(null)
+      setReloadKey((k) => k + 1)
+    },
+    [token],
+  )
 
   useEffect(() => {
     if (!token) {
@@ -51,15 +83,35 @@ function useProjectSharePayload(token, fetcher) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetcher(token)
+    const stored = getStoredSharePassword(token)
+    fetcher(token, stored)
       .then((data) => {
         if (cancelled || !aliveRef.current) return
         setPayload(data)
+        setRequirePassword(false)
+        setPasswordKind(null)
+        setPasswordHint(null)
       })
       .catch((e) => {
         if (cancelled || !aliveRef.current) return
-        setError(e)
-        setPayload(null)
+        const pwd = detectPasswordError(e)
+        if (pwd) {
+          // Mot de passe requis ou invalide. On écarte le payload, on bascule
+          // sur le gate UI. Si le mdp stocké est invalide, on l'oublie pour
+          // que le prochain submit reparte de zéro.
+          if (pwd.kind === 'invalid') storeSharePassword(token, null)
+          setPayload(null)
+          setError(null)
+          setRequirePassword(true)
+          setPasswordKind(pwd.kind)
+          setPasswordHint(pwd.hint || null)
+        } else {
+          setError(e)
+          setPayload(null)
+          setRequirePassword(false)
+          setPasswordKind(null)
+          setPasswordHint(null)
+        }
       })
       .finally(() => {
         if (cancelled || !aliveRef.current) return
@@ -70,7 +122,17 @@ function useProjectSharePayload(token, fetcher) {
     }
   }, [token, reloadKey, fetcher])
 
-  return { payload, loading, error, refresh }
+  return {
+    payload,
+    loading,
+    error,
+    refresh,
+    // Password gate
+    requirePassword,
+    passwordHint,
+    passwordKind,
+    submitPassword,
+  }
 }
 
 export function useProjectShareHub(token) {

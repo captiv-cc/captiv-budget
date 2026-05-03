@@ -24,10 +24,14 @@ import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
 import { useProjectShareLivrables } from '../hooks/useProjectShareSession'
 import { LivrableShareView } from './LivrableShareSession'
 import { PROJECT_SHARE_THEME_KEY } from './ProjectShareSession'
+import ProjectSharePasswordGate from '../components/share/ProjectSharePasswordGate'
 
 export default function ProjectShareLivrablesSession() {
   const { token } = useParams()
-  const { payload, loading, error } = useProjectShareLivrables(token)
+  const {
+    payload, loading, error,
+    requirePassword, passwordHint, passwordKind, submitPassword,
+  } = useProjectShareLivrables(token)
 
   // Thème partagé avec le hub (clé localStorage commune). Default 'dark'
   // pour rester cohérent avec le hub. Note : LivrableShareSession indépendant
@@ -49,6 +53,16 @@ export default function ProjectShareLivrablesSession() {
     }
   }, [theme])
 
+  if (requirePassword) {
+    return (
+      <ProjectSharePasswordGate
+        kind={passwordKind || 'missing'}
+        hint={passwordHint}
+        onSubmit={submitPassword}
+        pageLabel="les livrables"
+      />
+    )
+  }
   if (loading) {
     return (
       <FullScreenStatus

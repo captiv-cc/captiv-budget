@@ -83,9 +83,14 @@ export function buildProjectShareUrl(token) {
 
 /* ─── CRUD admin ────────────────────────────────────────────────────────── */
 
+// Note : password_hash est sélectionné mais N'EST JAMAIS affiché — on dérive
+// uniquement un booléen (`isProjectShareTokenProtected`) côté UI. La RLS
+// scope la lecture aux admins / membres du projet, donc l'exposition est
+// acceptable. Le hash bcrypt n'est par ailleurs pas réversible.
 const TOKEN_COLS =
   'id, project_id, token, label, enabled_pages, page_configs, ' +
-  'created_by, created_at, revoked_at, expires_at, view_counts, last_accessed_at'
+  'created_by, created_at, revoked_at, expires_at, view_counts, last_accessed_at, ' +
+  'password_hash, password_hint'
 
 export async function listProjectShareTokens({ projectId, includeRevoked = true } = {}) {
   if (!projectId) throw new Error('listProjectShareTokens : projectId requis')
@@ -103,14 +108,20 @@ export async function listProjectShareTokens({ projectId, includeRevoked = true 
 /**
  * Crée un nouveau token portail projet.
  *
+ * Le mot de passe (s'il est fourni) est posé via une RPC SECURITY DEFINER
+ * `set_project_share_password` après l'INSERT — on ne fait JAMAIS transiter
+ * de plain text dans une INSERT-from-client (et la colonne `password_hash`
+ * du payload est ignorée par la RLS).
+ *
  * @param {object} params
  * @param {string} params.projectId
  * @param {string} [params.label]                  Libellé interne
  * @param {Array<string>} params.enabledPages      ex: ['equipe', 'livrables']
  * @param {object} [params.pageConfigs]            { equipe: {...}, livrables: {...} }
- *                                                 Chaque page activée doit avoir
- *                                                 son entrée. Si omise → defaults.
  * @param {string|Date|null} [params.expiresAt]
+ * @param {string|null} [params.password]          Plain text (sera hashé côté DB).
+ *                                                 NULL/'' = pas de protection.
+ * @param {string|null} [params.passwordHint]      Indice optionnel
  */
 export async function createProjectShareToken({
   projectId,
@@ -118,6 +129,8 @@ export async function createProjectShareToken({
   enabledPages = [],
   pageConfigs = null,
   expiresAt = null,
+  password = null,
+  passwordHint = null,
 } = {}) {
   if (!projectId) throw new Error('createProjectShareToken : projectId requis')
   if (!Array.isArray(enabledPages) || enabledPages.length === 0) {
@@ -129,8 +142,6 @@ export async function createProjectShareToken({
     }
   }
 
-  // Construit pageConfigs final : si pas fourni, on prend les defaults.
-  // Sinon, on merge les overrides sur les defaults pour les pages activées.
   const finalConfigs = {}
   for (const p of enabledPages) {
     finalConfigs[p] = {
@@ -141,6 +152,7 @@ export async function createProjectShareToken({
 
   const token = generateShareToken()
   const expiresIso = expiresAt ? new Date(expiresAt).toISOString() : null
+  const hint = (passwordHint || '').trim() || null
 
   const payload = {
     project_id: projectId,
@@ -149,6 +161,7 @@ export async function createProjectShareToken({
     enabled_pages: enabledPages,
     page_configs: finalConfigs,
     expires_at: expiresIso,
+    password_hint: hint,
   }
 
   const { data, error } = await supabase
@@ -157,6 +170,33 @@ export async function createProjectShareToken({
     .select(TOKEN_COLS)
     .single()
   if (error) throw error
+
+  // Pose du mdp en post-INSERT via RPC (le hash ne quitte jamais la DB).
+  if (password && password.length > 0) {
+    const { error: pwdErr } = await supabase.rpc('set_project_share_password', {
+      p_token_id: data.id,
+      p_password: password,
+    })
+    if (pwdErr) {
+      console.error(
+        '[projectShare] createProjectShareToken : set password failed',
+        pwdErr,
+      )
+      // Le token a été créé mais sans mdp — on remonte l'erreur pour que
+      // l'UI puisse alerter et proposer un retry / clear.
+      throw new Error(
+        'Token créé mais mot de passe non posé : ' + (pwdErr.message || pwdErr),
+      )
+    }
+    // Refetch pour avoir password_hash à jour.
+    const { data: refreshed } = await supabase
+      .from('project_share_tokens')
+      .select(TOKEN_COLS)
+      .eq('id', data.id)
+      .single()
+    return refreshed || data
+  }
+
   return data
 }
 
@@ -164,6 +204,19 @@ export async function createProjectShareToken({
  * Met à jour un token (label, expiration, pages activées, configs).
  * Le token secret + project_id ne sont pas modifiables. Pour changer
  * de projet, recréer un token.
+ */
+/**
+ * Met à jour un token (label, expiration, pages activées, configs, mdp).
+ * Le token secret + project_id ne sont pas modifiables. Pour changer
+ * de projet, recréer un token.
+ *
+ * Pour le mot de passe :
+ *   - `password === undefined`  → ne touche PAS au mdp existant
+ *   - `password === null` ou ''  → efface le mdp (token redevient public)
+ *   - `password === 'xxx'`       → pose ou remplace le mdp
+ *
+ * Le `passwordHint` suit la même règle que les autres champs (undefined =
+ * inchangé, '' ou null = clear, string = set).
  */
 export async function updateProjectShareToken(tokenId, fields = {}) {
   if (!tokenId) throw new Error('updateProjectShareToken : tokenId requis')
@@ -186,15 +239,62 @@ export async function updateProjectShareToken(tokenId, fields = {}) {
   if (fields.pageConfigs !== undefined) {
     patch.page_configs = fields.pageConfigs
   }
-  if (Object.keys(patch).length === 0) return null
+  if (fields.passwordHint !== undefined) {
+    patch.password_hint = (fields.passwordHint || '').trim() || null
+  }
+
+  // Patch principal (sans toucher au mdp). On envoie même si patch est vide
+  // dans le cas où seul le mdp change — pour récupérer la row à jour.
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase
+      .from('project_share_tokens')
+      .update(patch)
+      .eq('id', tokenId)
+    if (error) throw error
+  }
+
+  // Si fields.password est défini (y compris null/'' pour clear), on appelle
+  // la RPC dédiée. NULL/'' → password_hash NULL.
+  if (fields.password !== undefined) {
+    const { error: pwdErr } = await supabase.rpc('set_project_share_password', {
+      p_token_id: tokenId,
+      p_password: fields.password || null,
+    })
+    if (pwdErr) {
+      console.error(
+        '[projectShare] updateProjectShareToken : set password failed',
+        pwdErr,
+      )
+      throw new Error(
+        'Mise à jour du mot de passe échouée : ' +
+          (pwdErr.message || pwdErr),
+      )
+    }
+  }
+
+  // Refetch row à jour (incluant password_hash pour le flag isProtected).
+  if (
+    Object.keys(patch).length === 0 &&
+    fields.password === undefined
+  ) {
+    return null // rien à faire
+  }
   const { data, error } = await supabase
     .from('project_share_tokens')
-    .update(patch)
-    .eq('id', tokenId)
     .select(TOKEN_COLS)
+    .eq('id', tokenId)
     .single()
   if (error) throw error
   return data
+}
+
+/**
+ * Renvoie true si le token est protégé par un mdp (password_hash IS NOT NULL).
+ * Utilise une simple coercion booléenne sur la string bcrypt — on ne révèle
+ * jamais le hash à l'UI.
+ */
+export function isProjectShareTokenProtected(token) {
+  return Boolean(token?.password_hash)
 }
 
 export async function revokeProjectShareToken(tokenId) {
@@ -225,10 +325,18 @@ export async function deleteProjectShareToken(tokenId) {
 
 /**
  * Récupère le payload du HUB (page d'accueil portail). Bump view_counts['_hub'].
+ *
+ * @param {string} token
+ * @param {string} [password]  Mot de passe en clair (HTTPS). Optionnel : si
+ *                             le token n'est pas protégé, ignoré côté DB.
+ *                             Si protégé et mdp manquant/faux, raise 28P01.
  */
-export async function fetchHubPayload(token) {
+export async function fetchHubPayload(token, password = null) {
   if (!token) throw new Error('fetchHubPayload : token requis')
-  const { data, error } = await supabase.rpc('share_projet_fetch', { p_token: token })
+  const { data, error } = await supabase.rpc('share_projet_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
   if (error) {
     console.error('[projectShare] share_projet_fetch error', error)
     throw error
@@ -237,12 +345,12 @@ export async function fetchHubPayload(token) {
   return data
 }
 
-/**
- * Récupère le payload de la sous-page ÉQUIPE. Raise si page non activée.
- */
-export async function fetchEquipePayload(token) {
+export async function fetchEquipePayload(token, password = null) {
   if (!token) throw new Error('fetchEquipePayload : token requis')
-  const { data, error } = await supabase.rpc('share_projet_equipe_fetch', { p_token: token })
+  const { data, error } = await supabase.rpc('share_projet_equipe_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
   if (error) {
     console.error('[projectShare] share_projet_equipe_fetch error', error)
     throw error
@@ -251,18 +359,66 @@ export async function fetchEquipePayload(token) {
   return data
 }
 
-/**
- * Récupère le payload de la sous-page LIVRABLES. Raise si page non activée.
- */
-export async function fetchLivrablesPayload(token) {
+export async function fetchLivrablesPayload(token, password = null) {
   if (!token) throw new Error('fetchLivrablesPayload : token requis')
-  const { data, error } = await supabase.rpc('share_projet_livrables_fetch', { p_token: token })
+  const { data, error } = await supabase.rpc('share_projet_livrables_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
   if (error) {
     console.error('[projectShare] share_projet_livrables_fetch error', error)
     throw error
   }
   if (!data) throw new Error('Token invalide ou page non activée')
   return data
+}
+
+/* ─── Stockage du mdp côté visiteur (sessionStorage) ────────────────────── */
+
+// Per-tab, ephémère. Suffisant pour ne pas redemander à chaque navigation
+// dans le portail. Disparaît à la fermeture de l'onglet — comportement
+// volontairement plus strict que les cookies long-lived.
+const SHARE_PWD_PREFIX = 'project-share-pwd:'
+
+export function getStoredSharePassword(token) {
+  if (!token || typeof sessionStorage === 'undefined') return null
+  try {
+    return sessionStorage.getItem(SHARE_PWD_PREFIX + token) || null
+  } catch {
+    return null
+  }
+}
+
+export function storeSharePassword(token, password) {
+  if (!token || typeof sessionStorage === 'undefined') return
+  try {
+    if (!password) {
+      sessionStorage.removeItem(SHARE_PWD_PREFIX + token)
+    } else {
+      sessionStorage.setItem(SHARE_PWD_PREFIX + token, password)
+    }
+  } catch {
+    /* noop : storage plein ou indisponible */
+  }
+}
+
+/**
+ * Détecte les erreurs de password gate (PG SQLSTATE 28P01).
+ * Renvoie : { kind: 'missing' | 'invalid', hint }  ou null.
+ */
+export function detectPasswordError(error) {
+  if (!error) return null
+  if (error.code !== '28P01') return null
+  const msg = String(error.message || '').toLowerCase()
+  const kind = msg.includes('required') ? 'missing' : 'invalid'
+  // PostgreSQL renvoie le HINT dans error.hint (PostgREST mappe ce champ).
+  // Si le hint est vide, on retombe à null (le front affichera juste le
+  // libellé générique).
+  const hint =
+    typeof error.hint === 'string' && error.hint.trim().length > 0
+      ? error.hint.trim()
+      : null
+  return { kind, hint }
 }
 
 /* ─── Helpers de présentation ───────────────────────────────────────────── */
