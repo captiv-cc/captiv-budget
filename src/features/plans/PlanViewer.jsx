@@ -470,22 +470,21 @@ function NavBtn({ onClick, disabled, icon: Icon, title }) {
 
 function PdfPage({ dataUrl, pageNum, chromeVisible }) {
   // Sizing : pattern "lecteur image classique" (Apple Photos, Adobe Reader
-  // mobile). Chaque page = canvas plein écran (100vh - header 64px),
-  // l'image flotte en object-contain au centre. Au zoom, le wrapper laisse
-  // librement déborder dans tout l'espace écran — pas de "box" qui borne
-  // l'image à sa taille naturelle (cf. retour Hugo).
+  // mobile). Chaque page = plein écran (100% de la zone de contenu, qui
+  // remplit elle-même 100vh puisque le header est position:absolute et ne
+  // consomme pas d'espace dans le layout). L'image flotte en object-contain
+  // au centre. Au zoom, le wrapper laisse librement déborder dans tout
+  // l'espace écran — pas de "box" qui borne l'image (cf. retour Hugo).
   //
   // Pas de fond blanc sur le wrapper : le fond noir #0a0a0a du parent
   // PlanViewer ressort autour de l'image PDF (qui est déjà blanche dans
-  // le rendu canvas). Effet "lightbox" immersif.
+  // le rendu canvas). Effet "lightbox" immersif. Le header flotte par-dessus
+  // avec son gradient transparent quand visible.
   //
   // L'indicateur de page (N/M) est centralisé dans <PageNav>, pas de badge
   // ici — pour ne pas dupliquer l'info.
   return (
-    <div
-      className="relative w-full"
-      style={{ height: 'calc(100vh - 64px)' }}
-    >
+    <div className="relative w-full h-full">
       <TransformWrapper
         initialScale={1}
         minScale={1}
