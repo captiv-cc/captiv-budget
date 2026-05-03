@@ -493,8 +493,13 @@ function ItemRow({ item, zebra, config, compact = false }) {
 // ─── Mode 'liste' (mobile) : cards par item ─────────────────────────────────
 
 function CardsList({ items, config, compact = false }) {
+  // Pas de `divide-y` ici : sur mobile en dark mode, les fins traits 1px
+  // entre items ressortaient comme des lignes claires sur le fond sombre
+  // et alourdissaient visuellement la liste (retour Hugo). On laisse le
+  // padding vertical de chaque ItemCard faire la séparation. Le contour
+  // du bloc parent suffit à délimiter l'ensemble.
   return (
-    <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
+    <ul>
       {items.map((it) => (
         <ItemCard key={it.id} item={it} config={config} compact={compact} />
       ))}
