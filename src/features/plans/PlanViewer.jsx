@@ -185,9 +185,9 @@ export default function PlanViewer({ planId, onClose }) {
 
         {!loading && !error && plan && signedUrl && (
           <>{isPdf ? (
-            <PdfPagesViewer signedUrl={signedUrl} />
+            <PdfPagesViewer signedUrl={signedUrl} chromeVisible={chromeVisible} />
           ) : (
-            <ImageViewer src={signedUrl} alt={plan.name} />
+            <ImageViewer src={signedUrl} alt={plan.name} chromeVisible={chromeVisible} />
           )}</>
         )}
       </div>
@@ -197,7 +197,7 @@ export default function PlanViewer({ planId, onClose }) {
 
 /* ─── Image (PNG/JPG) — pinch-zoom + pan via react-zoom-pan-pinch ─────── */
 
-function ImageViewer({ src, alt }) {
+function ImageViewer({ src, alt, chromeVisible }) {
   return (
     <div className="relative w-full h-full flex items-center justify-center p-4">
       <TransformWrapper
@@ -233,6 +233,7 @@ function ImageViewer({ src, alt }) {
               onZoomIn={() => zoomIn()}
               onZoomOut={() => zoomOut()}
               onReset={() => resetTransform()}
+              visible={chromeVisible}
             />
           </>
         )}
@@ -243,7 +244,7 @@ function ImageViewer({ src, alt }) {
 
 /* ─── PDF — pagination explicite (1 page à la fois + boutons nav) ──────── */
 
-function PdfPagesViewer({ signedUrl }) {
+function PdfPagesViewer({ signedUrl, chromeVisible }) {
   const [pages, setPages] = useState([])
   const [loading, setLoading] = useState(true)
   const [renderError, setRenderError] = useState(null)
@@ -356,6 +357,7 @@ function PdfPagesViewer({ signedUrl }) {
           key={currentPage.num}
           dataUrl={currentPage.dataUrl}
           pageNum={currentPage.num}
+          chromeVisible={chromeVisible}
         />
       )}
 
@@ -381,13 +383,16 @@ function PdfPagesViewer({ signedUrl }) {
         </div>
       )}
 
-      {/* Footer pagination — visible si > 1 page. Floating en bas-center. */}
+      {/* Footer pagination — visible si > 1 page. Floating en bas-center.
+          Suit le mode immersif (cf. chromeVisible) : tap = cache toute l'UI,
+          précieux en paysage mobile où l'espace vertical est compté. */}
       {totalPages > 1 && (
         <PageNav
           current={safeIdx + 1}
           total={totalPages}
           onPrev={() => setCurrentIdx(Math.max(0, safeIdx - 1))}
           onNext={() => setCurrentIdx(Math.min(totalPages - 1, safeIdx + 1))}
+          visible={chromeVisible}
         />
       )}
     </div>
@@ -396,7 +401,7 @@ function PdfPagesViewer({ signedUrl }) {
 
 /* ─── PageNav — footer flottant [‹] [N/M] [›] pour PDF multi-pages ──── */
 
-function PageNav({ current, total, onPrev, onNext }) {
+function PageNav({ current, total, onPrev, onNext, visible = true }) {
   const atFirst = current <= 1
   const atLast = current >= total
   // Stop propagation pour ne pas trigger le toggle "mode immersif" du
@@ -407,10 +412,12 @@ function PageNav({ current, total, onPrev, onNext }) {
   return (
     <div
       onClick={stop}
-      className="absolute left-1/2 bottom-4 z-10 flex items-center gap-1 rounded-full px-2 py-1 -translate-x-1/2"
+      className="absolute left-1/2 bottom-2 z-10 flex items-center gap-0.5 rounded-full px-1 py-0.5 -translate-x-1/2 transition-opacity duration-200"
       style={{
         background: 'rgba(0,0,0,0.7)',
         backdropFilter: 'blur(8px)',
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? 'auto' : 'none',
       }}
     >
       <NavBtn
@@ -420,8 +427,8 @@ function PageNav({ current, total, onPrev, onNext }) {
         title="Page précédente (←)"
       />
       <span
-        className="text-xs font-semibold tabular-nums px-2 select-none"
-        style={{ color: 'white', minWidth: 60, textAlign: 'center' }}
+        className="text-[11px] font-semibold tabular-nums px-1.5 select-none"
+        style={{ color: 'white', minWidth: 44, textAlign: 'center' }}
       >
         {current} / {total}
       </span>
@@ -441,7 +448,7 @@ function NavBtn({ onClick, disabled, icon: Icon, title }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+      className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
       style={{
         color: 'white',
         opacity: disabled ? 0.3 : 1,
@@ -456,12 +463,12 @@ function NavBtn({ onClick, disabled, icon: Icon, title }) {
       title={title}
       aria-label={title}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-3.5 h-3.5" />
     </button>
   )
 }
 
-function PdfPage({ dataUrl, pageNum }) {
+function PdfPage({ dataUrl, pageNum, chromeVisible }) {
   // Sizing : pattern "lecteur image classique" (Apple Photos, Adobe Reader
   // mobile). Chaque page = canvas plein écran (100vh - header 64px),
   // l'image flotte en object-contain au centre. Au zoom, le wrapper laisse
@@ -519,6 +526,7 @@ function PdfPage({ dataUrl, pageNum }) {
               onZoomIn={() => zoomIn()}
               onZoomOut={() => zoomOut()}
               onReset={() => resetTransform()}
+              visible={chromeVisible}
             />
           </>
         )}
@@ -529,7 +537,7 @@ function PdfPage({ dataUrl, pageNum }) {
 
 /* ─── ZoomControls — barre flottante [+] [-] [Reset] en bas-left ───────── */
 
-function ZoomControls({ onZoomIn, onZoomOut, onReset }) {
+function ZoomControls({ onZoomIn, onZoomOut, onReset, visible = true }) {
   // Boutons stop-propagation pour ne pas déclencher le toggle "mode immersif"
   // du parent (clic sur la zone de contenu = cache header). Le user veut
   // zoomer, pas cacher l'UI.
@@ -540,10 +548,12 @@ function ZoomControls({ onZoomIn, onZoomOut, onReset }) {
   return (
     <div
       onClick={stop}
-      className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md p-1"
+      className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md p-1 transition-opacity duration-200"
       style={{
         background: 'rgba(0,0,0,0.65)',
         backdropFilter: 'blur(6px)',
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? 'auto' : 'none',
       }}
     >
       <ZoomBtn onClick={onZoomOut} icon={Minus} title="Dézoomer" />
