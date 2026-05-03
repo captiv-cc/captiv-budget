@@ -221,7 +221,12 @@ function FlagDot({ flag, label }) {
 // ─── Section par bloc ───────────────────────────────────────────────────────
 
 function BlockSection({ block, items, config }) {
-  const isConfig = block.affichage === 'config'
+  // Décision Hugo (matos-share polish) : on aligne le rendu des blocs
+  // affichage='config' sur le rendu 'liste' classique pour avoir un visuel
+  // homogène (mêmes colonnes Qté / Loueurs / Checklist / Remarques quand
+  // les toggles sont ON). Le `label` reste rendu en eyebrow uppercase devant
+  // la designation par <ItemRow> / <ItemCard> — ça matérialise toujours le
+  // côté "config caméra" (CORPS CAMÉRA / OPTIQUE / etc.).
   const couleur = block.couleur || null
   const headerBg = couleur || 'var(--bg-elev)'
   const headerColor = couleur ? '#FFFFFF' : 'var(--txt)'
@@ -261,8 +266,6 @@ function BlockSection({ block, items, config }) {
         >
           Aucun item dans ce bloc.
         </p>
-      ) : isConfig ? (
-        <ConfigItemList items={items} config={config} />
       ) : (
         <>
           {/* Mobile (<sm) : cards */}
@@ -276,40 +279,6 @@ function BlockSection({ block, items, config }) {
         </>
       )}
     </section>
-  )
-}
-
-// ─── Mode 'config' : "label : designation" épuré ────────────────────────────
-
-function ConfigItemList({ items, config }) {
-  return (
-    <ul className="divide-y" style={{ borderColor: 'var(--brd-sub)' }}>
-      {items.map((it) => (
-        <li
-          key={it.id}
-          className="px-3 sm:px-4 py-2 flex items-center gap-3 text-sm"
-          style={{ color: 'var(--txt)' }}
-        >
-          {it.label && (
-            <span
-              className="text-[11px] font-semibold uppercase tracking-wider shrink-0"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              {it.label}
-            </span>
-          )}
-          <span className="font-medium truncate">{it.designation}</span>
-          {config.show_quantites && it.quantite > 1 && (
-            <span
-              className="ml-auto text-xs font-semibold shrink-0"
-              style={{ color: 'var(--txt-2)' }}
-            >
-              ×{it.quantite}
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
   )
 }
 
