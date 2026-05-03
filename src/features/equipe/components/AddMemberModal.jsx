@@ -35,6 +35,12 @@ export default function AddMemberModal({
   onCreateContact,
   onAddMember,
   defaultCategory = null,
+  // EQUIPE-P4.4 — Liste des lots du projet (déjà filtrés par lotsWithRef
+  // côté EquipeTab). Si ≥ 2 lots → on affiche un sélecteur "Lot" pour que
+  // l'admin puisse rattacher manuellement la row ad-hoc à un lot précis
+  // (utile en multi-lot pour les renforts hors devis). Si 0 ou 1 lot →
+  // sélecteur masqué (lot_id reste NULL → lot dérivé/absent comme avant).
+  lots = [],
 }) {
   // Mode : 'annuaire' (default) ou 'adhoc' (hors annuaire)
   const [mode, setMode] = useState('annuaire')
@@ -52,7 +58,11 @@ export default function AddMemberModal({
   const [specialite, setSpecialite] = useState('')
   const [category, setCategory] = useState(defaultCategory ?? SENTINEL_UNCATEGORIZED)
   const [customCategory, setCustomCategory] = useState('')
+  const [lotId, setLotId] = useState(null) // EQUIPE-P4.4
   const [submitting, setSubmitting] = useState(false)
+
+  // Sélecteur de lot visible uniquement en multi-lot (≥ 2 lots)
+  const showLotSelect = lots.length >= 2
 
   // Reset à l'ouverture
   useEffect(() => {
@@ -66,6 +76,7 @@ export default function AddMemberModal({
       setSpecialite('')
       setCategory(defaultCategory ?? SENTINEL_UNCATEGORIZED)
       setCustomCategory('')
+      setLotId(null)
       setSubmitting(false)
     }
   }, [open, defaultCategory])
@@ -114,6 +125,7 @@ export default function AddMemberModal({
           category: finalCategory,
           specialite: specialite.trim() || null,
           regime: contact.regime || null,
+          lot_id: showLotSelect ? lotId : null,
         }
         displayName = `${contact.prenom || ''} ${contact.nom || ''}`.trim()
       } else {
@@ -127,6 +139,7 @@ export default function AddMemberModal({
           nom: adhocNom.trim() || null,
           email: adhocEmail.trim().toLowerCase() || null,
           telephone: adhocTelephone.trim() || null,
+          lot_id: showLotSelect ? lotId : null,
         }
         displayName = `${adhocPrenom.trim()} ${adhocNom.trim()}`.trim()
       }
@@ -169,7 +182,7 @@ export default function AddMemberModal({
               Ajouter à l&rsquo;équipe
             </h2>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Tech list — sans ligne de devis
+              Crew list — sans ligne de devis
             </p>
           </div>
           <button
@@ -426,6 +439,46 @@ export default function AddMemberModal({
               </p>
             )}
           </div>
+
+          {/* EQUIPE-P4.4 — Sélecteur de lot (multi-lot uniquement).
+              Comme l'attribution n'est pas liée à une ligne de devis, son
+              lot ne peut pas être dérivé via le devis_id ; on le saisit
+              donc explicitement ici. Optionnel : par défaut "Aucun lot". */}
+          {showLotSelect && (
+            <div>
+              <label
+                className="block text-xs font-semibold mb-1.5"
+                style={{ color: 'var(--txt-2)' }}
+              >
+                Lot (optionnel)
+              </label>
+              <select
+                value={lotId || ''}
+                onChange={(e) => setLotId(e.target.value || null)}
+                className="w-full text-sm px-2.5 py-1.5 rounded-md outline-none"
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd)',
+                  color: 'var(--txt)',
+                }}
+              >
+                <option value="">— Aucun lot —</option>
+                {lots.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.title}
+                  </option>
+                ))}
+              </select>
+              <p
+                className="mt-1.5 text-[10px] italic"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Cette personne n&rsquo;est pas liée à une ligne de devis.
+                Choisissez à quel lot la rattacher pour les filtres et exports
+                par lot. Modifiable plus tard.
+              </p>
+            </div>
+          )}
 
           {/* Hint contextuel */}
           {mode === 'annuaire' && !contact && (

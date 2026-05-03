@@ -208,6 +208,15 @@ export const PERSONA_LEVEL_FIELDS = Object.freeze([
   'departure_date',
   'departure_time',
   'logistique_notes',
+  // P4.3 — Identité ad-hoc (contact_id IS NULL) : prenom/nom/email/telephone
+  // sont stockés directement sur projet_membres. On les propage à toutes
+  // les rows de la persona quand l'admin les édite via le drawer.
+  // Pour les rows annuaire, ces champs sont normalement vides (la source
+  // de vérité est contacts.*), donc bulkUpdate ne change rien d'observable.
+  'prenom',
+  'nom',
+  'email',
+  'telephone',
 ])
 
 /**
@@ -459,6 +468,92 @@ export function groupByCategory(personae = []) {
     map[cat].push(p)
   }
   return map
+}
+
+/**
+ * Groupe les rows de techlist par catégorie pour les vues read-only :
+ *   - Vue seule (EquipePreviewModal)
+ *   - Export PDF (equipeTechlistPdfExport)
+ *   - Page partage publique (EquipeShareSession)
+ *
+ * Ordre des sections :
+ *   1. "À TRIER" (rows sans category) toujours en premier, si présent
+ *   2. Les catégories listées dans `categoryOrder` (dans l'ordre fourni),
+ *      uniquement celles qui ont au moins une row
+ *   3. Les catégories restantes (présentes dans les rows mais hors
+ *      categoryOrder) : DEFAULT_CATEGORIES en premier (PRODUCTION / EQUIPE
+ *      TECHNIQUE / POST PRODUCTION) puis les custom dans l'ordre d'apparition
+ *
+ * Si `categoryOrder` est vide ou null, on retombe sur l'ancien
+ * comportement (À TRIER → DEFAULT_CATEGORIES → custom).
+ *
+ * @param {Array<{ category: string|null }>} membres
+ * @param {Array<string>=} categoryOrder
+ * @returns {Array<{ key: string, label: string, rows: Array, isUncategorized: boolean }>}
+ */
+export function groupTechlistByCategory(membres = [], categoryOrder = []) {
+  const A_TRIER = '__a_trier__'
+  const buckets = new Map()
+  for (const m of membres || []) {
+    const cat = m?.category || A_TRIER
+    if (!buckets.has(cat)) buckets.set(cat, [])
+    buckets.get(cat).push(m)
+  }
+
+  const out = []
+  const seen = new Set()
+
+  // 1. À TRIER toujours en premier
+  if (buckets.has(A_TRIER)) {
+    out.push({
+      key: A_TRIER,
+      label: 'À TRIER',
+      rows: buckets.get(A_TRIER),
+      isUncategorized: true,
+    })
+    seen.add(A_TRIER)
+  }
+
+  // 2. Ordre custom (cf. localStorage equipe.categoryOrder + project.metadata)
+  const order = Array.isArray(categoryOrder) ? categoryOrder : []
+  for (const cat of order) {
+    if (cat && buckets.has(cat) && !seen.has(cat)) {
+      out.push({
+        key: cat,
+        label: cat,
+        rows: buckets.get(cat),
+        isUncategorized: false,
+      })
+      seen.add(cat)
+    }
+  }
+
+  // 3. Reste : DEFAULT_CATEGORIES en priorité, puis custom dans l'ordre
+  //    d'apparition dans les rows. On évite de doublonner les catégories
+  //    déjà placées par categoryOrder.
+  for (const cat of DEFAULT_CATEGORIES) {
+    if (buckets.has(cat) && !seen.has(cat)) {
+      out.push({
+        key: cat,
+        label: cat,
+        rows: buckets.get(cat),
+        isUncategorized: false,
+      })
+      seen.add(cat)
+    }
+  }
+  for (const [cat, rows] of buckets.entries()) {
+    if (cat === A_TRIER || seen.has(cat)) continue
+    out.push({
+      key: cat,
+      label: cat,
+      rows,
+      isUncategorized: false,
+    })
+    seen.add(cat)
+  }
+
+  return out
 }
 
 /**

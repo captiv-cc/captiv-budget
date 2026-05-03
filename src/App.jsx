@@ -20,6 +20,7 @@ import DevisPublic from './pages/DevisPublic'
 import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
+import EquipeShareSession from './pages/EquipeShareSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -110,6 +111,7 @@ function AppRoutes() {
           client externe (sans auth). Le payload est filtré côté serveur via
           la RPC share_livrables_fetch (SECURITY DEFINER). Hors Layout app. */}
       <Route path="/share/livrables/:token" element={<LivrableShareSession />} />
+      <Route path="/share/equipe/:token" element={<EquipeShareSession />} />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
       <Route

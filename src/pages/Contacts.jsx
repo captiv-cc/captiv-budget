@@ -347,11 +347,42 @@ export default function Contacts() {
     try {
       const validated = validate(form)
       if (!validated) { setSaving(false); return }
+      // Conversion "" → null pour les colonnes Postgres typées qui
+      // n'acceptent pas la string vide (date, numeric, uuid, …). Sans
+      // ça, un Date de naissance laissé vide déclenche
+      // "invalid input syntax for type date".
+      // Liste explicite de toutes les colonnes nullable du schéma contacts.
+      const NULLABLE_FIELDS = [
+        'date_naissance',
+        'email',
+        'telephone',
+        'address',
+        'code_postal',
+        'ville',
+        'pays',
+        'specialite',
+        'regime',
+        'regime_alimentaire',
+        'taille_tshirt',
+        'permis',
+        'siret',
+        'tva_intracommunautaire',
+        'iban',
+        'bic',
+        'numero_secu',
+        'notes',
+        'user_id',
+      ]
       const payload = {
         ...form,
         tarif_jour_ref: form.tarif_jour_ref ? Number(form.tarif_jour_ref) : null,
         default_tva: Number(form.default_tva ?? 0),
         user_id: form.user_id || null,
+      }
+      for (const k of NULLABLE_FIELDS) {
+        if (k in payload && (payload[k] === '' || payload[k] === undefined)) {
+          payload[k] = null
+        }
       }
       if (panel === 'create') {
         const { data, error } = await supabase

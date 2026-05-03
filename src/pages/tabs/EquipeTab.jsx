@@ -16,6 +16,9 @@ import { calcLine, fmtEur, CATS_HUMAINS, REGIMES_SALARIES } from '../../lib/coti
 import { getBlocInfo } from '../../lib/blocs'
 import { useProjet } from '../ProjetLayout'
 import TechListView from '../../features/equipe/TechListView'
+import LotFilter from '../../features/equipe/components/LotFilter'
+import PresenceAvatars from '../../features/equipe/components/PresenceAvatars'
+import { useEquipePresence } from '../../hooks/useEquipePresence'
 
 // Palette partagée avec BudgetReelTab / FacturesTab pour les badges de lot
 const LOT_PALETTE = [
@@ -106,6 +109,16 @@ export default function EquipeTab() {
   const { project, projectId, lots, refDevisByLot } = useProjet()
   const { canSeeFinance, canSeeCrewBudget, org } = useAuth()
 
+  // ── Présence collaborative (EQUIPE-RT-PRESENCE) ──────────────────────────
+  // Channel Realtime Presence scopé au projet : qui est sur la page +
+  // qui édite quelle row. Affiché dans le header (avatars) + soft lock
+  // visuel sur les AttributionRow de la Crew list.
+  const {
+    othersOnPage,
+    othersEditingByRow,
+    setMyEditingRowId,
+  } = useEquipePresence(projectId)
+
   // ── Multi-lot (Chantier 6) ────────────────────────────────────────────────
   const lotsWithRef = useMemo(
     () => (lots || []).filter((l) => !l.archived && refDevisByLot?.[l.id]),
@@ -162,6 +175,38 @@ export default function EquipeTab() {
   }, [lotCollapsed, lotCollapseKey])
   const toggleLotCollapsed = (lotId) =>
     setLotCollapsed((p) => ({ ...p, [lotId]: !p[lotId] }))
+
+  // ── P3 — Filtre par lot partagé entre les 3 vues (localStorage / projet) ──
+  const lotFilterKey = `equipe.lotFilter.${projectId || 'noproj'}`
+  const [selectedLotId, setSelectedLotId] = useState(() => {
+    try {
+      const raw =
+        typeof window !== 'undefined' ? window.localStorage.getItem(lotFilterKey) : null
+      // null = "Tous" ; on stocke '' pour distinguer "Tous explicite" d'un
+      // localStorage absent (valeur initiale). Au reload on retombe sur null.
+      if (!raw || raw === '__all__') return null
+      return raw
+    } catch {
+      return null
+    }
+  })
+  // Reset le filtre quand on change de projet (sécurité — au cas où le
+  // localStorage du projet précédent contient un lotId qui n'existe pas ici).
+  useEffect(() => {
+    setSelectedLotId((cur) => {
+      if (!cur) return null
+      // Si le lot stocké n'existe plus dans ce projet, on retombe sur "Tous".
+      if (!lotsWithRef.some((l) => l.id === cur)) return null
+      return cur
+    })
+  }, [projectId, lotsWithRef])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(lotFilterKey, selectedLotId || '__all__')
+    } catch {
+      /* ignore */
+    }
+  }, [selectedLotId, lotFilterKey])
 
   const load = useCallback(async () => {
     if (!projectId || refDevisIds.length === 0) {
@@ -233,6 +278,53 @@ export default function EquipeTab() {
     }
     return map
   }, [crewLines, lotIdByDevisId])
+
+  // ── P3 — Couleurs partagées + counters pour LotFilter ─────────────────────
+  const lotColorMap = useMemo(() => {
+    const map = {}
+    for (const lot of lotsWithRef) map[lot.id] = lotColor(lot.id, lotsWithRef)
+    return map
+  }, [lotsWithRef])
+
+  // Counters affichés sur les chips du filtre.
+  // On compte les ATTRIBUTIONS PRINCIPALES (parent_membre_id IS NULL) car
+  // c'est cohérent avec les rows visibles en Tech list, et ça reflète bien
+  // la "taille" du lot vue par l'utilisateur.
+  // - __all__ = total des principales (avec ad-hoc)
+  // - [lotId] = principales dont la ligne de devis appartient au lot,
+  //   OU rows ad-hoc avec lot_id direct (EQUIPE-P4.4)
+  const lotCounters = useMemo(() => {
+    const map = { __all__: 0 }
+    for (const lot of lotsWithRef) map[lot.id] = 0
+    for (const m of membres) {
+      if (m.parent_membre_id) continue // on ignore les rattachées
+      map.__all__ += 1
+      // Priorité : devis_line → lineLotMap, sinon lot_id direct (ad-hoc)
+      let lotId = null
+      if (m.devis_line_id) {
+        lotId = lineLotMap[m.devis_line_id]
+      } else if (m.lot_id) {
+        lotId = m.lot_id
+      }
+      if (lotId && map[lotId] != null) map[lotId] += 1
+    }
+    return map
+  }, [membres, lotsWithRef, lineLotMap])
+
+  // ── P3 — Membres / crewLines filtrés (Option A : strict) ──────────────────
+  // - selectedLotId null → tout (ad-hoc inclus)
+  // - selectedLotId set → uniquement ce qui est rattaché à ce lot
+  //   (les attributions ad-hoc et les lignes des autres lots disparaissent)
+  const filteredCrewLines = useMemo(() => {
+    if (!selectedLotId) return crewLines
+    return crewLines.filter((l) => lotIdByDevisId[l.devis_id] === selectedLotId)
+  }, [crewLines, selectedLotId, lotIdByDevisId])
+  const filteredMembres = useMemo(() => {
+    if (!selectedLotId) return membres
+    return membres.filter(
+      (m) => m.devis_line_id && lineLotMap[m.devis_line_id] === selectedLotId,
+    )
+  }, [membres, selectedLotId, lineLotMap])
 
   function showToast(text, ok = true) {
     setToast({ text, ok })
@@ -327,10 +419,18 @@ export default function EquipeTab() {
   }
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-  const _totalVente = crewLines.reduce((s, l) => s + (calcLine(l).prixVenteHT || 0), 0)
-  const _totalCout = crewLines.reduce((s, l) => s + (calcLine(l).coutCharge || 0), 0)
-  const nbAttribues = crewLines.filter((l) => getMembre(l)).length
-  const nbValides = membres.filter((m) =>
+  // Calculées sur les données FILTRÉES par lot pour rester cohérentes avec
+  // l'affichage des cards en dessous (vue Attribution).
+  const _totalVente = filteredCrewLines.reduce((s, l) => s + (calcLine(l).prixVenteHT || 0), 0)
+  const _totalCout = filteredCrewLines.reduce((s, l) => s + (calcLine(l).coutCharge || 0), 0)
+  const nbAttribues = filteredCrewLines.filter((l) => getMembre(l)).length
+  const nbValides = filteredMembres.filter((m) =>
+    ['contrat_signe', 'paie_en_cours', 'paie_terminee'].includes(m.movinmotion_statut),
+  ).length
+  // Stats globales (pour le header de la page — toujours sur le périmètre
+  // complet, le filtre n'a pas à les masquer).
+  const nbAttribuesTotal = crewLines.filter((l) => getMembre(l)).length
+  const nbValidesTotal = membres.filter((m) =>
     ['contrat_signe', 'paie_en_cours', 'paie_terminee'].includes(m.movinmotion_statut),
   ).length
 
@@ -431,37 +531,53 @@ export default function EquipeTab() {
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
               {crewLines.length} poste{crewLines.length > 1 ? 's' : ''}
               {' · '}
-              {nbAttribues}/{crewLines.length} attribué{nbAttribues > 1 ? 's' : ''}
+              {nbAttribuesTotal}/{crewLines.length} attribué{nbAttribuesTotal > 1 ? 's' : ''}
               {' · '}
-              {nbValides}/{membres.length} confirmé{nbValides > 1 ? 's' : ''}
+              {nbValidesTotal}/{membres.length} confirmé{nbValidesTotal > 1 ? 's' : ''}
             </p>
           </div>
         </div>
-        <button
-          onClick={exportCSV}
-          title="Exporter en CSV"
-          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg shrink-0 transition-all"
-          style={{
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd)',
-            color: 'var(--txt-2)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hov)'
-            e.currentTarget.style.color = 'var(--txt)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--bg-elev)'
-            e.currentTarget.style.color = 'var(--txt-2)'
-          }}
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Export CSV</span>
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          {/* EQUIPE-RT-PRESENCE — avatars des autres admins en ligne */}
+          <PresenceAvatars othersOnPage={othersOnPage} />
+          <button
+            onClick={exportCSV}
+            title="Exporter en CSV"
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg shrink-0 transition-all"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              color: 'var(--txt-2)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
       <div className="p-4 sm:p-6 space-y-5 flex-1">
+
+      {/* ── P3 — Filtre par lot (multi-lot uniquement, partagé entre les
+          3 vues, placé AU-DESSUS du toggle) ─────────────────────────────── */}
+      {isMultiLot && (
+        <LotFilter
+          lots={lotsWithRef}
+          lotColorMap={lotColorMap}
+          counters={lotCounters}
+          selectedLotId={selectedLotId}
+          onChange={setSelectedLotId}
+        />
+      )}
 
       {/* ── Onglets Attribution / Équipe ─────────────────────────────────── */}
       <div
@@ -469,7 +585,7 @@ export default function EquipeTab() {
         style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
       >
         {[
-          { k: 'techlist', l: 'Tech list', hint: 'Vue terrain — qui est là quand, secteur, présence, hébergement' },
+          { k: 'techlist', l: 'Crew list', hint: 'Vue terrain — qui est là quand, secteur, présence, hébergement' },
           { k: 'attribution', l: 'Attribution', hint: 'Gérer les postes du devis un par un' },
           // Vue Finances : visible uniquement par les rôles internes (admin /
           // chargé prod / coordinateur) car expose les budgets HT.
@@ -505,6 +621,13 @@ export default function EquipeTab() {
           project={project}
           projectId={projectId}
           canEdit={true}
+          selectedLotId={selectedLotId}
+          lineLotMap={lineLotMap}
+          lotInfoMap={lotInfoMap}
+          isMultiLot={isMultiLot}
+          lotsWithRef={lotsWithRef}
+          othersEditingByRow={othersEditingByRow}
+          setMyEditingRowId={setMyEditingRowId}
         />
       ) : activeTab === 'finances' && canSeeCrewBudget ? (
         /* ── Finances (P2.4 — réactivée) — vue par personne avec totaux ───── */
@@ -518,6 +641,7 @@ export default function EquipeTab() {
           lineLotMap={lineLotMap}
           lotInfoMap={lotInfoMap}
           isMultiLot={isMultiLot}
+          selectedLotId={selectedLotId}
           onUpdate={updateMembre}
           onRemove={removeMembre}
         />
@@ -525,23 +649,27 @@ export default function EquipeTab() {
         <>
           {/* KPIs vue Attribution — placés SOUS le toggle pour cohérence
               visuelle avec la vue Finances (qui place ses propres KPI au
-              même endroit). */}
+              même endroit). Recalculés sur le périmètre filtré. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <KpiCard
               label="Postes"
-              color={nbAttribues === crewLines.length ? 'green' : 'blue'}
-              value={`${nbAttribues} / ${crewLines.length}`}
+              color={
+                nbAttribues === filteredCrewLines.length && filteredCrewLines.length > 0
+                  ? 'green'
+                  : 'blue'
+              }
+              value={`${nbAttribues} / ${filteredCrewLines.length}`}
               sub="attribués"
             />
             <KpiCard
               label="Confirmés"
               color="purple"
-              value={`${nbValides} / ${membres.length}`}
+              value={`${nbValides} / ${filteredMembres.length}`}
               sub="validés ou réglés"
             />
           </div>
 
-          {crewLines.length === 0 ? (
+          {filteredCrewLines.length === 0 ? (
             <div
               className="rounded-xl p-12 text-center"
               style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
@@ -551,10 +679,14 @@ export default function EquipeTab() {
                 style={{ color: 'var(--txt-3)', opacity: 0.4 }}
               />
               <p className="font-semibold text-sm" style={{ color: 'var(--txt-3)' }}>
-                Aucun poste crew dans le devis
+                {selectedLotId
+                  ? 'Aucun poste crew dans ce lot'
+                  : 'Aucun poste crew dans le devis'}
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--txt-3)', opacity: 0.7 }}>
-                Ajoutez des lignes avec régime Intermittent, Interne, Externe ou Salarié
+                {selectedLotId
+                  ? 'Désactivez le filtre pour voir les autres lots'
+                  : 'Ajoutez des lignes avec régime Intermittent, Interne, Externe ou Salarié'}
               </p>
             </div>
           ) : (
@@ -568,6 +700,7 @@ export default function EquipeTab() {
               getMembre={getMembre}
               membres={membres}
               projectId={projectId}
+              selectedLotId={selectedLotId}
               handlers={{ addMembre, updateMembre, removeMembre, saveToBDD }}
             />
           )}
@@ -639,17 +772,24 @@ function AttributionView({
   getMembre,
   membres,
   projectId,
+  // P3 — filtre par lot (null = "Tous"). En mode mono-lot la prop est
+  // ignorée (même rendu flat).
+  selectedLotId = null,
   handlers,
 }) {
-  // Orphelins : membres sans devis_line_id et sans spécialité matchant un poste
+  // Orphelins : membres sans devis_line_id et sans spécialité matchant un poste.
+  // Conformément à l'Option A (strict), les orphelins ne sont visibles QUE
+  // quand le filtre est désactivé ("Tous").
   const allCrewLines = Object.values(crewLinesByLot).flat()
-  const orphans = membres.filter(
-    (m) =>
-      !m.devis_line_id &&
-      !allCrewLines.some(
-        (l) => m.specialite?.toLowerCase() === (l.produit || '').toLowerCase(),
-      ),
-  )
+  const orphans = selectedLotId
+    ? []
+    : membres.filter(
+        (m) =>
+          !m.devis_line_id &&
+          !allCrewLines.some(
+            (l) => m.specialite?.toLowerCase() === (l.produit || '').toLowerCase(),
+          ),
+      )
 
 
   const renderBlocsForLot = (lines) => {
@@ -722,13 +862,22 @@ function AttributionView({
     )
   }
 
-  // Multi-lot : accordéon par lot avec mini-KPI
+  // Multi-lot : accordéon par lot avec mini-KPI.
+  // Quand un filtre est actif, on n'affiche que le lot sélectionné. La
+  // structure d'accordéon reste la même pour conserver la cohérence visuelle
+  // (même chrome, juste un seul lot rendu).
+  const visibleLots = selectedLotId
+    ? lotsWithRef.filter((l) => l.id === selectedLotId)
+    : lotsWithRef
   return (
     <div className="space-y-5">
-      {lotsWithRef.map((lot) => {
+      {visibleLots.map((lot) => {
         const lines = crewLinesByLot[lot.id] || []
         const color = lotColor(lot.id, lotsWithRef)
-        const collapsed = Boolean(lotCollapsed[lot.id])
+        // En mode filtré (1 seul lot affiché), on force l'expansion pour
+        // éviter qu'un état "collapsed" résiduel ne masque le contenu du lot
+        // que l'utilisateur vient justement de sélectionner.
+        const collapsed = selectedLotId ? false : Boolean(lotCollapsed[lot.id])
         // Mini-KPI : attribués + validés (sur les postes du lot uniquement)
         const attrib = lines.filter((l) => getMembre(l)).length
         const lineIdSet = new Set(lines.map((l) => l.id))
@@ -1503,19 +1652,39 @@ function EquipeFinancesView({
   lineLotMap = {},
   lotInfoMap = {},
   isMultiLot = false,
+  // P3 — filtre par lot (null = "Tous", strict = ad-hoc visibles uniquement
+  // quand selectedLotId est null)
+  selectedLotId = null,
   onUpdate,
   onRemove,
 }) {
-  const persons = groupByPerson(membres, crewLines, lineLotMap)
+  // Filtrage strict (Option A) :
+  //   - selectedLotId null → tout (membres ad-hoc + lignes inclus)
+  //   - selectedLotId set → uniquement les attributions liées au lot
+  const filteredMembres = selectedLotId
+    ? membres.filter(
+        (m) => m.devis_line_id && lineLotMap[m.devis_line_id] === selectedLotId,
+      )
+    : membres
+  const filteredCrewLines = selectedLotId
+    ? crewLines.filter((l) => {
+        // Une ligne appartient au lot si l'un de ses devis_id mappe vers le lot.
+        // On dérive via l.id → lineLotMap[l.id] (= lotId), même si
+        // lineLotMap a été construit différemment.
+        return lineLotMap[l.id] === selectedLotId
+      })
+    : crewLines
+
+  const persons = groupByPerson(filteredMembres, filteredCrewLines, lineLotMap)
 
   // KPIs financiers globaux — limités aux postes ATTRIBUÉS pour rester
   // cohérent avec la somme des cards par personne affichées en dessous
   // (sinon l'utilisateur ne comprend pas l'écart introduit par les postes
   // non attribués qui n'apparaissent dans aucune card).
   const attribuedLineIds = new Set(
-    membres.map((m) => m.devis_line_id).filter(Boolean),
+    filteredMembres.map((m) => m.devis_line_id).filter(Boolean),
   )
-  const attribuedLines = crewLines.filter((l) => attribuedLineIds.has(l.id))
+  const attribuedLines = filteredCrewLines.filter((l) => attribuedLineIds.has(l.id))
   const totalVente = attribuedLines.reduce(
     (s, l) => s + (calcLine(l).prixVenteHT || 0),
     0,
@@ -1524,8 +1693,8 @@ function EquipeFinancesView({
     (s, l) => s + (calcLine(l).coutCharge || 0),
     0,
   )
-  const totalConvenu = membres.reduce((s, m) => {
-    const line = crewLines.find((l) => l.id === m.devis_line_id)
+  const totalConvenu = filteredMembres.reduce((s, m) => {
+    const line = filteredCrewLines.find((l) => l.id === m.devis_line_id)
     if (m.budget_convenu != null) return s + m.budget_convenu
     if (!line) return s
     const c = calcLine(line)
@@ -1536,16 +1705,16 @@ function EquipeFinancesView({
         : c.coutCharge)
     )
   }, 0)
-  const hasCustomBudgetGlobal = membres.some((m) => m.budget_convenu != null)
+  const hasCustomBudgetGlobal = filteredMembres.some((m) => m.budget_convenu != null)
   // Sous-titre informatif sur le périmètre couvert par les KPI
   const nbAttribues = attribuedLineIds.size
-  const nbTotal = crewLines.length
+  const nbTotal = filteredCrewLines.length
   const perimeterSub =
     nbAttribues === nbTotal
       ? `${nbTotal} poste${nbTotal > 1 ? 's' : ''}`
       : `${nbAttribues} / ${nbTotal} postes attribués`
 
-  if (membres.length === 0)
+  if (filteredMembres.length === 0)
     return (
       <div
         className="rounded-xl p-12 text-center"
@@ -1553,10 +1722,12 @@ function EquipeFinancesView({
       >
         <Users className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)', opacity: 0.4 }} />
         <p className="font-semibold text-sm" style={{ color: 'var(--txt-3)' }}>
-          Aucun membre attribué
+          {selectedLotId ? 'Aucun membre attribué dans ce lot' : 'Aucun membre attribué'}
         </p>
         <p className="text-xs mt-1" style={{ color: 'var(--txt-3)', opacity: 0.7 }}>
-          Attribuez des personnes via l&apos;onglet Attribution
+          {selectedLotId
+            ? 'Désactivez le filtre pour voir les autres lots'
+            : "Attribuez des personnes via l'onglet Attribution"}
         </p>
       </div>
     )

@@ -20,8 +20,9 @@
 //     bulkUpdate) : secteur, hebergement, chauffeur, presence_days, couleur
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import {
   fetchProjectMembers,
   fetchOrgContacts,
@@ -47,6 +48,25 @@ export function useCrew(projectId) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // ─── Refs cycle de vie + collab Realtime ────────────────────────────────
+  // aliveRef : garde-fou pour les setState après unmount.
+  // lastLocalActivityRef : timestamp de la dernière mutation locale (cf.
+  // markLocal). Sert à muter le self-echo Realtime : si on vient juste de
+  // déclencher une UPDATE depuis CET onglet, le postgres_changes que
+  // Supabase nous renvoie n'a pas besoin de provoquer un refetch (notre
+  // state est déjà à jour grâce à l'optimistic update).
+  const aliveRef = useRef(true)
+  const lastLocalActivityRef = useRef(0)
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
+  const markLocal = useCallback(() => {
+    lastLocalActivityRef.current = Date.now()
+  }, [])
+
   // ─── Chargement initial + reload manuel ──────────────────────────────────
   const reload = useCallback(async () => {
     if (!projectId) {
@@ -61,19 +81,70 @@ export function useCrew(projectId) {
         fetchProjectMembers(projectId),
         fetchOrgContacts(),
       ])
+      if (!aliveRef.current) return
       setMembers(m)
       setContacts(c)
     } catch (e) {
       console.error('[useCrew] reload error:', e)
-      setError(e)
+      if (aliveRef.current) setError(e)
     } finally {
-      setLoading(false)
+      if (aliveRef.current) setLoading(false)
     }
   }, [projectId])
 
   useEffect(() => {
     reload()
   }, [reload])
+
+  // ─── Collab temps réel (EQUIPE-RT, pattern MAT-9B) ──────────────────────
+  // Abonnement Supabase Realtime sur projet_membres (filtré server-side
+  // sur project_id) pour pousser un refetch dès qu'un autre admin (ou le
+  // même sur un autre onglet) modifie l'équipe du projet.
+  //
+  // Stratégie identique à useMateriel.js :
+  //   - 1 seul channel par projet : `equipe-collab:${projectId}`
+  //   - filter postgres_changes server-side sur project_id pour ne pas
+  //     recevoir le bruit des autres projets
+  //   - debounce 400ms pour coalescer les rafales (ex : reorderCategory
+  //     qui fait N UPDATE en parallèle)
+  //   - mute self-echo : si une mutation locale a été déclenchée <1500ms
+  //     avant l'arrivée de l'event, on skip — soit c'est notre propre
+  //     echo, soit c'est un autre user dont l'event sera de toute façon
+  //     reflété par notre propre refetch programmé.
+  //   - cleanup propre (removeChannel + clearTimeout) au unmount /
+  //     changement de projectId.
+  //
+  // Note : on n'écoute PAS la table `contacts` (org-level, peu de churn
+  // pendant une session de projet, et la création se fait via addContact
+  // déjà optimistic). Si besoin plus tard, ajouter un .on() ici.
+  useEffect(() => {
+    if (!projectId) return undefined
+    let timer = null
+    function debouncedReload() {
+      if (Date.now() - lastLocalActivityRef.current < 1500) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (aliveRef.current) reload()
+      }, 400)
+    }
+    const channel = supabase
+      .channel(`equipe-collab:${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projet_membres',
+          filter: `project_id=eq.${projectId}`,
+        },
+        debouncedReload,
+      )
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [projectId, reload])
 
   // ─── Maps dérivées ────────────────────────────────────────────────────────
   const personae = useMemo(() => groupByPerson(members), [members])
@@ -100,16 +171,18 @@ export function useCrew(projectId) {
    */
   const addMember = useCallback(async (payload) => {
     if (!projectId) throw new Error('addMember: projectId manquant')
+    markLocal()
     const created = await createProjectMember({ project_id: projectId, ...payload })
     setMembers((prev) => [...prev, created])
     return created
-  }, [projectId])
+  }, [projectId, markLocal])
 
   /**
    * Update une attribution (per-row). Optimistic.
    * Pour les attributs persona-level, utiliser updatePersona à la place.
    */
   const updateMember = useCallback(async (id, fields) => {
+    markLocal()
     // Optimistic
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...fields } : m)))
     try {
@@ -123,7 +196,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [reload])
+  }, [reload, markLocal])
 
   /**
    * Supprime une attribution. Hard delete.
@@ -132,6 +205,7 @@ export function useCrew(projectId) {
    * (ils redeviennent principaux).
    */
   const removeMember = useCallback(async (id) => {
+    markLocal()
     const snapshot = members
     // Optimistic : retire la row + détache les enfants côté state
     setMembers((prev) =>
@@ -146,7 +220,7 @@ export function useCrew(projectId) {
       setMembers(snapshot)
       throw e
     }
-  }, [members])
+  }, [members, markLocal])
 
   /**
    * Update les attributs PERSONA-LEVEL (secteur, hebergement, chauffeur,
@@ -169,6 +243,7 @@ export function useCrew(projectId) {
       console.warn('[useCrew] updatePersona: aucun champ persona-level dans', fields)
       return
     }
+    markLocal()
     // Optimistic
     setMembers((prev) =>
       prev.map((m) => (ids.includes(m.id) ? { ...m, ...safe } : m)),
@@ -180,7 +255,36 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [members, reload])
+  }, [members, reload, markLocal])
+
+  /**
+   * Renomme une catégorie : bulk update toutes les rows ayant
+   * `category = oldName` vers `category = newName`. Utile pour adapter
+   * les libellés par défaut (PRODUCTION → PRODUCTION ZA, etc.).
+   *
+   * Si oldName === newName ou si pas de rows → no-op.
+   * @param {string} oldName
+   * @param {string} newName
+   */
+  const renameCategory = useCallback(async (oldName, newName) => {
+    const trimmed = (newName || '').trim()
+    if (!trimmed || trimmed === oldName) return
+    const ids = members
+      .filter((m) => (m.category || null) === oldName)
+      .map((m) => m.id)
+    if (!ids.length) return
+    markLocal()
+    setMembers((prev) =>
+      prev.map((m) => (ids.includes(m.id) ? { ...m, category: trimmed } : m)),
+    )
+    try {
+      await bulkUpdateProjectMembers(ids, { category: trimmed })
+    } catch (e) {
+      console.error('[useCrew] renameCategory error:', e)
+      await reload()
+      throw e
+    }
+  }, [members, reload, markLocal])
 
   /**
    * Réordonne les rows d'une catégorie. Reçoit un Array d'IDs dans le
@@ -192,6 +296,7 @@ export function useCrew(projectId) {
    */
   const reorderCategory = useCallback(async (orderedIds, targetCategory = undefined) => {
     if (!orderedIds?.length) return
+    markLocal()
     // Optimistic
     setMembers((prev) =>
       prev.map((m) => {
@@ -217,7 +322,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [reload])
+  }, [reload, markLocal])
 
   /**
    * Rattache une attribution à une autre (= "fusion" sur la techlist).
@@ -225,6 +330,7 @@ export function useCrew(projectId) {
    * en "rattaché" sous `parentId`.
    */
   const attachMember = useCallback(async (childId, parentId) => {
+    markLocal()
     setMembers((prev) =>
       prev.map((m) => (m.id === childId ? { ...m, parent_membre_id: parentId } : m)),
     )
@@ -237,12 +343,13 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [reload])
+  }, [reload, markLocal])
 
   /**
    * Détache une attribution rattachée → elle redevient une ligne principale.
    */
   const detachMember = useCallback(async (childId) => {
+    markLocal()
     setMembers((prev) =>
       prev.map((m) => (m.id === childId ? { ...m, parent_membre_id: null } : m)),
     )
@@ -255,7 +362,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [reload])
+  }, [reload, markLocal])
 
   // ─── Création contact à la volée (depuis ContactPicker) ───────────────────
 
@@ -291,6 +398,7 @@ export function useCrew(projectId) {
     updateMember,
     removeMember,
     updatePersona,
+    renameCategory,
     reorderCategory,
     attachMember,
     detachMember,

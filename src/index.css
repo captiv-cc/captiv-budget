@@ -115,6 +115,43 @@ html[data-check-theme='light'] ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 
+/* ─── Animations & transitions partagées (pages /share/*) ────────────────────
+   Ces utilitaires sont scopés par convention (classes `share-*`) pour éviter
+   d'impacter le reste de l'app — l'app principale conserve son comportement
+   instantané pour ne pas alourdir les hover/focus states. */
+
+/* Fade-in subtil pour le contenu des pages share au chargement */
+@keyframes shareFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.share-fade-in {
+  animation: shareFadeIn 280ms ease-out both;
+}
+
+/* Variantes échelonnées pour staggerer hero / corps / footer */
+.share-fade-in-delayed {
+  animation: shareFadeIn 360ms ease-out 80ms both;
+}
+
+/* Transition douce entre dark et light sur les pages share. On cible le
+   conteneur racine et ses enfants directs pour que bg + text changent sans
+   flash brutal lors du toggle theme. Limité à 180ms pour rester nerveux. */
+.share-theme-transition,
+.share-theme-transition * {
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease;
+}
+
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
   * {

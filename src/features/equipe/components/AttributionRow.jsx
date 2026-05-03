@@ -28,8 +28,7 @@ import {
   Phone,
   Mail,
   MapPin,
-  Car,
-  Home,
+  Calendar,
   PlaneLanding,
   PlaneTakeoff,
   Trash2,
@@ -41,7 +40,6 @@ import {
   GripVertical,
   Shirt,
   Utensils,
-  StickyNote,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -51,6 +49,7 @@ import {
   CREW_STATUTS,
 } from '../../../lib/crew'
 import { confirm } from '../../../lib/confirm'
+import useBreakpoint from '../../../hooks/useBreakpoint'
 
 // Couleurs de statut alignées sur EquipeTab.jsx (STEPS)
 const STATUT_STYLES = {
@@ -60,12 +59,6 @@ const STATUT_STYLES = {
   contrat_signe:  { color: 'var(--green)', bg: 'var(--green-bg)' },
   paie_en_cours:  { color: 'var(--green)', bg: 'var(--green-bg)' },
   paie_terminee:  { color: 'var(--amber)', bg: 'var(--amber-bg)' },
-}
-
-// Helper isIntermittent : utile pour gater le statut MovinMotion qui ne
-// s'applique vraiment qu'aux intermittents.
-function isIntermittent(regime) {
-  return Boolean(regime) && regime.toLowerCase().includes('intermittent')
 }
 
 // Calcule "J-N" / "J0" / "J+N" entre une date ISO et une date de référence ISO.
@@ -103,6 +96,20 @@ export default function AttributionRow({
   onDropOnRow,            // (rowId, position) => void
   dropIndicator = null,   // 'before' | 'after' | null
   isDragging = false,
+  // P3 — Pastille de lot affichée à côté du nom (multi-lot uniquement).
+  // Format `· LotA` avec une petite pastille colorée. Passé par le parent
+  // (TechListView) qui résout lineLotMap[row.devis_line_id] → lotInfoMap[lotId].
+  lotInfo = null,         // { title: string, color: string } | null
+  // EQUIPE-RT-PRESENCE — soft lock collaboratif :
+  // editingByOther : { user_id, full_name } | null — un autre admin édite
+  //   actuellement cette row. Si non null → ring coloré + tooltip warning.
+  // onEditingChange : (rowId | null) => void — broadcaste mon état d'édition
+  //   (focus dans la row → rowId / focus quitte la row → null).
+  editingByOther = null,
+  onEditingChange = null,
+  // EQUIPE-P4.3 — Drawer "Vue par membre" : (row) => void appelé au clic
+  // sur le nom de la personne. Ouvre la vue consolidée.
+  onOpenMembre = null,
 }) {
   const persona = row.persona || {}
   const fullName = fullNameFromPersona(persona)
@@ -110,25 +117,37 @@ export default function AttributionRow({
   const secteur = effectiveSecteur(persona)
   const presenceLabel = condensePresenceDays(persona.presence_days)
 
-  // Le poste vient en priorité de la ligne de devis (= ce qui a été vendu),
-  // puis de la spécialité saisie sur le projet_membre, puis du contact.
+  // Layout responsive : sur mobile, on bascule la grille en 3 rangées
+  // (main + statut/menu / logistique / secteur+devis) et on masque le
+  // drag handle (D&D désactivé sur tactile, irrécupérable).
+  const bp = useBreakpoint()
+  const isCompact = bp.isMobile
+
+  // Résolution du poste affiché. Priorité :
+  //   1. row.specialite — override local sur cette attribution. Permet
+  //      de renommer un poste sans toucher au devis (ex: 2 rows liées à
+  //      la même ligne "Cadreur" qu'on veut différencier en "Cadreur Plan
+  //      Serré" / "Cadreur Plan Large"). Le devis reste intact.
+  //   2. devis_line.produit — nom vendu sur le devis (fallback).
+  //   3. contact.specialite — spécialité de la fiche annuaire (fallback).
+  //   4. '—' — placeholder.
+  // L'édition est toujours autorisée : sauver une nouvelle valeur écrit
+  // dans projet_membres.specialite, ce qui n'impacte ni le devis ni la
+  // facturation. Si l'override diffère du nom devis, on affiche un petit
+  // tag "(devis: …)" pour le rappel.
   const posteFromDevis = row.devis_line?.produit || null
   const poste =
-    posteFromDevis ||
     row.specialite ||
+    posteFromDevis ||
     persona.contact?.specialite ||
     '—'
-
-  // Édition possible du poste UNIQUEMENT si pas de devis_line. Si la row est
-  // attachée à une ligne de devis, le poste est figé sur le produit du devis
-  // (pour modifier, il faut éditer le devis lui-même).
-  const canEditPoste = canEdit && !posteFromDevis
+  const canEditPoste = canEdit
+  const showDevisOriginalTag =
+    Boolean(posteFromDevis) &&
+    Boolean(row.specialite) &&
+    row.specialite.trim() !== posteFromDevis.trim()
 
   const nbAttached = row.attached?.length || 0
-
-  // Régime (utilisé pour conditionner l'affichage du statut MovinMotion)
-  const regime = row.regime || persona.contact?.regime || null
-  const showStatutBadge = isIntermittent(regime)
 
   // Logistique condensée
   const firstPresenceDay = persona.presence_days?.length
@@ -139,12 +158,14 @@ export default function AttributionRow({
     : null
   const arrivalDelta = dayDelta(persona.arrival_date, firstPresenceDay)
   const departureDelta = dayDelta(persona.departure_date, lastPresenceDay)
-  const hasLogistique =
+  // P4-LOGISTIQUE-CLEANUP : on n'inclut plus hébergement/chauffeur/notes
+  // dans la condition "présence renseignée" — ces champs partent dans la
+  // tab Logistique. Seuls les jours de présence + arrivée + retour
+  // comptent pour décider si la cellule "Présence" est remplie ou vide.
+  const hasPresenceInfo =
     Boolean(presenceLabel) ||
     Boolean(persona.arrival_date) ||
-    Boolean(persona.departure_date) ||
-    Boolean(persona.hebergement) ||
-    Boolean(persona.chauffeur)
+    Boolean(persona.departure_date)
 
   // Régime alimentaire / taille T-shirt (depuis l'annuaire)
   const regimeAlim = persona.contact?.regime_alimentaire || null
@@ -160,6 +181,25 @@ export default function AttributionRow({
       destructive: true,
     })
     if (ok) await onRemoveRow?.()
+  }
+
+  // EQUIPE-RT-PRESENCE — handlers focus pour broadcast l'état d'édition.
+  // onFocusCapture : focus entre dans la row (ou un de ses descendants).
+  // onBlurCapture : focus sort. On vérifie e.relatedTarget pour ne pas
+  //   reset si le focus passe d'un input à un autre DANS la même row
+  //   (ex : tab vers le statut dropdown). Si relatedTarget est null OU
+  //   hors de currentTarget → focus a quitté la row → setEditing(null).
+  // Si le row n'est pas éditable (canEdit=false) ou pas de callback
+  // (onEditingChange null) → no-op.
+  const handleFocusEnter = () => {
+    if (!canEdit || !onEditingChange) return
+    onEditingChange(row.id)
+  }
+  const handleFocusLeave = (e) => {
+    if (!canEdit || !onEditingChange) return
+    const next = e.relatedTarget
+    if (next && e.currentTarget.contains(next)) return // focus reste dans la row
+    onEditingChange(null)
   }
 
   return (
@@ -193,18 +233,49 @@ export default function AttributionRow({
         const position = e.clientY < mid ? 'before' : 'after'
         onDropOnRow(row.id, position)
       }}
-      className="group grid items-center gap-2 px-3 py-2.5 transition-all relative"
+      onFocusCapture={handleFocusEnter}
+      onBlurCapture={handleFocusLeave}
+      title={
+        editingByOther
+          ? `${editingByOther.full_name} édite cette ligne`
+          : undefined
+      }
+      className="group grid gap-2 px-3 py-2.5 transition-all relative"
       style={{
-        // Fusion P1.9 : 1 colonne Logistique condensée (présence+arrivée+
-        // retour+hébergement+chauffeur) au lieu des 4 colonnes séparées.
-        // Drag | Avatar+poste | Secteur | Logistique | Devis | Statut | Menu
-        gridTemplateColumns:
-          'auto minmax(0, 2.5fr) 1fr minmax(140px, 1.7fr) auto auto auto',
-        background: 'var(--bg-row)',
+        // Desktop (1 ligne, 7 cols) :
+        //   Drag | Avatar+poste | Secteur | Logistique | Devis | Statut | Menu
+        // Mobile (3 lignes via gridTemplateAreas) :
+        //   ┌──────────────────────┬───────┬──────┐
+        //   │       main           │statut │ menu │
+        //   ├──────────────────────┴───────┴──────┤
+        //   │           logistique                │
+        //   ├─────────────────────────────┬───────┤
+        //   │           secteur           │ devis │
+        //   └─────────────────────────────┴───────┘
+        // Le drag handle est masqué sur mobile (D&D tactile non supporté).
+        gridTemplateColumns: isCompact
+          ? 'minmax(0, 1fr) auto auto'
+          : 'auto minmax(0, 2.5fr) 1fr minmax(140px, 1.7fr) auto auto auto',
+        // Mobile : 3 rangées. Le Devis link est INLINE dans la cellule
+        // "main" (badge à côté du nom) → on libère la 3ème row pour qu'il
+        // n'y ait que le secteur. Rangées 2 et 3 restent visibles même
+        // vides (placeholder cliquable, demande Hugo P4-RESP-1).
+        gridTemplateAreas: isCompact
+          ? `"main statut menu"
+             "logistique logistique logistique"
+             "secteur secteur secteur"`
+          : undefined,
+        alignItems: isCompact ? 'start' : 'center',
+        background: editingByOther
+          ? 'var(--amber-bg)'
+          : 'var(--bg-row)',
         borderBottom: '1px solid var(--brd-sub)',
-        // Indicateur de drop : barre bleue au-dessus ou en-dessous
-        boxShadow:
-          dropIndicator === 'before'
+        // Indicateur de drop : barre bleue au-dessus ou en-dessous.
+        // Soft lock collab : si editingByOther → ring amber 2px à gauche
+        // pour signaler "quelqu'un édite" sans bloquer l'interaction.
+        boxShadow: editingByOther
+          ? 'inset 3px 0 0 0 var(--amber)'
+          : dropIndicator === 'before'
             ? 'inset 0 3px 0 0 var(--blue)'
             : dropIndicator === 'after'
             ? 'inset 0 -3px 0 0 var(--blue)'
@@ -213,22 +284,37 @@ export default function AttributionRow({
         cursor: canEdit ? 'grab' : 'default',
       }}
     >
-      {/* Drag handle visuel — visible UNIQUEMENT au hover de la row */}
-      <div
-        className="transition-opacity opacity-0 group-hover:opacity-50"
-        style={{ color: 'var(--txt-3)', display: canEdit ? 'block' : 'none' }}
-        title="Glisser pour reclasser"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {/* Drag handle visuel — visible UNIQUEMENT au hover de la row.
+          Masqué sur mobile (pas de D&D tactile fiable). */}
+      {!isCompact && (
+        <div
+          className="transition-opacity opacity-0 group-hover:opacity-50 self-center"
+          style={{ color: 'var(--txt-3)', display: canEdit ? 'block' : 'none' }}
+          title="Glisser pour reclasser"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
 
-      {/* Poste + nom (le poste est mis en avant) */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      {/* Poste + nom (le poste est mis en avant).
+          Mobile : avatar aligné en HAUT pour rester aligné avec le poste
+          quand celui-ci wrap sur 2 lignes (ex : "Directeur de production"
+          + badge +N). Desktop : centré (1 seule ligne).
+          Avatar décalé d'1px avec mt-0.5 sur mobile pour compenser optique-
+          ment la taille de l'avatar (32px) vs hauteur de la 1ère ligne. */}
+      <div
+        className="flex gap-2.5 min-w-0"
+        style={{
+          gridArea: isCompact ? 'main' : undefined,
+          alignItems: isCompact ? 'flex-start' : 'center',
+        }}
+      >
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
           style={{
             background: persona.couleur ? `#${persona.couleur}` : 'var(--blue-bg)',
             color: persona.couleur ? '#fff' : 'var(--blue)',
+            marginTop: isCompact ? 1 : 0,
           }}
         >
           {initials}
@@ -246,6 +332,36 @@ export default function AttributionRow({
                 onUpdateRow?.(row.id, { specialite: v.trim() || null })
               }
             />
+            {/* Rappel du nom devis original quand l'override diffère.
+                Hover : tooltip explicatif. Cliquable pour reset → vide
+                la specialite et retombe sur le nom du devis. */}
+            {showDevisOriginalTag && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onUpdateRow?.(row.id, { specialite: null })
+                }}
+                title={`Nom de la ligne de devis : « ${posteFromDevis} ». Cliquer pour retirer l'override.`}
+                className="text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0 inline-flex items-center gap-0.5 transition-colors"
+                style={{
+                  background: 'var(--bg-elev)',
+                  color: 'var(--txt-3)',
+                  border: '1px dashed var(--brd-sub)',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--txt-2)'
+                  e.currentTarget.style.borderColor = 'var(--brd)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--txt-3)'
+                  e.currentTarget.style.borderColor = 'var(--brd-sub)'
+                }}
+              >
+                devis: {posteFromDevis}
+              </button>
+            )}
             {nbAttached > 0 && (
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
@@ -260,14 +376,87 @@ export default function AttributionRow({
                 +{nbAttached}
               </span>
             )}
+            {/* Mobile : Devis link inline avec le poste (au lieu de la
+                row 3 séparée). Garde l'espace cohérent quand pas de devis
+                (badge sans contenu de fond). */}
+            {isCompact && row.devis_line_id && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-mono shrink-0 inline-flex items-center"
+                style={{
+                  background: 'var(--blue-bg)',
+                  color: 'var(--blue)',
+                  border: '1px solid var(--blue-brd)',
+                }}
+                title="Attribution liée à une ligne de devis"
+              >
+                <Link2 className="w-2.5 h-2.5" />
+              </span>
+            )}
           </div>
-          {/* Le NOM en sous-titre. Plus de lien vers l'annuaire (/crew gated
-              admin → cassé pour les autres rôles). Drawer "Vue par membre"
-              à venir en Phase 2 ouvrira les détails sans redirection. */}
-          <div className="text-[11px] truncate" style={{ color: 'var(--txt-2)' }}>
-            <span title={persona.contact_id ? fullName : `${fullName} (hors annuaire)`}>
-              {fullName}
-            </span>
+          {/* Le NOM en sous-titre. Cliquable → ouvre le drawer "Vue par
+              membre" (P4.3) qui consolide toutes les attributions de la
+              personne sur le projet + sa logistique persona-level.
+              P3 : pastille de lot inline (multi-lot uniquement). */}
+          <div
+            className="text-[11px] truncate flex items-center gap-1.5"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            {onOpenMembre ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenMembre(row)
+                }}
+                title={
+                  persona.contact_id
+                    ? `${fullName} — voir tous ses postes`
+                    : `${fullName} (hors annuaire) — voir tous ses postes`
+                }
+                className="truncate text-left transition-colors"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  font: 'inherit',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--blue)'
+                  e.currentTarget.style.textDecoration = 'underline'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'inherit'
+                  e.currentTarget.style.textDecoration = 'none'
+                }}
+              >
+                {fullName}
+              </button>
+            ) : (
+              <span title={persona.contact_id ? fullName : `${fullName} (hors annuaire)`}>
+                {fullName}
+              </span>
+            )}
+            {lotInfo && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] shrink-0"
+                style={{ color: 'var(--txt-3)' }}
+                title={`Lot : ${lotInfo.title}`}
+              >
+                <span aria-hidden="true">·</span>
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: lotInfo.color }}
+                />
+                <span
+                  className="truncate max-w-[100px]"
+                  style={{ color: lotInfo.color, fontWeight: 600 }}
+                >
+                  {lotInfo.title}
+                </span>
+              </span>
+            )}
           </div>
           {showSensitive && (persona.contact?.email || persona.contact?.telephone) && (
             <div
@@ -320,48 +509,51 @@ export default function AttributionRow({
       </div>
 
       {/* Secteur (persona-level) */}
-      <InlineText
-        value={secteur || ''}
-        placeholder="Secteur"
-        icon={<MapPin className="w-3 h-3" />}
-        canEdit={canEdit}
-        onSave={(v) => onUpdatePersona?.(row.persona_key, { secteur: v.trim() || null })}
-      />
+      <div style={{ gridArea: isCompact ? 'secteur' : undefined, minWidth: 0 }}>
+        <InlineText
+          value={secteur || ''}
+          placeholder="Secteur"
+          icon={<MapPin className="w-3 h-3" />}
+          canEdit={canEdit}
+          onSave={(v) => onUpdatePersona?.(row.persona_key, { secteur: v.trim() || null })}
+        />
+      </div>
 
-      {/* Logistique condensée (P1.9) — fusion présence + arrivée + retour
-          + hébergement + chauffeur. Click ouvre la modale Présence & logistique. */}
+      {/* Présence condensée — jours de présence + arrivée + retour.
+          Click ouvre la modale Présence sur le projet. Hébergement,
+          chauffeur, notes logistique partent dans la future tab Logistique
+          et ne sont plus affichés ici (cleanup P4). */}
       <button
         type="button"
         onClick={onOpenPresence}
         disabled={!canEdit || !onOpenPresence}
         className="text-xs px-2 py-1 rounded-md flex items-center gap-1.5 transition-all w-full"
         style={{
-          background: hasLogistique ? 'var(--bg-elev)' : 'transparent',
+          gridArea: isCompact ? 'logistique' : undefined,
+          background: hasPresenceInfo ? 'var(--bg-elev)' : 'transparent',
           color: 'var(--txt-2)',
-          border: hasLogistique ? '1px solid var(--brd-sub)' : '1px dashed var(--brd)',
+          border: hasPresenceInfo ? '1px solid var(--brd-sub)' : '1px dashed var(--brd)',
           cursor: canEdit && onOpenPresence ? 'pointer' : 'default',
-          opacity: hasLogistique ? 1 : 0.7,
+          opacity: hasPresenceInfo ? 1 : 0.7,
         }}
         title={
           [
             presenceLabel ? `Présence : ${presenceLabel}` : null,
-            persona.arrival_date ? `Arrivée : ${persona.arrival_date}${persona.arrival_time ? ' ' + persona.arrival_time : ''}` : null,
-            persona.departure_date ? `Retour : ${persona.departure_date}${persona.departure_time ? ' ' + persona.departure_time : ''}` : null,
-            persona.hebergement ? `Hébergement : ${persona.hebergement}` : null,
-            persona.chauffeur ? 'Chauffeur' : null,
+            persona.arrival_date ? `Arrivée : ${persona.arrival_date}` : null,
+            persona.departure_date ? `Retour : ${persona.departure_date}` : null,
           ]
             .filter(Boolean)
-            .join('\n') || 'Cliquer pour configurer la logistique'
+            .join('\n') || 'Cliquer pour configurer la présence'
         }
         onMouseEnter={(e) => {
-          if (canEdit && onOpenPresence) e.currentTarget.style.opacity = hasLogistique ? '0.85' : '1'
+          if (canEdit && onOpenPresence) e.currentTarget.style.opacity = hasPresenceInfo ? '0.85' : '1'
         }}
-        onMouseLeave={(e) => (e.currentTarget.style.opacity = hasLogistique ? '1' : '0.7')}
+        onMouseLeave={(e) => (e.currentTarget.style.opacity = hasPresenceInfo ? '1' : '0.7')}
       >
-        {!hasLogistique ? (
+        {!hasPresenceInfo ? (
           <span className="text-[11px] italic flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
-            <Home className="w-3 h-3" />
-            Logistique
+            <Calendar className="w-3 h-3" />
+            Présence
           </span>
         ) : (
           <>
@@ -374,17 +566,19 @@ export default function AttributionRow({
             >
               {presenceLabel || '—'}
             </span>
-            {/* Indicateurs : arrivée / retour / chauffeur / hébergement.
-                Le delta J-N/J+N n'est affiché QUE s'il y a un décalage (≠ J0) :
-                arriver le 1er jour de présence ou repartir le dernier jour
-                est le cas standard, donc pas d'info à montrer. */}
+            {/* Indicateurs : arrivée / retour. Le delta J-N/J+N n'est
+                affiché QUE s'il y a un décalage (≠ J0) : arriver le 1er
+                jour de présence ou repartir le dernier jour est le cas
+                standard, donc pas d'info à montrer. */}
             <span className="flex items-center gap-1 ml-auto shrink-0">
               {persona.arrival_date && (
                 <span
-                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px]"
+                  className="inline-flex items-center justify-center gap-0.5 px-1 rounded text-[9px] leading-none"
                   style={{
                     background: 'var(--purple-bg)',
                     color: 'var(--purple)',
+                    minWidth: 36,
+                    height: 18,
                   }}
                   title={`Arrivée ${persona.arrival_date}${arrivalDelta ? ' (' + arrivalDelta + ')' : ''}`}
                 >
@@ -394,10 +588,12 @@ export default function AttributionRow({
               )}
               {persona.departure_date && (
                 <span
-                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px]"
+                  className="inline-flex items-center justify-center gap-0.5 px-1 rounded text-[9px] leading-none"
                   style={{
                     background: 'var(--purple-bg)',
                     color: 'var(--purple)',
+                    minWidth: 36,
+                    height: 18,
                   }}
                   title={`Retour ${persona.departure_date}${departureDelta ? ' (' + departureDelta + ')' : ''}`}
                 >
@@ -405,68 +601,59 @@ export default function AttributionRow({
                   {departureDelta && departureDelta !== 'J0' ? departureDelta : ''}
                 </span>
               )}
-              {persona.hebergement && (
-                <Home
-                  className="w-3 h-3"
-                  style={{ color: 'var(--blue)' }}
-                />
-              )}
-              {persona.chauffeur && (
-                <Car
-                  className="w-3 h-3"
-                  style={{ color: 'var(--amber)' }}
-                />
-              )}
-              {persona.logistique_notes && (
-                <StickyNote
-                  className="w-3 h-3"
-                  style={{ color: 'var(--purple)' }}
-                />
-              )}
             </span>
           </>
         )}
       </button>
 
-      {/* Lien vers la ligne de devis (read-only) */}
-      <div
-        className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-        style={{
-          background: row.devis_line_id ? 'var(--blue-bg)' : 'transparent',
-          color: row.devis_line_id ? 'var(--blue)' : 'var(--txt-3)',
-          border: row.devis_line_id ? '1px solid var(--blue-brd)' : '1px solid var(--brd-sub)',
-        }}
-        title={
-          row.devis_line_id
-            ? 'Attribution liée à une ligne de devis'
-            : 'Attribution libre (sans ligne de devis)'
-        }
-      >
-        <Link2 className="w-2.5 h-2.5 inline" />
-      </div>
+      {/* Lien vers la ligne de devis (read-only) — DESKTOP UNIQUEMENT.
+          Sur mobile, ce badge est rendu inline avec le poste/+N (cf. plus
+          haut), donc on masque la cellule dédiée pour ne pas dupliquer.
+          La grille mobile a remplacé la zone "devis" en row 3 par
+          "secteur secteur secteur", donc cet élément n'a plus d'area. */}
+      {!isCompact && (
+        <div
+          className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+          style={{
+            background: row.devis_line_id ? 'var(--blue-bg)' : 'transparent',
+            color: row.devis_line_id ? 'var(--blue)' : 'var(--txt-3)',
+            border: row.devis_line_id ? '1px solid var(--blue-brd)' : '1px solid var(--brd-sub)',
+          }}
+          title={
+            row.devis_line_id
+              ? 'Attribution liée à une ligne de devis'
+              : 'Attribution libre (sans ligne de devis)'
+          }
+        >
+          <Link2 className="w-2.5 h-2.5 inline" />
+        </div>
+      )}
 
-      {/* Statut MovinMotion (per-row) — pertinent uniquement pour les
-          intermittents (le statut décrit l'avancement du contrat MovinMotion).
-          Pour les externes/internes/etc., on affiche un placeholder muet. */}
-      {showStatutBadge ? (
+      {/* Statut d'engagement (per-row) — affiché pour TOUTES les attributions,
+          pas seulement les intermittents. Mêmes valeurs / mêmes couleurs que
+          la vue Attribution (À attribuer / Recherche / Contacté / Validé /
+          Réglé). Stocké dans la colonne `movinmotion_statut` (nom DB
+          historique, le statut sert en réalité de tracker générique sur
+          l'engagement, pas seulement sur le contrat MovinMotion). */}
+      <div style={{ gridArea: isCompact ? 'statut' : undefined }}>
         <StatutDropdown
           statut={row.movinmotion_statut}
           canEdit={canEdit}
           onChange={(s) => onUpdateRow?.(row.id, { movinmotion_statut: s })}
         />
-      ) : (
-        <div style={{ minWidth: 88 }} />
-      )}
+      </div>
 
       {/* Menu actions */}
-      <RowMenu
-        canEdit={canEdit}
-        canAttach={Boolean(onAttach)}
-        canDetach={Boolean(row.parent_membre_id) && Boolean(onDetach)}
-        onAttach={onAttach}
-        onDetach={onDetach}
-        onDelete={handleDelete}
-      />
+      <div style={{ gridArea: isCompact ? 'menu' : undefined }}>
+        <RowMenu
+          canEdit={canEdit}
+          canAttach={Boolean(onAttach)}
+          canDetach={Boolean(row.parent_membre_id) && Boolean(onDetach)}
+          onAttach={onAttach}
+          onDetach={onDetach}
+          onDelete={handleDelete}
+        />
+      </div>
     </div>
   )
 }

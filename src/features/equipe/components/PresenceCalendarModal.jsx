@@ -1,13 +1,17 @@
 // ════════════════════════════════════════════════════════════════════════════
-// PresenceCalendarModal — Présence & logistique d'une persona (P1.6)
+// PresenceCalendarModal — Présence sur le projet (P4-LOGISTIQUE-CLEANUP)
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Modale qui regroupe :
 //   - Calendrier des jours de présence (multi-mois, avec sélection rapide
 //     par période du projet : Tournage, Prépa, etc.)
-//   - Section logistique : jour d'arrivée (souvent ≠ du 1er jour de
-//     présence), heure d'arrivée libre, notes logistique (transport,
-//     contraintes…)
+//   - Date d'arrivée (souvent ≠ du 1er jour de présence)
+//   - Date de retour (souvent ≠ du dernier jour de présence)
+//
+// Tout le reste (heures d'arrivée/retour, hébergement, chauffeur, notes
+// logistique) est désormais géré dans la future tab Logistique. Les
+// colonnes correspondantes sur projet_membres restent en DB et seront
+// éditées depuis là — décision Hugo P4-LOGISTIQUE-CLEANUP.
 //
 // Toutes les valeurs sont persona-level → propagées à toutes les rows de
 // la même personne via updatePersona.
@@ -17,7 +21,7 @@
 //     open={open}
 //     onClose={...}
 //     personaName="Hugo Martin"
-//     persona={{ presence_days, arrival_date, arrival_time, logistique_notes }}
+//     persona={{ presence_days, arrival_date, departure_date }}
 //     onSave={(fields) => updatePersona(key, fields)}
 //     periodes={extractPeriodes(project.metadata)}
 //     anchorDate={firstTournageDay}
@@ -33,9 +37,6 @@ import {
   Calendar,
   PlaneLanding,
   PlaneTakeoff,
-  StickyNote,
-  Home,
-  Car,
 } from 'lucide-react'
 import {
   WEEKDAYS_SHORT_FR,
@@ -60,25 +61,11 @@ export default function PresenceCalendarModal({
 }) {
   const initialPresence = persona?.presence_days || []
   const initialArrivalDate = persona?.arrival_date || ''
-  const initialArrivalTime = persona?.arrival_time || ''
   const initialDepartureDate = persona?.departure_date || ''
-  const initialDepartureTime = persona?.departure_time || ''
-  const initialLogistique = persona?.logistique_notes || ''
-  const initialHebergement = persona?.hebergement || ''
-  const initialChauffeur = Boolean(persona?.chauffeur)
 
   const [selected, setSelected] = useState(new Set(initialPresence))
   const [arrivalDate, setArrivalDate] = useState(initialArrivalDate)
-  const [arrivalTime, setArrivalTime] = useState(initialArrivalTime)
   const [departureDate, setDepartureDate] = useState(initialDepartureDate)
-  const [departureTime, setDepartureTime] = useState(initialDepartureTime)
-  const [logistique, setLogistique] = useState(initialLogistique)
-  const [hebergement, setHebergement] = useState(initialHebergement)
-  const [chauffeur, setChauffeur] = useState(initialChauffeur)
-  // Pour l'hébergement : "actif" si le champ est utilisé (≠ vide).
-  // Toggle qui dévoile/masque l'input. Quand on désactive, on garde la valeur
-  // en mémoire au cas où (mais on ne l'enregistre pas).
-  const [hebergementOpen, setHebergementOpen] = useState(Boolean(initialHebergement))
   // pickerMode : 'presence' (default) | 'arrival' | 'departure'
   // En mode 'arrival'/'departure', click sur un jour assigne la date
   // correspondante au lieu de toggler la présence.
@@ -104,13 +91,7 @@ export default function PresenceCalendarModal({
     if (open) {
       setSelected(new Set(persona?.presence_days || []))
       setArrivalDate(persona?.arrival_date || '')
-      setArrivalTime(persona?.arrival_time || '')
       setDepartureDate(persona?.departure_date || '')
-      setDepartureTime(persona?.departure_time || '')
-      setLogistique(persona?.logistique_notes || '')
-      setHebergement(persona?.hebergement || '')
-      setHebergementOpen(Boolean(persona?.hebergement))
-      setChauffeur(Boolean(persona?.chauffeur))
       setPickerMode('presence')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,16 +164,14 @@ export default function PresenceCalendarModal({
   async function handleSave() {
     const presence_days = [...selected].sort()
     try {
+      // Cleanup P4 : on ne save QUE les 3 champs gérés ici. Les champs
+      // logistique (heures, hébergement, chauffeur, notes) restent gérés
+      // par la future tab Logistique — on ne les touche plus depuis ici
+      // pour éviter d'écraser des valeurs saisies ailleurs.
       await onSave?.({
         presence_days,
         arrival_date: arrivalDate || null,
-        arrival_time: arrivalTime.trim() || null,
         departure_date: departureDate || null,
-        departure_time: departureTime.trim() || null,
-        // Hebergement : null si toggle désactivé OU champ vide
-        hebergement: hebergementOpen ? hebergement.trim() || null : null,
-        chauffeur: chauffeur,
-        logistique_notes: logistique.trim() || null,
       })
       onClose?.()
     } catch (err) {
@@ -245,7 +224,7 @@ export default function PresenceCalendarModal({
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-bold truncate" style={{ color: 'var(--txt)' }}>
-              Présence &amp; logistique
+              Présence sur le projet
             </h2>
             <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
               {personaName}
@@ -407,21 +386,34 @@ export default function PresenceCalendarModal({
                 let bgColor = 'var(--bg-elev)'
                 let textColor = 'var(--txt)'
                 let borderColor = 'var(--brd-sub)'
+                let borderStyle = 'solid'
                 let boxShadow = 'none'
 
                 if (!inMonth) {
                   textColor = 'var(--txt-3)'
                 } else if (isSelected) {
+                  // Jour réellement sélectionné par l'utilisateur :
+                  // fond plein bleu, et si la cellule est aussi en période,
+                  // un ring inset de la couleur de la période pour rappeler
+                  // le contexte (sans surcharger).
                   bgColor = 'var(--blue)'
                   textColor = '#fff'
                   borderColor = 'var(--blue)'
+                  borderStyle = 'solid'
                   if (periodMeta) {
                     boxShadow = `inset 0 0 0 2px ${periodMeta.color}`
                   }
                 } else if (periodMeta) {
-                  bgColor = periodMeta.bg
+                  // Jour en période MAIS pas (encore) sélectionné :
+                  // on signale "jour disponible / suggéré" via une bordure
+                  // POINTILLÉE colorée + fond neutre (pas de remplissage).
+                  // Distinct visuellement d'un jour sélectionné (fond plein).
+                  // Cf. retour Hugo P4.5 : éviter de donner l'impression
+                  // que les jours de tournage sont déjà cochés.
+                  bgColor = 'var(--bg-elev)'
                   textColor = periodMeta.color
                   borderColor = periodMeta.color
+                  borderStyle = 'dashed'
                 }
 
                 // Tooltip enrichi
@@ -458,7 +450,7 @@ export default function PresenceCalendarModal({
                     style={{
                       background: bgColor,
                       color: textColor,
-                      border: `1px solid ${borderColor}`,
+                      border: `1px ${borderStyle} ${borderColor}`,
                       boxShadow: finalBoxShadow,
                       fontWeight: isSelected ? 600 : 400,
                       opacity: inMonth ? 1 : 0.5,
@@ -503,41 +495,21 @@ export default function PresenceCalendarModal({
             </div>
           </div>
 
-          {/* ── Logistique : UX progressive (P1.8 + P1.9) ─────────────── */}
-          <LogistiqueSection
+          {/* ── Arrivée / Retour : UX progressive (sans heures, sans
+              hébergement, sans chauffeur, sans notes — tout cela est géré
+              dans la future tab Logistique). */}
+          <ArrivalDepartureSection
             arrivalDate={arrivalDate}
-            arrivalTime={arrivalTime}
             departureDate={departureDate}
-            departureTime={departureTime}
-            hebergement={hebergement}
-            hebergementOpen={hebergementOpen}
-            chauffeur={chauffeur}
-            logistique={logistique}
             firstPresenceDay={firstPresenceDay}
             lastPresenceDay={lastPresenceDay}
             pickerMode={pickerMode}
             onPickArrival={() => setPickerMode((m) => (m === 'arrival' ? 'presence' : 'arrival'))}
             onPickDeparture={() => setPickerMode((m) => (m === 'departure' ? 'presence' : 'departure'))}
-            onClearArrival={() => {
-              setArrivalDate('')
-              setArrivalTime('')
-            }}
-            onClearDeparture={() => {
-              setDepartureDate('')
-              setDepartureTime('')
-            }}
+            onClearArrival={() => setArrivalDate('')}
+            onClearDeparture={() => setDepartureDate('')}
             onSetArrivalDate={setArrivalDate}
-            onSetArrivalTime={setArrivalTime}
             onSetDepartureDate={setDepartureDate}
-            onSetDepartureTime={setDepartureTime}
-            onToggleHebergement={() => setHebergementOpen((v) => !v)}
-            onSetHebergement={setHebergement}
-            onClearHebergement={() => {
-              setHebergement('')
-              setHebergementOpen(false)
-            }}
-            onToggleChauffeur={() => setChauffeur((v) => !v)}
-            onSetLogistique={setLogistique}
           />
         </div>
 
@@ -590,26 +562,22 @@ export default function PresenceCalendarModal({
 // ─── Sous-composants ────────────────────────────────────────────────────────
 
 /**
- * LogistiqueSection — UX progressive (P1.8) :
+ * ArrivalDepartureSection — Saisie des dates d'arrivée + retour.
  *
  *   - État initial (rien de défini) : 2 boutons compacts [+ Arrivée] [+ Retour].
  *   - Click sur [+ Arrivée] → entre en mode picker (état parent), banner
  *     s'affiche au-dessus du calendrier, click sur un jour assigne la date.
  *   - Une fois la date définie : la chip se transforme en
- *     [↘ 11/05  heure ✕] (modifiable, croix pour effacer).
- *   - Notes logistique n'apparaît QUE si arrival OU departure défini.
+ *     [↘ 11/05  ✕] (cliquer pour modifier, croix pour effacer).
+ *
+ * Pas d'heures, d'hébergement, de chauffeur ni de notes — tout cela part
+ * dans la future tab Logistique (cleanup P4).
  *
  * @param pickerMode  'presence' | 'arrival' | 'departure'
  */
-function LogistiqueSection({
+function ArrivalDepartureSection({
   arrivalDate,
-  arrivalTime,
   departureDate,
-  departureTime,
-  hebergement,
-  hebergementOpen,
-  chauffeur,
-  logistique,
   firstPresenceDay,
   lastPresenceDay,
   pickerMode,
@@ -618,133 +586,53 @@ function LogistiqueSection({
   onClearArrival,
   onClearDeparture,
   onSetArrivalDate,
-  onSetArrivalTime,
   onSetDepartureDate,
-  onSetDepartureTime,
-  onToggleHebergement,
-  onSetHebergement,
-  onClearHebergement,
-  onToggleChauffeur,
-  onSetLogistique,
 }) {
   const hasArrival = Boolean(arrivalDate)
   const hasDeparture = Boolean(departureDate)
-  const hasHebergement = hebergementOpen
-  // Notes visibles dès qu'au moins UN champ logistique est rempli/ouvert
-  // (arrivée, retour, hébergement) OU si chauffeur est actif.
-  const showNotes = hasArrival || hasDeparture || hasHebergement || chauffeur
 
   return (
-    <div className="space-y-2">
-      {/* Ligne 1 : chips arrivée / retour / hébergement / chauffeur */}
-      <div className="flex flex-wrap items-center gap-2">
-        {hasArrival ? (
-          <LogistiqueChip
-            icon={<PlaneLanding className="w-3 h-3" />}
-            label="Arrivée"
-            date={arrivalDate}
-            time={arrivalTime}
-            onTimeChange={onSetArrivalTime}
-            onPick={onPickArrival}
-            onClear={onClearArrival}
-            isPicking={pickerMode === 'arrival'}
-            alignTarget={firstPresenceDay}
-            alignLabel="aligner 1er jour"
-            onAlign={() => onSetArrivalDate(firstPresenceDay)}
-          />
-        ) : (
-          <PickButton
-            icon={<PlaneLanding className="w-3 h-3" />}
-            label="Arrivée"
-            isActive={pickerMode === 'arrival'}
-            onClick={onPickArrival}
-          />
-        )}
+    <div className="flex flex-wrap items-center gap-2">
+      {hasArrival ? (
+        <ArrivalDepartureChip
+          icon={<PlaneLanding className="w-3 h-3" />}
+          label="Arrivée"
+          date={arrivalDate}
+          onPick={onPickArrival}
+          onClear={onClearArrival}
+          isPicking={pickerMode === 'arrival'}
+          alignTarget={firstPresenceDay}
+          alignLabel="aligner 1er jour"
+          onAlign={() => onSetArrivalDate(firstPresenceDay)}
+        />
+      ) : (
+        <PickButton
+          icon={<PlaneLanding className="w-3 h-3" />}
+          label="Arrivée"
+          isActive={pickerMode === 'arrival'}
+          onClick={onPickArrival}
+        />
+      )}
 
-        {hasDeparture ? (
-          <LogistiqueChip
-            icon={<PlaneTakeoff className="w-3 h-3" />}
-            label="Retour"
-            date={departureDate}
-            time={departureTime}
-            onTimeChange={onSetDepartureTime}
-            onPick={onPickDeparture}
-            onClear={onClearDeparture}
-            isPicking={pickerMode === 'departure'}
-            alignTarget={lastPresenceDay}
-            alignLabel="aligner dernier jour"
-            onAlign={() => onSetDepartureDate(lastPresenceDay)}
-          />
-        ) : (
-          <PickButton
-            icon={<PlaneTakeoff className="w-3 h-3" />}
-            label="Retour"
-            isActive={pickerMode === 'departure'}
-            onClick={onPickDeparture}
-          />
-        )}
-
-        {hasHebergement ? (
-          <HebergementChip
-            value={hebergement}
-            onChange={onSetHebergement}
-            onClear={onClearHebergement}
-          />
-        ) : (
-          <PickButton
-            icon={<Home className="w-3 h-3" />}
-            label="Hébergement"
-            isActive={false}
-            onClick={onToggleHebergement}
-          />
-        )}
-
-        {/* Toggle Chauffeur — pas de "+ ajouter" ici, c'est un boolean simple */}
-        <button
-          type="button"
-          onClick={onToggleChauffeur}
-          className="text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 transition-all"
-          style={{
-            background: chauffeur ? 'var(--amber-bg)' : 'transparent',
-            color: chauffeur ? 'var(--amber)' : 'var(--txt-2)',
-            border: `1px ${chauffeur ? 'solid' : 'dashed'} ${chauffeur ? 'var(--amber)' : 'var(--brd)'}`,
-          }}
-          title={chauffeur ? 'Cette personne est chauffeur sur le projet' : 'Marquer comme chauffeur'}
-        >
-          <Car className="w-3 h-3" />
-          {chauffeur ? 'Chauffeur' : 'Chauffeur ?'}
-        </button>
-      </div>
-
-      {/* Notes logistique — visible dès qu'un champ est rempli */}
-      {showNotes && (
-        <div
-          className="rounded-md p-3"
-          style={{
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-          }}
-        >
-          <label
-            className="flex items-center gap-1 text-[10px] font-semibold mb-1"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            <StickyNote className="w-2.5 h-2.5" />
-            Notes logistique
-          </label>
-          <textarea
-            value={logistique}
-            onChange={(e) => onSetLogistique(e.target.value)}
-            rows={3}
-            placeholder="Train Lyon Part-Dieu 12h50, retour TGV 18h45, voiture / parking demandé…"
-            className="w-full text-xs px-2 py-1 rounded outline-none resize-none"
-            style={{
-              background: 'var(--bg-surf)',
-              border: '1px solid var(--brd)',
-              color: 'var(--txt)',
-            }}
-          />
-        </div>
+      {hasDeparture ? (
+        <ArrivalDepartureChip
+          icon={<PlaneTakeoff className="w-3 h-3" />}
+          label="Retour"
+          date={departureDate}
+          onPick={onPickDeparture}
+          onClear={onClearDeparture}
+          isPicking={pickerMode === 'departure'}
+          alignTarget={lastPresenceDay}
+          alignLabel="aligner dernier jour"
+          onAlign={() => onSetDepartureDate(lastPresenceDay)}
+        />
+      ) : (
+        <PickButton
+          icon={<PlaneTakeoff className="w-3 h-3" />}
+          label="Retour"
+          isActive={pickerMode === 'departure'}
+          onClick={onPickDeparture}
+        />
       )}
     </div>
   )
@@ -788,15 +676,17 @@ function PickButton({ icon, label, isActive, onClick }) {
 }
 
 /**
- * Chip représentant une date d'arrivée/retour définie. Click sur la date →
- * réactive le mode picker. Champ heure éditable inline. Croix pour effacer.
+ * Chip représentant une date d'arrivée/retour définie. Click sur la date
+ * (ou sur la chip elle-même) → réactive le mode picker pour modifier.
+ * Croix pour effacer. Lien "aligner 1er/dernier jour" si la date diverge.
+ *
+ * Cleanup P4 : plus de champ heure inline (les heures partent en
+ * Logistique tab).
  */
-function LogistiqueChip({
+function ArrivalDepartureChip({
   icon,
   label,
   date,
-  time,
-  onTimeChange,
   onPick,
   onClear,
   isPicking,
@@ -841,20 +731,6 @@ function LogistiqueChip({
         {dateLabel}
       </button>
 
-      <input
-        type="text"
-        value={time || ''}
-        onChange={(e) => onTimeChange(e.target.value)}
-        placeholder="heure"
-        className="text-xs px-1.5 py-0.5 rounded outline-none"
-        style={{
-          background: 'var(--bg-surf)',
-          border: '1px solid var(--brd)',
-          color: 'var(--txt)',
-          width: 80,
-        }}
-      />
-
       {showAlign && (
         <button
           type="button"
@@ -883,64 +759,6 @@ function LogistiqueChip({
           e.currentTarget.style.background = 'transparent'
         }}
         title={`Retirer ${label.toLowerCase()}`}
-      >
-        <X className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
-
-/**
- * HebergementChip — Chip pour saisir l'hébergement (texte libre).
- * Pattern symétrique à LogistiqueChip mais sans date (juste un texte).
- * Utilisé quand le toggle "+ Hébergement" est actif. Croix pour effacer
- * (et désactiver le toggle).
- */
-function HebergementChip({ value, onChange, onClear }) {
-  return (
-    <div
-      className="flex items-center gap-1.5 rounded-md px-2 py-1"
-      style={{
-        background: 'var(--bg-elev)',
-        border: '1px solid var(--brd-sub)',
-        color: 'var(--txt)',
-      }}
-    >
-      <Home className="w-3 h-3" style={{ color: 'var(--purple)' }} />
-      <span
-        className="text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: 'var(--purple)' }}
-      >
-        Hébergement
-      </span>
-      <input
-        type="text"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        autoFocus={!value}
-        placeholder="Hôtel Mercure, chez Marie, domicile…"
-        className="text-xs px-1.5 py-0.5 rounded outline-none"
-        style={{
-          background: 'var(--bg-surf)',
-          border: '1px solid var(--brd)',
-          color: 'var(--txt)',
-          width: 220,
-        }}
-      />
-      <button
-        type="button"
-        onClick={onClear}
-        className="p-0.5 rounded transition-colors"
-        style={{ color: 'var(--txt-3)' }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.color = 'var(--red)'
-          e.currentTarget.style.background = 'var(--red-bg)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = 'var(--txt-3)'
-          e.currentTarget.style.background = 'transparent'
-        }}
-        title="Retirer l'hébergement"
       >
         <X className="w-3 h-3" />
       </button>

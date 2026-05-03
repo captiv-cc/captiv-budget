@@ -16,9 +16,10 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { AlertCircle, Loader2, Moon, Sun } from 'lucide-react'
+import { AlertCircle, FileText, Loader2, Moon, Sun } from 'lucide-react'
 import { useLivrableShareSession } from '../hooks/useLivrableShareSession'
-import ShareHeader from '../features/livrables/components/share/ShareHeader'
+import SharePageHeader from '../components/share/SharePageHeader'
+import SharePageFooter from '../components/share/SharePageFooter'
 import SharePeriodesBar from '../features/livrables/components/share/SharePeriodesBar'
 import ShareTimeline from '../features/livrables/components/share/ShareTimeline'
 import ShareLivrablesList from '../features/livrables/components/share/ShareLivrablesList'
@@ -130,18 +131,28 @@ function ShareContent({
     }
   }
 
+  // Construction des metaItems pour le SharePageHeader (typés).
+  const metaItems = []
+  if (project?.ref_projet) metaItems.push({ type: 'ref', value: project.ref_projet })
+  if (share?.label) metaItems.push({ type: 'label', value: share.label })
+  if (payload.generated_at) metaItems.push({ type: 'date', value: payload.generated_at })
+
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--txt)' }}>
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6">
-        <ShareHeader
+    <div
+      className="min-h-screen share-theme-transition"
+      style={{ background: 'var(--bg)', color: 'var(--txt)' }}
+    >
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 share-fade-in">
+        <SharePageHeader
+          pageTitle={org?.share_intro_text?.trim() || 'Suivi des livrables'}
           project={project}
-          share={share}
           org={org}
-          generatedAt={payload.generated_at}
+          metaItems={metaItems}
           theme={theme}
           onToggleTheme={onToggleTheme}
-          onExportPdf={handleExportPdf}
-          exporting={exporting}
+          actions={
+            <PdfActionButton onClick={handleExportPdf} loading={exporting} />
+          }
         />
 
         {config.show_periodes && project?.periodes && (
@@ -167,53 +178,49 @@ function ShareContent({
           config={config}
         />
 
-        {/* Footer — MT-PRE-1.A : signature org dynamique. Préfère display_name
-            (nom commercial en majuscules) puis legal_name. Tagline optionnelle.
-            Si org=null (RPC pas migrée), fallback Captiv historique. */}
-        <ShareFooter org={org} />
+        {/* Footer "Powered by captiv." centré subtil — partagé entre toutes
+            les pages /share/*. La signature org est portée par le hero
+            (SharePageHeader top-left). */}
+        <SharePageFooter />
       </div>
     </div>
   )
 }
 
-// ─── Footer signature org (MT-PRE-1.A) ────────────────────────────────────
-//
-// Affiche le nom commercial (display_name) en gras + tagline en normal,
-// dans le même format que le footer historique. Si org=null (RPC pas
-// migrée), fallback "CAPTIV · Production audiovisuelle" pour préserver
-// l'apparence visuelle existante.
-function ShareFooter({ org }) {
-  const orgName = org === null
-    ? 'CAPTIV'
-    : (org?.display_name || org?.legal_name || '').toString().trim().toUpperCase()
-  const orgTagline = org === null
-    ? 'Production audiovisuelle'
-    : (org?.tagline || '').toString().trim()
-
+// Bouton PDF "glass" pour le hero (sur fond sombre).
+function PdfActionButton({ onClick, loading }) {
   return (
-    <footer className="pt-6 pb-3 text-center" style={{ color: 'var(--txt-3)' }}>
-      <p className="text-[11px] leading-relaxed">
-        Ce lien donne accès en lecture seule au suivi de votre projet.
-        {' '}Les informations sont mises à jour en temps réel.
-      </p>
-      {orgName && (
-        <p className="mt-3 text-[10px] tracking-wider" style={{ color: 'var(--txt-3)' }}>
-          <span className="font-bold" style={{ color: 'var(--txt-2)', letterSpacing: '0.15em' }}>
-            {orgName}
-          </span>
-          {orgTagline && (
-            <>
-              <span className="mx-1.5" aria-hidden="true">·</span>
-              <span>{orgTagline}</span>
-            </>
-          )}
-        </p>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur transition-colors"
+      style={{
+        background: 'rgba(255,255,255,0.15)',
+        color: 'white',
+        border: '1px solid rgba(255,255,255,0.25)',
+        cursor: loading ? 'wait' : 'pointer',
+        opacity: loading ? 0.7 : 1,
+      }}
+      onMouseEnter={(e) => {
+        if (!loading) e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+      }}
+      onMouseLeave={(e) => {
+        if (!loading) e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
+      }}
+      title="Exporter en PDF"
+    >
+      {loading ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : (
+        <FileText className="w-3.5 h-3.5" />
       )}
-    </footer>
+      <span className="hidden sm:inline">PDF</span>
+    </button>
   )
 }
 
-// Bouton toggle dark/light — exporté pour réutilisation par ShareHeader.
+// Bouton toggle dark/light — exporté pour réutilisation par d'autres pages share.
 export function ThemeToggle({ theme, onToggle }) {
   const Icon = theme === 'light' ? Moon : Sun
   return (

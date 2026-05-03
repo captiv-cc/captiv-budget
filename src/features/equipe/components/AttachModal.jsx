@@ -21,6 +21,44 @@ import {
 } from '../../../lib/crew'
 import { notify } from '../../../lib/notify'
 
+// Helper : résout le lot d'une row (priorité devis_line → fallback lot_id
+// direct sur la row ad-hoc, cf. EQUIPE-P4.4).
+function resolveRowLot(row, lineLotMap, lotInfoMap) {
+  if (!row) return null
+  let lotId = null
+  if (row.devis_line_id) lotId = lineLotMap?.[row.devis_line_id] || null
+  else if (row.lot_id) lotId = row.lot_id
+  if (!lotId) return null
+  return lotInfoMap?.[lotId] || null
+}
+
+// Petit badge "● Lot X" — réutilisé header + cards candidats.
+function LotBadge({ lot, size = 'sm' }) {
+  if (!lot) return null
+  const isLg = size === 'md'
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded shrink-0 ${
+        isLg ? 'text-[10px] px-1.5 py-0.5' : 'text-[10px] px-1 py-0'
+      }`}
+      style={{
+        background: 'var(--bg-elev)',
+        border: `1px solid ${lot.color}`,
+        color: lot.color,
+      }}
+      title={`Lot · ${lot.title}`}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{ background: lot.color }}
+      />
+      <span className="truncate max-w-[120px]" style={{ fontWeight: 600 }}>
+        {lot.title}
+      </span>
+    </span>
+  )
+}
+
 export default function AttachModal({
   open,
   onClose,
@@ -30,6 +68,10 @@ export default function AttachModal({
   allMembers = [],
   // (childId, parentId) => Promise
   onAttach,
+  // Multi-lot — pour afficher le badge de lot à côté de chaque poste
+  // candidat + dans le header (savoir d'où vient la modale).
+  lineLotMap = {},
+  lotInfoMap = {},
 }) {
   const [submitting, setSubmitting] = useState(false)
 
@@ -40,6 +82,7 @@ export default function AttachModal({
     contact: childRow.contact || childRow.persona?.contact,
     members: [childRow],
   })
+  const childLot = resolveRowLot(childRow, lineLotMap, lotInfoMap)
 
   // Candidats : rows de la MÊME persona, principales (parent IS NULL),
   // et qui ne sont pas la row elle-même.
@@ -97,9 +140,15 @@ export default function AttachModal({
             <h2 className="text-base font-bold truncate" style={{ color: 'var(--txt)' }}>
               Rattacher à un autre poste
             </h2>
-            <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
-              {personaName} — {childPoste}
-            </p>
+            <div
+              className="text-xs flex items-center gap-1.5 flex-wrap"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              <span className="truncate">
+                {personaName} — {childPoste}
+              </span>
+              {childLot && <LotBadge lot={childLot} size="md" />}
+            </div>
           </div>
           <button
             type="button"
@@ -135,7 +184,7 @@ export default function AttachModal({
           ) : (
             <>
               <p className="text-xs mb-3" style={{ color: 'var(--txt-2)' }}>
-                Cette ligne sera masquée sur la Tech list et apparaîtra comme
+                Cette ligne sera masquée sur la Crew list et apparaîtra comme
                 rôle rattaché à la ligne sélectionnée. Elle reste visible dans
                 Attribution.
               </p>
@@ -146,6 +195,7 @@ export default function AttachModal({
                     c.specialite ||
                     c.contact?.specialite ||
                     '—'
+                  const cLot = resolveRowLot(c, lineLotMap, lotInfoMap)
                   return (
                     <button
                       key={c.id}
@@ -170,8 +220,11 @@ export default function AttachModal({
                         e.currentTarget.style.background = 'var(--bg-elev)'
                       }}
                     >
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold truncate">{cPoste}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold truncate flex items-center gap-1.5 flex-wrap">
+                          <span className="truncate">{cPoste}</span>
+                          {cLot && <LotBadge lot={cLot} size="md" />}
+                        </div>
                         {c.regime && (
                           <div
                             className="text-[10px] mt-0.5"
