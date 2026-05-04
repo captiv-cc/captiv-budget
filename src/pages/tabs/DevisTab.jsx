@@ -490,6 +490,7 @@ export default function DevisTab() {
     }
 
     if (lineIdMap.size > 0) {
+      // 1. Duplique les liens devis_ligne_membres (table de jointure)
       const { data: srcMembres } = await supabase
         .from('devis_ligne_membres')
         .select('devis_line_id, projet_membre_id, notes')
@@ -504,6 +505,28 @@ export default function DevisTab() {
               notes: m.notes,
             }))
             .filter((m) => m.devis_line_id),
+        )
+      }
+
+      // 2. Rebind les projet_membres.devis_line_id (lien direct) vers les
+      //    nouvelles lignes. Sans ça, après duplication les membres
+      //    restent attachés à l'ancien devis et disparaissent de la vue
+      //    Attribution dès que la nouvelle version devient le refDevis.
+      //    Le heal au chargement (healOrphanMembres) sert ensuite de
+      //    filet de sécurité pour les cas où ce code n'a pas tourné
+      //    (data legacy / migration manuelle).
+      const { data: orphanCandidates } = await supabase
+        .from('projet_membres')
+        .select('id, devis_line_id')
+        .in('devis_line_id', Array.from(lineIdMap.keys()))
+      if (orphanCandidates?.length) {
+        await Promise.all(
+          orphanCandidates.map((m) =>
+            supabase
+              .from('projet_membres')
+              .update({ devis_line_id: lineIdMap.get(m.devis_line_id) })
+              .eq('id', m.id),
+          ),
         )
       }
     }

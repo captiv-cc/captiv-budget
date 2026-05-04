@@ -617,6 +617,63 @@ export default function EquipeTab() {
       {/* ── Body : padding cohérent avec MaterielTab/LivrablesTab ─────────── */}
       <div className="p-4 sm:p-6 space-y-5 flex-1">
 
+      {/* ── Bandeau d'avertissement : membres orphelins ─────────────────────
+          Détection : membres avec un devis_line_id qui ne pointe vers aucune
+          ligne du refDevis courant. Ces membres restent visibles dans la
+          Crew list (parent direct sur projet_membres) mais sont invisibles
+          dans Attribution + Finances (qui parcourent les lignes du devis).
+          Le auto-heal côté ProjetLayout les rebind dans la majorité des cas,
+          ce bandeau n'apparaît que si certains résistent (ambiguïté sur le
+          produit, suppression de ligne, etc.). */}
+      {(() => {
+        const refLineIds = new Set(crewLines.map((l) => l.id))
+        const orphans = membres.filter(
+          (m) => m.devis_line_id && !refLineIds.has(m.devis_line_id),
+        )
+        if (orphans.length === 0) return null
+        return (
+          <div
+            className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg"
+            style={{
+              background: 'var(--amber-bg, rgba(251,191,36,0.12))',
+              border: '1px solid var(--amber, rgb(251,191,36))',
+            }}
+          >
+            <AlertCircle
+              className="w-4 h-4 shrink-0 mt-0.5"
+              style={{ color: 'var(--amber, rgb(251,191,36))' }}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                {orphans.length} membre{orphans.length > 1 ? 's' : ''} non lié
+                {orphans.length > 1 ? 's' : ''} à un poste devis
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt-2)' }}>
+                Ces membres apparaissent dans la Crew list mais sont absents des vues
+                Attribution et Finances. Cause probable&nbsp;: une nouvelle version du
+                devis a été validée sans rebind automatique de l&apos;attribution
+                ({orphans
+                  .slice(0, 3)
+                  .map((m) => fullName(m))
+                  .filter(Boolean)
+                  .join(', ')}
+                {orphans.length > 3 ? `, +${orphans.length - 3}` : ''}).
+              </p>
+              {canSeeAttribution && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('attribution')}
+                  className="text-[11px] font-semibold mt-1.5 underline"
+                  style={{ color: 'var(--amber, rgb(251,191,36))' }}
+                >
+                  Ouvrir Attribution pour ré-attribuer →
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── P3 — Filtre par lot (multi-lot uniquement, partagé entre les
           3 vues, placé AU-DESSUS du toggle) ─────────────────────────────── */}
       {isMultiLot && (

@@ -19,10 +19,12 @@
 
 import { supabase } from './supabase'
 import { pickRefDevis, groupDevisByLot } from './lots'
+import { normalizeSearch } from './searchUtils'
 
-function norm(s) {
-  return (s || '').trim().toLowerCase()
-}
+// Alias local : on utilise `normalizeSearch` (NFD + diacritiques + lowercase)
+// pour rester accent-insensitive — un devis source nommé "Régie" et un
+// nouveau devis nommé "Regie" doivent matcher.
+const norm = normalizeSearch
 
 /**
  * Rebind les projet_membres orphelins d'un projet vers les lignes équivalentes
@@ -88,12 +90,22 @@ export async function healOrphanMembres(projectId) {
 
   const orphanCatIds = [...new Set(orphanLines.map((l) => l.category_id).filter(Boolean))]
   const orphanDevisIds = [...new Set(orphanLines.map((l) => l.devis_id))]
-  const [orphanCatsR, orphanDevisR] = await Promise.all([
+  const [orphanCatsR, orphanDevisR, srcAllLinesR] = await Promise.all([
     orphanCatIds.length
       ? supabase.from('devis_categories').select('id, name').in('id', orphanCatIds)
       : Promise.resolve({ data: [] }),
     orphanDevisIds.length
       ? supabase.from('devis').select('id, lot_id').in('id', orphanDevisIds)
+      : Promise.resolve({ data: [] }),
+    // Charge TOUTES les lignes des devis sources (pas seulement les orphelines)
+    // pour pouvoir calculer l'index relatif d'une ligne dans la séquence des
+    // produits identiques. Utilisé en fallback quand plusieurs candidats ont
+    // le même produit dans le refDevis cible.
+    orphanDevisIds.length
+      ? supabase
+          .from('devis_lines')
+          .select('id, devis_id, category_id, produit, sort_order')
+          .in('devis_id', orphanDevisIds)
       : Promise.resolve({ data: [] }),
   ])
   const orphanCatNameById = Object.fromEntries(
@@ -103,6 +115,7 @@ export async function healOrphanMembres(projectId) {
     (orphanDevisR.data || []).map((d) => [d.id, d.lot_id]),
   )
   const orphanLineById = Object.fromEntries(orphanLines.map((l) => [l.id, l]))
+  const srcAllLines = srcAllLinesR.data || []
 
   // 6) Pour chaque orphelin, chercher la ligne équivalente dans le refDevis du même lot
   //    Match : même produit (trim + lowercase) + même nom de catégorie
@@ -138,16 +151,49 @@ export async function healOrphanMembres(projectId) {
     if (candidates.length === 1) {
       updates.push({ id: m.id, devis_line_id: candidates[0].id })
     } else if (candidates.length > 1) {
-      // Ambiguïté : on tente un match plus strict (même sort_order) puis abandon
+      // Ambiguïté : 3 stratégies de fallback en cascade.
+      //
+      // 1) Match strict par sort_order — fonctionne si la duplication a
+      //    préservé l'ordre exact (cas le plus courant).
       const strict = candidates.find((c) => c.sort_order === oldLine.sort_order)
       if (strict) {
         updates.push({ id: m.id, devis_line_id: strict.id })
-      } else {
-        unmatched.push({
-          membre: m,
-          reason: `${candidates.length} candidats ambigus pour "${oldLine.produit}"`,
-        })
+        continue
       }
+
+      // 2) Match par index relatif — robuste face à un décalage de
+      //    sort_order (ex: insertion d'une ligne entre la duplication et
+      //    le rebind). Si oldLine est la N-ème ligne avec ce produit dans
+      //    le devis source (par sort_order), on cible la N-ème ligne avec
+      //    le même produit dans le refDevis cible. Cas typique : 3 lignes
+      //    "Cadreur" en V2 + 3 en V3 → la "2ème Cadreur" V2 mappe la
+      //    "2ème Cadreur" V3.
+      const oldSiblings = srcAllLines
+        .filter(
+          (l) =>
+            l.devis_id === oldLine.devis_id &&
+            norm(l.produit) === norm(oldLine.produit),
+        )
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      const oldIndex = oldSiblings.findIndex((l) => l.id === oldLine.id)
+      if (oldIndex >= 0) {
+        const sortedCandidates = [...candidates].sort(
+          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+        )
+        const matchedByIndex = sortedCandidates[oldIndex]
+        if (matchedByIndex) {
+          updates.push({ id: m.id, devis_line_id: matchedByIndex.id })
+          continue
+        }
+      }
+
+      // 3) Abandon — on laisse le membre orphelin pour ne pas l'attribuer
+      //    à tort. Il sera signalé par le bandeau d'avertissement dans
+      //    EquipeTab.
+      unmatched.push({
+        membre: m,
+        reason: `${candidates.length} candidats ambigus pour "${oldLine.produit}"`,
+      })
     } else {
       unmatched.push({ membre: m, reason: `aucun match pour "${oldLine.produit}"` })
     }
