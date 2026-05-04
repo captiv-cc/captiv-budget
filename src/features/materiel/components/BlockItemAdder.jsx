@@ -67,10 +67,18 @@ export default function BlockItemAdder({
   }, [results.length, highlight])
 
   // ─── Positionnement du dropdown (position:fixed, portal body) ───────────
+  // On capture rect + bottom pour pouvoir ouvrir VERS LE BAS du wrapper
+  // (sous l'input) avec fallback automatique vers le HAUT si pas assez de
+  // place en dessous (= cas où l'input est près du bas du viewport).
   const calcPos = useCallback(() => {
     if (wrapperRef.current) {
       const r = wrapperRef.current.getBoundingClientRect()
-      setDropdownPos({ left: r.left, width: r.width, top: r.top })
+      setDropdownPos({
+        left: r.left,
+        width: r.width,
+        top: r.top,
+        bottom: r.bottom,
+      })
     }
   }, [])
 
@@ -211,19 +219,45 @@ export default function BlockItemAdder({
   }
 
   // ─── Dropdown (Portal) ───────────────────────────────────────────────────
+  // Stratégie de positionnement adaptative : on ouvre vers le BAS du
+  // wrapper par défaut (plus naturel pour un autocomplete) ; si l'espace
+  // disponible en dessous est insuffisant, on bascule automatiquement
+  // vers le HAUT. Évite que le dropdown soit masqué par les blocs
+  // suivants dans la liste matériel (cas constaté chez Hugo).
   const hasResults = results.length > 0
+  const DROPDOWN_MAX_HEIGHT = 340
+  const DROPDOWN_GAP = 4
+  let dropdownStyle = null
+  if (open && dropdownPos) {
+    const spaceBelow = window.innerHeight - dropdownPos.bottom
+    const spaceAbove = dropdownPos.top
+    const openUp = spaceBelow < 200 && spaceAbove > spaceBelow
+    if (openUp) {
+      dropdownStyle = {
+        position: 'fixed',
+        left: dropdownPos.left,
+        width: dropdownPos.width,
+        bottom: window.innerHeight - dropdownPos.top + DROPDOWN_GAP,
+        maxHeight: Math.min(DROPDOWN_MAX_HEIGHT, spaceAbove - DROPDOWN_GAP - 8),
+      }
+    } else {
+      dropdownStyle = {
+        position: 'fixed',
+        left: dropdownPos.left,
+        width: dropdownPos.width,
+        top: dropdownPos.bottom + DROPDOWN_GAP,
+        maxHeight: Math.min(DROPDOWN_MAX_HEIGHT, spaceBelow - DROPDOWN_GAP - 8),
+      }
+    }
+  }
   const dropdown =
-    open && dropdownPos
+    open && dropdownStyle
       ? createPortal(
           <div
             ref={dropdownRef}
             style={{
-              position: 'fixed',
-              left: dropdownPos.left,
-              width: dropdownPos.width,
-              bottom: window.innerHeight - dropdownPos.top + 4,
+              ...dropdownStyle,
               zIndex: 9999,
-              maxHeight: '340px',
               overflowY: 'auto',
               overflowX: 'hidden',
               background: 'var(--bg-surf)',
