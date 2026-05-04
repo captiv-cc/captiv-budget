@@ -143,9 +143,13 @@ export default function BlockItemAdder({
     }
   }
 
-  async function commitFreeForm() {
+  // commitFreeForm accepte un override pour le texte. Utile dans le
+  // handler Enter qui lit la valeur DOM live (pas l'état React, qui
+  // peut être stale pendant une frappe rapide).
+  async function commitFreeForm(textOverride) {
     if (!onAddFreeForm || submitting) return
-    const text = query.trim() || null
+    const raw = textOverride !== undefined ? textOverride : query
+    const text = (raw || '').trim() || null
     setSubmitting(true)
     try {
       await onAddFreeForm(text)
@@ -160,6 +164,12 @@ export default function BlockItemAdder({
   }
 
   function handleKey(e) {
+    // Garde IME / dead-keys / composition : sur certains navigateurs (et
+    // claviers FR avec touches mortes pour les accents), le keydown Enter
+    // fire pendant une composition en cours et doit être ignoré — sinon
+    // on commit avec une valeur partielle.
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return
+
     if (e.key === 'Escape') {
       e.preventDefault()
       deactivate()
@@ -177,20 +187,41 @@ export default function BlockItemAdder({
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      // Si l'user a tapé du texte ET qu'il y a un résultat highlighted,
-      // on commit ce résultat — sans condition supplémentaire d'inclusion
-      // textuelle (qui cassait l'accent-insensitive : "deport" ne match
-      // pas "Déport" en string raw, mais ils matchent via normalizeSearch).
-      // Si query vide, ou pas de résultats → ligne libre.
-      if (query.trim().length === 0) {
-        commitFreeForm()
+
+      // ─────────────────────────────────────────────────────────────────
+      // Race condition observée : sur certains navigateurs, le keydown
+      // Enter fire AVANT que React ait traité l'événement `input` du
+      // dernier caractère tapé. Résultat : `query` state est stale (ex.
+      // "cano" alors que le DOM a "canon"), `results` aussi, et la
+      // logique tombe à côté → premier Enter sans effet, deuxième OK
+      // une fois que React a rattrapé le retard.
+      //
+      // Fix : on lit la valeur DOM live et on recalcule les résultats à
+      // partir de cette valeur — robust même quand l'état React est en
+      // retard d'une frappe.
+      // ─────────────────────────────────────────────────────────────────
+      const liveQuery = (inputRef.current?.value ?? query).trim()
+      if (liveQuery.length === 0) {
+        commitFreeForm('')
         return
       }
-      const picked = results[highlight] ?? results[0]
+      const q = normalizeSearch(liveQuery)
+      const liveResults = materielBdd
+        .filter(
+          (m) =>
+            normalizeSearch(m.nom).includes(q) ||
+            normalizeSearch(m.description).includes(q) ||
+            normalizeSearch(m.categorie_suggeree).includes(q),
+        )
+        .slice(0, 8)
+      const picked = liveResults[highlight] ?? liveResults[0]
       if (picked) {
         commitCatalogue(picked)
       } else {
-        commitFreeForm()
+        // Aucun match → ligne libre avec le texte tapé (forçé en
+        // override pour ne pas dépendre de l'état React qui peut être
+        // stale).
+        commitFreeForm(liveQuery)
       }
     }
   }
