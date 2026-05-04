@@ -25,6 +25,8 @@ import {
   FileText,
   Image as ImageIcon,
   Layers,
+  LayoutGrid,
+  List as ListIcon,
   Map as MapIcon,
   MoreHorizontal,
   Plus,
@@ -69,6 +71,35 @@ export default function PlansTab() {
   const [activeCategoryId, setActiveCategoryId] = useState('all')
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+
+  // ── Mode d'affichage : grille (cards avec vignettes) ou liste (compact) ──
+  // Persisté en localStorage. Si jamais défini, auto-default à "list" quand
+  // le projet a > 20 plans (gestion à grande échelle plus confortable).
+  const VIEW_MODE_KEY = 'plans-view-mode'
+  const [viewMode, setViewModeState] = useState(() => {
+    if (typeof localStorage === 'undefined') return 'grid'
+    const stored = localStorage.getItem(VIEW_MODE_KEY)
+    if (stored === 'grid' || stored === 'list') return stored
+    return null // résolu après le 1er render via effect ci-dessous (auto)
+  })
+  // Auto-default selon nombre de plans, une seule fois (si pas de pref user).
+  useEffect(() => {
+    if (viewMode != null) return
+    if (loading) return
+    const activeCount = plans.filter((p) => !p.is_archived).length
+    setViewModeState(activeCount > 20 ? 'list' : 'grid')
+  }, [viewMode, loading, plans])
+  const setViewMode = useCallback((mode) => {
+    setViewModeState(mode)
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(VIEW_MODE_KEY, mode)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [])
+  const effectiveViewMode = viewMode || 'grid'
 
   const filteredPlans = useMemo(() => {
     let list = plans
@@ -379,8 +410,9 @@ export default function PlansTab() {
             })}
           </div>
 
-          {/* Toggle archivés */}
-          <div className="flex items-center justify-end">
+          {/* Toggle archivés + mode d'affichage */}
+          <div className="flex items-center justify-between gap-3">
+            <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
             <label className="flex items-center gap-1.5 text-[11px] cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -393,9 +425,42 @@ export default function PlansTab() {
         </div>
       )}
 
-      {/* Grille de plans */}
+      {/* Grille de plans (mode grid) ou liste compacte (mode list) */}
       {filteredPlans.length === 0 ? (
         <EmptyState canEdit={canEdit} hasFilters={search || activeCategoryId !== 'all'} onCreate={openCreate} />
+      ) : effectiveViewMode === 'list' ? (
+        <ul
+          className="rounded-lg overflow-hidden"
+          style={{
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+          }}
+        >
+          {filteredPlans.map((plan, idx) => (
+            <PlanListItem
+              key={plan.id}
+              plan={plan}
+              category={plan.category_id ? categoriesById.get(plan.category_id) : null}
+              canEdit={canEdit}
+              isLast={idx === filteredPlans.length - 1}
+              onOpen={() => handleOpenPlan(plan)}
+              onEdit={() => openEdit(plan)}
+              onArchive={() => handleArchive(plan)}
+              onRestore={() => handleRestore(plan)}
+              onDelete={() => handleHardDelete(plan)}
+              draggable={canReorder}
+              isDragging={dragState?.id === plan.id}
+              insertSide={
+                dragState?.targetId === plan.id ? dragState.side : null
+              }
+              onDragStart={() => handleDragStart(plan.id)}
+              onDragOver={(side) => handleDragOver(plan.id, side)}
+              onDragLeave={() => handleDragLeave(plan.id)}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
+            />
+          ))}
+        </ul>
       ) : (
         <ul className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {filteredPlans.map((plan) => (
@@ -483,6 +548,298 @@ function CategoryChip({ active, onClick, label, count, color }) {
         {count}
       </span>
     </button>
+  )
+}
+
+/* ─── ViewModeToggle — bascule entre vue Grille et vue Liste ──────────────── */
+
+function ViewModeToggle({ mode, onChange }) {
+  return (
+    <div
+      className="inline-flex items-center rounded-md p-0.5"
+      style={{
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+      }}
+    >
+      <ViewModeButton
+        active={mode === 'grid'}
+        onClick={() => onChange('grid')}
+        Icon={LayoutGrid}
+        label="Grille"
+        title="Vue grille — vignettes"
+      />
+      <ViewModeButton
+        active={mode === 'list'}
+        onClick={() => onChange('list')}
+        Icon={ListIcon}
+        label="Liste"
+        title="Vue liste — compacte (recommandé pour gros volumes)"
+      />
+    </div>
+  )
+}
+
+function ViewModeButton({ active, onClick, Icon, label, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded transition-colors"
+      style={{
+        background: active ? 'var(--bg-surf)' : 'transparent',
+        color: active ? 'var(--blue)' : 'var(--txt-3)',
+        boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+      }}
+    >
+      <Icon className="w-3 h-3" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  )
+}
+
+/* ─── PlanListItem — ligne compacte (mode liste) ──────────────────────────── */
+
+function PlanListItem({
+  plan,
+  category,
+  canEdit,
+  isLast,
+  onOpen,
+  onEdit,
+  onArchive,
+  onRestore,
+  onDelete,
+  draggable = false,
+  isDragging = false,
+  insertSide = null,
+  onDragStart = null,
+  onDragOver = null,
+  onDragLeave = null,
+  onDrop = null,
+  onDragEnd = null,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const FileIcon = plan.file_type === 'pdf' ? FileText : ImageIcon
+  const archived = plan.is_archived
+  const rowRef = useRef(null)
+  const menuRef = useRef(null)
+
+  // En mode liste, l'insertion D&D est verticale (above/below). On garde
+  // la même nomenclature ('before'/'after') pour rester compatible avec
+  // la logique du parent (handleDrop ignore la sémantique géométrique).
+  function handleNativeDragOver(e) {
+    if (!draggable || !onDragOver) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = rowRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const midY = rect.top + rect.height / 2
+    const side = e.clientY < midY ? 'before' : 'after'
+    onDragOver(side)
+  }
+
+  // Fermeture menu au clic extérieur.
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
+
+  return (
+    <li
+      ref={rowRef}
+      className="relative flex items-center gap-3 px-3 py-2 transition-colors"
+      style={{
+        background: 'transparent',
+        borderBottom: isLast ? 'none' : '1px solid var(--brd-sub)',
+        opacity: isDragging ? 0.4 : archived ? 0.6 : 1,
+        cursor: draggable ? 'grab' : 'default',
+      }}
+      draggable={draggable || undefined}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              try {
+                e.dataTransfer.setData('text/plain', plan.id)
+              } catch {
+                /* noop */
+              }
+              onDragStart?.()
+            }
+          : undefined
+      }
+      onDragOver={draggable ? handleNativeDragOver : undefined}
+      onDragLeave={draggable ? () => onDragLeave?.() : undefined}
+      onDrop={
+        draggable
+          ? (e) => {
+              e.preventDefault()
+              onDrop?.()
+            }
+          : undefined
+      }
+      onDragEnd={draggable ? () => onDragEnd?.() : undefined}
+      onMouseEnter={(e) => {
+        if (!isDragging) e.currentTarget.style.background = 'var(--bg-elev)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+      }}
+    >
+      {/* Ligne d'insertion horizontale (avant/après la row cible) */}
+      {insertSide && (
+        <div
+          className="absolute left-0 right-0 z-10 pointer-events-none"
+          style={{
+            height: 2,
+            background: 'var(--blue)',
+            boxShadow: '0 0 6px var(--blue)',
+            ...(insertSide === 'before' ? { top: -1 } : { bottom: -1 }),
+          }}
+        />
+      )}
+
+      {/* Pastille catégorie */}
+      <span
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ background: category?.color || 'var(--txt-3)' }}
+        title={category?.label || 'Sans catégorie'}
+      />
+
+      {/* Nom + meta — clic ouvre le viewer */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex-1 min-w-0 text-left flex items-center gap-2"
+        title="Ouvrir le plan"
+      >
+        <FileIcon
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: 'var(--txt-3)' }}
+        />
+        <span
+          className="text-sm font-semibold truncate"
+          style={{ color: archived ? 'var(--txt-3)' : 'var(--txt)' }}
+        >
+          {plan.name}
+        </span>
+        {plan.current_version > 1 && (
+          <span
+            className="text-[10px] font-bold uppercase shrink-0 px-1 rounded"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-3)',
+            }}
+            title={`Version ${plan.current_version}`}
+          >
+            V{plan.current_version}
+          </span>
+        )}
+      </button>
+
+      {/* Catégorie + type + taille — masquables en mobile */}
+      <div
+        className="hidden sm:flex items-center gap-3 shrink-0 text-[11px]"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        {category && (
+          <span className="truncate max-w-[120px]">{category.label}</span>
+        )}
+        <span className="uppercase font-semibold tabular-nums">
+          {plan.file_type}
+        </span>
+        {plan.file_size > 0 && (
+          <span className="tabular-nums">{formatFileSize(plan.file_size)}</span>
+        )}
+      </div>
+
+      {/* Actions (admin) */}
+      {canEdit && (
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-1.5 rounded transition-colors"
+            style={{ color: 'var(--txt-3)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+            title="Actions"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute right-0 mt-1 z-20 rounded-md overflow-hidden min-w-[160px] shadow-lg"
+              style={{
+                background: 'var(--bg-surf)',
+                border: '1px solid var(--brd)',
+              }}
+            >
+              <MenuItem
+                onClick={() => {
+                  onOpen?.()
+                  setMenuOpen(false)
+                }}
+                icon={ExternalLink}
+                label="Ouvrir"
+              />
+              <MenuItem
+                onClick={() => {
+                  onEdit?.()
+                  setMenuOpen(false)
+                }}
+                icon={Edit3}
+                label="Modifier"
+              />
+              {!archived ? (
+                <MenuItem
+                  onClick={() => {
+                    onArchive?.()
+                    setMenuOpen(false)
+                  }}
+                  icon={Layers}
+                  label="Archiver"
+                />
+              ) : (
+                <>
+                  <MenuItem
+                    onClick={() => {
+                      onRestore?.()
+                      setMenuOpen(false)
+                    }}
+                    icon={RotateCcw}
+                    label="Restaurer"
+                  />
+                  <MenuItem
+                    onClick={() => {
+                      onDelete?.()
+                      setMenuOpen(false)
+                    }}
+                    icon={Trash2}
+                    label="Supprimer définitivement"
+                    tone="danger"
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </li>
   )
 }
 
