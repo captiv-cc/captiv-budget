@@ -177,14 +177,34 @@ export default function BlockItemAdder({
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      const picked = results[highlight]
-      if (picked && query.trim().length > 0 && picked.nom.toLowerCase().includes(query.trim().toLowerCase())) {
+      // Si l'user a tapé du texte ET qu'il y a un résultat highlighted,
+      // on commit ce résultat — sans condition supplémentaire d'inclusion
+      // textuelle (qui cassait l'accent-insensitive : "deport" ne match
+      // pas "Déport" en string raw, mais ils matchent via normalizeSearch).
+      // Si query vide, ou pas de résultats → ligne libre.
+      if (query.trim().length === 0) {
+        commitFreeForm()
+        return
+      }
+      const picked = results[highlight] ?? results[0]
+      if (picked) {
         commitCatalogue(picked)
       } else {
         commitFreeForm()
       }
     }
   }
+
+  // ─── Scroll-into-view au clavier ─────────────────────────────────────────
+  // Quand l'user navigue avec les flèches, on s'assure que l'item highlighted
+  // reste visible dans le dropdown scrollable.
+  useEffect(() => {
+    if (!open || !dropdownRef.current) return
+    const el = dropdownRef.current.querySelector(`[data-result-idx="${highlight}"]`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' })
+    }
+  }, [highlight, open])
 
   // ─── Dormant state ───────────────────────────────────────────────────────
   if (dormant) {
@@ -291,10 +311,15 @@ export default function BlockItemAdder({
                     <button
                       key={m.id}
                       type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        commitCatalogue(m)
-                      }}
+                      data-result-idx={idx}
+                      // onMouseDown ne fait QUE préserver le focus de
+                      // l'input (sinon onBlur pourrait fermer le
+                      // dropdown). L'action elle-même est sur onClick,
+                      // qui exige mousedown ET mouseup sur la même
+                      // cible — plus fiable que onMouseDown seul (qui
+                      // peut être manqué si la souris bouge).
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => commitCatalogue(m)}
                       onMouseEnter={() => setHighlight(idx)}
                       className="w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors"
                       style={{
@@ -328,10 +353,8 @@ export default function BlockItemAdder({
             <div style={{ position: 'sticky', bottom: 0, background: 'var(--bg-surf)' }}>
               <button
                 type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  commitFreeForm()
-                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => commitFreeForm()}
                 className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
                 style={{
                   borderTop: hasResults ? '1px solid var(--brd)' : 'none',
