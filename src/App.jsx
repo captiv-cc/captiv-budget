@@ -22,6 +22,7 @@ import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
 import EquipeShareSession from './pages/EquipeShareSession'
 import MatosShareSession from './pages/MatosShareSession'
+import PlansShareSession from './pages/PlansShareSession'
 import ProjectShareSession from './pages/ProjectShareSession'
 import ProjectShareEquipeSession from './pages/ProjectShareEquipeSession'
 import ProjectShareLivrablesSession from './pages/ProjectShareLivrablesSession'
@@ -124,6 +125,13 @@ function AppRoutes() {
           filtres sensibles (numero_reference loueurs jamais exposé, etc.).
           Hors Layout app. */}
       <Route path="/share/materiel/:token" element={<MatosShareSession />} />
+      {/* Partage public plans (PLANS-SHARE). Vue READ-ONLY filtrée par
+          scope (all/selection) + show_versions toggle. La RPC
+          share_plans_fetch (SECURITY DEFINER) applique le filtre. Les
+          signed URLs Storage sont générées côté client via une policy
+          storage.objects qui n'autorise anon que si un token actif
+          existe sur le projet. Hors Layout app. */}
+      <Route path="/share/plans/:token" element={<PlansShareSession />} />
       {/* Portail projet (PROJECT-SHARE). Lien public unique qui agrège
           plusieurs sous-pages share (équipe, livrables, …). Le hub liste les
           pages activées pour le token et chaque sous-route délègue le rendu

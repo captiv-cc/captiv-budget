@@ -38,37 +38,70 @@ import { getSignedUrl, getPlan } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 
 /**
+ * Deux modes de fonctionnement :
+ *
+ *   - **Mode auth** (PlansTab admin) : on passe `planId` et le viewer fetch
+ *     le plan + génère la signed URL via getPlan/getSignedUrl. Nécessite
+ *     une session authentifiée (RLS).
+ *
+ *   - **Mode preloaded** (page share publique /share/plans/:token) : on
+ *     passe directement `plan` (objet déjà résolu via le payload de la
+ *     RPC share_plans_fetch) et `signedUrl` (déjà généré côté lib en
+ *     mode anon). Le viewer skip le fetch et affiche immédiatement.
+ *
  * @param {object}   props
- * @param {string|null} props.planId  — id du plan à afficher, null = fermé
+ * @param {string|null} props.planId    — id du plan, null = fermé
+ * @param {object|null} [props.plan]    — plan préchargé (mode share). Si
+ *                                       fourni, skip getPlan().
+ * @param {string|null} [props.signedUrl] — signed URL préchargée (mode
+ *                                         share). Si fourni, skip
+ *                                         getSignedUrl().
  * @param {() => void}  props.onClose
  */
-export default function PlanViewer({ planId, onClose }) {
-  const [plan, setPlan] = useState(null)
-  const [signedUrl, setSignedUrl] = useState(null)
+export default function PlanViewer({
+  planId,
+  plan: planFromProps = null,
+  signedUrl: signedUrlFromProps = null,
+  onClose,
+}) {
+  const preloaded = Boolean(planFromProps && signedUrlFromProps)
+  const [planFromFetch, setPlanFromFetch] = useState(null)
+  const [signedUrlFromFetch, setSignedUrlFromFetch] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [chromeVisible, setChromeVisible] = useState(true)
 
-  // Charge le plan + génère la signed URL à chaque ouverture.
+  // Source effective : si preloaded, on prend les props ; sinon le fetch.
+  const plan = preloaded ? planFromProps : planFromFetch
+  const signedUrl = preloaded ? signedUrlFromProps : signedUrlFromFetch
+
+  // Charge le plan + génère la signed URL à chaque ouverture (mode auth
+  // uniquement — en mode preloaded on les a déjà via les props).
   useEffect(() => {
     if (!planId) {
-      setPlan(null)
-      setSignedUrl(null)
+      setPlanFromFetch(null)
+      setSignedUrlFromFetch(null)
       setError(null)
+      return
+    }
+    setChromeVisible(true)
+    if (preloaded) {
+      // Mode preloaded : rien à fetch, juste reset l'erreur.
+      setError(null)
+      setLoading(false)
       return
     }
     let cancelled = false
     setLoading(true)
     setError(null)
-    setChromeVisible(true)
     Promise.resolve()
       .then(async () => {
         const p = await getPlan(planId)
         if (cancelled) return
-        setPlan(p)
+        setPlanFromFetch(p)
         const url = await getSignedUrl(p.storage_path)
         if (cancelled) return
-        setSignedUrl(url)
+        setSignedUrlFromFetch(url)
       })
       .catch((err) => {
         if (cancelled) return
@@ -81,7 +114,7 @@ export default function PlanViewer({ planId, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [planId])
+  }, [planId, preloaded])
 
   // ESC ferme la modale + lock body scroll quand ouverte.
   useEffect(() => {
