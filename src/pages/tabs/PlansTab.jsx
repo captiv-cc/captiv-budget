@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
   Calendar,
+  CheckSquare,
   Edit3,
   ExternalLink,
   FileText,
@@ -33,6 +34,7 @@ import {
   RotateCcw,
   Search,
   Share2,
+  Square,
   Trash2,
   X,
 } from 'lucide-react'
@@ -156,6 +158,113 @@ export default function PlansTab() {
     () => categories.filter((c) => !c.is_archived),
     [categories],
   )
+
+  // ── Sélection multiple (mode liste uniquement) ─────────────────────────
+  // Set d'IDs sélectionnés. Reset auto au changement de filtres ou de mode
+  // d'affichage (les rows sélectionnées peuvent disparaître de la vue).
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [activeCategoryId, search, showArchived, effectiveViewMode])
+  const toggleSelected = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const selectAllVisible = useCallback(() => {
+    setSelectedIds(new Set(filteredPlans.map((p) => p.id)))
+  }, [filteredPlans])
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+  }, [])
+  // Stats sur la sélection (pour adapter les boutons : archivés/actifs).
+  const selectionStats = useMemo(() => {
+    let active = 0
+    let archived = 0
+    for (const p of filteredPlans) {
+      if (!selectedIds.has(p.id)) continue
+      if (p.is_archived) archived++
+      else active++
+    }
+    return { active, archived, total: active + archived }
+  }, [filteredPlans, selectedIds])
+
+  async function handleBulkArchive() {
+    const ids = filteredPlans
+      .filter((p) => selectedIds.has(p.id) && !p.is_archived)
+      .map((p) => p.id)
+    if (ids.length === 0) return
+    const ok = await confirm({
+      title: `Archiver ${ids.length} plan${ids.length > 1 ? 's' : ''} ?`,
+      message:
+        'Les plans disparaîtront de la liste mais leurs versions sont conservées. Tu pourras les restaurer.',
+      confirmLabel: 'Archiver',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const res = await actions.archivePlansBulk(ids)
+      clearSelection()
+      if (res.errors.length === 0) {
+        notify.success(`${res.success} plan${res.success > 1 ? 's' : ''} archivé${res.success > 1 ? 's' : ''}`)
+      } else {
+        notify.error(`${res.success}/${ids.length} archivés — ${res.errors.length} erreur${res.errors.length > 1 ? 's' : ''}`)
+      }
+    } catch (err) {
+      notify.error('Erreur : ' + (err?.message || err))
+    }
+  }
+
+  async function handleBulkRestore() {
+    const ids = filteredPlans
+      .filter((p) => selectedIds.has(p.id) && p.is_archived)
+      .map((p) => p.id)
+    if (ids.length === 0) return
+    try {
+      const res = await actions.restorePlansBulk(ids)
+      clearSelection()
+      if (res.errors.length === 0) {
+        notify.success(`${res.success} plan${res.success > 1 ? 's' : ''} restauré${res.success > 1 ? 's' : ''}`)
+      } else {
+        notify.error(`${res.success}/${ids.length} restaurés — ${res.errors.length} erreur${res.errors.length > 1 ? 's' : ''}`)
+      }
+    } catch (err) {
+      notify.error('Erreur : ' + (err?.message || err))
+    }
+  }
+
+  async function handleBulkDelete() {
+    // Suppression définitive autorisée uniquement sur des plans déjà archivés
+    // (cohérent avec l'action unitaire qui demande déjà la confirmation).
+    const ids = filteredPlans
+      .filter((p) => selectedIds.has(p.id) && p.is_archived)
+      .map((p) => p.id)
+    if (ids.length === 0) {
+      notify.error('Sélectionne uniquement des plans archivés pour supprimer définitivement')
+      return
+    }
+    const ok = await confirm({
+      title: `Supprimer définitivement ${ids.length} plan${ids.length > 1 ? 's' : ''} ?`,
+      message: 'Cette action est irréversible — fichiers et versions seront effacés.',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const res = await actions.hardDeletePlansBulk(ids)
+      clearSelection()
+      if (res.errors.length === 0) {
+        notify.success(`${res.success} plan${res.success > 1 ? 's' : ''} supprimé${res.success > 1 ? 's' : ''}`)
+      } else {
+        notify.error(`${res.success}/${ids.length} supprimés — ${res.errors.length} erreur${res.errors.length > 1 ? 's' : ''}`)
+      }
+    } catch (err) {
+      notify.error('Erreur : ' + (err?.message || err))
+    }
+  }
 
   // ── Drag & drop reorder ────────────────────────────────────────────────
   // Le D&D opère sur toute la liste des plans actifs (sort_order global). On
@@ -429,38 +538,55 @@ export default function PlansTab() {
       {filteredPlans.length === 0 ? (
         <EmptyState canEdit={canEdit} hasFilters={search || activeCategoryId !== 'all'} onCreate={openCreate} />
       ) : effectiveViewMode === 'list' ? (
-        <ul
-          className="rounded-lg overflow-hidden"
-          style={{
-            background: 'var(--bg-surf)',
-            border: '1px solid var(--brd)',
-          }}
-        >
-          {filteredPlans.map((plan, idx) => (
-            <PlanListItem
-              key={plan.id}
-              plan={plan}
-              category={plan.category_id ? categoriesById.get(plan.category_id) : null}
-              canEdit={canEdit}
-              isLast={idx === filteredPlans.length - 1}
-              onOpen={() => handleOpenPlan(plan)}
-              onEdit={() => openEdit(plan)}
-              onArchive={() => handleArchive(plan)}
-              onRestore={() => handleRestore(plan)}
-              onDelete={() => handleHardDelete(plan)}
-              draggable={canReorder}
-              isDragging={dragState?.id === plan.id}
-              insertSide={
-                dragState?.targetId === plan.id ? dragState.side : null
-              }
-              onDragStart={() => handleDragStart(plan.id)}
-              onDragOver={(side) => handleDragOver(plan.id, side)}
-              onDragLeave={() => handleDragLeave(plan.id)}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
+        <>
+          {/* Toolbar bulk — visible si au moins une row sélectionnée */}
+          {canEdit && selectedIds.size > 0 && (
+            <BulkToolbar
+              stats={selectionStats}
+              totalVisible={filteredPlans.length}
+              onSelectAll={selectAllVisible}
+              onClear={clearSelection}
+              onArchive={handleBulkArchive}
+              onRestore={handleBulkRestore}
+              onDelete={handleBulkDelete}
             />
-          ))}
-        </ul>
+          )}
+          <ul
+            className="rounded-lg overflow-hidden"
+            style={{
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            {filteredPlans.map((plan, idx) => (
+              <PlanListItem
+                key={plan.id}
+                plan={plan}
+                category={plan.category_id ? categoriesById.get(plan.category_id) : null}
+                canEdit={canEdit}
+                isLast={idx === filteredPlans.length - 1}
+                onOpen={() => handleOpenPlan(plan)}
+                onEdit={() => openEdit(plan)}
+                onArchive={() => handleArchive(plan)}
+                onRestore={() => handleRestore(plan)}
+                onDelete={() => handleHardDelete(plan)}
+                selectable={canEdit}
+                selected={selectedIds.has(plan.id)}
+                onToggleSelect={() => toggleSelected(plan.id)}
+                draggable={canReorder && selectedIds.size === 0}
+                isDragging={dragState?.id === plan.id}
+                insertSide={
+                  dragState?.targetId === plan.id ? dragState.side : null
+                }
+                onDragStart={() => handleDragStart(plan.id)}
+                onDragOver={(side) => handleDragOver(plan.id, side)}
+                onDragLeave={() => handleDragLeave(plan.id)}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
+              />
+            ))}
+          </ul>
+        </>
       ) : (
         <ul className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {filteredPlans.map((plan) => (
@@ -599,6 +725,120 @@ function ViewModeButton({ active, onClick, Icon, label, title }) {
   )
 }
 
+/* ─── BulkToolbar — barre d'actions en lot (mode liste, sélection > 0) ────── */
+
+function BulkToolbar({
+  stats,
+  totalVisible,
+  onSelectAll,
+  onClear,
+  onArchive,
+  onRestore,
+  onDelete,
+}) {
+  const { active, archived, total } = stats
+  const allSelected = total === totalVisible
+  return (
+    <div
+      className="rounded-lg flex items-center gap-2 px-3 py-2 mb-2 flex-wrap"
+      style={{
+        background: 'var(--blue-bg)',
+        border: '1px solid var(--blue-brd)',
+        color: 'var(--blue)',
+      }}
+    >
+      <span className="text-xs font-semibold tabular-nums">
+        {total} sélectionné{total > 1 ? 's' : ''}
+      </span>
+      <span className="text-[10px] opacity-70">
+        {active > 0 && `${active} actif${active > 1 ? 's' : ''}`}
+        {active > 0 && archived > 0 && ' · '}
+        {archived > 0 && `${archived} archivé${archived > 1 ? 's' : ''}`}
+      </span>
+
+      <div className="flex-1" />
+
+      <button
+        type="button"
+        onClick={allSelected ? onClear : onSelectAll}
+        className="text-[11px] font-semibold underline"
+        style={{ color: 'var(--blue)' }}
+      >
+        {allSelected ? 'Tout désélectionner' : `Tout sélectionner (${totalVisible})`}
+      </button>
+
+      {active > 0 && (
+        <button
+          type="button"
+          onClick={onArchive}
+          className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded transition-colors"
+          style={{
+            background: 'var(--bg-surf)',
+            color: 'var(--txt)',
+            border: '1px solid var(--brd)',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-surf)')}
+        >
+          <Layers className="w-3 h-3" />
+          Archiver{active > 0 ? ` (${active})` : ''}
+        </button>
+      )}
+
+      {archived > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={onRestore}
+            className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded transition-colors"
+            style={{
+              background: 'var(--bg-surf)',
+              color: 'var(--txt)',
+              border: '1px solid var(--brd)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elev)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--bg-surf)')}
+          >
+            <RotateCcw className="w-3 h-3" />
+            Restaurer ({archived})
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded transition-colors"
+            style={{
+              background: 'var(--bg-surf)',
+              color: 'var(--red)',
+              border: '1px solid var(--brd)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--red)'
+              e.currentTarget.style.color = 'white'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-surf)'
+              e.currentTarget.style.color = 'var(--red)'
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+            Supprimer ({archived})
+          </button>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={onClear}
+        className="p-1 rounded transition-colors"
+        style={{ color: 'var(--blue)' }}
+        title="Désélectionner"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
+
 /* ─── PlanListItem — ligne compacte (mode liste) ──────────────────────────── */
 
 function PlanListItem({
@@ -611,6 +851,10 @@ function PlanListItem({
   onArchive,
   onRestore,
   onDelete,
+  // Sélection multiple (mode liste — bulk actions).
+  selectable = false,
+  selected = false,
+  onToggleSelect = null,
   draggable = false,
   isDragging = false,
   insertSide = null,
@@ -705,6 +949,33 @@ function PlanListItem({
             ...(insertSide === 'before' ? { top: -1 } : { bottom: -1 }),
           }}
         />
+      )}
+
+      {/* Checkbox de sélection (visible si mode list + canEdit) */}
+      {selectable && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSelect?.()
+          }}
+          className="shrink-0 p-0.5 rounded transition-colors"
+          style={{ color: selected ? 'var(--blue)' : 'var(--txt-3)' }}
+          onMouseEnter={(e) => {
+            if (!selected) e.currentTarget.style.color = 'var(--txt-2)'
+          }}
+          onMouseLeave={(e) => {
+            if (!selected) e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+          title={selected ? 'Désélectionner' : 'Sélectionner'}
+          aria-label={selected ? 'Désélectionner' : 'Sélectionner'}
+        >
+          {selected ? (
+            <CheckSquare className="w-4 h-4" />
+          ) : (
+            <Square className="w-4 h-4" />
+          )}
+        </button>
       )}
 
       {/* Pastille catégorie */}

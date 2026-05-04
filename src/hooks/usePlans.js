@@ -158,6 +158,67 @@ export function usePlans({ projectId, orgId } = {}) {
     [bumpReload],
   )
 
+  /* ─── Actions en lot (bulk) ──────────────────────────────────────────
+     Toutes les actions bulk parallélisent les requêtes via Promise.all
+     et collectent les éventuelles erreurs partielles. Le caller reçoit
+     un résumé { success: number, errors: [{ id, error }] } pour pouvoir
+     afficher un toast adapté.
+  */
+
+  const archivePlansBulk = useCallback(
+    async (planIds) => {
+      // Optimistic : retire toutes les rows ciblées.
+      const idSet = new Set(planIds)
+      setPlans((prev) => prev.filter((p) => !idSet.has(p.id)))
+      const results = await Promise.allSettled(
+        planIds.map((id) => P.archivePlan(id)),
+      )
+      bumpReload()
+      const errors = []
+      let success = 0
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') success++
+        else errors.push({ id: planIds[i], error: r.reason })
+      })
+      return { success, errors }
+    },
+    [bumpReload],
+  )
+
+  const restorePlansBulk = useCallback(
+    async (planIds) => {
+      const results = await Promise.allSettled(
+        planIds.map((id) => P.restorePlan(id)),
+      )
+      bumpReload()
+      const errors = []
+      let success = 0
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') success++
+        else errors.push({ id: planIds[i], error: r.reason })
+      })
+      return { success, errors }
+    },
+    [bumpReload],
+  )
+
+  const hardDeletePlansBulk = useCallback(
+    async (planIds) => {
+      const results = await Promise.allSettled(
+        planIds.map((id) => P.hardDeletePlan(id)),
+      )
+      bumpReload()
+      const errors = []
+      let success = 0
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') success++
+        else errors.push({ id: planIds[i], error: r.reason })
+      })
+      return { success, errors }
+    },
+    [bumpReload],
+  )
+
   const reorderPlans = useCallback(
     async (orderedIds) => {
       // Optimistic : applique le nouvel ordre tout de suite.
@@ -201,6 +262,9 @@ export function usePlans({ projectId, orgId } = {}) {
       restorePlan,
       hardDeletePlan,
       reorderPlans,
+      archivePlansBulk,
+      restorePlansBulk,
+      hardDeletePlansBulk,
     },
     reload: bumpReload,
   }
