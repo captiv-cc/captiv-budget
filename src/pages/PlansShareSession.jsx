@@ -75,7 +75,7 @@ export default function PlansShareSession() {
   }
 
   return (
-    <ShareContent
+    <PlansShareView
       payload={payload}
       theme={theme}
       onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
@@ -83,9 +83,27 @@ export default function PlansShareSession() {
   )
 }
 
+export { THEME_STORAGE_KEY as PLANS_SHARE_THEME_KEY }
+
 // ─── Contenu principal ──────────────────────────────────────────────────────
 
-function ShareContent({ payload, theme, onToggleTheme }) {
+/**
+ * PlansShareView — Composant de rendu réutilisable.
+ *
+ * Exporté pour être réutilisé par ProjectSharePlansSession (sous-page du
+ * portail projet, qui consomme un payload identique via la RPC
+ * share_projet_plans_fetch). Attention : `payload` doit avoir la shape
+ * canonique (project + org + categories + plans + signed URLs déjà
+ * enrichies par la lib).
+ *
+ * Props :
+ *   - payload      : payload enrichi avec signed URLs
+ *   - theme / onToggleTheme : delégués au SharePageHeader
+ *   - extraHeader  : (optionnel) ReactNode injecté avant le SharePageHeader
+ *                    — utilisé par ProjectSharePlansSession pour le lien
+ *                    "← Portail" qui ramène au hub.
+ */
+export function PlansShareView({ payload, theme, onToggleTheme, extraHeader = null }) {
   const share = payload.share || {}
   const project = payload.project || {}
   const org = payload.org || null
@@ -178,6 +196,7 @@ function ShareContent({ payload, theme, onToggleTheme }) {
       style={{ background: 'var(--bg)', color: 'var(--txt)' }}
     >
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 share-fade-in">
+        {extraHeader}
         <SharePageHeader
           pageTitle="Plans"
           project={project}

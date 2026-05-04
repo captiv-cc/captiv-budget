@@ -27,6 +27,7 @@ import ProjectShareSession from './pages/ProjectShareSession'
 import ProjectShareEquipeSession from './pages/ProjectShareEquipeSession'
 import ProjectShareLivrablesSession from './pages/ProjectShareLivrablesSession'
 import ProjectShareMaterielSession from './pages/ProjectShareMaterielSession'
+import ProjectSharePlansSession from './pages/ProjectSharePlansSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -150,6 +151,10 @@ function AppRoutes() {
       <Route
         path="/share/projet/:token/materiel"
         element={<ProjectShareMaterielSession />}
+      />
+      <Route
+        path="/share/projet/:token/plans"
+        element={<ProjectSharePlansSession />}
       />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}

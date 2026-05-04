@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  AlertCircle, Loader2, Users, CheckSquare, Package, ChevronRight,
+  AlertCircle, Loader2, Users, CheckSquare, Package, Map as MapIcon, ChevronRight,
 } from 'lucide-react'
 import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -74,6 +74,19 @@ const PAGE_REGISTRY = {
       const items = Number(t.items || 0)
       const blocks = Number(t.blocks || 0)
       return `${items} item${items > 1 ? 's' : ''} · ${blocks} bloc${blocks > 1 ? 's' : ''}`
+    },
+  },
+  plans: {
+    label: 'Plans',
+    description: 'Plans techniques — caméra, lumière, son, plateau…',
+    Icon: MapIcon,
+    color: 'var(--blue)',
+    bgColor: 'var(--blue-bg)',
+    teaser: (hub) => {
+      const t = hub?.teasers?.plans
+      if (!t) return null
+      const count = Number(t.count || 0)
+      return `${count} plan${count > 1 ? 's' : ''}`
     },
   },
 }

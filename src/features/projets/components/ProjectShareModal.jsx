@@ -33,10 +33,12 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Map as MapIcon,
   Package,
   Pencil,
   Plus,
   RotateCcw,
+  Search,
   Share2,
   Trash2,
   Users,
@@ -87,6 +89,13 @@ const PAGE_DEFS = {
     Icon: Package,
     color: 'var(--orange)',
     bgColor: 'var(--orange-bg)',
+  },
+  plans: {
+    label: 'Plans',
+    description: 'Plans techniques — caméra, lumière, son, plateau…',
+    Icon: MapIcon,
+    color: 'var(--blue)',
+    bgColor: 'var(--blue-bg)',
   },
 }
 
@@ -147,6 +156,72 @@ export default function ProjectShareModal({
           return
         }
         setMaterielVersions(data || [])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectId])
+
+  // PLANS-SHARE-5f : charge plans actifs + catégories pour alimenter le
+  // sub-form Plans (radio scope + checklist sélection). Catégories
+  // récupérées via la jointure sur l'org du projet.
+  const [plansItems, setPlansItems] = useState([])
+  const [plansCategories, setPlansCategories] = useState([])
+  useEffect(() => {
+    if (!open || !projectId) {
+      setPlansItems([])
+      setPlansCategories([])
+      return undefined
+    }
+    let cancelled = false
+    Promise.resolve()
+      .then(async () => {
+        // 1. Plans actifs du projet
+        const { data: plansData, error: plansErr } = await supabase
+          .from('plans')
+          .select(
+            'id, project_id, category_id, name, description, tags, file_type, current_version, sort_order, is_archived',
+          )
+          .eq('project_id', projectId)
+          .eq('is_archived', false)
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true })
+        if (cancelled) return
+        if (plansErr) {
+          console.error('[ProjectShareModal] plans fetch', plansErr)
+          setPlansItems([])
+        } else {
+          setPlansItems(plansData || [])
+        }
+
+        // 2. Catégories de l'org (via project.org_id)
+        const { data: projectRow } = await supabase
+          .from('projects')
+          .select('org_id')
+          .eq('id', projectId)
+          .single()
+        if (cancelled) return
+        const orgId = projectRow?.org_id
+        if (!orgId) {
+          setPlansCategories([])
+          return
+        }
+        const { data: catsData, error: catsErr } = await supabase
+          .from('plan_categories')
+          .select('id, key, label, color, sort_order, is_archived')
+          .eq('org_id', orgId)
+          .eq('is_archived', false)
+          .order('sort_order', { ascending: true })
+        if (cancelled) return
+        if (catsErr) {
+          console.error('[ProjectShareModal] plan_categories fetch', catsErr)
+          setPlansCategories([])
+        } else {
+          setPlansCategories(catsData || [])
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) console.error('[ProjectShareModal] plans load error', e)
       })
     return () => {
       cancelled = true
@@ -509,6 +584,8 @@ export default function ProjectShareModal({
             lots={lots}
             lotInfoMap={lotInfoMap}
             materielVersions={materielVersions}
+            plansItems={plansItems}
+            plansCategories={plansCategories}
             passwordEnabled={passwordEnabled}
             setPasswordEnabled={setPasswordEnabled}
             passwordValue={passwordValue}
@@ -615,6 +692,8 @@ function CreateFormSection({
   lots,
   lotInfoMap,
   materielVersions = [],
+  plansItems = [],
+  plansCategories = [],
   passwordEnabled,
   setPasswordEnabled,
   passwordValue,
@@ -754,6 +833,8 @@ function CreateFormSection({
                   lots={lots}
                   lotInfoMap={lotInfoMap}
                   materielVersions={materielVersions}
+                  plansItems={plansItems}
+                  plansCategories={plansCategories}
                 />
               ))}
             </div>
@@ -840,6 +921,8 @@ function PageCard({
   lots,
   lotInfoMap,
   materielVersions = [],
+  plansItems = [],
+  plansCategories = [],
 }) {
   const def = PAGE_DEFS[pageKey]
   if (!def) return null
@@ -910,6 +993,14 @@ function PageCard({
               config={config}
               onConfigChange={onConfigChange}
               versions={materielVersions}
+            />
+          )}
+          {pageKey === 'plans' && (
+            <PlansSubForm
+              config={config}
+              onConfigChange={onConfigChange}
+              plans={plansItems}
+              categories={plansCategories}
             />
           )}
         </div>
@@ -1304,6 +1395,249 @@ function MaterielSubForm({ config, onConfigChange, versions = [] }) {
           hint="Notes internes (à activer si pertinentes pour le destinataire)"
         />
       </div>
+    </>
+  )
+}
+
+// ─── PlansSubForm — radio scope (Tous/Sélection) + checklist + show_versions ─
+
+function PlansSubForm({ config, onConfigChange, plans = [], categories = [] }) {
+  const scope = config?.scope === 'selection' ? 'selection' : 'all'
+  const selectedIds = Array.isArray(config?.selected_plan_ids)
+    ? config.selected_plan_ids
+    : []
+  const showVersions = Boolean(config?.show_versions)
+  const [search, setSearch] = useState('')
+
+  function setScope(next) {
+    if (next === 'selection') {
+      onConfigChange({ scope: 'selection' })
+    } else {
+      // En passant en 'all', on garde la sélection précédente en mémoire dans
+      // la config (au cas où l'admin re-bascule). Pas de reset agressif.
+      onConfigChange({ scope: 'all' })
+    }
+  }
+  function toggleId(id) {
+    const next = selectedIds.includes(id)
+      ? selectedIds.filter((x) => x !== id)
+      : [...selectedIds, id]
+    onConfigChange({ selected_plan_ids: next })
+  }
+  function selectAll() {
+    onConfigChange({ selected_plan_ids: plans.map((p) => p.id) })
+  }
+  function clearAll() {
+    onConfigChange({ selected_plan_ids: [] })
+  }
+
+  // Groupe les plans par catégorie (pour la checklist).
+  const grouped = useMemo(() => {
+    const groups = new Map()
+    const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const q = norm(search.trim())
+    const filtered = q
+      ? plans.filter((p) => {
+          if (norm(p.name).includes(q)) return true
+          if (norm(p.description).includes(q)) return true
+          if (Array.isArray(p.tags) && p.tags.some((t) => norm(t).includes(q))) return true
+          return false
+        })
+      : plans
+    for (const p of filtered) {
+      const key = p.category_id || '__none'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(p)
+    }
+    const sorted = []
+    for (const c of categories) {
+      if (groups.has(c.id)) sorted.push({ cat: c, items: groups.get(c.id) })
+    }
+    if (groups.has('__none')) sorted.push({ cat: null, items: groups.get('__none') })
+    return sorted
+  }, [plans, categories, search])
+
+  const allSelected = plans.length > 0 && selectedIds.length === plans.length
+
+  return (
+    <>
+      <div>
+        <label
+          className="block text-[10px] font-semibold mb-1"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Périmètre
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => setScope('all')}
+            className="text-left rounded px-2 py-1.5 transition-all"
+            style={{
+              background: scope === 'all' ? 'var(--blue-bg)' : 'var(--bg-elev)',
+              border: `1px solid ${scope === 'all' ? 'var(--blue)' : 'var(--brd)'}`,
+              color: scope === 'all' ? 'var(--blue)' : 'var(--txt)',
+            }}
+          >
+            <div className="text-[11px] font-semibold">Tous les plans</div>
+            <div
+              className="text-[9px] mt-0.5 leading-snug"
+              style={{ color: scope === 'all' ? 'var(--blue)' : 'var(--txt-3)' }}
+            >
+              {plans.length} plan{plans.length > 1 ? 's' : ''} actif{plans.length > 1 ? 's' : ''} — suit l&apos;évolution.
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setScope('selection')}
+            disabled={plans.length === 0}
+            className="text-left rounded px-2 py-1.5 transition-all"
+            style={{
+              background: scope === 'selection' ? 'var(--blue-bg)' : 'var(--bg-elev)',
+              border: `1px solid ${scope === 'selection' ? 'var(--blue)' : 'var(--brd)'}`,
+              color: scope === 'selection' ? 'var(--blue)' : 'var(--txt)',
+              opacity: plans.length === 0 ? 0.5 : 1,
+              cursor: plans.length === 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <div className="text-[11px] font-semibold">Sélection manuelle</div>
+            <div
+              className="text-[9px] mt-0.5 leading-snug"
+              style={{
+                color: scope === 'selection' ? 'var(--blue)' : 'var(--txt-3)',
+              }}
+            >
+              Choisis les plans à exposer (figé).
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {scope === 'selection' && (
+        <div
+          className="rounded-md"
+          style={{
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd-sub)',
+          }}
+        >
+          {/* Toolbar */}
+          <div
+            className="flex items-center gap-2 px-2 py-1.5"
+            style={{ borderBottom: '1px solid var(--brd-sub)' }}
+          >
+            <Search className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un plan…"
+              className="text-[11px] bg-transparent flex-1 min-w-0 outline-none"
+              style={{ color: 'var(--txt)' }}
+            />
+            <span className="text-[10px] tabular-nums" style={{ color: 'var(--txt-3)' }}>
+              {selectedIds.length}/{plans.length}
+            </span>
+            <button
+              type="button"
+              onClick={allSelected ? clearAll : selectAll}
+              className="text-[10px] font-semibold"
+              style={{ color: 'var(--blue)' }}
+            >
+              {allSelected ? 'Aucun' : 'Tous'}
+            </button>
+          </div>
+          {/* Liste */}
+          <div className="max-h-44 overflow-y-auto py-1">
+            {plans.length === 0 ? (
+              <p className="text-[10px] text-center py-2 italic" style={{ color: 'var(--txt-3)' }}>
+                Aucun plan dans ce projet.
+              </p>
+            ) : grouped.length === 0 ? (
+              <p className="text-[10px] text-center py-2 italic" style={{ color: 'var(--txt-3)' }}>
+                Aucun résultat.
+              </p>
+            ) : (
+              grouped.map(({ cat, items }) => (
+                <div key={cat?.id || '__none'} className="mb-0.5">
+                  <div
+                    className="text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 flex items-center gap-1"
+                    style={{ color: 'var(--txt-3)' }}
+                  >
+                    {cat ? (
+                      <>
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ background: cat.color }}
+                        />
+                        {cat.label}
+                      </>
+                    ) : (
+                      'Sans catégorie'
+                    )}
+                  </div>
+                  {items.map((p) => {
+                    const checked = selectedIds.includes(p.id)
+                    return (
+                      <label
+                        key={p.id}
+                        className="flex items-center gap-2 px-2 py-0.5 cursor-pointer select-none"
+                        style={{
+                          background: checked ? 'var(--blue-bg)' : 'transparent',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleId(p.id)}
+                        />
+                        <span
+                          className="text-[11px] flex-1 min-w-0 truncate"
+                          style={{
+                            color: checked ? 'var(--txt)' : 'var(--txt-2)',
+                            fontWeight: checked ? 600 : 400,
+                          }}
+                        >
+                          {p.name}
+                        </span>
+                        {p.current_version > 1 && (
+                          <span className="text-[9px]" style={{ color: 'var(--txt-3)' }}>
+                            V{p.current_version}
+                          </span>
+                        )}
+                        <span
+                          className="text-[9px] uppercase font-semibold"
+                          style={{ color: 'var(--txt-3)' }}
+                        >
+                          {p.file_type}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              ))
+            )}
+          </div>
+          {scope === 'selection' && selectedIds.length === 0 && (
+            <p
+              className="text-[10px] px-2 py-1 italic"
+              style={{
+                color: 'var(--amber)',
+                borderTop: '1px solid var(--brd-sub)',
+              }}
+            >
+              Sélectionne au moins un plan pour activer cette page.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Toggle
+        checked={showVersions}
+        onChange={(v) => onConfigChange({ show_versions: v })}
+        label="Inclure les anciennes versions"
+        hint="Si actif, le destinataire peut naviguer entre V1, V2… de chaque plan."
+      />
     </>
   )
 }

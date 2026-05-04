@@ -225,15 +225,19 @@ async function generateSignedUrl(path) {
 }
 
 /**
- * Enrichit le payload renvoyé par share_plans_fetch avec les signed URLs
+ * Enrichit le payload renvoyé par share_plans_fetch (ou
+ * share_projet_plans_fetch — payload identique) avec les signed URLs
  * de chaque plan (fichier courant + thumbnail + versions historiques si
  * show_versions=true).
+ *
+ * Exportée pour réutilisation par lib/projectShare.fetchPlansPayload —
+ * la sous-page plans du portail projet a besoin du même enrichissement.
  *
  * Toutes les générations sont parallélisées via Promise.all pour minimiser
  * la latence d'ouverture de la page (10-20 plans = 30-60 signed URLs en
  * parallèle, ~200ms typique).
  */
-async function enrichPayloadWithSignedUrls(payload) {
+export async function enrichPlansPayloadWithSignedUrls(payload) {
   const plans = Array.isArray(payload?.plans) ? payload.plans : []
   if (plans.length === 0) return payload
 
@@ -304,7 +308,7 @@ export async function fetchPlansSharePayload(token) {
     throw error
   }
   if (!data) throw new Error('Token invalide ou expiré')
-  return enrichPayloadWithSignedUrls(data)
+  return enrichPlansPayloadWithSignedUrls(data)
 }
 
 /* ─── Helpers de présentation ───────────────────────────────────────────── */

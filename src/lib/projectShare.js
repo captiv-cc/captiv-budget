@@ -26,7 +26,7 @@ const TOKEN_BYTES = 24 // 24 bytes → 32 chars base64url
 //   2. Créer la RPC share_projet_<page>_fetch côté SQL
 //   3. Ajouter le fetcher correspondant dans ce fichier
 //   4. Ajouter le hook + la page React + la carte du hub
-export const SHARE_PAGES = ['equipe', 'livrables', 'materiel']
+export const SHARE_PAGES = ['equipe', 'livrables', 'materiel', 'plans']
 
 // Configuration par défaut pour chaque page (utilisée à la création d'un
 // token si l'admin ne précise rien). Conventions miroir des share dédiés :
@@ -54,6 +54,13 @@ export const DEFAULT_PAGE_CONFIGS = {
     version_id: null,
     show_loueurs: true,
     show_remarques: false,
+  },
+  // Plans : scope all/selection + toggle versions. Pattern aligné sur
+  // plansShare.js — la RPC share_projet_plans_fetch lit ces 3 clés.
+  plans: {
+    scope: 'all',
+    selected_plan_ids: [],
+    show_versions: false,
   },
 }
 
@@ -396,6 +403,30 @@ export async function fetchMaterielPayload(token, password = null) {
   }
   if (!data) throw new Error('Token invalide ou page non activée')
   return data
+}
+
+/**
+ * Fetch plans payload pour la sous-page du portail. Mirror de
+ * fetchPlansSharePayload (lib/plansShare) mais avec un payload identique
+ * — on enrichit donc avec les signed URLs côté client de la même façon
+ * via _enrichPlansPayloadWithSignedUrls.
+ */
+export async function fetchPlansPayload(token, password = null) {
+  if (!token) throw new Error('fetchPlansPayload : token requis')
+  const { data, error } = await supabase.rpc('share_projet_plans_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
+  if (error) {
+    console.error('[projectShare] share_projet_plans_fetch error', error)
+    throw error
+  }
+  if (!data) throw new Error('Token invalide ou page non activée')
+  // Enrichit les paths Storage avec des signed URLs (la policy storage
+  // anon élargie en 5e autorise createSignedUrl pour les portails).
+  // Import paresseux pour éviter le cycle (plansShare → projectShare).
+  const { enrichPlansPayloadWithSignedUrls } = await import('./plansShare')
+  return enrichPlansPayloadWithSignedUrls(data)
 }
 
 /* ─── Stockage du mdp côté visiteur (sessionStorage) ────────────────────── */
