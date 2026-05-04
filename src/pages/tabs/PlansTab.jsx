@@ -30,6 +30,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Share2,
   Trash2,
   X,
 } from 'lucide-react'
@@ -41,6 +42,7 @@ import { getSignedUrl, formatFileSize } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import PlanFormModal from '../../features/plans/PlanFormModal'
+import PlansShareModal from '../../features/plans/PlansShareModal'
 import PlanViewer from '../../features/plans/PlanViewer'
 
 const OUTIL_KEY = 'plans'
@@ -100,6 +102,7 @@ export default function PlansTab() {
   // ── Modales ─────────────────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
 
   function openCreate() {
     setEditingPlan(null)
@@ -110,6 +113,18 @@ export default function PlansTab() {
     setEditingPlan(plan)
     setFormOpen(true)
   }
+
+  // Plans actifs (non archivés) — utilisés par la modale de partage pour la
+  // checklist de sélection. On évite un double load en passant cette liste
+  // déjà calculée dans usePlans.
+  const activePlans = useMemo(
+    () => plans.filter((p) => !p.is_archived),
+    [plans],
+  )
+  const activeCategories = useMemo(
+    () => categories.filter((c) => !c.is_archived),
+    [categories],
+  )
 
   // ── PlanViewer (URL state ?plan=<id>) ──────────────────────────────────
   // L'état "plan ouvert" vit dans l'URL. Avantages :
@@ -208,16 +223,42 @@ export default function PlansTab() {
           </p>
         </div>
         {canEdit && (
-          <button
-            type="button"
-            onClick={openCreate}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md shrink-0"
-            style={{ background: 'var(--blue)', color: 'white' }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Ajouter un plan</span>
-            <span className="sm:hidden">Ajouter</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {activePlans.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShareModalOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
+                style={{
+                  background: 'var(--bg-elev)',
+                  color: 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                  e.currentTarget.style.color = 'var(--txt)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-elev)'
+                  e.currentTarget.style.color = 'var(--txt-2)'
+                }}
+                title="Partager les plans (lien public)"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Partager</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md"
+              style={{ background: 'var(--blue)', color: 'white' }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Ajouter un plan</span>
+              <span className="sm:hidden">Ajouter</span>
+            </button>
+          </div>
         )}
       </header>
 
@@ -329,6 +370,15 @@ export default function PlansTab() {
 
       {/* Viewer plein écran (ouvert via URL state ?plan=<id>) */}
       <PlanViewer planId={openedPlanId} onClose={handleCloseViewer} />
+
+      {/* Modale de partage (5c) — gestion des tokens publics */}
+      <PlansShareModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        projectId={projectId}
+        plans={activePlans}
+        categories={activeCategories}
+      />
     </div>
   )
 }
