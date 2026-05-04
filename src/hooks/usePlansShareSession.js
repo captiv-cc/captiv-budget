@@ -9,15 +9,21 @@
 // Pas d'auth (token = identification). Pas de Realtime (instantané).
 // Le hook expose : { loading, error, payload, refresh }.
 //
-// `refresh` est utile pour régénérer les signed URLs en arrière-plan
-// quand le user revient sur l'onglet après une longue inactivité (les
-// signed URLs expirent à 10 min).
+// Auto-refresh : les signed URLs Storage ont une durée de vie de 10 min
+// (TTL_SIGNED_URL côté lib). Si l'utilisateur laisse l'onglet ouvert et
+// revient après une longue inactivité, on déclenche un refresh
+// automatique au retour de focus pour régénérer le payload + signed URLs.
+// Seuil : 5 minutes (marge de sécurité avant l'expiration à 10).
 //
 // Pattern aligné sur useMatosShareSession + useEquipeShareSession.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchPlansSharePayload } from '../lib/plansShare'
+
+// Seuil en ms au-dessus duquel on considère que les signed URLs risquent
+// d'être périmées au retour de focus. 5 min = moitié du TTL Supabase (10 min).
+const STALE_THRESHOLD_MS = 5 * 60 * 1000
 
 export function usePlansShareSession(token) {
   const [payload, setPayload] = useState(null)
@@ -26,6 +32,9 @@ export function usePlansShareSession(token) {
   const [reloadKey, setReloadKey] = useState(0)
 
   const aliveRef = useRef(true)
+  // Timestamp du dernier load réussi — pour détecter staleness au focus.
+  const lastLoadAtRef = useRef(0)
+
   useEffect(() => {
     aliveRef.current = true
     return () => {
@@ -49,6 +58,7 @@ export function usePlansShareSession(token) {
       .then((data) => {
         if (cancelled || !aliveRef.current) return
         setPayload(data)
+        lastLoadAtRef.current = Date.now()
       })
       .catch((e) => {
         if (cancelled || !aliveRef.current) return
@@ -63,6 +73,27 @@ export function usePlansShareSession(token) {
       cancelled = true
     }
   }, [token, reloadKey])
+
+  // Auto-refresh au retour de focus si > STALE_THRESHOLD_MS depuis le
+  // dernier load. Évite que l'utilisateur clique sur un plan dont la signed
+  // URL aura expiré (Loader2 perpétuel ou erreur 403).
+  useEffect(() => {
+    if (!token) return undefined
+    function handleVisibility() {
+      if (document.hidden) return
+      if (lastLoadAtRef.current === 0) return
+      const elapsed = Date.now() - lastLoadAtRef.current
+      if (elapsed > STALE_THRESHOLD_MS) {
+        setReloadKey((k) => k + 1)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleVisibility)
+    }
+  }, [token])
 
   return { payload, loading, error, refresh }
 }

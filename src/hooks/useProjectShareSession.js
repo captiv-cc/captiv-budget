@@ -34,6 +34,12 @@ import {
   detectPasswordError,
 } from '../lib/projectShare'
 
+// Seuil en ms au-dessus duquel on considère que les signed URLs (page plans)
+// risquent d'être périmées au retour de focus. 5 min = moitié du TTL
+// Supabase (10 min). Bénéfice secondaire : rafraîchit aussi les data
+// pour les autres pages (équipe, livrables, matériel) au retour de focus.
+const STALE_THRESHOLD_MS = 5 * 60 * 1000
+
 /**
  * Factory générique : on partage la même logique de chargement entre les
  * 3 endpoints, avec juste un `fetcher` (lib function) différent. Évite de
@@ -51,6 +57,8 @@ function useProjectSharePayload(token, fetcher) {
   const [passwordKind, setPasswordKind] = useState(null) // 'missing' | 'invalid'
 
   const aliveRef = useRef(true)
+  // Timestamp du dernier load réussi — pour détecter staleness au focus.
+  const lastLoadAtRef = useRef(0)
   useEffect(() => {
     aliveRef.current = true
     return () => {
@@ -93,6 +101,7 @@ function useProjectSharePayload(token, fetcher) {
         setRequirePassword(false)
         setPasswordKind(null)
         setPasswordHint(null)
+        lastLoadAtRef.current = Date.now()
       })
       .catch((e) => {
         if (cancelled || !aliveRef.current) return
@@ -123,6 +132,28 @@ function useProjectSharePayload(token, fetcher) {
       cancelled = true
     }
   }, [token, reloadKey, fetcher])
+
+  // Auto-refresh au retour de focus si > STALE_THRESHOLD_MS depuis le
+  // dernier load. Critique pour la page plans (signed URLs Storage qui
+  // expirent à 10 min) et bénéficie aussi aux autres pages (data plus
+  // récentes au retour de focus).
+  useEffect(() => {
+    if (!token) return undefined
+    function handleVisibility() {
+      if (document.hidden) return
+      if (lastLoadAtRef.current === 0) return
+      const elapsed = Date.now() - lastLoadAtRef.current
+      if (elapsed > STALE_THRESHOLD_MS) {
+        setReloadKey((k) => k + 1)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleVisibility)
+    }
+  }, [token])
 
   return {
     payload,
