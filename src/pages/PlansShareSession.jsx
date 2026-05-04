@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react'
 import { usePlansShareSession } from '../hooks/usePlansShareSession'
+import { normalizeSearch } from '../lib/plans'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import PlanViewer from '../features/plans/PlanViewer'
@@ -131,12 +132,15 @@ export function PlansShareView({ payload, theme, onToggleTheme, extraHeader = nu
         list = list.filter((p) => p.category_id === activeCategoryId)
       }
     }
-    const q = search.trim().toLowerCase()
+    const q = normalizeSearch(search.trim())
     if (q) {
       list = list.filter((p) => {
-        if ((p.name || '').toLowerCase().includes(q)) return true
-        if ((p.description || '').toLowerCase().includes(q)) return true
-        if (Array.isArray(p.tags) && p.tags.some((t) => t.toLowerCase().includes(q))) {
+        if (normalizeSearch(p.name).includes(q)) return true
+        if (normalizeSearch(p.description).includes(q)) return true
+        if (
+          Array.isArray(p.tags) &&
+          p.tags.some((t) => normalizeSearch(t).includes(q))
+        ) {
           return true
         }
         return false

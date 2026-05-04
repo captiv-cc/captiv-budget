@@ -40,7 +40,7 @@ import usePlans from '../../hooks/usePlans'
 import { useProjet } from '../ProjetLayout'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
-import { getSignedUrl, formatFileSize } from '../../lib/plans'
+import { getSignedUrl, formatFileSize, normalizeSearch } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import PlanFormModal from '../../features/plans/PlanFormModal'
@@ -108,11 +108,11 @@ export default function PlansTab() {
       list = list.filter((p) => p.category_id === activeCategoryId)
     }
     if (search.trim()) {
-      const q = search.toLowerCase().trim()
+      const q = normalizeSearch(search)
       list = list.filter((p) => {
-        const inName = (p.name || '').toLowerCase().includes(q)
-        const inTags = (p.tags || []).some((t) => t.toLowerCase().includes(q))
-        const inDesc = (p.description || '').toLowerCase().includes(q)
+        const inName = normalizeSearch(p.name).includes(q)
+        const inTags = (p.tags || []).some((t) => normalizeSearch(t).includes(q))
+        const inDesc = normalizeSearch(p.description).includes(q)
         return inName || inTags || inDesc
       })
     }
