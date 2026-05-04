@@ -141,6 +141,19 @@ export default function ItemRow({
   // sur les lignes en lecture seule (partage client, rôle Visiteur…).
   const dndEnabled = canEdit && Boolean(onDragStart)
 
+  // ─── Drag armed (drag sur poignée uniquement) ───────────────────────────
+  // Pattern aligné sur Block.jsx : on ne veut PAS que toute la ligne soit
+  // draggable (sinon conflit avec la sélection de texte dans les inputs
+  // label / désignation / remarques + Chrome qui draggue le tr au lieu de
+  // sélectionner). On "arme" le drag sur mousedown du grip handle ; le
+  // browser observe `draggable=true` au moment où la souris bouge et lance
+  // le drag. onDragEnd / onMouseUp / onBlur désarment.
+  const [dragArmed, setDragArmed] = useState(false)
+  const armDrag = () => {
+    if (dndEnabled) setDragArmed(true)
+  }
+  const disarmDrag = () => setDragArmed(false)
+
   // Calcule la position relative du curseur dans la ligne pour afficher la
   // ligne d'insertion (above/below mid-line) — pattern identique à Block.
   const computeInsertPosition = (e) => {
@@ -161,7 +174,12 @@ export default function ItemRow({
 
   return (
     <tr
-      draggable={dndEnabled}
+      // `draggable` est conditionné à `dragArmed` : seulement vrai après
+      // mousedown sur le grip handle. Sinon les inputs (label / désignation
+      // / remarques) ne peuvent pas être sélectionnés à la souris (le
+      // navigateur préfère lancer le drag du <tr> au lieu de sélectionner
+      // le texte).
+      draggable={dndEnabled && dragArmed}
       onDragStart={
         dndEnabled
           ? (e) => {
@@ -187,16 +205,29 @@ export default function ItemRow({
             }
           : undefined
       }
-      onDragEnd={dndEnabled ? onDragEnd : undefined}
+      onDragEnd={
+        dndEnabled
+          ? (e) => {
+              disarmDrag()
+              onDragEnd?.(e)
+            }
+          : undefined
+      }
       style={{
         borderBottom: '1px solid var(--brd-sub)',
         boxShadow: insertShadow,
         transition: 'box-shadow 100ms ease',
       }}
     >
-      {/* Grip drag handle */}
+      {/* Grip drag handle — seul élément qui "arme" le drag.
+          onMouseDown active dragArmed → le <tr> devient draggable JUSTE
+          avant que le navigateur lance le drag. mouseup/leave désarment
+          (clic sans drag = pas de side-effect). */}
       <td
         className="px-1 py-1.5 align-middle text-center select-none"
+        onMouseDown={armDrag}
+        onMouseUp={disarmDrag}
+        onMouseLeave={disarmDrag}
         style={{
           width: '20px',
           color: 'var(--txt-3)',
