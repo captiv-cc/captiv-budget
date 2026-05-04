@@ -21,6 +21,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import {
   Calendar,
   CheckSquare,
+  Download,
   Edit3,
   ExternalLink,
   FileText,
@@ -46,8 +47,10 @@ import { getSignedUrl, formatFileSize, normalizeSearch } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import PlanFormModal from '../../features/plans/PlanFormModal'
+import PlansExportProgress from '../../features/plans/PlansExportProgress'
 import PlansShareModal from '../../features/plans/PlansShareModal'
 import PlanViewer from '../../features/plans/PlanViewer'
+import { exportPlansAsZip, triggerZipDownload } from '../../lib/plansZipExport'
 
 const OUTIL_KEY = 'plans'
 
@@ -136,6 +139,66 @@ export default function PlansTab() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
   const [shareModalOpen, setShareModalOpen] = useState(false)
+
+  // ── Export ZIP ──────────────────────────────────────────────────────────
+  // L'export inclut tous les plans actifs (non archivés). On ignore les
+  // filtres / search en cours (utilité = archive complète) — si besoin de
+  // sous-set on pourra ajouter une option "Exporter la sélection" plus tard.
+  const [exportState, setExportState] = useState({
+    open: false,
+    phase: 'fetching', // 'fetching' | 'finalizing' | 'done'
+    current: 0,
+    total: 0,
+    currentName: '',
+    errors: [],
+  })
+
+  async function handleExportZip() {
+    if (activePlans.length === 0) {
+      notify.error('Aucun plan à exporter')
+      return
+    }
+    setExportState({
+      open: true,
+      phase: 'fetching',
+      current: 0,
+      total: activePlans.length,
+      currentName: '',
+      errors: [],
+    })
+    try {
+      const { blob, filename, errors } = await exportPlansAsZip({
+        plans: activePlans,
+        categoriesById,
+        projectName: project?.title || 'projet',
+        onProgress: (current, total, currentName) => {
+          setExportState((prev) => ({
+            ...prev,
+            phase: current >= total ? 'finalizing' : 'fetching',
+            current,
+            total,
+            currentName,
+          }))
+        },
+      })
+      // Force le passage à 'finalizing' pour le rendu (au cas où onProgress
+      // s'est terminé avant la génération du blob).
+      setExportState((prev) => ({ ...prev, phase: 'finalizing' }))
+      triggerZipDownload(blob, filename)
+      setExportState((prev) => ({ ...prev, phase: 'done', errors }))
+      if (errors.length === 0) {
+        notify.success(`ZIP exporté : ${activePlans.length} plan${activePlans.length > 1 ? 's' : ''}`)
+      } else {
+        notify.error(
+          `ZIP exporté avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} (voir détails)`,
+        )
+      }
+    } catch (err) {
+      console.error('[PlansTab] export ZIP error', err)
+      notify.error('Export ZIP échoué : ' + (err?.message || err))
+      setExportState((prev) => ({ ...prev, open: false }))
+    }
+  }
 
   function openCreate() {
     setEditingPlan(null)
@@ -423,28 +486,56 @@ export default function PlansTab() {
         {canEdit && (
           <div className="flex items-center gap-1.5 shrink-0">
             {activePlans.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShareModalOpen(true)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt-2)',
-                  border: '1px solid var(--brd)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-hov)'
-                  e.currentTarget.style.color = 'var(--txt)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-elev)'
-                  e.currentTarget.style.color = 'var(--txt-2)'
-                }}
-                title="Partager les plans (lien public)"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Partager</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportZip}
+                  disabled={exportState.open && exportState.phase !== 'done'}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                    opacity: exportState.open && exportState.phase !== 'done' ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!exportState.open || exportState.phase === 'done') {
+                      e.currentTarget.style.background = 'var(--bg-hov)'
+                      e.currentTarget.style.color = 'var(--txt)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--bg-elev)'
+                    e.currentTarget.style.color = 'var(--txt-2)'
+                  }}
+                  title="Télécharger tous les plans dans un ZIP structuré par catégorie"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Exporter ZIP</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShareModalOpen(true)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--bg-hov)'
+                    e.currentTarget.style.color = 'var(--txt)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--bg-elev)'
+                    e.currentTarget.style.color = 'var(--txt-2)'
+                  }}
+                  title="Partager les plans (lien public)"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Partager</span>
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -637,6 +728,17 @@ export default function PlansTab() {
         projectId={projectId}
         plans={activePlans}
         categories={activeCategories}
+      />
+
+      {/* Modale de progression export ZIP */}
+      <PlansExportProgress
+        open={exportState.open}
+        phase={exportState.phase}
+        current={exportState.current}
+        total={exportState.total}
+        currentName={exportState.currentName}
+        errors={exportState.errors}
+        onClose={() => setExportState((prev) => ({ ...prev, open: false }))}
       />
     </div>
   )
