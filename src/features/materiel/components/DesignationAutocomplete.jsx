@@ -51,6 +51,12 @@ export default function DesignationAutocomplete({
   const [highlight, setHighlight] = useState(0)
   const rootRef = useRef(null)
   const inputRef = useRef(null)
+  // Flag : si selectSuggestion vient juste de commit (clic sur suggestion
+  // ou Enter avec match), handleBlur ne doit PAS re-commit. Sinon le
+  // setTimeout 120ms du blur clobber le materiel_bdd_id à null parce que
+  // la prop `value` n'a pas encore été synchronisée par le parent (le
+  // round-trip Supabase est plus long que 120ms).
+  const justCommittedRef = useRef(false)
 
   // Synchronise avec la prop quand l'item amont se met à jour.
   useEffect(() => {
@@ -103,6 +109,14 @@ export default function DesignationAutocomplete({
       if (!rootRef.current) return
       if (!rootRef.current.contains(document.activeElement)) {
         setOpen(false)
+        // Si selectSuggestion a déjà commit dans cette session (clic ou
+        // Enter), on skip — sinon on clobber materiel_bdd_id à null
+        // parce que la prop `value` n'a pas encore été synchronisée
+        // par le parent.
+        if (justCommittedRef.current) {
+          justCommittedRef.current = false
+          return
+        }
         // Free-form commit → on garde l'ID existant si le texte n'a pas changé,
         // sinon on le reset (l'utilisateur a tapé autre chose que le catalogue).
         const unchanged = local.trim() === (value || '').trim()
@@ -112,6 +126,7 @@ export default function DesignationAutocomplete({
   }
 
   function selectSuggestion(m) {
+    justCommittedRef.current = true
     setLocal(m.nom)
     setOpen(false)
     doCommit(m.nom, m.id)
@@ -119,6 +134,9 @@ export default function DesignationAutocomplete({
   }
 
   function handleKey(e) {
+    // Garde IME / dead-keys (claviers FR avec touches mortes).
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return
+
     if (e.key === 'Escape') {
       e.preventDefault()
       setLocal(value)
@@ -144,7 +162,14 @@ export default function DesignationAutocomplete({
       setHighlight((h) => Math.max(h - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const picked = suggestions[highlight]
+      // Race fix : sur certains navigateurs le keydown Enter fire avant
+      // que React ait traité le `input` du dernier caractère tapé. On
+      // lit la valeur DOM live et on RECALCULE les suggestions à partir
+      // d'elle pour ne pas dépendre de l'état React qui peut être stale
+      // d'une frappe.
+      const liveQuery = inputRef.current?.value ?? local
+      const liveSuggestions = filterCatalogue(materielBdd, liveQuery)
+      const picked = liveSuggestions[highlight] ?? liveSuggestions[0]
       if (picked) {
         selectSuggestion(picked)
       } else {
@@ -164,7 +189,13 @@ export default function DesignationAutocomplete({
         value={local}
         placeholder={placeholder}
         onChange={handleChange}
-        onFocus={() => canEdit && setOpen(true)}
+        onFocus={() => {
+          if (!canEdit) return
+          // Reset le flag si l'user re-focuse le champ après un commit
+          // (sinon le prochain blur normal serait à tort skippé).
+          justCommittedRef.current = false
+          setOpen(true)
+        }}
         onBlur={handleBlur}
         onKeyDown={handleKey}
         disabled={!canEdit}
