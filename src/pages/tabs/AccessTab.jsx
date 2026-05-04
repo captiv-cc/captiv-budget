@@ -26,6 +26,7 @@ import { useOutletContext, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
+import { normalizeSearch } from '../../lib/searchUtils'
 import {
   UserPlus,
   Trash2,
@@ -789,8 +790,9 @@ function AddAccessModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser])
 
+  // Filtre profil — accent-insensitive
   const filtered = profiles.filter((p) =>
-    (p.full_name || '').toLowerCase().includes(search.toLowerCase()),
+    normalizeSearch(p.full_name).includes(normalizeSearch(search)),
   )
 
   const isPrestataire = selectedUser?.role === 'prestataire'

@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { normalizeSearch } from '../../../lib/searchUtils'
 
 export default function FournisseurSelect({
   fournisseurId,
@@ -23,8 +24,13 @@ export default function FournisseurSelect({
   const containerRef = useRef(null)
 
   const current = fournisseurs.find((f) => f.id === fournisseurId)
-  const filtered = fournisseurs.filter((f) => f.nom.toLowerCase().includes(query.toLowerCase()))
-  const hasExact = fournisseurs.some((f) => f.nom.toLowerCase() === query.trim().toLowerCase())
+  // Filtre fournisseur — accent-insensitive
+  const filtered = fournisseurs.filter((f) => normalizeSearch(f.nom).includes(normalizeSearch(query)))
+  // Match exact accent-insensitive : si l'user tape "regie" et qu'un
+  // fournisseur "Régie Sud" existe, on ne propose pas "Créer « regie »".
+  const hasExact = fournisseurs.some(
+    (f) => normalizeSearch(f.nom) === normalizeSearch(query),
+  )
 
   useEffect(() => {
     if (open) {

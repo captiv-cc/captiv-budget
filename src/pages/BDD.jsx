@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import TvaPicker from '../components/TvaPicker'
 import { produitSchema, fournisseurSchema } from '../lib/schemas'
+import { normalizeSearch } from '../lib/searchUtils'
 import { useFormValidation } from '../hooks/useFormValidation'
 import FieldError from '../components/FieldError'
 import MaterielBddSection from '../features/materiel/components/MaterielBddSection'
@@ -391,13 +392,14 @@ export default function BDD() {
   // ── Filtrage & regroupement ───────────────────────────────────────────────
 
   const { activePostes, archivedPostes, catCounts, allCategories } = useMemo(() => {
-    const sq = search.trim().toLowerCase()
+    // Recherche catalogue postes — accent-insensitive
+    const sq = normalizeSearch(search)
     const matchSearch = (p) =>
       !sq ||
-      p.produit?.toLowerCase().includes(sq) ||
-      p.categorie?.toLowerCase().includes(sq) ||
-      p.description?.toLowerCase().includes(sq) ||
-      p.notes?.toLowerCase().includes(sq)
+      normalizeSearch(p.produit).includes(sq) ||
+      normalizeSearch(p.categorie).includes(sq) ||
+      normalizeSearch(p.description).includes(sq) ||
+      normalizeSearch(p.notes).includes(sq)
 
     const active = []
     const archived = []
@@ -436,12 +438,13 @@ export default function BDD() {
     archivedFourns,
     fournTypeCounts,
   } = useMemo(() => {
-    const sq = search.trim().toLowerCase()
+    // Recherche fournisseurs — accent-insensitive
+    const sq = normalizeSearch(search)
     const matchSearch = (f) =>
       !sq ||
-      f.nom?.toLowerCase().includes(sq) ||
-      f.type?.toLowerCase().includes(sq) ||
-      f.notes?.toLowerCase().includes(sq)
+      normalizeSearch(f.nom).includes(sq) ||
+      normalizeSearch(f.type).includes(sq) ||
+      normalizeSearch(f.notes).includes(sq)
 
     const active = []
     const archived = []
@@ -464,7 +467,8 @@ export default function BDD() {
 
   // Grille CC — pivot minimas_convention en lignes uniques par poste
   const { grillePivoted, grilleTypeCounts } = useMemo(() => {
-    const sq = search.trim().toLowerCase()
+    // Recherche grille CC — accent-insensitive
+    const sq = normalizeSearch(search)
     // Pivot : (poste, type_oeuvre, is_specialise, filiere, niveau) → { jour_7h, jour_8h, sem_35h, sem_39h }
     const map = new Map()
     const counts = { all: 0, Fiction: 0, Flux: 0, Hors_fiction_flux: 0 }
@@ -502,7 +506,7 @@ export default function BDD() {
     // Appliquer filtre recherche + type_oeuvre
     const filtered = all.filter((row) => {
       if (grilleFilter !== 'all' && row.type_oeuvre !== grilleFilter) return false
-      if (sq && !row.poste?.toLowerCase().includes(sq) && !row.filiere?.toLowerCase().includes(sq))
+      if (sq && !normalizeSearch(row.poste).includes(sq) && !normalizeSearch(row.filiere).includes(sq))
         return false
       return true
     })

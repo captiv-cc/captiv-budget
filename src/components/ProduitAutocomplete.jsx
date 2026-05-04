@@ -4,6 +4,7 @@
  */
 import { useState, useRef, useEffect } from 'react'
 import { Database } from 'lucide-react'
+import { normalizeSearch } from '../lib/searchUtils'
 
 export default function ProduitAutocomplete({ value, bdd, onChange, onSelect, placeholder }) {
   const [open, setOpen] = useState(false)
@@ -24,15 +25,18 @@ export default function ProduitAutocomplete({ value, bdd, onChange, onSelect, pl
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Filtre catalogue — accent-insensitive
   const filtered =
     query.length >= 1
       ? bdd
-          .filter(
-            (p) =>
-              p.produit?.toLowerCase().includes(query.toLowerCase()) ||
-              p.categorie?.toLowerCase().includes(query.toLowerCase()) ||
-              p.description?.toLowerCase().includes(query.toLowerCase()),
-          )
+          .filter((p) => {
+            const q = normalizeSearch(query)
+            return (
+              normalizeSearch(p.produit).includes(q) ||
+              normalizeSearch(p.categorie).includes(q) ||
+              normalizeSearch(p.description).includes(q)
+            )
+          })
           .slice(0, 10)
       : []
 

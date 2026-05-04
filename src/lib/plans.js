@@ -596,17 +596,7 @@ export function getFileTypeIconName(fileType) {
   return 'File'
 }
 
-/**
- * Normalise une chaîne pour la recherche : lowercase + retrait des accents
- * (NFD + suppression diacritiques). Permet à un user qui tape "camera" de
- * trouver un plan "Caméra" et inversement.
- *
- * Utilisé par le filtre de recherche de PlansTab et de PlansShareSession.
- */
-export function normalizeSearch(s) {
-  return (s || '')
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-}
+// Re-export du helper transverse pour rétro-compatibilité des imports
+// existants (PlansTab, PlansShareSession). Le code source canonique vit
+// dans `lib/searchUtils.js` — utiliser cette source pour les nouveaux outils.
+export { normalizeSearch } from './searchUtils'

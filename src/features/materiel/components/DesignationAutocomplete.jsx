@@ -27,13 +27,14 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { normalizeSearch } from '../../../lib/searchUtils'
 
-// Filtre le catalogue par query — tolérant : lowercase + inclusion.
+// Filtre le catalogue par query — tolérant : accent-insensitive + lowercase.
 function filterCatalogue(catalogue, query) {
-  const q = (query || '').trim().toLowerCase()
+  const q = normalizeSearch(query)
   if (!q) return catalogue.slice(0, 8)
   return catalogue
-    .filter((m) => m.nom?.toLowerCase().includes(q))
+    .filter((m) => normalizeSearch(m.nom).includes(q))
     .slice(0, 8)
 }
 

@@ -24,6 +24,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Search, UserPlus, X, Check } from 'lucide-react'
+import { normalizeSearch } from '../../../lib/searchUtils'
 
 const MAX_RESULTS = 8
 
@@ -67,19 +68,23 @@ export default function ContactPicker({
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
 
-  // Filtre + tri (préfixe nom > préfixe prénom > contient)
+  // Filtre + tri (préfixe nom > préfixe prénom > contient).
+  // Accent-insensitive : "marie" matche "Marie" et "Marié".
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeSearch(query)
     if (!q) return contacts.slice(0, MAX_RESULTS)
     const scored = []
     for (const c of contacts) {
-      const fullname = `${c.prenom || ''} ${c.nom || ''}`.toLowerCase().trim()
-      const reverse = `${c.nom || ''} ${c.prenom || ''}`.toLowerCase().trim()
+      const fullname = normalizeSearch(`${c.prenom || ''} ${c.nom || ''}`).trim()
+      const reverse = normalizeSearch(`${c.nom || ''} ${c.prenom || ''}`).trim()
+      const nom = normalizeSearch(c.nom)
+      const prenom = normalizeSearch(c.prenom)
+      const email = normalizeSearch(c.email)
       let score = 0
       if (fullname.startsWith(q) || reverse.startsWith(q)) score = 3
-      else if ((c.nom || '').toLowerCase().startsWith(q)) score = 2
-      else if ((c.prenom || '').toLowerCase().startsWith(q)) score = 2
-      else if (fullname.includes(q) || (c.email || '').toLowerCase().includes(q)) score = 1
+      else if (nom.startsWith(q)) score = 2
+      else if (prenom.startsWith(q)) score = 2
+      else if (fullname.includes(q) || email.includes(q)) score = 1
       if (score > 0) scored.push({ c, score })
     }
     scored.sort((a, b) => b.score - a.score)
@@ -87,13 +92,14 @@ export default function ContactPicker({
   }, [query, contacts])
 
   // Détection : le query correspond-il EXACTEMENT à un contact existant ?
+  // (toujours normalisé pour traiter "elise" === "Élise" comme un match exact)
   const exactMatch = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeSearch(query).trim()
     if (!q) return null
     return contacts.find(
       (c) =>
-        `${c.prenom || ''} ${c.nom || ''}`.toLowerCase().trim() === q ||
-        `${c.nom || ''} ${c.prenom || ''}`.toLowerCase().trim() === q,
+        normalizeSearch(`${c.prenom || ''} ${c.nom || ''}`).trim() === q ||
+        normalizeSearch(`${c.nom || ''} ${c.prenom || ''}`).trim() === q,
     )
   }, [query, contacts])
 

@@ -16,6 +16,7 @@ import {
   FolderOpen,
 } from 'lucide-react'
 import { projectSchema } from '../lib/schemas'
+import { normalizeSearch } from '../lib/searchUtils'
 import { useFormValidation } from '../hooks/useFormValidation'
 import FieldError from '../components/FieldError'
 import { STATUS_OPTIONS } from '../features/projets/constants'
@@ -225,9 +226,10 @@ export default function Projets() {
   // applique recherche, filtre statut, et tri. Tout passe par un seul useMemo
   // pour éviter de balayer projects[] plusieurs fois par render.
   const { activeList, archivedList, statusCounts } = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    // Recherche projets / clients — accent-insensitive
+    const q = normalizeSearch(search)
     const matchSearch = (p) =>
-      !q || p.title.toLowerCase().includes(q) || p.clients?.nom_commercial?.toLowerCase().includes(q)
+      !q || normalizeSearch(p.title).includes(q) || normalizeSearch(p.clients?.nom_commercial).includes(q)
 
     const cmp = (a, b) => {
       switch (sortBy) {
@@ -509,7 +511,7 @@ export default function Projets() {
                     style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
                   >
                     {clients
-                      .filter((c) => !clientSearch.trim() || c.nom_commercial.toLowerCase().includes(clientSearch.toLowerCase()))
+                      .filter((c) => !clientSearch.trim() || normalizeSearch(c.nom_commercial).includes(normalizeSearch(clientSearch)))
                       .map((c) => (
                         <button
                           key={c.id}

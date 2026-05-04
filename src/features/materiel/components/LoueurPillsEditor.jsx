@@ -26,6 +26,7 @@ import { createPortal } from 'react-dom'
 import { Plus, X, Check, CircleDot, Search } from 'lucide-react'
 import { LOUEUR_COLOR_PRESETS } from '../../../lib/materiel'
 import { notify } from '../../../lib/notify'
+import { normalizeSearch } from '../../../lib/searchUtils'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -476,9 +477,9 @@ function AddDropdown({ availableLoueurs, onAttach, onCreate, onClose }) {
   const [creating, setCreating] = useState(false)
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeSearch(query)
     if (!q) return availableLoueurs
-    return availableLoueurs.filter((l) => l.nom?.toLowerCase().includes(q))
+    return availableLoueurs.filter((l) => normalizeSearch(l.nom).includes(q))
   }, [availableLoueurs, query])
 
   if (creating) {

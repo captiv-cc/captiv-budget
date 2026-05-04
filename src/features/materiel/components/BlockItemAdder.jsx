@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Database, Plus, Search, X } from 'lucide-react'
+import { normalizeSearch } from '../../../lib/searchUtils'
 
 export default function BlockItemAdder({
   onAddFromCatalogue,
@@ -46,16 +47,16 @@ export default function BlockItemAdder({
   const inputRef = useRef(null)
   const dropdownRef = useRef(null)
 
-  // ─── Filtrage catalogue (instantané) ─────────────────────────────────────
+  // ─── Filtrage catalogue (instantané, accent-insensitive) ────────────────
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = normalizeSearch(query)
     if (q.length < 1) return materielBdd.slice(0, 8)
     return materielBdd
       .filter(
         (m) =>
-          m.nom?.toLowerCase().includes(q) ||
-          m.description?.toLowerCase().includes(q) ||
-          m.categorie_suggeree?.toLowerCase().includes(q),
+          normalizeSearch(m.nom).includes(q) ||
+          normalizeSearch(m.description).includes(q) ||
+          normalizeSearch(m.categorie_suggeree).includes(q),
       )
       .slice(0, 8)
   }, [materielBdd, query])

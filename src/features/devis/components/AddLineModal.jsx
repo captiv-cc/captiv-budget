@@ -14,8 +14,9 @@
 
 import { useState, useEffect } from 'react'
 import { Plus, X } from 'lucide-react'
-import { supabase } from '../../../lib/supabase'
 import { UNITES } from '../../../lib/cotisations'
+import { normalizeSearch } from '../../../lib/searchUtils'
+import { supabase } from '../../../lib/supabase'
 
 export const REGIMES_LIST = [
   {
@@ -193,8 +194,9 @@ export default function AddLineModal({
     })
   }
 
+  // Filtre poste — accent-insensitive
   const filteredPostes = postes.filter(
-    (p) => !posteFilter || p.poste.toLowerCase().includes(posteFilter.toLowerCase()),
+    (p) => !posteFilter || normalizeSearch(p.poste).includes(normalizeSearch(posteFilter)),
   )
 
   return (

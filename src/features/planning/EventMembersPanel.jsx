@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UserPlus, Minus, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
+import { normalizeSearch } from '../../lib/searchUtils'
 import {
   addEventMember,
   updateEventMember,
@@ -299,16 +300,16 @@ function MemberRow({ member, inConflict, onStatusChange, onRemove }) {
 /* ─── Panneau ajout (profiles + crew) ─────────────────────────────────────── */
 function AddMemberPanel({ profiles, crew, loading, onCancel, onPickProfile, onPickCrew }) {
   const [query, setQuery] = useState('')
-  const q = query.trim().toLowerCase()
+  const q = normalizeSearch(query)
 
   const filteredProfiles = q
-    ? profiles.filter((p) => (p.full_name || '').toLowerCase().includes(q))
+    ? profiles.filter((p) => normalizeSearch(p.full_name).includes(q))
     : profiles
   const filteredCrew = q
     ? crew.filter(
         (c) =>
-          (c.person_name || '').toLowerCase().includes(q) ||
-          (c.crew_role || '').toLowerCase().includes(q),
+          normalizeSearch(c.person_name).includes(q) ||
+          normalizeSearch(c.crew_role).includes(q),
       )
     : crew
 

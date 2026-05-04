@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Search, X, Users, Database } from 'lucide-react'
+import { normalizeSearch } from '../../../lib/searchUtils'
 import { supabase } from '../../../lib/supabase'
 import { regimeFromProduit } from '../constants'
 
@@ -34,16 +35,18 @@ export default function BlocSearchBar({
   const wrapperRef = useRef(null)
   const dropdownRef = useRef(null)
 
-  // Résultats catalogue (filtre local, instantané)
+  // Résultats catalogue (filtre local, instantané, accent-insensitive)
   const catalogueResults =
     query.length >= 2
       ? bdd
-          .filter(
-            (p) =>
-              p.produit?.toLowerCase().includes(query.toLowerCase()) ||
-              p.description?.toLowerCase().includes(query.toLowerCase()) ||
-              p.categorie?.toLowerCase().includes(query.toLowerCase()),
-          )
+          .filter((p) => {
+            const q = normalizeSearch(query)
+            return (
+              normalizeSearch(p.produit).includes(q) ||
+              normalizeSearch(p.description).includes(q) ||
+              normalizeSearch(p.categorie).includes(q)
+            )
+          })
           .slice(0, 8)
       : []
 
