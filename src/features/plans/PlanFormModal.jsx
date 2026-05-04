@@ -19,15 +19,26 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Calendar, FileText, Image as ImageIcon, Plus, Upload, X } from 'lucide-react'
+import {
+  Calendar,
+  Eye,
+  FileText,
+  History,
+  Image as ImageIcon,
+  Plus,
+  Upload,
+  X,
+} from 'lucide-react'
 import {
   ALLOWED_FILE_TYPES,
   MAX_FILE_SIZE_BYTES,
   formatFileSize,
+  listPlanVersions,
   mimeTypeToFileType,
 } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 import PlanDatesPickerModal from './PlanDatesPickerModal'
+import PlanViewer from './PlanViewer'
 
 export default function PlanFormModal({
   open,
@@ -53,6 +64,13 @@ export default function PlanFormModal({
   const [replaceComment, setReplaceComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // Versions historiques (mode edit uniquement). Chargées à l'ouverture si
+  // current_version > 1. Permet de visualiser les V précédentes via
+  // PlanViewer interne (preview = ouverture du viewer plein écran sur le
+  // plan en mode auth, qui charge la version sélectionnée via son dropdown).
+  const [historicalVersions, setHistoricalVersions] = useState([])
+  const [previewPlanId, setPreviewPlanId] = useState(null)
+
   // Reset / preload à chaque (re)open.
   useEffect(() => {
     if (!open) return
@@ -74,6 +92,32 @@ export default function PlanFormModal({
       setReplaceComment('')
     }
     setTagInput('')
+    setHistoricalVersions([])
+  }, [open, isEdit, plan])
+
+  // Charge les versions historiques en mode edit (si current_version > 1).
+  // Best-effort : silencieusement vide si erreur, l'UI affiche juste l'absence
+  // d'historique sans casser le flux d'édition.
+  useEffect(() => {
+    if (!open || !isEdit || !plan?.id) return
+    if ((plan.current_version || 1) <= 1) {
+      setHistoricalVersions([])
+      return
+    }
+    let cancelled = false
+    listPlanVersions(plan.id)
+      .then((vs) => {
+        if (!cancelled) setHistoricalVersions(vs || [])
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn('[PlanFormModal] listPlanVersions error', err)
+          setHistoricalVersions([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [open, isEdit, plan])
 
   // Autocomplete tags : suggestions = allTags - tags déjà choisis, filtrées
@@ -360,33 +404,35 @@ export default function PlanFormModal({
             </button>
           </Field>
 
-          {/* Fichier */}
-          <Field
-            label={isEdit ? 'Remplacer le fichier' : 'Fichier'}
-            required={!isEdit}
-            hint={
-              isEdit
-                ? `Optionnel — uploader un nouveau fichier archivera la version actuelle (V${plan?.current_version || 1})`
-                : `PDF, PNG ou JPG — max ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB`
-            }
-          >
-            <FileDropZone file={file} onFileChange={handleFileChange} onFileDrop={handleFileDrop} />
-            {isEdit && file && (
-              <input
-                type="text"
-                value={replaceComment}
-                onChange={(e) => setReplaceComment(e.target.value)}
-                placeholder="Note de mise à jour (ex: « Ajout caméra HF en fond »)"
-                maxLength={150}
-                className="mt-2 w-full text-xs px-3 py-1.5 rounded-md outline-none"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt)',
-                  border: '1px solid var(--brd)',
-                }}
+          {/* Fichier — création OU versions (édition) */}
+          {isEdit ? (
+            <VersionsSection
+              plan={plan}
+              historicalVersions={historicalVersions}
+              file={file}
+              onFileChange={handleFileChange}
+              onFileDrop={handleFileDrop}
+              onClearFile={() => {
+                setFile(null)
+                setReplaceComment('')
+              }}
+              replaceComment={replaceComment}
+              onReplaceCommentChange={setReplaceComment}
+              onPreview={() => setPreviewPlanId(plan.id)}
+            />
+          ) : (
+            <Field
+              label="Fichier"
+              required
+              hint={`PDF, PNG ou JPG — max ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB`}
+            >
+              <FileDropZone
+                file={file}
+                onFileChange={handleFileChange}
+                onFileDrop={handleFileDrop}
               />
-            )}
-          </Field>
+            </Field>
+          )}
         </div>
 
         {/* Footer */}
@@ -437,6 +483,14 @@ export default function PlanFormModal({
         initialDates={applicableDates}
         projectMetadata={projectMetadata}
         onSave={(dates) => setApplicableDates(dates)}
+      />
+
+      {/* PlanViewer — preview d'une version (admin authed). Le viewer
+          inclut son propre dropdown de versions, donc l'utilisateur peut
+          naviguer entre V1, V2… directement depuis le viewer. */}
+      <PlanViewer
+        planId={previewPlanId}
+        onClose={() => setPreviewPlanId(null)}
       />
     </div>
   )
@@ -496,6 +550,162 @@ function Field({ label, hint, required = false, children }) {
         <p className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
           {hint}
         </p>
+      )}
+    </div>
+  )
+}
+
+/* ─── VersionsSection — gestion des versions d'un plan (mode édition) ──── */
+
+/**
+ * Section dédiée aux versions d'un plan en mode édition. Trois rôles :
+ *   1. Liste des versions (V_n courante en haut, puis V_n-1, V_n-2... en
+ *      historique cliquable → ouvre PlanViewer en preview).
+ *   2. Bouton/drop zone "Nouvelle version" mis en avant (vs l'ancien
+ *      label "Remplacer le fichier" peu visible).
+ *   3. Champ note de mise à jour optionnel (visible uniquement si un
+ *      fichier est sélectionné — apparaît au moment où ça a du sens).
+ *
+ * NB : la création de la nouvelle version n'a lieu qu'au submit du form
+ * parent (replacePlanFile dans handleSubmit), pour rester cohérent avec
+ * le flow d'édition (l'admin peut renoncer en cliquant Annuler).
+ */
+function VersionsSection({
+  plan,
+  historicalVersions,
+  file,
+  onFileChange,
+  onFileDrop,
+  onClearFile,
+  replaceComment,
+  onReplaceCommentChange,
+  onPreview,
+}) {
+  const currentVersion = plan?.current_version || 1
+  const hasHistory = historicalVersions.length > 0
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <History className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
+          Versions
+        </h3>
+      </div>
+
+      {/* Liste des versions */}
+      <div
+        className="rounded-md overflow-hidden"
+        style={{
+          background: 'var(--bg-elev)',
+          border: '1px solid var(--brd)',
+        }}
+      >
+        {/* Version courante */}
+        <VersionRow
+          label={`V${currentVersion} · courante`}
+          sublabel={
+            plan?.file_size
+              ? `${(plan.file_type || '').toUpperCase()} · ${formatFileSize(plan.file_size)}`
+              : (plan?.file_type || '').toUpperCase()
+          }
+          isCurrent
+          onPreview={onPreview}
+        />
+        {hasHistory &&
+          historicalVersions
+            .slice()
+            .sort((a, b) => b.version_num - a.version_num)
+            .map((v) => (
+              <VersionRow
+                key={v.id}
+                label={`V${v.version_num}`}
+                sublabel={
+                  v.comment ||
+                  `${(v.file_type || '').toUpperCase()}${v.file_size ? ` · ${formatFileSize(v.file_size)}` : ''}`
+                }
+                onPreview={onPreview}
+              />
+            ))}
+      </div>
+
+      {/* Nouvelle version */}
+      <div>
+        <p
+          className="text-[11px] font-semibold mb-1.5 flex items-center gap-1.5"
+          style={{ color: 'var(--txt-2)' }}
+        >
+          <Plus className="w-3 h-3" style={{ color: 'var(--blue)' }} />
+          Nouvelle version (V{currentVersion + 1})
+        </p>
+        <FileDropZone file={file} onFileChange={onFileChange} onFileDrop={onFileDrop} />
+        <p className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
+          Optionnel — la version actuelle (V{currentVersion}) sera archivée et
+          restera consultable depuis l&apos;historique.
+        </p>
+        {file && (
+          <div className="mt-2 space-y-1">
+            <input
+              type="text"
+              value={replaceComment}
+              onChange={(e) => onReplaceCommentChange(e.target.value)}
+              placeholder='Note de mise à jour (ex : "Ajout caméra HF en fond")'
+              maxLength={150}
+              className="w-full text-xs px-3 py-1.5 rounded-md outline-none"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--txt)',
+                border: '1px solid var(--brd)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={onClearFile}
+              className="text-[11px] underline"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Annuler le remplacement
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function VersionRow({ label, sublabel, isCurrent = false, onPreview }) {
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2 transition-colors"
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: isCurrent ? 'var(--blue-bg)' : 'transparent',
+      }}
+    >
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-xs font-semibold truncate"
+          style={{ color: isCurrent ? 'var(--blue)' : 'var(--txt)' }}
+        >
+          {label}
+        </p>
+        <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>
+          {sublabel}
+        </p>
+      </div>
+      {onPreview && (
+        <button
+          type="button"
+          onClick={onPreview}
+          className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded transition-colors"
+          style={{ color: 'var(--blue)' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          title="Voir cette version"
+        >
+          <Eye className="w-3 h-3" />
+          Voir
+        </button>
       )}
     </div>
   )

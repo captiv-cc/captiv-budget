@@ -21,12 +21,14 @@
 // (laisse le navigateur gérer le download natif).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
   FileText,
+  History,
   Loader2,
   Maximize,
   Minus,
@@ -34,7 +36,7 @@ import {
   X,
 } from 'lucide-react'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
-import { getSignedUrl, getPlan } from '../../lib/plans'
+import { getSignedUrl, getPlan, listPlanVersions } from '../../lib/plans'
 import { notify } from '../../lib/notify'
 
 /**
@@ -71,9 +73,46 @@ export default function PlanViewer({
   const [error, setError] = useState(null)
   const [chromeVisible, setChromeVisible] = useState(true)
 
+  // ─── Versions ────────────────────────────────────────────────────────
+  // En mode auth : on fetch listPlanVersions(planId) si current_version > 1.
+  // En mode preloaded : on utilise plan.versions[] du payload (présent si
+  // show_versions=true sur le token de share).
+  // selectedVersionNum = null → version courante (default).
+  // selectedVersionNum = N    → version historique V<N>.
+  const [versionsFromFetch, setVersionsFromFetch] = useState([])
+  const [selectedVersionNum, setSelectedVersionNum] = useState(null)
+  // signed URLs des versions historiques générées à la volée en mode auth.
+  // Map<version_num, signedUrl>. Évite de re-générer à chaque switch.
+  const [historicalUrls, setHistoricalUrls] = useState({})
+
   // Source effective : si preloaded, on prend les props ; sinon le fetch.
   const plan = preloaded ? planFromProps : planFromFetch
-  const signedUrl = preloaded ? signedUrlFromProps : signedUrlFromFetch
+  const currentSignedUrl = preloaded ? signedUrlFromProps : signedUrlFromFetch
+
+  // Liste de versions (preloaded : depuis le payload ; auth : depuis fetch).
+  const versions = useMemo(() => {
+    if (preloaded) {
+      return Array.isArray(planFromProps?.versions) ? planFromProps.versions : []
+    }
+    return versionsFromFetch
+  }, [preloaded, planFromProps, versionsFromFetch])
+
+  // URL signée effectivement affichée selon la version sélectionnée.
+  // - current : currentSignedUrl
+  // - V<N>    : versions[i].signed_url (preloaded) ou historicalUrls[N] (auth)
+  const effectiveSignedUrl = useMemo(() => {
+    if (selectedVersionNum == null) return currentSignedUrl
+    const ver = versions.find((v) => v.version_num === selectedVersionNum)
+    if (!ver) return currentSignedUrl
+    return ver.signed_url || historicalUrls[selectedVersionNum] || null
+  }, [selectedVersionNum, currentSignedUrl, versions, historicalUrls])
+
+  // file_type effectif (peut différer entre versions si format a changé).
+  const effectiveFileType = useMemo(() => {
+    if (selectedVersionNum == null) return plan?.file_type
+    const ver = versions.find((v) => v.version_num === selectedVersionNum)
+    return ver?.file_type || plan?.file_type
+  }, [selectedVersionNum, plan, versions])
 
   // Charge le plan + génère la signed URL à chaque ouverture (mode auth
   // uniquement — en mode preloaded on les a déjà via les props).
@@ -81,10 +120,15 @@ export default function PlanViewer({
     if (!planId) {
       setPlanFromFetch(null)
       setSignedUrlFromFetch(null)
+      setVersionsFromFetch([])
+      setSelectedVersionNum(null)
+      setHistoricalUrls({})
       setError(null)
       return
     }
     setChromeVisible(true)
+    setSelectedVersionNum(null)
+    setHistoricalUrls({})
     if (preloaded) {
       // Mode preloaded : rien à fetch, juste reset l'erreur.
       setError(null)
@@ -94,6 +138,7 @@ export default function PlanViewer({
     let cancelled = false
     setLoading(true)
     setError(null)
+    setVersionsFromFetch([])
     Promise.resolve()
       .then(async () => {
         const p = await getPlan(planId)
@@ -102,6 +147,19 @@ export default function PlanViewer({
         const url = await getSignedUrl(p.storage_path)
         if (cancelled) return
         setSignedUrlFromFetch(url)
+        // Si versions historiques existent, les charger en background
+        // (best-effort, ne bloque pas l'affichage du plan courant).
+        if (p.current_version > 1) {
+          listPlanVersions(p.id)
+            .then((vs) => {
+              if (!cancelled) setVersionsFromFetch(vs || [])
+            })
+            .catch((err) => {
+              if (!cancelled) {
+                console.warn('[PlanViewer] listPlanVersions error', err)
+              }
+            })
+        }
       })
       .catch((err) => {
         if (cancelled) return
@@ -115,6 +173,31 @@ export default function PlanViewer({
       cancelled = true
     }
   }, [planId, preloaded])
+
+  // Génère lazy la signed URL d'une version historique en mode auth quand
+  // l'utilisateur la sélectionne. En mode preloaded, l'URL est déjà dans le
+  // payload — pas de fetch nécessaire.
+  useEffect(() => {
+    if (preloaded || selectedVersionNum == null) return
+    if (historicalUrls[selectedVersionNum]) return
+    const ver = versions.find((v) => v.version_num === selectedVersionNum)
+    if (!ver?.storage_path) return
+    let cancelled = false
+    getSignedUrl(ver.storage_path)
+      .then((url) => {
+        if (cancelled) return
+        setHistoricalUrls((prev) => ({ ...prev, [selectedVersionNum]: url }))
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('[PlanViewer] historical signed URL error', err)
+        notify.error('Impossible de charger cette version')
+        setSelectedVersionNum(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [preloaded, selectedVersionNum, versions, historicalUrls])
 
   // ESC ferme la modale + lock body scroll quand ouverte.
   useEffect(() => {
@@ -133,7 +216,11 @@ export default function PlanViewer({
 
   if (!planId) return null
 
-  const isPdf = plan?.file_type === 'pdf'
+  const isPdf = effectiveFileType === 'pdf'
+  const hasHistoricalVersions = versions.length > 0
+  const currentVersionNum = plan?.current_version || 1
+  const displayedVersionNum = selectedVersionNum ?? currentVersionNum
+  const isViewingHistorical = selectedVersionNum != null
 
   return (
     <div
@@ -166,14 +253,24 @@ export default function PlanViewer({
           </h2>
           {plan && (
             <p className="text-[11px] truncate" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {plan.file_type?.toUpperCase()}
-              {plan.current_version > 1 && ` · V${plan.current_version}`}
+              {effectiveFileType?.toUpperCase()}
+              {currentVersionNum > 1 && ` · V${displayedVersionNum}`}
+              {isViewingHistorical && ' · ancienne version'}
             </p>
           )}
         </div>
-        {signedUrl && (
+        {/* Sélecteur de versions — visible si versions historiques dispo */}
+        {hasHistoricalVersions && (
+          <VersionsDropdown
+            versions={versions}
+            currentVersionNum={currentVersionNum}
+            selectedVersionNum={selectedVersionNum}
+            onSelect={setSelectedVersionNum}
+          />
+        )}
+        {effectiveSignedUrl && (
           <a
-            href={signedUrl}
+            href={effectiveSignedUrl}
             download={plan?.name}
             target="_blank"
             rel="noopener noreferrer"
@@ -216,12 +313,34 @@ export default function PlanViewer({
           </div>
         )}
 
-        {!loading && !error && plan && signedUrl && (
+        {!loading && !error && plan && effectiveSignedUrl && (
           <>{isPdf ? (
-            <PdfPagesViewer signedUrl={signedUrl} chromeVisible={chromeVisible} />
+            <PdfPagesViewer
+              key={effectiveSignedUrl}
+              signedUrl={effectiveSignedUrl}
+              chromeVisible={chromeVisible}
+            />
           ) : (
-            <ImageViewer src={signedUrl} alt={plan.name} chromeVisible={chromeVisible} />
+            <ImageViewer
+              key={effectiveSignedUrl}
+              src={effectiveSignedUrl}
+              alt={plan.name}
+              chromeVisible={chromeVisible}
+            />
           )}</>
+        )}
+        {/* Spinner si on est en train de charger une signed URL d'une
+            version historique sélectionnée (mode auth uniquement). */}
+        {!loading && !error && plan && !effectiveSignedUrl && isViewingHistorical && (
+          <div className="flex flex-col items-center justify-center h-full gap-2">
+            <Loader2
+              className="w-6 h-6 animate-spin"
+              style={{ color: 'rgba(255,255,255,0.6)' }}
+            />
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              Chargement de V{selectedVersionNum}…
+            </p>
+          </div>
         )}
       </div>
     </div>
@@ -565,6 +684,147 @@ function PdfPage({ dataUrl, pageNum, chromeVisible }) {
       </TransformWrapper>
     </div>
   )
+}
+
+/* ─── VersionsDropdown — sélecteur de version dans le header ─────────────── */
+
+function VersionsDropdown({
+  versions,
+  currentVersionNum,
+  selectedVersionNum,
+  onSelect,
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  // Fermeture au clic extérieur.
+  useEffect(() => {
+    if (!open) return undefined
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  function pick(num) {
+    onSelect(num)
+    setOpen(false)
+  }
+
+  // Liste finale : on ajoute la "version courante" en tête (qui n'est pas
+  // dans plan_versions — elle est sur la row plans elle-même), puis les
+  // versions historiques (V_n-1, V_n-2, ...).
+  // Tri descendant pour mettre la plus récente en haut.
+  const sorted = [...versions].sort((a, b) => b.version_num - a.version_num)
+  const displayedVersionNum = selectedVersionNum ?? currentVersionNum
+
+  function stop(e) {
+    e.stopPropagation()
+  }
+
+  return (
+    <div ref={menuRef} className="relative" onClick={stop}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
+        style={{ color: 'white', background: 'rgba(255,255,255,0.1)' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(255,255,255,0.18)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+        }}
+        title="Changer de version"
+      >
+        <History className="w-3.5 h-3.5" />
+        <span className="tabular-nums">V{displayedVersionNum}</span>
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 mt-1.5 z-50 rounded-lg overflow-hidden min-w-[220px] max-w-[280px]"
+          style={{
+            background: 'rgba(20,20,20,0.95)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+          }}
+        >
+          {/* Version courante en tête */}
+          <VersionRow
+            label={`V${currentVersionNum} · courante`}
+            sublabel="Dernière version"
+            isSelected={selectedVersionNum == null}
+            onClick={() => pick(null)}
+          />
+          {sorted.length > 0 && (
+            <div
+              className="text-[10px] uppercase tracking-widest font-bold px-3 pt-2 pb-1"
+              style={{
+                color: 'rgba(255,255,255,0.5)',
+                borderTop: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              Historique
+            </div>
+          )}
+          {sorted.map((v) => (
+            <VersionRow
+              key={v.id || v.version_num}
+              label={`V${v.version_num}`}
+              sublabel={
+                v.comment ||
+                (v.created_at ? formatVersionDate(v.created_at) : 'Version archivée')
+              }
+              isSelected={selectedVersionNum === v.version_num}
+              onClick={() => pick(v.version_num)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VersionRow({ label, sublabel, isSelected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
+      style={{
+        background: isSelected ? 'rgba(59,130,246,0.18)' : 'transparent',
+        color: 'white',
+      }}
+      onMouseEnter={(e) => {
+        if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'
+      }}
+      onMouseLeave={(e) => {
+        if (!isSelected) e.currentTarget.style.background = 'transparent'
+      }}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold truncate">{label}</div>
+        <div
+          className="text-[10px] truncate"
+          style={{ color: 'rgba(255,255,255,0.55)' }}
+        >
+          {sublabel}
+        </div>
+      </div>
+      {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+    </button>
+  )
+}
+
+function formatVersionDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
 /* ─── ZoomControls — barre flottante [+] [-] [Reset] en bas-left ───────── */
