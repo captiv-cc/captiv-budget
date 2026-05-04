@@ -16,7 +16,7 @@
 // 4/5 du chantier — clic sur card l'ouvrira via URL state ?plan=<id>.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
   Calendar,
@@ -124,6 +124,64 @@ export default function PlansTab() {
   const activeCategories = useMemo(
     () => categories.filter((c) => !c.is_archived),
     [categories],
+  )
+
+  // ── Drag & drop reorder ────────────────────────────────────────────────
+  // Le D&D opère sur toute la liste des plans actifs (sort_order global). On
+  // n'active le D&D que sur la vue "Toutes" sans search ni archived, sinon
+  // l'ordre perçu après filtrage serait incohérent (un drop sur l'index 2 de
+  // la vue filtrée changerait le sort_order absolu, donnant des ordres
+  // surprenants quand l'user retire le filtre).
+  const canReorder =
+    canEdit &&
+    activeCategoryId === 'all' &&
+    !search.trim() &&
+    !showArchived
+  const [dragState, setDragState] = useState(null) // { id, targetId, side: 'before'|'after' }
+
+  const handleDragStart = useCallback((id) => {
+    setDragState({ id, targetId: null, side: null })
+  }, [])
+  const handleDragOver = useCallback((targetId, side) => {
+    setDragState((prev) => {
+      if (!prev) return prev
+      if (prev.targetId === targetId && prev.side === side) return prev
+      return { ...prev, targetId, side }
+    })
+  }, [])
+  const handleDragLeave = useCallback((targetId) => {
+    setDragState((prev) => {
+      if (!prev || prev.targetId !== targetId) return prev
+      return { ...prev, targetId: null, side: null }
+    })
+  }, [])
+  const handleDragEnd = useCallback(() => {
+    setDragState(null)
+  }, [])
+  const handleDrop = useCallback(
+    async () => {
+      const ds = dragState
+      setDragState(null)
+      if (!ds?.id || !ds?.targetId || ds.id === ds.targetId) return
+      // Construit le nouvel ordre à partir de la liste filtrée affichée
+      // (qui est l'ordre actuel canonique puisque canReorder est true).
+      const ids = filteredPlans.map((p) => p.id)
+      const fromIdx = ids.indexOf(ds.id)
+      const toIdx = ids.indexOf(ds.targetId)
+      if (fromIdx < 0 || toIdx < 0) return
+      const insertIdx = ds.side === 'after' ? toIdx + 1 : toIdx
+      const newOrder = [...ids]
+      newOrder.splice(fromIdx, 1)
+      const adjustedInsert = insertIdx > fromIdx ? insertIdx - 1 : insertIdx
+      newOrder.splice(adjustedInsert, 0, ds.id)
+      try {
+        await actions.reorderPlans(newOrder)
+      } catch (err) {
+        console.error('[PlansTab] reorder error', err)
+        notify.error('Réorganisation échouée : ' + (err?.message || err))
+      }
+    },
+    [dragState, filteredPlans, actions],
   )
 
   // ── PlanViewer (URL state ?plan=<id>) ──────────────────────────────────
@@ -351,6 +409,16 @@ export default function PlansTab() {
               onArchive={() => handleArchive(plan)}
               onRestore={() => handleRestore(plan)}
               onDelete={() => handleHardDelete(plan)}
+              draggable={canReorder}
+              isDragging={dragState?.id === plan.id}
+              insertSide={
+                dragState?.targetId === plan.id ? dragState.side : null
+              }
+              onDragStart={() => handleDragStart(plan.id)}
+              onDragOver={(side) => handleDragOver(plan.id, side)}
+              onDragLeave={() => handleDragLeave(plan.id)}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
             />
           ))}
         </ul>
@@ -418,10 +486,45 @@ function CategoryChip({ active, onClick, label, count, color }) {
   )
 }
 
-function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestore, onDelete }) {
+function PlanCard({
+  plan,
+  category,
+  canEdit,
+  onOpen,
+  onEdit,
+  onArchive,
+  onRestore,
+  onDelete,
+  // Drag & drop reorder (optionnel — actif si draggable=true).
+  draggable = false,
+  isDragging = false,
+  insertSide = null, // 'before' | 'after' | null
+  onDragStart = null,
+  onDragOver = null,
+  onDragLeave = null,
+  onDrop = null,
+  onDragEnd = null,
+}) {
   const [menuOpen, setMenuOpen] = useState(false)
   const FileIcon = plan.file_type === 'pdf' ? FileText : ImageIcon
   const archived = plan.is_archived
+  const cardRef = useRef(null)
+
+  // Calcule la position d'insertion (before/after) selon la position du
+  // curseur par rapport à la card cible. Pattern aligné sur le D&D des
+  // blocs matériel : ligne d'insertion directionnelle pour clarifier.
+  function handleNativeDragOver(e) {
+    if (!draggable || !onDragOver) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = cardRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // Sur grille 2/3 cols, "before/after" = horizontal. La card est plus
+    // large que haute (ratio 4:3 vignette + meta), donc on prend le X.
+    const midX = rect.left + rect.width / 2
+    const side = e.clientX < midX ? 'before' : 'after'
+    onDragOver(side)
+  }
 
   // Vignette : signed URL générée à la volée (cache 10 min via Supabase).
   // Si pas de thumbnail_path (vieux plan ou génération échouée), on fallback
@@ -447,13 +550,57 @@ function PlanCard({ plan, category, canEdit, onOpen, onEdit, onArchive, onRestor
 
   return (
     <li
-      className="rounded-lg overflow-hidden transition-all flex flex-col"
+      ref={cardRef}
+      className="relative rounded-lg overflow-hidden transition-all flex flex-col"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
-        opacity: archived ? 0.6 : 1,
+        opacity: isDragging ? 0.4 : archived ? 0.6 : 1,
+        cursor: draggable ? 'grab' : 'default',
       }}
+      draggable={draggable || undefined}
+      onDragStart={
+        draggable
+          ? (e) => {
+              // Suppression de l'image fantôme par défaut sur certains
+              // browsers — on garde l'opacité 0.4 sur la card source
+              // comme indication.
+              e.dataTransfer.effectAllowed = 'move'
+              try {
+                e.dataTransfer.setData('text/plain', plan.id)
+              } catch {
+                /* noop */
+              }
+              onDragStart?.()
+            }
+          : undefined
+      }
+      onDragOver={draggable ? handleNativeDragOver : undefined}
+      onDragLeave={draggable ? () => onDragLeave?.() : undefined}
+      onDrop={
+        draggable
+          ? (e) => {
+              e.preventDefault()
+              onDrop?.()
+            }
+          : undefined
+      }
+      onDragEnd={draggable ? () => onDragEnd?.() : undefined}
     >
+      {/* Ligne d'insertion directionnelle (avant ou après la card cible).
+          Affichée sur tout le côté gauche ou droit — claire à 1px près
+          pour ne pas jouer sur le layout. */}
+      {insertSide && (
+        <div
+          className="absolute top-0 bottom-0 z-10 pointer-events-none"
+          style={{
+            width: 3,
+            background: 'var(--blue)',
+            boxShadow: '0 0 8px var(--blue)',
+            ...(insertSide === 'before' ? { left: -2 } : { right: -2 }),
+          }}
+        />
+      )}
       {/* Vignette en haut, pleine largeur, ratio 4:3 — clic = ouvrir le plan.
           - cursor zoom-in pour signaler l'interaction
           - max-height 280px pour cap mobile 1 col (la grille est en 2 col par
