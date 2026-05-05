@@ -35,6 +35,7 @@ import {
   detachProjectMember,
   createContactQuick,
   createSession,
+  joinSession,
   updateSession,
   deleteSession,
   syncMembreFromSessions,
@@ -486,6 +487,35 @@ export function useCrew(projectId) {
   }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
 
   /**
+   * Phase A/3 — fait rejoindre un membre à une session existante du
+   * projet (= ajoute juste une participation, pas de nouvelle session
+   * globale). Utilisé par les boutons "+ Template" en faible opacité
+   * et par la confirmation "Rejoindre" du form "+ Nouvelle".
+   *
+   * `sessionId` est l'id de la session globale (= participation.session_id
+   * dans le shape unifié).
+   */
+  const joinExistingSession = useCallback(async (principalMembreId, sessionId, payload = {}) => {
+    if (!principalMembreId) throw new Error('joinExistingSession: principalMembreId manquant')
+    if (!sessionId) throw new Error('joinExistingSession: sessionId manquant')
+    markLocal()
+    try {
+      const created = await joinSession(principalMembreId, sessionId, payload)
+      setSessions((prev) => [...prev, created])
+      const personaIds = getPersonaIds(principalMembreId)
+      const principalSessions = sessions.filter((s) => s.membre_id === principalMembreId)
+      const updated = [...principalSessions, created]
+      applyAggregateToMembersState(personaIds, updated)
+      await syncMembreFromSessions(personaIds, updated)
+      return created
+    } catch (e) {
+      console.error('[useCrew] joinExistingSession error:', e)
+      await reload()
+      throw e
+    }
+  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+
+  /**
    * Update une session (label, dates, lieu, couleur, statut, notes…).
    * Si des champs date/presence changent, on re-agrège et on sync les
    * rows persona derrière.
@@ -590,8 +620,9 @@ export function useCrew(projectId) {
     attachMember,
     detachMember,
     addContact,
-    // Sessions (Phase 0b)
+    // Sessions (Phase 0b + A)
     addSession,
+    joinExistingSession,
     updateMemberSession,
     removeSession,
   }

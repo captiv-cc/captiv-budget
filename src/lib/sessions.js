@@ -246,6 +246,35 @@ export function groupSessionsByMembre(sessions) {
 }
 
 /**
+ * Phase A — détection d'une session existante par (label, lieu).
+ *
+ * Sur le shape unifié (= participation enrichie par useCrew), `label` et
+ * `lieu_principal_text` viennent de la session globale partagée. Donc si
+ * on cherche "Tournage" + "Mtp", on trouvera la session globale qui a
+ * ces valeurs, peu importe combien de participants y sont déjà.
+ *
+ * Matching case-insensitive sur les deux critères (label et lieu trim+
+ * lowercase). Lieu vide accepté côté cible ET côté session.
+ *
+ * Retourne la 1ʳᵉ session matchant ou null. Le caller peut extraire le
+ * `session_id` pour appeler joinSession dessus.
+ */
+export function findMatchingSession(sessions, label, lieu) {
+  const targetLabel = (label || '').trim().toLowerCase()
+  if (!targetLabel) return null // sans label, pas de matching possible
+  const targetLieu = (lieu || '').trim().toLowerCase()
+  if (!Array.isArray(sessions)) return null
+  for (const s of sessions) {
+    const sLabel = (s.label || '').trim().toLowerCase()
+    if (sLabel !== targetLabel) continue
+    const sLieu = (s.lieu_principal_text || '').trim().toLowerCase()
+    if (sLieu !== targetLieu) continue
+    return s
+  }
+  return null
+}
+
+/**
  * Pour la grille de présence partagée : retourne pour chaque membre une Map
  * <iso, sessionId|null> qui indique quelle session est active chaque jour.
  * Permet ensuite de color-coder la grille jour par jour (cf. plan UI).

@@ -289,6 +289,63 @@ export async function createSession(membreId, payload = {}) {
 }
 
 /**
+ * Phase A/3 — fait rejoindre un membre à une session globale EXISTANTE,
+ * sans créer de nouvelle session. Crée juste 1 row dans
+ * projet_session_membres pointant vers `sessionId`.
+ *
+ * Les valeurs initiales de la participation sont héritées de la session
+ * globale (presence_days, start_date → arrival_date, end_date →
+ * departure_date) sauf si le payload les override.
+ *
+ * UNIQUE (session_id, membre_id) en DB → erreur Postgres si le membre
+ * est déjà participant. L'UI doit normalement éviter cet appel via les
+ * filtres côté templates, mais si ça arrive l'erreur remonte propre.
+ *
+ * @param {string} membreId   projet_membres.id du membre à ajouter
+ * @param {string} sessionId  projet_sessions.id de la session globale
+ * @param {Object} payload    overrides optionnels (presence_days,
+ *                            arrival_date, departure_date, statut, notes)
+ * @returns {Object} la participation au shape "session unifié"
+ */
+export async function joinSession(membreId, sessionId, payload = {}) {
+  if (!membreId) throw new Error('joinSession: membreId manquant')
+  if (!sessionId) throw new Error('joinSession: sessionId manquant')
+
+  // 1. Récupère la session globale pour les valeurs par défaut héritées.
+  const { data: session, error: e1 } = await supabase
+    .from('projet_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .single()
+  if (e1) throw e1
+
+  // 2. Crée la participation. Defaults = valeurs de la session globale ;
+  //    le payload peut override (ex. participer juste à une partie des
+  //    jours, ou avoir un transit perso).
+  const fallbackDays = Array.isArray(session.presence_days)
+    ? session.presence_days
+    : []
+  const { data: participation, error: e2 } = await supabase
+    .from('projet_session_membres')
+    .insert({
+      session_id: sessionId,
+      membre_id: membreId,
+      presence_days: Array.isArray(payload.presence_days)
+        ? payload.presence_days
+        : fallbackDays,
+      arrival_date: payload.arrival_date ?? session.start_date ?? null,
+      departure_date: payload.departure_date ?? session.end_date ?? null,
+      statut: payload.statut ?? 'planifie',
+      notes: payload.notes ?? null,
+    })
+    .select('*')
+    .single()
+  if (e2) throw e2
+
+  return flattenParticipation({ ...participation, session })
+}
+
+/**
  * Update une session unifiée. Split le payload entre session-level et
  * participation-level, puis update les bonnes tables.
  *
