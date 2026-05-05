@@ -97,6 +97,7 @@ export default function TechListView({
     attachMember,
     detachMember,
     // Sessions Phase 0b — exposées au MembreDrawer
+    sessions,
     sessionsByMembre,
     addSession,
     updateMemberSession,
@@ -536,6 +537,36 @@ export default function TechListView({
     () => (selectedLotId ? uncategorized.filter(rowMatchesLot) : uncategorized),
     [uncategorized, selectedLotId, rowMatchesLot],
   )
+
+  // ─── Sessions Phase 0b — templates pour ajout rapide ────────────────
+  // À partir de toutes les sessions du projet, on extrait des "templates"
+  // distincts par couple (label, lieu). Permet à l'admin, depuis la
+  // modale Présence d'un membre, de cloner en 1 clic une session déjà
+  // posée chez quelqu'un d'autre du projet (préfigure le futur "join
+  // shared session" de l'option a — sessions inter-membres).
+  //
+  // Format : [{ label, lieu, presence_days, arrival_date, departure_date }]
+  const projectSessionTemplates = useMemo(() => {
+    if (!Array.isArray(sessions) || sessions.length === 0) return []
+    const map = new Map()
+    for (const s of sessions) {
+      const label = (s.label || '').trim()
+      const lieu = (s.lieu_principal_text || '').trim()
+      // Pas de label → pas de template (on ne propose pas "Session N" anonymes)
+      if (!label) continue
+      const key = `${label.toLowerCase()}|${lieu.toLowerCase()}`
+      if (!map.has(key)) {
+        map.set(key, {
+          label,
+          lieu: lieu || null,
+          presence_days: Array.isArray(s.presence_days) ? [...s.presence_days] : [],
+          arrival_date: s.arrival_date || null,
+          departure_date: s.departure_date || null,
+        })
+      }
+    }
+    return [...map.values()]
+  }, [sessions])
   const filteredByCategory = useMemo(() => {
     if (!selectedLotId) return byCategory
     const out = {}
@@ -1080,6 +1111,27 @@ export default function TechListView({
         // (table absente / migration non jouée), fallback persona-level.
         sessions={
           presenceFor ? sessionsByMembre?.get?.(presenceFor.id) || [] : []
+        }
+        // Templates des sessions déjà posées ailleurs dans le projet, hors
+        // celles déjà chez ce membre (matching par label+lieu).
+        projectSessionTemplates={(() => {
+          if (!presenceFor) return []
+          const own = sessionsByMembre?.get?.(presenceFor.id) || []
+          const ownKeys = new Set(
+            own.map((s) =>
+              `${(s.label || '').trim().toLowerCase()}|${(s.lieu_principal_text || '').trim().toLowerCase()}`,
+            ),
+          )
+          return projectSessionTemplates.filter((t) => {
+            const k = `${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`
+            return !ownKeys.has(k)
+          })
+        })()}
+        // onCreateSession crée la session chez le principal courant via
+        // useCrew.addSession. Le hook gère sort_order, sync projet_membres
+        // et state Realtime.
+        onCreateSession={(payload) =>
+          presenceFor ? addSession(presenceFor.id, payload) : null
         }
         onSave={(fields, sessionId) => {
           if (!presenceFor) return undefined

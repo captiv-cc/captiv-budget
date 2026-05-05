@@ -37,6 +37,7 @@ import {
   Calendar,
   PlaneLanding,
   PlaneTakeoff,
+  Plus,
 } from 'lucide-react'
 import {
   WEEKDAYS_SHORT_FR,
@@ -66,6 +67,17 @@ export default function PresenceCalendarModal({
   // l'appelant route vers updateMemberSession plutôt que updatePersona.
   // Si non fournie ou vide → fallback comportement legacy (persona-level).
   sessions = null,
+  // Templates de sessions disponibles ailleurs sur le projet (= sessions
+  // d'autres membres pas encore chez le membre courant). Boutons "+ <Label>"
+  // affichés en faible opacité dans la barre du sélecteur. Click → crée
+  // une copie chez le membre courant via onCreateSession.
+  // Format : [{ label, lieu, presence_days, arrival_date, departure_date }]
+  projectSessionTemplates = [],
+  // Crée une session pour le membre courant. Reçoit un payload partiel
+  // (label, lieu_principal_text, presence_days, arrival/departure). Doit
+  // retourner la session créée (avec son id) pour qu'on puisse l'activer.
+  // Si non fournie → les boutons d'ajout sont cachés.
+  onCreateSession = null,
   onSave,
   periodes = null,
   anchorDate = null,
@@ -294,11 +306,14 @@ export default function PresenceCalendarModal({
           </button>
         </header>
 
-        {/* Sélecteur de session (Phase 0b) — visible seulement si 2+ sessions.
-            Permet à l'admin de choisir quelle session il édite. Les valeurs
-            affichées (presence_days, arrival, departure) se rechargent en
-            fonction de la session sélectionnée via l'effect plus haut. */}
-        {sortedSessions.length >= 2 && (
+        {/* Sélecteur de session (Phase 0b) — visible si :
+            - 2+ sessions (sélection multi)
+            - OU il y a des templates / un onCreateSession (zones d'ajout)
+            Permet à l'admin de choisir quelle session il édite, ou d'en
+            créer une nouvelle (vide ou clonée depuis une session existante
+            d'un autre membre du projet). */}
+        {(sortedSessions.length >= 2 ||
+          (onCreateSession && (sortedSessions.length >= 1 || projectSessionTemplates.length > 0))) && (
           <div
             className="flex items-center gap-2 px-5 py-3 border-b shrink-0 overflow-x-auto"
             style={{ borderColor: 'var(--brd-sub)' }}
@@ -338,6 +353,89 @@ export default function PresenceCalendarModal({
                 </button>
               )
             })}
+
+            {/* Boutons d'ajout rapide — visibles seulement quand
+                onCreateSession est branché (= contexte d'édition admin). */}
+            {onCreateSession && (
+              <>
+                {/* Templates des autres membres du projet (faible opacité).
+                    Click = duplique la session chez le membre courant
+                    (label + lieu + dates), équivalent UX d'un futur
+                    "join shared session" (option a). */}
+                {projectSessionTemplates.map((t, i) => {
+                  const display = t.lieu ? `${t.label} (${t.lieu})` : t.label
+                  return (
+                    <button
+                      key={`tpl-${i}-${t.label}-${t.lieu}`}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const created = await onCreateSession({
+                            label: t.label,
+                            lieu_principal_text: t.lieu || null,
+                            arrival_date: t.arrival_date || null,
+                            departure_date: t.departure_date || null,
+                            presence_days: Array.isArray(t.presence_days)
+                              ? [...t.presence_days]
+                              : [],
+                          })
+                          if (created?.id) setActiveSessionId(created.id)
+                        } catch (err) {
+                          console.error('[PresenceCalendarModal] template add error:', err)
+                          notify.error('Ajout impossible : ' + (err?.message || err))
+                        }
+                      }}
+                      className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-opacity"
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--txt-3)',
+                        border: '1px dashed var(--brd-sub)',
+                        opacity: 0.7,
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
+                      title={`Ajouter une session "${display}" (recopie les dates et le lieu)`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      {display}
+                    </button>
+                  )
+                })}
+
+                {/* Bouton "Nouvelle session" — vide, label par défaut
+                    "Session N" (auto via sort_order), à compléter ensuite. */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const created = await onCreateSession({
+                        label: null,
+                        lieu_principal_text: null,
+                        arrival_date: null,
+                        departure_date: null,
+                        presence_days: [],
+                      })
+                      if (created?.id) setActiveSessionId(created.id)
+                    } catch (err) {
+                      console.error('[PresenceCalendarModal] create error:', err)
+                      notify.error('Création impossible : ' + (err?.message || err))
+                    }
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-colors"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--blue)',
+                    border: '1px dashed var(--blue-brd)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-bg)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  title="Créer une nouvelle session vide pour ce membre"
+                >
+                  <Plus className="w-3 h-3" />
+                  Nouvelle
+                </button>
+              </>
+            )}
           </div>
         )}
 
