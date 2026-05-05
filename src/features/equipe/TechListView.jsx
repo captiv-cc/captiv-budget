@@ -1074,9 +1074,23 @@ export default function TechListView({
         onClose={() => setPresenceFor(null)}
         personaName={presenceFor?.persona ? fullNameFromPersona(presenceFor.persona) : ''}
         persona={presenceFor?.persona || null}
-        onSave={(fields) =>
-          presenceFor && updatePersona(presenceFor.persona_key, fields)
+        // Phase 0b : on passe les sessions du principal row pour que la
+        // modale affiche le sélecteur (si 2+) et route les écritures vers
+        // updateMemberSession au lieu de updatePersona. Si pas de sessions
+        // (table absente / migration non jouée), fallback persona-level.
+        sessions={
+          presenceFor ? sessionsByMembre?.get?.(presenceFor.id) || [] : []
         }
+        onSave={(fields, sessionId) => {
+          if (!presenceFor) return undefined
+          if (sessionId) {
+            // Édite la session active → la sync vers projet_membres se
+            // fait automatiquement côté useCrew.updateMemberSession.
+            return updateMemberSession(sessionId, fields)
+          }
+          // Legacy fallback : pas de session disponible
+          return updatePersona(presenceFor.persona_key, fields)
+        }}
         periodes={periodes}
         anchorDate={tournageAnchor}
       />

@@ -48,6 +48,11 @@ import {
   startOfMonth,
 } from '../../planning/dateUtils'
 import { PERIODE_KEYS, PERIODE_META, expandDays, hasAnyRange } from '../../../lib/projectPeriodes'
+import {
+  effectiveCouleur,
+  effectiveLabel,
+  sortSessions,
+} from '../../../lib/sessions'
 import { notify } from '../../../lib/notify'
 
 export default function PresenceCalendarModal({
@@ -55,13 +60,30 @@ export default function PresenceCalendarModal({
   onClose,
   personaName = '—',
   persona = null, // { presence_days, arrival_date, arrival_time, logistique_notes }
+  // Sessions Phase 0b — quand cette prop est fournie, la modale édite UNE
+  // session à la fois (sélectionnable si 2+) au lieu d'écrire sur le
+  // persona agrégé. onSave reçoit alors la sessionId en 2ᵉ argument et
+  // l'appelant route vers updateMemberSession plutôt que updatePersona.
+  // Si non fournie ou vide → fallback comportement legacy (persona-level).
+  sessions = null,
   onSave,
   periodes = null,
   anchorDate = null,
 }) {
-  const initialPresence = persona?.presence_days || []
-  const initialArrivalDate = persona?.arrival_date || ''
-  const initialDepartureDate = persona?.departure_date || ''
+  // Sessions triées et session active courante (par défaut la 1ʳᵉ).
+  const sortedSessions = useMemo(() => sortSessions(sessions || []), [sessions])
+  const [activeSessionId, setActiveSessionId] = useState(null)
+  const activeSession = useMemo(
+    () => sortedSessions.find((s) => s.id === activeSessionId) || null,
+    [sortedSessions, activeSessionId],
+  )
+
+  // Source de vérité affichée : la session active si fournie, sinon le
+  // persona agrégé (comportement legacy).
+  const effectiveData = activeSession || persona
+  const initialPresence = effectiveData?.presence_days || []
+  const initialArrivalDate = effectiveData?.arrival_date || ''
+  const initialDepartureDate = effectiveData?.departure_date || ''
 
   const [selected, setSelected] = useState(new Set(initialPresence))
   const [arrivalDate, setArrivalDate] = useState(initialArrivalDate)
@@ -86,15 +108,30 @@ export default function PresenceCalendarModal({
     return startOfMonth(new Date())
   })
 
-  // Reset à l'ouverture
+  // Reset à l'ouverture + à chaque switch de session active. Quand on
+  // ouvre la modale et qu'on a des sessions, on initialise la sélection
+  // active sur la 1ʳᵉ session par sort_order.
   useEffect(() => {
-    if (open) {
-      setSelected(new Set(persona?.presence_days || []))
-      setArrivalDate(persona?.arrival_date || '')
-      setDepartureDate(persona?.departure_date || '')
-      setPickerMode('presence')
+    if (!open) return
+    // Si on a des sessions et pas encore de session active sélectionnée,
+    // on prend la 1ère par défaut.
+    if (sortedSessions.length && !activeSessionId) {
+      setActiveSessionId(sortedSessions[0].id)
+      return // Le prochain run du même effect (avec activeSessionId set) fera le reset
     }
+    // Reset des champs depuis la source courante (active session ou persona)
+    const src = activeSession || persona
+    setSelected(new Set(src?.presence_days || []))
+    setArrivalDate(src?.arrival_date || '')
+    setDepartureDate(src?.departure_date || '')
+    setPickerMode('presence')
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeSessionId, sortedSessions])
+
+  // Reset l'activeSessionId à la fermeture (sinon en réouvrant on
+  // afficherait l'ancienne session active même si la liste a changé).
+  useEffect(() => {
+    if (!open) setActiveSessionId(null)
   }, [open])
 
   // ESC en mode picker → annule le picker (sans fermer la modale)
@@ -168,11 +205,17 @@ export default function PresenceCalendarModal({
       // logistique (heures, hébergement, chauffeur, notes) restent gérés
       // par la future tab Logistique — on ne les touche plus depuis ici
       // pour éviter d'écraser des valeurs saisies ailleurs.
-      await onSave?.({
-        presence_days,
-        arrival_date: arrivalDate || null,
-        departure_date: departureDate || null,
-      })
+      // Phase 0b : si une session est active, on la passe en 2ᵉ argument
+      // pour que l'appelant route vers updateMemberSession (sinon il
+      // retombe sur updatePersona — chemin legacy).
+      await onSave?.(
+        {
+          presence_days,
+          arrival_date: arrivalDate || null,
+          departure_date: departureDate || null,
+        },
+        activeSessionId,
+      )
       onClose?.()
     } catch (err) {
       // Cause typique : migration SQL pas encore passée → "column X does
@@ -250,6 +293,53 @@ export default function PresenceCalendarModal({
             <X className="w-4 h-4" />
           </button>
         </header>
+
+        {/* Sélecteur de session (Phase 0b) — visible seulement si 2+ sessions.
+            Permet à l'admin de choisir quelle session il édite. Les valeurs
+            affichées (presence_days, arrival, departure) se rechargent en
+            fonction de la session sélectionnée via l'effect plus haut. */}
+        {sortedSessions.length >= 2 && (
+          <div
+            className="flex items-center gap-2 px-5 py-3 border-b shrink-0 overflow-x-auto"
+            style={{ borderColor: 'var(--brd-sub)' }}
+          >
+            <span
+              className="text-[10px] uppercase tracking-widest font-bold shrink-0"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Session
+            </span>
+            {sortedSessions.map((s) => {
+              const isActive = s.id === activeSessionId
+              const couleur = effectiveCouleur(s)
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setActiveSessionId(s.id)}
+                  className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-colors"
+                  style={{
+                    background: isActive ? `#${couleur}22` : 'transparent',
+                    color: isActive ? `#${couleur}` : 'var(--txt-2)',
+                    border: `1px solid ${isActive ? `#${couleur}` : 'var(--brd-sub)'}`,
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                  title={
+                    s.lieu_principal_text
+                      ? `${effectiveLabel(s)} · ${s.lieu_principal_text}`
+                      : effectiveLabel(s)
+                  }
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: `#${couleur}` }}
+                  />
+                  {effectiveLabel(s)}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Sélection rapide par période */}
         {periodes && (
