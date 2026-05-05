@@ -84,11 +84,35 @@ export default function MaterielTab() {
     othersEditingByItem,
     setMyEditingItemId,
   } = useMaterielPresence(projectId)
+  const {
+    loading,
+    detailLoading,
+    versions,
+    activeVersion,
+    activeVersionId,
+    setActiveVersionId,
+    blocks,
+    items,
+    itemsByBlock,
+    loueursByItem,
+    loueursById,
+    loueurs,
+    materielBdd,
+    flagCounts,
+    checklistProgress,
+    recapByLoueur,
+    detailed,
+    setDetailed,
+    infosLogistiqueByLoueur, // MAT-20
+    actions,
+  } = mat
 
   // ─── MAT-DUP-HIGHLIGHT : feedback visuel après duplication d'un bloc ────
   // Quand l'user duplique un bloc, on met l'id du nouveau dans cet état :
   // BlockList le propage à Block, qui scroll dessus + affiche un ring bleu
-  // pulsant pendant ~2.5s. Auto-clear par timeout.
+  // pendant ~2.5s. Auto-clear par timeout.
+  // Note d'ordre : ce bloc DOIT venir APRÈS la destructure `actions` ci-dessus,
+  // sinon ReferenceError: cannot access 'actions' before initialization (TDZ).
   const [highlightedBlockId, setHighlightedBlockId] = useState(null)
   const highlightTimerRef = useRef(null)
   const triggerBlockHighlight = useCallback((blockId) => {
@@ -116,28 +140,6 @@ export default function MaterielTab() {
     }),
     [actions, triggerBlockHighlight],
   )
-  const {
-    loading,
-    detailLoading,
-    versions,
-    activeVersion,
-    activeVersionId,
-    setActiveVersionId,
-    blocks,
-    items,
-    itemsByBlock,
-    loueursByItem,
-    loueursById,
-    loueurs,
-    materielBdd,
-    flagCounts,
-    checklistProgress,
-    recapByLoueur,
-    detailed,
-    setDetailed,
-    infosLogistiqueByLoueur, // MAT-20
-    actions,
-  } = mat
 
   const [recapOpen, setRecapOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
