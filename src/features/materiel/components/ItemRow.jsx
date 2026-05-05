@@ -56,6 +56,13 @@ export default function ItemRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  // ─── Soft-lock collaboratif (pattern aligné AttributionRow) ────────────
+  // editingByOther : { user_id, full_name } | null — un autre admin édite
+  //   actuellement cette ligne. Si non null → bordure ambrée + tooltip.
+  // onEditingChange : (itemId | null) => void — broadcaste mon état
+  //   d'édition courant (focus dans la row → item.id / focus quitte → null).
+  editingByOther = null,
+  onEditingChange = null,
 }) {
   const isConfig = blockAffichage === 'config'
 
@@ -165,12 +172,32 @@ export default function ItemRow({
   // Indicateur d'insertion : box-shadow externe 3px bleu au-dessus si on
   // drop avant, en-dessous si on drop après. Fonctionne sur <tr> en mode
   // border-collapse: separate (défaut sans tailwind class).
-  const insertShadow =
-    dragInsertPosition === 'before'
+  // Soft lock collab : si editingByOther → ring ambré 3px à GAUCHE du tr
+  // (pour signaler "quelqu'un édite" sans gêner l'indicateur drop top/bottom).
+  const insertShadow = editingByOther
+    ? 'inset 3px 0 0 0 var(--amber)'
+    : dragInsertPosition === 'before'
       ? '0 -3px 0 0 var(--blue)'
       : dragInsertPosition === 'after'
         ? '0 3px 0 0 var(--blue)'
         : 'none'
+
+  // ─── Soft-lock : focus capture handlers ──────────────────────────────
+  // onFocusCapture sur le <tr> : focus entre dans n'importe quel input
+  //   descendant → on broadcaste item.id.
+  // onBlurCapture : focus sort. On vérifie e.relatedTarget pour ne pas
+  //   reset si le focus passe d'un input à un autre DANS la même row
+  //   (ex : tab vers la qté). Pattern identique à AttributionRow.
+  const handleRowFocusEnter = () => {
+    if (!canEdit || !onEditingChange) return
+    onEditingChange(item.id)
+  }
+  const handleRowFocusLeave = (e) => {
+    if (!canEdit || !onEditingChange) return
+    const next = e.relatedTarget
+    if (next && e.currentTarget.contains(next)) return
+    onEditingChange(null)
+  }
 
   return (
     <tr
@@ -213,10 +240,16 @@ export default function ItemRow({
             }
           : undefined
       }
+      onFocusCapture={handleRowFocusEnter}
+      onBlurCapture={handleRowFocusLeave}
+      title={
+        editingByOther ? `${editingByOther.full_name} édite cette ligne` : undefined
+      }
       style={{
         borderBottom: '1px solid var(--brd-sub)',
         boxShadow: insertShadow,
-        transition: 'box-shadow 100ms ease',
+        background: editingByOther ? 'var(--amber-bg)' : undefined,
+        transition: 'box-shadow 100ms ease, background 100ms ease',
       }}
     >
       {/* Grip drag handle — seul élément qui "arme" le drag.

@@ -42,6 +42,12 @@ export default function BlockList({
   actions,
   canEdit = true,
   detailed = false,
+  // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
+  //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
+  //   - onItemEditingChange : (itemId | null) => void — broadcaste mon
+  //     état d'édition courant via le hook usePresence du parent.
+  othersEditingByItem = null,
+  onItemEditingChange = null,
 }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const menuRef = useRef(null)
@@ -273,6 +279,8 @@ export default function BlockList({
           actions={actions}
           canEdit={canEdit}
           detailed={detailed}
+          othersEditingByItem={othersEditingByItem}
+          onItemEditingChange={onItemEditingChange}
           // Drag bloc (inchangé)
           dragInsertPosition={
             dragOverInfo?.idx === idx ? dragOverInfo.position : null

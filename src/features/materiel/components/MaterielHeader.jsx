@@ -63,6 +63,7 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint'
 import ActionSheet from '../../../components/ActionSheet'
 import VersionSwitcher from './VersionSwitcher'
 import ExportPdfMenu from './ExportPdfMenu'
+import PresenceAvatars from '../../equipe/components/PresenceAvatars'
 
 export default function MaterielHeader({
   totalItems = 0,
@@ -103,6 +104,10 @@ export default function MaterielHeader({
   onCloseRendu,
   onReopenRendu,
   canEdit = true,
+  // EQUIPE-RT-PRESENCE pattern : avatars des autres admins actuellement sur
+  // la page Matériel, affichés à droite ligne 1 (même UX que la tab Équipe).
+  // Array<{user_id, full_name, email}> — vide → rien d'affiché.
+  presenceOthers = [],
 }) {
   const closedAt = activeVersion?.closed_at || null
   const closedByName = activeVersion?.closed_by_name || null
@@ -230,6 +235,14 @@ export default function MaterielHeader({
           <FlagPill flag="ok" count={flagCounts?.ok || 0} />
           <FlagPill flag="attention" count={flagCounts?.attention || 0} />
           <FlagPill flag="probleme" count={flagCounts?.probleme || 0} />
+        </div>
+
+        {/* Présence collaborative (avatars autres admins) — pushed right.
+            Affiché uniquement s'il y a au moins un autre admin sur la page
+            (PresenceAvatars retourne null sinon). Pattern aligné avec
+            la tab Équipe pour une UX cohérente entre tabs. */}
+        <div className="ml-auto">
+          <PresenceAvatars othersOnPage={presenceOthers} />
         </div>
       </div>
 

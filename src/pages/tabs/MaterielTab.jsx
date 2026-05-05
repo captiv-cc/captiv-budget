@@ -21,6 +21,7 @@ import { Package, Plus } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useMateriel } from '../../hooks/useMateriel'
+import { useMaterielPresence } from '../../hooks/useMaterielPresence'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
 import { notify } from '../../lib/notify'
@@ -75,6 +76,14 @@ export default function MaterielTab() {
   const canEdit = can(OUTIL_KEY, 'edit')
 
   const mat = useMateriel(projectId)
+  // EQUIPE-RT-PRESENCE pattern : présence collaborative + soft-lock per-item.
+  // Affiche les avatars des autres admins en haut à droite (MaterielHeader)
+  // et highlight les ItemRow en cours d'édition par un autre admin.
+  const {
+    othersOnPage: presenceOthers,
+    othersEditingByItem,
+    setMyEditingItemId,
+  } = useMaterielPresence(projectId)
   const {
     loading,
     detailLoading,
@@ -647,6 +656,7 @@ export default function MaterielTab() {
         onCloseRendu={handleCloseRendu}
         onReopenRendu={handleReopenRendu}
         canEdit={canEdit}
+        presenceOthers={presenceOthers}
       />
 
       <div className="p-5 flex-1">
@@ -673,6 +683,8 @@ export default function MaterielTab() {
               actions={actions}
               canEdit={canEdit}
               detailed={detailed}
+              othersEditingByItem={othersEditingByItem}
+              onItemEditingChange={setMyEditingItemId}
             />
             <LoueurDocsPanel versionId={activeVersionId} canEdit={canEdit} />
           </>

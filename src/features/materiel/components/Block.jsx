@@ -55,6 +55,11 @@ export default function Block({
   actions,
   canEdit = true,
   detailed = false,
+  // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
+  //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
+  //   - onItemEditingChange : (itemId | null) => void — broadcast.
+  othersEditingByItem = null,
+  onItemEditingChange = null,
   // ─── Drag bloc (insertion line directionnelle entre blocs) ────────────
   dragInsertPosition = null,
   onBlockDragStart,
@@ -685,6 +690,8 @@ export default function Block({
                   }
                   onDrop={itemDndEnabled ? onItemDrop : undefined}
                   onDragEnd={itemDndEnabled ? onItemDragEnd : undefined}
+                  editingByOther={othersEditingByItem?.get(item.id) || null}
+                  onEditingChange={onItemEditingChange}
                 />
               ))
             )}
