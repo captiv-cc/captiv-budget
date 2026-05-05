@@ -379,46 +379,6 @@ export default function AttributionRow({
                 +{nbAttached}
               </span>
             )}
-            {/* Chips de sessions (Phase 0b) — affichées seulement si 2+
-                sessions. Chaque chip = couleur de la session + label court.
-                Tooltip = label complet + dates. Click = ouvre le drawer
-                pour permettre d'éditer cette session. */}
-            {showSessionChips &&
-              orderedSessions.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onOpenMembre?.(row)
-                  }}
-                  title={[
-                    effectiveLabel(s),
-                    s.arrival_date && s.departure_date
-                      ? `${s.arrival_date} → ${s.departure_date}`
-                      : null,
-                    s.lieu_principal_text || null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                  className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 inline-flex items-center gap-1 transition-opacity"
-                  style={{
-                    background: `#${effectiveCouleur(s)}22`, // 13% opacity
-                    color: `#${effectiveCouleur(s)}`,
-                    border: `1px solid #${effectiveCouleur(s)}55`,
-                    cursor: onOpenMembre ? 'pointer' : 'default',
-                    maxWidth: 120,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ background: `#${effectiveCouleur(s)}` }}
-                  />
-                  <span className="truncate">{effectiveLabel(s)}</span>
-                </button>
-              ))}
             {/* Mobile : Devis link inline avec le poste (au lieu de la
                 row 3 séparée). Garde l'espace cohérent quand pas de devis
                 (badge sans contenu de fond). */}
@@ -597,6 +557,47 @@ export default function AttributionRow({
           <span className="text-[11px] italic flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
             <Calendar className="w-3 h-3" />
             Présence
+          </span>
+        ) : showSessionChips ? (
+          // Multi-sessions (Phase 0b) : on remplace le résumé agrégé +
+          // avions par une liste de mini-chips colorées, une par session.
+          // Plus expressif quand on gère 2+ séjours distincts ; les avions
+          // J-N de l'agrégat sont cachés ici car peu pertinents (chaque
+          // session a son propre arrival/departure géré dans le drawer).
+          <span className="flex items-center gap-1 flex-wrap min-w-0">
+            {orderedSessions.map((s) => {
+              const dateStr =
+                condensePresenceDays(s.presence_days || []) ||
+                (s.arrival_date && s.departure_date
+                  ? `${s.arrival_date.slice(8, 10)}-${s.departure_date.slice(8, 10)}/${s.departure_date.slice(5, 7)}`
+                  : '?')
+              return (
+                <span
+                  key={s.id}
+                  className="text-[10px] px-1 py-0.5 rounded inline-flex items-center gap-1 shrink-0"
+                  style={{
+                    background: `#${effectiveCouleur(s)}22`,
+                    color: `#${effectiveCouleur(s)}`,
+                    border: `1px solid #${effectiveCouleur(s)}55`,
+                  }}
+                  title={[
+                    effectiveLabel(s),
+                    s.arrival_date && s.departure_date
+                      ? `Dates : ${s.arrival_date} → ${s.departure_date}`
+                      : null,
+                    s.lieu_principal_text || null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: `#${effectiveCouleur(s)}` }}
+                  />
+                  {dateStr}
+                </span>
+              )
+            })}
           </span>
         ) : (
           <>
