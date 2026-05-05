@@ -595,18 +595,24 @@ export default function PresenceCalendarModal({
                       )
                       // Debug helper — aide l'admin si la détection
                       // ne se déclenche pas alors qu'il s'y attendait.
-                      // Visible uniquement dans la console DevTools.
+                      // Affichage lisible avec JSON.stringify pour
+                      // qu'on puisse voir TOUTE la liste d'un coup
+                      // sans cliquer dans DevTools.
                       // À retirer une fois la phase A stabilisée.
                       if (!match && projectSessionTemplates?.length) {
+                        const tplDump = projectSessionTemplates
+                          .map(
+                            (t, idx) =>
+                              `  [${idx}] label=${JSON.stringify(t.label)}` +
+                              ` lieu=${JSON.stringify(t.lieu)}` +
+                              ` already_in=${t.member_already_in ?? false}` +
+                              ` session_id=${t.session_id || '(none)'}`,
+                          )
+                          .join('\n')
                         console.warn(
-                          '[PresenceCalendarModal] no match for',
-                          { label: labelTrim, lieu: lieuTrim },
-                          'against templates :',
-                          projectSessionTemplates.map((t) => ({
-                            label: t.label,
-                            lieu: t.lieu,
-                            already_in: t.member_already_in,
-                          })),
+                          `[PresenceCalendarModal] aucune session ne match.\n` +
+                            `Recherché : label=${JSON.stringify(labelTrim)} lieu=${JSON.stringify(lieuTrim)}\n` +
+                            `Templates connus (${projectSessionTemplates.length}) :\n${tplDump}`,
                         )
                       }
                       if (match) {
