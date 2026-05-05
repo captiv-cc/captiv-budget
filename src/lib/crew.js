@@ -101,6 +101,47 @@ export async function fetchProjectMembers(projectId) {
 }
 
 /**
+ * Charge toutes les sessions des membres d'un projet.
+ *
+ * Phase 0a : la table `projet_membres_sessions` a été seedée — chaque
+ * membre a au moins 1 session avec ses dates héritées. On fetch ici
+ * pour les exposer côté hook, mais la source de vérité actuelle reste
+ * `projet_membres.arrival_date / departure_date / presence_days`.
+ *
+ * RLS : les policies sur `projet_membres_sessions` font la jointure
+ * vers `projet_membres` puis vers `can_read_outil('equipe', project_id)`.
+ * Donc pas besoin de filtrer par project_id côté query — on récupère
+ * automatiquement les sessions des membres qu'on est autorisé à voir.
+ *
+ * On fait quand même une jointure sur `projet_membres(project_id)` pour
+ * pouvoir filtrer côté client si besoin (cohérence avec le pattern
+ * fetchProjectMembers).
+ */
+export async function fetchProjectSessions(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_membres_sessions')
+    .select(`
+      *,
+      membre:projet_membres!inner(project_id)
+    `)
+    .eq('membre.project_id', projectId)
+    .order('membre_id', { ascending: true })
+    .order('sort_order', { ascending: true })
+  if (error) {
+    // Tolérant : si la migration n'a pas tourné (table absente), on log
+    // et on retourne vide. Le hook retombera sur les colonnes legacy.
+    console.warn('[fetchProjectSessions] could not load sessions:', error?.message)
+    return []
+  }
+  // On retire la jointure helper (`membre`) qui ne sert qu'au filtre RLS.
+  return (data || []).map((s) => {
+    const { membre: _ignored, ...rest } = s
+    return rest
+  })
+}
+
+/**
  * Liste les contacts de l'org (pour le ContactPicker).
  * Filtre les inactifs côté JS via la colonne `actif` (boolean — true par défaut).
  * Note : la table contacts n'a pas de colonne `archived` ; on utilise `actif`

@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
   fetchProjectMembers,
+  fetchProjectSessions,
   fetchOrgContacts,
   createProjectMember,
   updateProjectMember,
@@ -40,11 +41,16 @@ import {
   personaKey,
   PERSONA_LEVEL_FIELDS,
 } from '../lib/crew'
+import { groupSessionsByMembre } from '../lib/sessions'
 
 export function useCrew(projectId) {
   const { org } = useAuth()
   const [members, setMembers] = useState([])
   const [contacts, setContacts] = useState([])
+  // Sessions Phase 0a : on charge les sessions des membres en parallèle.
+  // Pour l'instant elles sont juste exposées en lecture (sessionsByMembre).
+  // Source de vérité reste sur projet_membres jusqu'à la bascule Phase 0b.
+  const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -71,19 +77,22 @@ export function useCrew(projectId) {
   const reload = useCallback(async () => {
     if (!projectId) {
       setMembers([])
+      setSessions([])
       setLoading(false)
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const [m, c] = await Promise.all([
+      const [m, c, s] = await Promise.all([
         fetchProjectMembers(projectId),
         fetchOrgContacts(),
+        fetchProjectSessions(projectId),
       ])
       if (!aliveRef.current) return
       setMembers(m)
       setContacts(c)
+      setSessions(s)
     } catch (e) {
       console.error('[useCrew] reload error:', e)
       if (aliveRef.current) setError(e)
@@ -139,6 +148,20 @@ export function useCrew(projectId) {
         },
         debouncedReload,
       )
+      // Sessions Phase 0a : on ne peut pas filtrer par project_id côté
+      // server (la colonne n'existe pas sur projet_membres_sessions, le
+      // lien passe par membre_id). On reçoit donc TOUS les events de
+      // sessions de l'org — la RLS filtre déjà ce qu'on est autorisé à
+      // voir, et le debounce/refetch global gère le bruit.
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projet_membres_sessions',
+        },
+        debouncedReload,
+      )
       .subscribe()
     return () => {
       if (timer) clearTimeout(timer)
@@ -159,6 +182,11 @@ export function useCrew(projectId) {
     for (const c of contacts) m.set(c.id, c)
     return m
   }, [contacts])
+
+  // Sessions regroupées par membre_id pour lookup rapide depuis les composants
+  // qui rendent une row (chips colorées, grille présence colorée…).
+  // Map<membre_id, sessions[]>. Trie par sort_order assuré par le helper.
+  const sessionsByMembre = useMemo(() => groupSessionsByMembre(sessions), [sessions])
 
   // ─── Mutations projet_membres (optimistic) ────────────────────────────────
 
@@ -382,6 +410,7 @@ export function useCrew(projectId) {
     // data brut
     members,
     contacts,
+    sessions,
     // dérivés
     personae,
     techlistRows,
@@ -389,6 +418,7 @@ export function useCrew(projectId) {
     byCategory,
     categories,
     contactsById,
+    sessionsByMembre,
     // état
     loading,
     error,
