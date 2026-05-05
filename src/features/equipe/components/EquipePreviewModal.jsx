@@ -91,19 +91,50 @@ export default function EquipePreviewModal({
     [members],
   )
 
-  // Sessions Phase 0b : nombre maximum de sessions chez un membre du
-  // projet. Sert à afficher la légende des couleurs UNIQUEMENT quand au
-  // moins un membre a 2+ sessions (sinon la grille est vert classique
-  // partout, pas besoin de légende). Le résultat encadre aussi le nombre
-  // de chips à afficher dans la légende (palette déterministe).
-  const maxSessionsCount = useMemo(() => {
-    if (!sessionsByMembre) return 0
+  // Sessions Phase 0b : pour chaque sort_order utilisé dans le projet,
+  // on agrège les labels et lieux distincts. Si tous les membres
+  // multi-sessions ont le MÊME label à cette position (cas typique :
+  // "Essais" / "Tournage" sur plusieurs personnes), on l'affiche dans
+  // la légende. Sinon on retombe sur "Session N".
+  //
+  // La légende n'apparaît que si au moins UN membre a 2+ sessions.
+  const sessionsLegendItems = useMemo(() => {
+    if (!sessionsByMembre) return []
+    // 1. Recense par sort_order les labels & lieux observés (uniquement
+    //    chez les membres multi-sessions, pour ne pas polluer la légende
+    //    avec la session 1 par défaut des membres mono-session).
+    const byOrder = new Map() // Map<order, { labels:Set, lieux:Set }>
     let max = 0
     for (const m of members) {
       const list = sessionsByMembre.get?.(m.id) || []
-      if (list.length > max) max = list.length
+      if (list.length < 2) continue
+      for (const s of list) {
+        const order = Number(s.sort_order) || 1
+        if (order > max) max = order
+        if (!byOrder.has(order)) byOrder.set(order, { labels: new Set(), lieux: new Set() })
+        const entry = byOrder.get(order)
+        const trimLabel = (s.label || '').trim()
+        if (trimLabel) entry.labels.add(trimLabel)
+        const trimLieu = (s.lieu_principal_text || '').trim()
+        if (trimLieu) entry.lieux.add(trimLieu)
+      }
     }
-    return max
+    if (max < 2) return []
+    // 2. Pour chaque position 1..max, choisis le label/lieu si unique,
+    //    sinon laisse vide (le composant légende affichera "Session N").
+    const items = []
+    for (let i = 1; i <= max; i += 1) {
+      const entry = byOrder.get(i)
+      const labels = entry ? [...entry.labels] : []
+      const lieux = entry ? [...entry.lieux] : []
+      items.push({
+        sortOrder: i,
+        color: paletteAt(i),
+        label: labels.length === 1 ? labels[0] : null,
+        lieu: lieux.length === 1 ? lieux[0] : null,
+      })
+    }
+    return items
   }, [members, sessionsByMembre])
 
   // Quand un lot est sélectionné côté EquipeTab, on n'affiche pas la
@@ -235,8 +266,8 @@ export default function EquipePreviewModal({
             </div>
           ) : (
             <>
-              {maxSessionsCount >= 2 && (
-                <SessionsLegend count={maxSessionsCount} />
+              {sessionsLegendItems.length >= 2 && (
+                <SessionsLegend items={sessionsLegendItems} />
               )}
               <ResponsiveContent
                 sections={sections}
@@ -258,21 +289,17 @@ export default function EquipePreviewModal({
 
 // ─── Légende sessions (Phase 0b) ──────────────────────────────────────────
 //
-// Affichée seulement si au moins un membre du projet a 2+ sessions. La
-// palette est déterministe par sort_order (même bleu = session 1 partout,
-// même teal = session 2, etc.), donc une légende globale est correcte
-// pour signaler "Session N = couleur N". Le label exact ("Essais cams"
-// vs "Tournage") reste dans le tooltip de chaque cellule, car il est
-// per-membre.
+// Affichée seulement si au moins un membre du projet a 2+ sessions. Les
+// items sont calculés au niveau du modal (cf. sessionsLegendItems) :
+// pour chaque sort_order, si un label commun existe entre tous les
+// membres multi-sessions on l'affiche, format "Label (Lieu)". Sinon on
+// retombe sur "Session N".
+//
+// La palette est déterministe par sort_order, donc Session 1 = même bleu
+// pour tout le monde. L'info per-membre exacte reste dans le tooltip
+// des cellules X colorées.
 
-function SessionsLegend({ count }) {
-  // On affiche jusqu'à `count` chips, mais on plafonne à 8 (taille de la
-  // palette) pour éviter de boucler.
-  const n = Math.max(2, Math.min(count, 8))
-  const items = Array.from({ length: n }, (_, i) => ({
-    sortOrder: i + 1,
-    color: paletteAt(i + 1),
-  }))
+function SessionsLegend({ items }) {
   return (
     <div
       className="rounded-md px-3 py-2 mb-3 flex items-center gap-3 flex-wrap"
@@ -287,24 +314,31 @@ function SessionsLegend({ count }) {
       >
         Sessions
       </span>
-      {items.map((it) => (
-        <span
-          key={it.sortOrder}
-          className="text-[11px] inline-flex items-center gap-1.5"
-          style={{ color: 'var(--txt-2)' }}
-        >
+      {items.map((it) => {
+        const display = it.label
+          ? it.lieu
+            ? `${it.label} (${it.lieu})`
+            : it.label
+          : `Session ${it.sortOrder}`
+        return (
           <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: `#${it.color}` }}
-          />
-          Session {it.sortOrder}
-        </span>
-      ))}
+            key={it.sortOrder}
+            className="text-[11px] inline-flex items-center gap-1.5"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: `#${it.color}` }}
+            />
+            {display}
+          </span>
+        )
+      })}
       <span
         className="text-[10px] italic ml-auto"
         style={{ color: 'var(--txt-3)' }}
       >
-        Survolez une cellule pour le label &amp; le lieu
+        Survolez une cellule pour le détail
       </span>
     </div>
   )
