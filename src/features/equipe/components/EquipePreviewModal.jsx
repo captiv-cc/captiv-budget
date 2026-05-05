@@ -23,6 +23,7 @@ import { X, Users, Inbox, Phone, Mail, MapPin } from 'lucide-react'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 import { groupTechlistByCategory, computePresenceColumns } from '../../../lib/crew'
 import {
+  paletteAt,
   effectiveCouleur,
   effectiveLabel,
   getActiveSessionForDay,
@@ -89,6 +90,21 @@ export default function EquipePreviewModal({
     () => new Set(members.map((m) => m.contact?.id || m.id)).size,
     [members],
   )
+
+  // Sessions Phase 0b : nombre maximum de sessions chez un membre du
+  // projet. Sert à afficher la légende des couleurs UNIQUEMENT quand au
+  // moins un membre a 2+ sessions (sinon la grille est vert classique
+  // partout, pas besoin de légende). Le résultat encadre aussi le nombre
+  // de chips à afficher dans la légende (palette déterministe).
+  const maxSessionsCount = useMemo(() => {
+    if (!sessionsByMembre) return 0
+    let max = 0
+    for (const m of members) {
+      const list = sessionsByMembre.get?.(m.id) || []
+      if (list.length > max) max = list.length
+    }
+    return max
+  }, [members, sessionsByMembre])
 
   // Quand un lot est sélectionné côté EquipeTab, on n'affiche pas la
   // pastille de lot (toutes les rows visibles ont le même → redondant) et
@@ -218,19 +234,78 @@ export default function EquipePreviewModal({
               </p>
             </div>
           ) : (
-            <ResponsiveContent
-              sections={sections}
-              showLotDot={showLotDot}
-              presenceDays={presenceDays}
-              transitSet={transitDaysSet}
-              lotInfoMap={lotInfoMap}
-              lineLotMap={lineLotMap}
-              sessionsByMembre={sessionsByMembre}
-              brandColor={brandColor}
-            />
+            <>
+              {maxSessionsCount >= 2 && (
+                <SessionsLegend count={maxSessionsCount} />
+              )}
+              <ResponsiveContent
+                sections={sections}
+                showLotDot={showLotDot}
+                presenceDays={presenceDays}
+                transitSet={transitDaysSet}
+                lotInfoMap={lotInfoMap}
+                lineLotMap={lineLotMap}
+                sessionsByMembre={sessionsByMembre}
+                brandColor={brandColor}
+              />
+            </>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Légende sessions (Phase 0b) ──────────────────────────────────────────
+//
+// Affichée seulement si au moins un membre du projet a 2+ sessions. La
+// palette est déterministe par sort_order (même bleu = session 1 partout,
+// même teal = session 2, etc.), donc une légende globale est correcte
+// pour signaler "Session N = couleur N". Le label exact ("Essais cams"
+// vs "Tournage") reste dans le tooltip de chaque cellule, car il est
+// per-membre.
+
+function SessionsLegend({ count }) {
+  // On affiche jusqu'à `count` chips, mais on plafonne à 8 (taille de la
+  // palette) pour éviter de boucler.
+  const n = Math.max(2, Math.min(count, 8))
+  const items = Array.from({ length: n }, (_, i) => ({
+    sortOrder: i + 1,
+    color: paletteAt(i + 1),
+  }))
+  return (
+    <div
+      className="rounded-md px-3 py-2 mb-3 flex items-center gap-3 flex-wrap"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+      }}
+    >
+      <span
+        className="text-[10px] uppercase tracking-widest font-bold shrink-0"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Sessions
+      </span>
+      {items.map((it) => (
+        <span
+          key={it.sortOrder}
+          className="text-[11px] inline-flex items-center gap-1.5"
+          style={{ color: 'var(--txt-2)' }}
+        >
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ background: `#${it.color}` }}
+          />
+          Session {it.sortOrder}
+        </span>
+      ))}
+      <span
+        className="text-[10px] italic ml-auto"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Survolez une cellule pour le label &amp; le lieu
+      </span>
     </div>
   )
 }
