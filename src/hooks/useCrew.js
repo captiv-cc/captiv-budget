@@ -152,17 +152,26 @@ export function useCrew(projectId) {
         },
         debouncedReload,
       )
-      // Sessions Phase 0a : on ne peut pas filtrer par project_id côté
-      // server (la colonne n'existe pas sur projet_membres_sessions, le
-      // lien passe par membre_id). On reçoit donc TOUS les events de
-      // sessions de l'org — la RLS filtre déjà ce qu'on est autorisé à
-      // voir, et le debounce/refetch global gère le bruit.
+      // Sessions Phase A : nouveau modèle (session globale + participation).
+      // On écoute les 2 tables pour rafraîchir dès qu'une session ou une
+      // participation change. RLS filtre côté serveur ce que l'utilisateur
+      // est autorisé à voir, donc pas de bruit cross-projets.
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'projet_membres_sessions',
+          table: 'projet_sessions',
+          filter: `project_id=eq.${projectId}`,
+        },
+        debouncedReload,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projet_session_membres',
         },
         debouncedReload,
       )

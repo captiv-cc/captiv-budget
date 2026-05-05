@@ -101,123 +101,304 @@ export async function fetchProjectMembers(projectId) {
   return data || []
 }
 
+// ─── Sessions Phase A : modèle "session globale + participation" ────────────
+//
+// Le front consomme un shape "session unifié" qui n'a pas changé d'API
+// depuis la Phase 0b — l'UI continue à manipuler des "sessions" avec
+// les mêmes champs (id, membre_id, sort_order, label, lieu, couleur,
+// presence_days, arrival_date, departure_date, statut, notes).
+//
+// MAIS en interne :
+//   - L'`id` du shape unifié = id de la PARTICIPATION (projet_session_membres),
+//     pas de la session globale (projet_sessions)
+//   - Les champs SESSION-LEVEL (label, lieu, couleur, sort_order) viennent
+//     de la session globale partagée → un update touche tous les participants
+//   - Les champs PARTICIPATION-LEVEL (presence_days, arrival/departure,
+//     statut, notes) sont propres au membre → un update touche que sa
+//     participation
+//   - Un nouveau champ `session_id` est exposé en plus, qui pointe vers
+//     l'id de la session globale (utile pour Phase A/3 — détection
+//     partage / fusion)
+//
+// La table legacy `projet_membres_sessions` n'est PLUS lue ici. Elle reste
+// physiquement en DB jusqu'à la Phase A/3 (sécurité rollback).
+
+/** Champs édités côté SESSION GLOBALE (= partagés entre tous les participants). */
+const SESSION_LEVEL_FIELDS = [
+  'label',
+  'lieu_principal_text',
+  'lieu_principal_id',
+  'couleur',
+  'sort_order',
+  'start_date',
+  'end_date',
+]
+
+/** Champs édités côté PARTICIPATION (= propres au membre). */
+const PARTICIPATION_LEVEL_FIELDS = [
+  'presence_days',
+  'arrival_date',
+  'arrival_time',
+  'departure_date',
+  'departure_time',
+  'statut',
+  'notes',
+]
+
 /**
- * Charge toutes les sessions des membres d'un projet.
+ * Aplatit une row participation+session en shape "session unifié" pour l'UI.
+ * Préserve la compat de l'API existante (les composants ne voient pas la
+ * distinction session globale / participation).
+ */
+function flattenParticipation(p) {
+  if (!p) return null
+  const sess = p.session || {}
+  return {
+    id: p.id, // = participation.id
+    membre_id: p.membre_id,
+    session_id: p.session_id || sess.id || null,
+    // SESSION-LEVEL (shared)
+    sort_order: sess.sort_order ?? 1,
+    label: sess.label ?? null,
+    lieu_principal_text: sess.lieu_principal_text ?? null,
+    lieu_principal_id: sess.lieu_principal_id ?? null,
+    couleur: sess.couleur ?? null,
+    // PARTICIPATION-LEVEL (perso)
+    presence_days: Array.isArray(p.presence_days) ? p.presence_days : [],
+    arrival_date: p.arrival_date || null,
+    arrival_time: p.arrival_time || null,
+    departure_date: p.departure_date || null,
+    departure_time: p.departure_time || null,
+    statut: p.statut || 'planifie',
+    notes: p.notes || null,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+  }
+}
+
+/**
+ * Charge toutes les participations sessions des membres d'un projet, jointes
+ * avec leur session globale. Renvoie un array dans le shape "session unifié".
  *
- * Phase 0a : la table `projet_membres_sessions` a été seedée — chaque
- * membre a au moins 1 session avec ses dates héritées. On fetch ici
- * pour les exposer côté hook, mais la source de vérité actuelle reste
- * `projet_membres.arrival_date / departure_date / presence_days`.
- *
- * RLS : les policies sur `projet_membres_sessions` font la jointure
- * vers `projet_membres` puis vers `can_read_outil('equipe', project_id)`.
- * Donc pas besoin de filtrer par project_id côté query — on récupère
- * automatiquement les sessions des membres qu'on est autorisé à voir.
- *
- * On fait quand même une jointure sur `projet_membres(project_id)` pour
- * pouvoir filtrer côté client si besoin (cohérence avec le pattern
- * fetchProjectMembers).
+ * Filtrage par project_id via la jointure inner sur projet_sessions.
  */
 export async function fetchProjectSessions(projectId) {
   if (!projectId) return []
   const { data, error } = await supabase
-    .from('projet_membres_sessions')
+    .from('projet_session_membres')
     .select(`
-      *,
-      membre:projet_membres!inner(project_id)
+      id, session_id, membre_id,
+      presence_days, arrival_date, arrival_time,
+      departure_date, departure_time, statut, notes,
+      created_at, updated_at,
+      session:projet_sessions!inner(
+        id, project_id, sort_order, label,
+        lieu_principal_text, lieu_principal_id, couleur,
+        start_date, end_date, statut, notes
+      )
     `)
-    .eq('membre.project_id', projectId)
-    .order('membre_id', { ascending: true })
-    .order('sort_order', { ascending: true })
+    .eq('session.project_id', projectId)
   if (error) {
-    // Tolérant : si la migration n'a pas tourné (table absente), on log
-    // et on retourne vide. Le hook retombera sur les colonnes legacy.
     console.warn('[fetchProjectSessions] could not load sessions:', error?.message)
     return []
   }
-  // On retire la jointure helper (`membre`) qui ne sert qu'au filtre RLS.
-  return (data || []).map((s) => {
-    const { membre: _ignored, ...rest } = s
-    return rest
+  return (data || []).map(flattenParticipation)
+}
+
+
+// ─── CRUD sessions (Phase A — split session globale × participation) ───────
+
+/**
+ * Crée une nouvelle session globale + sa participation pour ce membre.
+ * Modèle 1:1 — un appel ici crée toujours une session distincte. Pour
+ * REJOINDRE une session existante (ex. les boutons "+ Template" en
+ * faible opacité dans la modale Présence), voir `joinSession` ci-dessous.
+ *
+ * Le sort_order de la session globale est calculé en interne (MAX(project)+1)
+ * pour respecter l'unique constraint (project_id, sort_order). On ignore
+ * un éventuel `sort_order` dans le payload.
+ *
+ * @param {string} membreId  projet_membres.id du membre principal
+ * @param {Object} payload   label, lieu, dates, presence_days, statut, notes
+ * @returns {Object} la session unifiée (shape compat UI)
+ */
+export async function createSession(membreId, payload = {}) {
+  if (!membreId) throw new Error('createSession: membreId manquant')
+
+  // 1. Récupérer le project_id du membre (pour la session globale).
+  const { data: member, error: e1 } = await supabase
+    .from('projet_membres')
+    .select('project_id')
+    .eq('id', membreId)
+    .single()
+  if (e1) throw e1
+
+  // 2. Calculer le prochain sort_order disponible sur ce projet.
+  const { data: maxRow } = await supabase
+    .from('projet_sessions')
+    .select('sort_order')
+    .eq('project_id', member.project_id)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextSortOrder = (maxRow?.sort_order || 0) + 1
+
+  // 3. Créer la session globale.
+  const presenceDays = Array.isArray(payload.presence_days) ? payload.presence_days : []
+  const { data: session, error: e2 } = await supabase
+    .from('projet_sessions')
+    .insert({
+      project_id: member.project_id,
+      sort_order: nextSortOrder,
+      label: payload.label ?? null,
+      start_date: payload.arrival_date ?? null,
+      end_date: payload.departure_date ?? null,
+      presence_days: presenceDays,
+      lieu_principal_text: payload.lieu_principal_text ?? null,
+      lieu_principal_id: payload.lieu_principal_id ?? null,
+      couleur: payload.couleur ?? null,
+      statut: payload.statut ?? 'planifie',
+      notes: payload.notes ?? null,
+    })
+    .select('*')
+    .single()
+  if (e2) throw e2
+
+  // 4. Créer la participation pour ce membre (mêmes valeurs que session
+  //    au début — l'admin pourra les diverger ensuite via updateSession).
+  const { data: participation, error: e3 } = await supabase
+    .from('projet_session_membres')
+    .insert({
+      session_id: session.id,
+      membre_id: membreId,
+      presence_days: presenceDays,
+      arrival_date: payload.arrival_date ?? null,
+      departure_date: payload.departure_date ?? null,
+      statut: payload.statut ?? 'planifie',
+      notes: null, // notes globales restent côté session
+    })
+    .select('*')
+    .single()
+  if (e3) throw e3
+
+  // 5. Return shape unifié (avec session embarquée pour le flatten).
+  return flattenParticipation({
+    ...participation,
+    session,
   })
 }
 
-
-// ─── CRUD sessions (projet_membres_sessions) ────────────────────────────────
-//
-// Phase 0b : la source de vérité bascule vers `projet_membres_sessions`.
-// Pour la rétrocompat, après chaque mutation on re-agrège les sessions du
-// membre et on synchronise `projet_membres.arrival_date / departure_date /
-// presence_days` (via `syncMembreFromSessions`). Le reste de l'app (techlist,
-// share publique, calendrier de présence) continue donc de fonctionner sans
-// modification — elle lit toujours sur projet_membres.
-//
-// Côté UI, le drawer affiche désormais les sessions comme entités de premier
-// niveau : on édite ce qu'il y a dans projet_membres_sessions, et la sync
-// vers projet_membres est faite en arrière-plan par le hook useCrew.
-
 /**
- * Crée une session pour un membre. Le payload contient le champ libre
- * (label, dates, presence_days, lieu_principal_text, couleur, statut, notes).
+ * Update une session unifiée. Split le payload entre session-level et
+ * participation-level, puis update les bonnes tables.
  *
- * `sort_order` peut être passé explicitement ; sinon le caller doit calculer
- * MAX(existing)+1 côté UI (le hook useCrew le fait automatiquement). On ne
- * le calcule pas ici pour rester pur (pas de sous-requête).
+ * Important : éditer un champ session-level (label/lieu/couleur) MET À
+ * JOUR la session globale → tous les participants voient le changement.
+ * C'est intentionnel — c'est le cœur de la Phase A.
  *
- * @param {string} membreId  projet_membres.id
- * @param {Object} payload   champs de la session
+ * @param {string} participationId  projet_session_membres.id
+ * @param {Object} fields           champs partiels à update
+ * @returns {Object} la session unifiée à jour
  */
-export async function createSession(membreId, payload) {
-  if (!membreId) throw new Error('createSession: membreId manquant')
-  const insert = {
-    membre_id: membreId,
-    sort_order: payload.sort_order ?? 1,
-    label: payload.label ?? null,
-    arrival_date: payload.arrival_date ?? null,
-    departure_date: payload.departure_date ?? null,
-    presence_days: Array.isArray(payload.presence_days) ? payload.presence_days : [],
-    lieu_principal_text: payload.lieu_principal_text ?? null,
-    lieu_principal_id: payload.lieu_principal_id ?? null,
-    couleur: payload.couleur ?? null,
-    statut: payload.statut ?? 'planifie',
-    notes: payload.notes ?? null,
+export async function updateSession(participationId, fields) {
+  if (!participationId) throw new Error('updateSession: participationId manquant')
+
+  const sessionFields = {}
+  const partFields = {}
+  for (const key of Object.keys(fields || {})) {
+    if (SESSION_LEVEL_FIELDS.includes(key)) sessionFields[key] = fields[key]
+    if (PARTICIPATION_LEVEL_FIELDS.includes(key)) partFields[key] = fields[key]
   }
-  const { data, error } = await supabase
-    .from('projet_membres_sessions')
-    .insert(insert)
-    .select('*')
+
+  // Récupère le session_id si on doit toucher la session globale
+  let sessionId = null
+  if (Object.keys(sessionFields).length) {
+    const { data: p, error } = await supabase
+      .from('projet_session_membres')
+      .select('session_id')
+      .eq('id', participationId)
+      .single()
+    if (error) throw error
+    sessionId = p.session_id
+  }
+
+  // Update participation si nécessaire
+  if (Object.keys(partFields).length) {
+    const { error } = await supabase
+      .from('projet_session_membres')
+      .update(partFields)
+      .eq('id', participationId)
+    if (error) throw error
+  }
+
+  // Update session globale si nécessaire (= propage à tous les participants)
+  if (Object.keys(sessionFields).length && sessionId) {
+    const { error } = await supabase
+      .from('projet_sessions')
+      .update(sessionFields)
+      .eq('id', sessionId)
+    if (error) throw error
+  }
+
+  // Re-fetch et return shape unifié à jour
+  const { data: updated, error } = await supabase
+    .from('projet_session_membres')
+    .select(`
+      id, session_id, membre_id,
+      presence_days, arrival_date, arrival_time,
+      departure_date, departure_time, statut, notes,
+      created_at, updated_at,
+      session:projet_sessions!inner(
+        id, project_id, sort_order, label,
+        lieu_principal_text, lieu_principal_id, couleur,
+        start_date, end_date, statut, notes
+      )
+    `)
+    .eq('id', participationId)
     .single()
   if (error) throw error
-  return data
+  return flattenParticipation(updated)
 }
 
 /**
- * Update une session (champ par champ). Le trigger DB met à jour updated_at.
+ * Supprime une participation. Si c'était la dernière participation de la
+ * session globale, supprime aussi la session globale (cleanup orphelin).
+ *
+ * Le caller (useCrew) vérifie côté UI qu'on ne supprime pas la dernière
+ * session du MEMBRE (cohérence : un membre = au moins 1 session).
  */
-export async function updateSession(sessionId, fields) {
-  if (!sessionId) throw new Error('updateSession: sessionId manquant')
-  const { data, error } = await supabase
-    .from('projet_membres_sessions')
-    .update(fields)
-    .eq('id', sessionId)
-    .select('*')
-    .single()
-  if (error) throw error
-  return data
-}
+export async function deleteSession(participationId) {
+  if (!participationId) throw new Error('deleteSession: participationId manquant')
 
-/**
- * Supprime une session. Si c'est la dernière session du membre, on évite
- * — un membre doit avoir au moins 1 session. Le caller (useCrew) doit
- * vérifier ça côté UI avant d'appeler cette fonction.
- */
-export async function deleteSession(sessionId) {
-  if (!sessionId) throw new Error('deleteSession: sessionId manquant')
-  const { error } = await supabase
-    .from('projet_membres_sessions')
+  // Récupère le session_id avant suppression
+  const { data: p, error: e1 } = await supabase
+    .from('projet_session_membres')
+    .select('session_id')
+    .eq('id', participationId)
+    .single()
+  if (e1) throw e1
+  const sessionId = p.session_id
+
+  // Supprime la participation
+  const { error: e2 } = await supabase
+    .from('projet_session_membres')
     .delete()
-    .eq('id', sessionId)
-  if (error) throw error
+    .eq('id', participationId)
+  if (e2) throw e2
+
+  // Si plus aucune participation sur cette session globale → cleanup
+  const { count, error: e3 } = await supabase
+    .from('projet_session_membres')
+    .select('id', { count: 'exact', head: true })
+    .eq('session_id', sessionId)
+  if (e3) throw e3
+  if (!count) {
+    const { error: e4 } = await supabase
+      .from('projet_sessions')
+      .delete()
+      .eq('id', sessionId)
+    if (e4) throw e4
+  }
 }
 
 /**
