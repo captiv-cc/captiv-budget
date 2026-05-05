@@ -95,6 +95,7 @@ export async function buildTechlistPdf(payload, options = {}) {
     lots = [],
     scope = 'all',
     presenceDays = [],
+    transitSet = null,
     showSensitive = true,
     // EQUIPE-P4-CATEGORIES : ordre custom des catégories (drag & drop côté
     // Crew list). Si fourni, on respecte cet ordre dans les sections du PDF ;
@@ -175,7 +176,7 @@ export async function buildTechlistPdf(payload, options = {}) {
   // ─── 4. Tableau ────────────────────────────────────────────────────────
   drawTable(
     doc,
-    { rows, cols, showSensitive, presenceDays, brandColor, brandTextColor, categoryOrder },
+    { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder },
     y + 3,
   )
 
@@ -372,7 +373,7 @@ function resolveColumns({ showLotCol, showAlimCol, presenceDays }) {
   return cols
 }
 
-function drawTable(doc, { rows, cols, showSensitive, presenceDays, brandColor, brandTextColor, categoryOrder = [] }, y) {
+function drawTable(doc, { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder = [] }, y) {
   // EQUIPE-P4-CATEGORIES : on respecte l'ordre custom posé côté Crew list
   // (drag & drop des headers de catégories, persisté en localStorage côté
   // admin et dans projects.metadata.equipe.category_order côté share).
@@ -424,12 +425,12 @@ function drawTable(doc, { rows, cols, showSensitive, presenceDays, brandColor, b
   }
 
   // Premier en-tête de colonnes
-  y = drawColumnHeaders(doc, cols, presenceDays, y)
+  y = drawColumnHeaders(doc, cols, presenceDays, transitSet, y)
 
   for (const [cat, sectionRows] of ordered) {
     if (sectionRows.length === 0) continue
     // Section header (pleine largeur, fond = brand color de l'org)
-    y = ensureSpace(doc, y, SECTION_H + ROW_H, () => drawColumnHeaders(doc, cols, presenceDays, MARGIN_TOP))
+    y = ensureSpace(doc, y, SECTION_H + ROW_H, () => drawColumnHeaders(doc, cols, presenceDays, transitSet, MARGIN_TOP))
     y = drawSectionHeader(
       doc,
       cat === A_TRIER_KEY ? 'À TRIER' : cat,
@@ -443,7 +444,7 @@ function drawTable(doc, { rows, cols, showSensitive, presenceDays, brandColor, b
       // Hauteur dynamique : si le poste ne tient pas en 1 ligne, on passe
       // en row "tall" 2 lignes. Plus jamais de troncature sur le poste.
       const { rowH, posteLines } = computeRowGeometry(doc, sectionRows[i], cols)
-      const newY = ensureSpace(doc, y, rowH, () => drawColumnHeaders(doc, cols, presenceDays, MARGIN_TOP))
+      const newY = ensureSpace(doc, y, rowH, () => drawColumnHeaders(doc, cols, presenceDays, transitSet, MARGIN_TOP))
       // Si on vient de paginer, redessine le mini-header de section pour rappel
       if (newY < y) {
         y = drawSectionHeader(
@@ -501,7 +502,7 @@ function computeRowGeometry(doc, row, cols) {
   return { rowH, posteLines: lines }
 }
 
-function drawColumnHeaders(doc, cols, presenceDays, y) {
+function drawColumnHeaders(doc, cols, presenceDays, transitSet, y) {
   // Fond gris clair
   doc.setFillColor(...C.bgHeader)
   doc.rect(MARGIN_X, y, CONTENT_W, COLHEAD_H, 'F')
@@ -519,7 +520,7 @@ function drawColumnHeaders(doc, cols, presenceDays, y) {
   for (const c of cols) {
     if (c.key === 'presence') {
       // Cellule présence : layout custom 3 niveaux (jour / lettre / mois)
-      drawPresenceHeader(doc, c, presenceDays, y)
+      drawPresenceHeader(doc, c, presenceDays, transitSet, y)
       continue
     }
     const label = c.label || ''
@@ -534,13 +535,13 @@ function drawColumnHeaders(doc, cols, presenceDays, y) {
 //   lettre (M)       ← haut, plus grande, en gras
 //   date (12/05)     ← bas, plus petite, regular
 // Le bloc M / 12/05 est centré horizontalement dans la cellule.
-function drawPresenceHeader(doc, col, presenceDays, y) {
+function drawPresenceHeader(doc, col, presenceDays, transitSet, y) {
   const nbDays = presenceDays.length
   if (nbDays === 0) return
   const cellW = col.w / nbDays
-  doc.setTextColor(...C.textMuted)
   for (let i = 0; i < nbDays; i++) {
     const iso = presenceDays[i]
+    const isTransit = transitSet?.has?.(iso) || false
     const letter = dayLetter(iso)
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')) || []
     const day = m[3] || ''
@@ -548,19 +549,28 @@ function drawPresenceHeader(doc, col, presenceDays, y) {
     const date = day && month ? `${day}/${month}` : ''
     const cxCenter = col.x + i * cellW + cellW / 2
 
-    // Lettre (haut) — taille principale
-    doc.setFont('helvetica', 'bold')
+    // Fond légèrement violet pour les colonnes transit (jours hors prod
+    // ajoutés à cause d'arrival/departure d'au moins un membre).
+    if (isTransit) {
+      doc.setFillColor(245, 240, 255)  // var(--purple) très dilué
+      doc.rect(col.x + i * cellW, y, cellW, COLHEAD_H, 'F')
+    }
+
+    // Lettre (haut) — taille principale, italic + couleur discrète si transit
+    doc.setFont('helvetica', isTransit ? 'bolditalic' : 'bold')
     doc.setFontSize(7.5)
+    doc.setTextColor(...(isTransit ? C.logisticBg : C.textMuted))
     doc.text(letter, cxCenter - doc.getTextWidth(letter) / 2, y + 3.2)
 
-    // Date (bas) — plus petite
-    doc.setFont('helvetica', 'normal')
+    // Date (bas) — plus petite, italic si transit
+    doc.setFont('helvetica', isTransit ? 'italic' : 'normal')
     doc.setFontSize(5.5)
     doc.text(date, cxCenter - doc.getTextWidth(date) / 2, y + COLHEAD_H - 1)
   }
   // Reset à la fin pour ne pas perturber les autres dessins
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7.5)
+  doc.setTextColor(...C.textMuted)
 }
 
 function drawSectionHeader(doc, label, count, isATrier, brandColor, brandTextColor, y) {

@@ -589,6 +589,99 @@ export function isDepartureDay(persona, iso) {
   return persona.departure_date === iso
 }
 
+// ─── Calcul de la grille présence ──────────────────────────────────────────
+// Construit la liste de jours à afficher dans la grille de présence d'une
+// techlist (+ identifie ceux qui sont des "jours de transit"). Algorithme :
+//
+//   1. Collecte presence_days de tous les membres → tournageSet
+//   2. Si quelqu'un a arrival_date ou departure_date HORS plage tournage,
+//      on étend la plage contiguë pour inclure ces jours.
+//   3. Les jours hors plage tournage (ajoutés à cause du transit) sont
+//      marqués dans transitSet — la UI les rend différemment (italique +
+//      opacité + pictogramme ✈).
+//
+// Résultat : grille minimale par défaut (= juste les jours de tournage), mais
+// qui s'étend automatiquement pour montrer les arrivées avant le shoot ou
+// les retours après. Les jours intermédiaires entre transit lointain et
+// tournage figurent aussi (cellules vides) pour préserver la lecture
+// chronologique. Cas typique : quelqu'un arrive J-1, repart J+1 → on ajoute
+// 2 colonnes de transit (1 avant, 1 après).
+//
+// @param {Array<{presence_days?, arrival_date?, departure_date?}>} members
+// @param {{ extraTournageDays?: string[] }} [opts]
+//   - extraTournageDays : ISO additionnels à compter comme jours de tournage
+//     même si aucun membre n'a `presence_days` dessus (ex. dates de tournage
+//     du projet remontées par useEvents). Utile pour s'assurer que le shoot
+//     full apparaît dans la grille même si certains jours sont off.
+// @returns {{ days: string[], transitSet: Set<string> }}
+//   - days : array d'ISO YYYY-MM-DD, plage contiguë triée
+//   - transitSet : Set des ISO qui sont du transit pur (hors tournage)
+export function computePresenceColumns(members = [], { extraTournageDays = [] } = {}) {
+  const tournageSet = new Set()
+  for (const d of extraTournageDays) {
+    if (typeof d === 'string') tournageSet.add(d)
+  }
+  for (const m of members) {
+    for (const d of m?.presence_days || []) {
+      if (typeof d === 'string') tournageSet.add(d)
+    }
+  }
+  // Pas de présence du tout → on retombe juste sur les transits, sans plage
+  // contiguë (on ne peut pas étendre autour de "rien").
+  if (tournageSet.size === 0) {
+    const onlyTransits = new Set()
+    for (const m of members) {
+      if (m?.arrival_date) onlyTransits.add(m.arrival_date)
+      if (m?.departure_date) onlyTransits.add(m.departure_date)
+    }
+    const sorted = [...onlyTransits].sort()
+    return { days: sorted, transitSet: onlyTransits }
+  }
+
+  const tournageSorted = [...tournageSet].sort()
+  const minTournage = tournageSorted[0]
+  const maxTournage = tournageSorted[tournageSorted.length - 1]
+
+  // Étend la plage avec les arrival/departure hors tournage.
+  let minOverall = minTournage
+  let maxOverall = maxTournage
+  for (const m of members) {
+    if (m?.arrival_date && m.arrival_date < minOverall) minOverall = m.arrival_date
+    if (m?.arrival_date && m.arrival_date > maxOverall) maxOverall = m.arrival_date
+    if (m?.departure_date && m.departure_date < minOverall) minOverall = m.departure_date
+    if (m?.departure_date && m.departure_date > maxOverall) maxOverall = m.departure_date
+  }
+
+  // Génère la plage contiguë min..max (jour par jour, en local time pour
+  // éviter les décalages UTC).
+  const parse = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+  }
+  const fmt = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const start = parse(minOverall)
+  const end = parse(maxOverall)
+  const days = []
+  if (start && end) {
+    for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+      days.push(fmt(new Date(t)))
+    }
+  } else {
+    // Fallback : ISO mal formé → juste retourner le tournage trié
+    days.push(...tournageSorted)
+  }
+
+  // transitSet : tout ce qui est dans `days` mais < minTournage ou > maxTournage
+  // (on ne marque PAS comme transit les jours off au milieu du tournage).
+  const transitSet = new Set()
+  for (const d of days) {
+    if (d < minTournage || d > maxTournage) transitSet.add(d)
+  }
+
+  return { days, transitSet }
+}
+
 export function condensePresenceDays(days = []) {
   if (!days?.length) return ''
   const parsed = [...days]

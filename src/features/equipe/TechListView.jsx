@@ -30,7 +30,7 @@ import {
 import { useCrew } from '../../hooks/useCrew'
 import { useAuth } from '../../contexts/AuthContext'
 import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPeriodes'
-import { fullNameFromPersona, personaKey } from '../../lib/crew'
+import { fullNameFromPersona, personaKey, computePresenceColumns } from '../../lib/crew'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import { supabase } from '../../lib/supabase'
@@ -589,36 +589,14 @@ export default function TechListView({
         const lot = lotId ? lotInfoMap[lotId] : null
         return lot ? { ...r, _lot: { ...lot } } : r
       })
-      // Plage de jours pour la grille Présence du PDF.
-      // On prend l'UNION des presence_days de toutes les rows exportées +
-      // les jours de tournage du projet, puis on comble les trous pour
-      // obtenir une plage contiguë (min → max). Comme ça la grille couvre
-      // bien tous les jours de présence (prépa + tournage), pas seulement
-      // les jours de tournage.
-      const presenceSet = new Set(tournageDays)
-      for (const r of enrichedRows) {
-        for (const d of r.persona?.presence_days || []) {
-          if (typeof d === 'string') presenceSet.add(d)
-        }
-      }
-      const presenceDaysForPdf = (() => {
-        if (presenceSet.size === 0) return []
-        const sorted = [...presenceSet].sort()
-        const parse = (iso) => {
-          const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
-          return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
-        }
-        const fmt = (d) =>
-          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        const start = parse(sorted[0])
-        const end = parse(sorted[sorted.length - 1])
-        if (!start || !end) return sorted
-        const out = []
-        for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
-          out.push(fmt(new Date(t)))
-        }
-        return out
-      })()
+      // Plage de jours pour la grille Présence du PDF + jours "transit"
+      // (arrivées/retours hors plage tournage). Helper partagé avec les vues
+      // partagées web pour cohérence visuelle. tournageDays est passé en
+      // extraTournageDays pour s'assurer que tous les jours de prod
+      // figurent même si certains sont off (personne dessus).
+      const personasForPdf = enrichedRows.map((r) => r.persona).filter(Boolean)
+      const { days: presenceDaysForPdf, transitSet: pdfTransitSet } =
+        computePresenceColumns(personasForPdf, { extraTournageDays: tournageDays })
 
       const pdf = await buildTechlistPdf({
         project,
@@ -626,8 +604,11 @@ export default function TechListView({
         rows: enrichedRows,
         lots: lotsForPdf,
         scope,
-        // Plage de jours contiguë pour la grille Présence du PDF.
+        // Plage de jours contiguë pour la grille Présence du PDF + Set des
+        // jours transit (logistique hors prod) — le PDF rend ces colonnes
+        // en italique avec couleur discrète + bagdes A/R violet.
         presenceDays: presenceDaysForPdf,
+        transitSet: pdfTransitSet,
         showSensitive: true, // décision Hugo : coordonnées visibles par défaut
         // EQUIPE-P4-CATEGORIES : ordre custom des sections (drag & drop)
         categoryOrder: allCategories,

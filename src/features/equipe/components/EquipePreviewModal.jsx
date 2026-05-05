@@ -21,7 +21,7 @@
 import { useEffect, useMemo } from 'react'
 import { X, Users, Inbox, Phone, Mail, MapPin } from 'lucide-react'
 import useBreakpoint from '../../../hooks/useBreakpoint'
-import { groupTechlistByCategory } from '../../../lib/crew'
+import { groupTechlistByCategory, computePresenceColumns } from '../../../lib/crew'
 import PresencePlaneIcons from './PresencePlaneIcons'
 
 // Palette identique à la page share + EquipeTab
@@ -65,31 +65,12 @@ export default function EquipePreviewModal({
     return map
   }, [lots])
 
-  // Plage de jours de présence (union → plage continue, comme la share page)
-  const presenceDays = useMemo(() => {
-    const set = new Set()
-    for (const m of members) {
-      for (const d of m.presence_days || []) {
-        if (typeof d === 'string') set.add(d)
-      }
-    }
-    if (set.size === 0) return []
-    const sorted = [...set].sort()
-    const parse = (iso) => {
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
-      return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
-    }
-    const fmt = (d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    const start = parse(sorted[0])
-    const end = parse(sorted[sorted.length - 1])
-    if (!start || !end) return sorted
-    const out = []
-    for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
-      out.push(fmt(new Date(t)))
-    }
-    return out
-  }, [members])
+  // Plage de jours de présence + Set des jours "transit" (arrivée/retour
+  // hors plage tournage) — calcul partagé avec EquipeShareSession.
+  const { days: presenceDays, transitSet: transitDaysSet } = useMemo(
+    () => computePresenceColumns(members),
+    [members],
+  )
 
   const sections = useMemo(
     () => groupTechlistByCategory(members, categoryOrder),
@@ -232,6 +213,7 @@ export default function EquipePreviewModal({
               sections={sections}
               showLotDot={showLotDot}
               presenceDays={presenceDays}
+              transitSet={transitDaysSet}
               lotInfoMap={lotInfoMap}
               lineLotMap={lineLotMap}
               brandColor={brandColor}
@@ -297,7 +279,7 @@ function ResponsiveContent(props) {
 
 // ─── Table desktop ────────────────────────────────────────────────────────
 
-function Table({ sections, showLotDot, presenceDays, lotInfoMap, lineLotMap, brandColor }) {
+function Table({ sections, showLotDot, presenceDays, transitSet, lotInfoMap, lineLotMap, brandColor }) {
   const nbDays = presenceDays.length
   const isLightBrand = isLightColor(brandColor)
   const brandTextColor = isLightBrand ? '#0F172A' : '#FFFFFF'
@@ -341,22 +323,29 @@ function Table({ sections, showLotDot, presenceDays, lotInfoMap, lineLotMap, bra
               <th />
               <th />
               <th />
-              {presenceDays.map((iso) => (
-                <th
-                  key={iso}
-                  className="px-1 py-1 text-center align-middle"
-                  style={{
-                    minWidth: 28,
-                    color: 'var(--txt-3)',
-                    borderLeft: '1px solid var(--brd-sub)',
-                  }}
-                >
-                  <div className="text-[10px] font-bold leading-none">{dayLetter(iso)}</div>
-                  <div className="text-[8px] leading-none mt-0.5" style={{ opacity: 0.7 }}>
-                    {formatDayMonth(iso)}
-                  </div>
-                </th>
-              ))}
+              {presenceDays.map((iso) => {
+                const isTransit = transitSet?.has?.(iso) || false
+                return (
+                  <th
+                    key={iso}
+                    className="px-1 py-1 text-center align-middle"
+                    style={{
+                      minWidth: 28,
+                      color: 'var(--txt-3)',
+                      borderLeft: '1px solid var(--brd-sub)',
+                      background: isTransit ? 'rgba(139,92,246,0.05)' : undefined,
+                      fontStyle: isTransit ? 'italic' : 'normal',
+                      opacity: isTransit ? 0.55 : 1,
+                    }}
+                    title={isTransit ? 'Jour de transit (hors tournage)' : undefined}
+                  >
+                    <div className="text-[10px] font-bold leading-none">{dayLetter(iso)}</div>
+                    <div className="text-[8px] leading-none mt-0.5" style={{ opacity: 0.7 }}>
+                      {formatDayMonth(iso)}
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           )}
         </thead>
