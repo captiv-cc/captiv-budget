@@ -62,6 +62,9 @@ const C = {
   // Présence
   presenceBg:   [220, 252, 231],
   presenceFg:   [22, 101, 52],
+  // Logistique (badges arrivée/retour) — violet aligné var(--purple)
+  logisticBg:   [139, 92, 246],
+  logisticFg:   [255, 255, 255],
 }
 
 // Page A4 paysage
@@ -648,7 +651,7 @@ function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH
         break
       }
       case 'presence': {
-        drawPresenceCells(doc, c, persona.presence_days || [], presenceDays, y, rowH)
+        drawPresenceCells(doc, c, persona, presenceDays, y, rowH)
         break
       }
       case 'lot': {
@@ -684,15 +687,20 @@ function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH
   }
 }
 
-function drawPresenceCells(doc, col, personaDays, allDays, y, rowH) {
+function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
   const nbDays = allDays.length
   if (nbDays === 0) return
   const cellW = col.w / nbDays
-  const personaSet = new Set(personaDays)
+  const personaSet = new Set(persona?.presence_days || [])
+  const arrivalIso = persona?.arrival_date || null
+  const departureIso = persona?.departure_date || null
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   // Vertical center du X dans la row
   const baseLineY = rowH === ROW_H ? y + ROW_H - 2.5 : y + rowH - 4.5
+  // Taille du badge A/R coin haut (logistique). 1.6mm × 1.6mm — assez petit
+  // pour ne pas masquer le X central, assez grand pour rester lisible.
+  const BADGE_SIZE = 1.6
   for (let i = 0; i < nbDays; i++) {
     const iso = allDays[i]
     const present = personaSet.has(iso)
@@ -703,6 +711,35 @@ function drawPresenceCells(doc, col, personaDays, allDays, y, rowH) {
       doc.setTextColor(...C.presenceFg)
       const x = 'X'
       doc.text(x, cx + cellW / 2 - doc.getTextWidth(x) / 2, baseLineY)
+    }
+    // Overlay badges arrivée (coin haut-gauche) / retour (coin haut-droite)
+    // — violet, lettre A / R blanche centrée dans le carré.
+    const isArrival = iso === arrivalIso
+    const isDeparture = iso === departureIso
+    if (isArrival || isDeparture) {
+      doc.setFontSize(5)
+      doc.setTextColor(...C.logisticFg)
+      if (isArrival) {
+        doc.setFillColor(...C.logisticBg)
+        doc.rect(cx + 0.3, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        const t = 'A'
+        doc.text(
+          t,
+          cx + 0.3 + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
+          y + 1.2 + BADGE_SIZE - 0.3,
+        )
+      }
+      if (isDeparture) {
+        doc.setFillColor(...C.logisticBg)
+        doc.rect(cx + cellW - 0.3 - BADGE_SIZE, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        const t = 'R'
+        doc.text(
+          t,
+          cx + cellW - 0.3 - BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
+          y + 1.2 + BADGE_SIZE - 0.3,
+        )
+      }
+      doc.setFontSize(7)
     }
   }
   doc.setFont('helvetica', 'normal')

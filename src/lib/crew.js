@@ -568,6 +568,27 @@ export function groupTechlistByCategory(membres = [], categoryOrder = []) {
  *
  * Sécurise les inputs : trie + filtre les dates malformées.
  */
+// ─── Logistique : helpers arrival_date / departure_date ─────────────────────
+// Compare un ISO YYYY-MM-DD à un membre / persona pour savoir si c'est son
+// jour d'arrivée (= il atterrit ce jour-là sur le projet) ou de retour (= il
+// repart ce jour-là vers chez lui). Tolère les nullables et les formats
+// inattendus — retourne false dans le doute.
+//
+// Usage :
+//   isArrivalDay(membre, '2026-05-13')   → true si membre.arrival_date === '2026-05-13'
+//   isDepartureDay(membre, '2026-05-17') → true si membre.departure_date === '2026-05-17'
+//
+// Utilisé pour overlay les icônes plane dans les grilles de présence
+// (EquipePreviewModal, EquipeShareSession, PDF export).
+export function isArrivalDay(persona, iso) {
+  if (!persona || !iso) return false
+  return persona.arrival_date === iso
+}
+export function isDepartureDay(persona, iso) {
+  if (!persona || !iso) return false
+  return persona.departure_date === iso
+}
+
 export function condensePresenceDays(days = []) {
   if (!days?.length) return ''
   const parsed = [...days]

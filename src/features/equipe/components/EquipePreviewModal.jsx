@@ -22,6 +22,7 @@ import { useEffect, useMemo } from 'react'
 import { X, Users, Inbox, Phone, Mail, MapPin } from 'lucide-react'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 import { groupTechlistByCategory } from '../../../lib/crew'
+import PresencePlaneIcons from './PresencePlaneIcons'
 
 // Palette identique à la page share + EquipeTab
 const LOT_PALETTE = [
@@ -475,6 +476,7 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
             key={iso}
             className="px-1 py-2 text-center align-middle"
             style={{
+              position: 'relative',
               borderLeft: '1px solid var(--brd-sub)',
               background: present ? 'rgba(34,197,94,0.18)' : undefined,
               color: present ? 'rgb(22,101,52)' : 'var(--txt-3)',
@@ -482,6 +484,7 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
               fontSize: 11,
             }}
           >
+            <PresencePlaneIcons persona={m} iso={iso} />
             {present ? 'X' : ''}
           </td>
         )
@@ -628,11 +631,13 @@ function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
                   key={iso}
                   className="flex flex-col items-center py-1 rounded-sm"
                   style={{
+                    position: 'relative',
                     background: present ? 'rgba(34,197,94,0.10)' : 'transparent',
                     color: present ? 'rgb(34,150,75)' : 'var(--txt-3)',
                     opacity: present ? 1 : 0.55,
                   }}
                 >
+                  <PresencePlaneIcons persona={m} iso={iso} />
                   <span className="text-[9px] leading-none font-semibold">
                     {dayLetter(iso)}
                   </span>
