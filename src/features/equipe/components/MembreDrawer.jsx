@@ -31,6 +31,7 @@ import {
   GitMerge,
   Edit2,
   Check,
+  Plus,
 } from 'lucide-react'
 import {
   fullNameFromPersona,
@@ -38,8 +39,15 @@ import {
   CREW_STATUTS,
   personaKey,
 } from '../../../lib/crew'
+import {
+  effectiveCouleur,
+  effectiveLabel,
+  effectiveLieu,
+  sortSessions,
+} from '../../../lib/sessions'
 import { confirm } from '../../../lib/confirm'
 import { notify } from '../../../lib/notify'
+import PresenceCalendarModal from './PresenceCalendarModal'
 
 // Couleurs de statut alignées sur AttributionRow / EquipeTab.STEPS
 const STATUT_COLORS = {
@@ -75,8 +83,20 @@ export default function MembreDrawer({
   onUpdatePersona, // (key, fields) => Promise
   onRemoveMember, // (id) => Promise — null si pas de droit
   onDetachMember, // (id) => Promise
-  // Ouvrir la modale Présence (réutilisée)
-  onOpenPresence, // (persona) => void
+  // Sessions (Phase 0b)
+  // sessionsByMembre : Map<membre_id, sessions[]> — depuis useCrew. Le
+  // drawer lit les sessions du principalRow uniquement.
+  sessionsByMembre = null,
+  onAddSession, // (principalMembreId, payload) => Promise<session>
+  onUpdateSession, // (sessionId, fields) => Promise<session>
+  onRemoveSession, // (sessionId) => Promise<void>
+  // Pour la modale calendrier per-session : on a besoin des periodes du
+  // projet (highlights tournage/prépa) + d'une date d'ancrage pour le
+  // mois initial affiché.
+  periodes = null,
+  tournageAnchor = null,
+  // Map<lieuId, { nom }> pour résoudre les lieux structurés (Phase 0c).
+  lieuByIdMap = null,
   // Ouvrir l'AttachModal pour rattacher cette row à un autre poste de la
   // même persona (cas typique : merger 2 lignes Cadreur + Essais cams en
   // 1 seule visuellement). (row) => void
@@ -153,6 +173,19 @@ export default function MembreDrawer({
       presence_days: r.presence_days || [],
     }
   }, [principalRow, personaRows, personaKeyValue])
+
+  // Sessions du membre principal (Phase 0b). On lit toujours les sessions
+  // attachées au principalRow.id ; les éventuelles sessions héritées par
+  // les rows enfants (cas du seed migration 0a) sont ignorées côté UI.
+  const sessionsForPrincipal = useMemo(() => {
+    if (!principalRow || !sessionsByMembre) return []
+    return sessionsByMembre.get?.(principalRow.id) || []
+  }, [principalRow, sessionsByMembre])
+
+  // Modale calendrier per-session : `editingSession` contient la session
+  // actuellement en cours d'édition (ouverture via SessionCard ou auto-open
+  // après création). null = modale fermée.
+  const [editingSession, setEditingSession] = useState(null)
 
   if (!open || !persona) return null
 
@@ -407,22 +440,32 @@ export default function MembreDrawer({
             </div>
           </section>
 
-          {/* ─── Section : Présence & secteur (persona-level) ──────────── */}
-          {/* Tous les autres champs logistique (arrivée, retour, hébergement,
-              chauffeur, notes logistique) sont migrés vers la future tab
-              Logistique dédiée — décision Hugo P4.3.5. */}
+          {/* ─── Section : Sessions (Phase 0b) ─────────────────────────── */}
+          {/* Une session = un séjour cohérent (plage de dates + lieu) du
+              membre sur le projet. Cas standard : 1 session. Cas avancé :
+              2-3+ sessions quand le projet a des phases distinctes (essais,
+              installation, tournage…). Les dates affichées dans le reste de
+              l'app (techlist, share, grille présence) sont l'agrégat de
+              toutes les sessions de ce membre — sync auto. */}
           <section>
             <SectionTitle icon={<Calendar className="w-3.5 h-3.5" />}>
-              Présence sur le projet
+              Sessions
             </SectionTitle>
             <p className="text-[10px] italic mt-1 mb-2" style={{ color: 'var(--txt-3)' }}>
-              S&rsquo;applique à TOUS les postes de cette personne.
+              Séjours de cette personne sur le projet (dates &amp; lieu).
+              S&rsquo;appliquent à TOUS les postes.
             </p>
-            <PresencePanel
+            <SessionsPanel
               persona={persona}
+              principalRow={principalRow}
+              sessions={sessionsForPrincipal}
               canEdit={canEdit}
+              lieuByIdMap={lieuByIdMap}
               onUpdatePersona={onUpdatePersona}
-              onOpenPresence={() => onOpenPresence?.(persona)}
+              onAddSession={onAddSession}
+              onUpdateSession={onUpdateSession}
+              onRemoveSession={onRemoveSession}
+              onOpenSessionCalendar={(session) => setEditingSession(session)}
             />
           </section>
         </div>
@@ -451,6 +494,38 @@ export default function MembreDrawer({
           </button>
         </footer>
       </aside>
+
+      {/* ─── Modale calendrier per-session ───────────────────────────────
+          Réutilise PresenceCalendarModal en lui passant la session
+          courante comme `persona` (mêmes champs : presence_days,
+          arrival_date, departure_date). À la sauvegarde, on route vers
+          updateMemberSession plutôt que updatePersona — ce qui touche
+          UNIQUEMENT cette session, et déclenche la sync vers
+          projet_membres derrière. */}
+      <PresenceCalendarModal
+        open={Boolean(editingSession)}
+        onClose={() => setEditingSession(null)}
+        personaName={
+          editingSession
+            ? `${fullName} — ${effectiveLabel(editingSession)}`
+            : ''
+        }
+        persona={
+          editingSession
+            ? {
+                presence_days: editingSession.presence_days || [],
+                arrival_date: editingSession.arrival_date || '',
+                departure_date: editingSession.departure_date || '',
+              }
+            : null
+        }
+        onSave={async (fields) => {
+          if (!editingSession) return
+          await onUpdateSession?.(editingSession.id, fields)
+        }}
+        periodes={periodes}
+        anchorDate={tournageAnchor}
+      />
     </>
   )
 }
@@ -766,84 +841,133 @@ function PosteCard({
   )
 }
 
-// ─── PresencePanel — Présence (calendrier) + Secteur uniquement ──────────
+// ─── SessionsPanel — Sessions multi-séjours + Secteur (Phase 0b) ─────────
 //
-// Tous les autres champs logistique (arrivée, retour, hébergement,
-// chauffeur, notes logistique) sont migrés vers la future tab Logistique
-// dédiée. Décision Hugo P4.3.5 : la tab Équipe se concentre sur le
-// "qui fait quoi quand" ; la tab Logistique sur "comment ils arrivent /
-// où ils dorment / comment on les transporte".
+// Une session = un séjour cohérent du membre sur le projet. Cas standard :
+// 1 session (héritée de la migration 0a). Cas avancé : 2+ sessions quand
+// le projet a des phases distinctes (essais, installation, tournage…).
+//
+// L'admin :
+//   - Voit toutes les sessions du membre, triées par sort_order
+//   - Peut éditer label / lieu inline sur chaque session
+//   - Clique "Modifier" sur une session → ouvre le calendrier en mode
+//     per-session (presence_days + arrival/departure)
+//   - Peut ajouter une session (auto-incrément sort_order)
+//   - Peut supprimer une session (sauf la dernière — un membre doit
+//     toujours avoir au moins 1 session)
+//
+// Le secteur (ville de résidence persona-level) reste dans ce panneau —
+// c'est une info de logistique transversale, pas par-session.
 
-function PresencePanel({ persona, canEdit, onUpdatePersona, onOpenPresence }) {
-  // Pré-remplissage : si la persona n'a pas de secteur projet-spécifique,
-  // on affiche par défaut la ville de l'annuaire (cohérent avec
-  // effectiveSecteur dans crew.js et avec ce qu'on rend dans le PDF /
-  // Crew list / Share). Une fois affiché, le commit on-blur ne sauve QUE
-  // si l'utilisateur a effectivement modifié la valeur (sinon on évite un
-  // write inutile qui figerait la ville et casserait le fallback dynamique
-  // si la fiche annuaire change plus tard).
+function SessionsPanel({
+  persona,
+  principalRow,
+  sessions,
+  canEdit,
+  lieuByIdMap,
+  onUpdatePersona,
+  onAddSession,
+  onUpdateSession,
+  onRemoveSession,
+  onOpenSessionCalendar,
+}) {
+  // ─── Sessions triées par sort_order ─────────────────────────────────
+  const orderedSessions = useMemo(() => sortSessions(sessions || []), [sessions])
+  const isOnly = orderedSessions.length <= 1
+
+  // ─── Secteur (persona-level, code repris de l'ancien PresencePanel) ─
   const initialValue = persona.secteur || persona.contact?.ville || ''
   const [secteur, setSecteur] = useState(initialValue)
   const initialRef = useRef(initialValue)
-
-  // Sync draft si la persona change (autre tab via Realtime, ou bulk update,
-  // ou si la fiche annuaire est modifiée). La ref initialValue suit aussi
-  // pour que le check "valeur inchangée vs initial" reste correct.
   useEffect(() => {
     const v = persona.secteur || persona.contact?.ville || ''
     setSecteur(v)
     initialRef.current = v
   }, [persona.secteur, persona.contact?.ville])
-
   function commitSecteur() {
     if (!canEdit) return
     const trimmed = secteur.trim()
-    // L'utilisateur n'a pas touché → ne rien commit (évite de figer la
-    // ville annuaire comme secteur projet-spécifique).
     if (trimmed === initialRef.current.trim()) return
     const next = trimmed || null
     if (next === (persona.secteur || null)) return
     onUpdatePersona?.(persona.key, { secteur: next })
   }
 
-  const presenceCount = (persona.presence_days || []).length
+  // ─── Ajouter une session ────────────────────────────────────────────
+  async function handleAdd() {
+    if (!canEdit || !principalRow) return
+    try {
+      // Dates par défaut vides — l'admin les saisit ensuite via le
+      // calendrier (ouvert automatiquement après création).
+      const created = await onAddSession?.(principalRow.id, {
+        label: null,
+        arrival_date: null,
+        departure_date: null,
+        presence_days: [],
+        statut: 'planifie',
+      })
+      if (created) onOpenSessionCalendar?.(created)
+    } catch (e) {
+      console.error('[SessionsPanel] addSession error:', e)
+      notify.error('Création de session échouée : ' + (e?.message || e))
+    }
+  }
 
   return (
     <div className="space-y-3">
-      {/* Présence — résumé + bouton vers PresenceCalendarModal */}
-      <div
-        className="rounded-md p-3 flex items-center gap-3"
-        style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
-      >
-        <Calendar className="w-4 h-4 shrink-0" style={{ color: 'var(--blue)' }} />
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
-            Calendrier de présence
-          </div>
-          <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-            {presenceCount === 0
-              ? 'Aucun jour renseigné'
-              : `${presenceCount} jour${presenceCount > 1 ? 's' : ''} sélectionné${presenceCount > 1 ? 's' : ''}`}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenPresence}
-          disabled={!canEdit}
-          className="text-xs px-3 py-1.5 rounded-md transition-colors shrink-0"
+      {/* Cas dégradé : aucune session — affiche juste un message + un
+          bouton pour en créer une. Ne devrait pas arriver en pratique
+          (la migration seed a toujours créé 1 session par membre), mais
+          on est défensif. */}
+      {orderedSessions.length === 0 && (
+        <div
+          className="rounded-md p-3 text-xs"
           style={{
-            background: 'var(--blue-bg)',
-            color: 'var(--blue)',
-            border: '1px solid var(--blue-brd)',
-            cursor: canEdit ? 'pointer' : 'default',
-            opacity: canEdit ? 1 : 0.5,
+            background: 'var(--bg-surf)',
+            border: '1px dashed var(--brd-sub)',
+            color: 'var(--txt-3)',
           }}
         >
-          Modifier le calendrier
-        </button>
+          Aucune session enregistrée pour ce membre.
+        </div>
+      )}
+
+      {/* Liste des sessions */}
+      <div className="space-y-2">
+        {orderedSessions.map((s) => (
+          <SessionCard
+            key={s.id}
+            session={s}
+            canEdit={canEdit}
+            canDelete={!isOnly}
+            lieuByIdMap={lieuByIdMap}
+            onUpdateSession={onUpdateSession}
+            onRemoveSession={onRemoveSession}
+            onOpenCalendar={() => onOpenSessionCalendar?.(s)}
+          />
+        ))}
       </div>
 
-      {/* Secteur */}
+      {/* + Ajouter une session */}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={handleAdd}
+          className="w-full text-xs px-3 py-2 rounded-md transition-colors inline-flex items-center justify-center gap-2"
+          style={{
+            background: 'transparent',
+            color: 'var(--blue)',
+            border: '1px dashed var(--blue-brd)',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-bg)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Ajouter une session
+        </button>
+      )}
+
+      {/* Secteur (= ville de résidence persona-level, hors sessions) */}
       <Field label="Secteur" icon={<MapPin className="w-3 h-3" />}>
         <input
           type="text"
@@ -862,6 +986,237 @@ function PresencePanel({ persona, canEdit, onUpdatePersona, onOpenPresence }) {
       </Field>
     </div>
   )
+}
+
+// ─── SessionCard — 1 session d'un membre ────────────────────────────────
+
+function SessionCard({
+  session,
+  canEdit,
+  canDelete,
+  lieuByIdMap,
+  onUpdateSession,
+  onRemoveSession,
+  onOpenCalendar,
+}) {
+  const couleur = effectiveCouleur(session)
+  const labelDisplay = effectiveLabel(session)
+  const lieuDisplayValue = effectiveLieu(session, lieuByIdMap)
+
+  // Drafts inline (label + lieu texte) — commit on blur.
+  const [labelDraft, setLabelDraft] = useState(session.label || '')
+  const [lieuDraft, setLieuDraft] = useState(session.lieu_principal_text || '')
+  useEffect(() => setLabelDraft(session.label || ''), [session.label])
+  useEffect(
+    () => setLieuDraft(session.lieu_principal_text || ''),
+    [session.lieu_principal_text],
+  )
+
+  function commitLabel() {
+    if (!canEdit) return
+    const trimmed = labelDraft.trim()
+    const next = trimmed || null
+    if (next === (session.label || null)) return
+    onUpdateSession?.(session.id, { label: next })
+  }
+  function commitLieu() {
+    if (!canEdit) return
+    const trimmed = lieuDraft.trim()
+    const next = trimmed || null
+    if (next === (session.lieu_principal_text || null)) return
+    onUpdateSession?.(session.id, { lieu_principal_text: next })
+  }
+
+  async function handleDelete() {
+    const ok = await confirm({
+      title: `Supprimer ${labelDisplay} ?`,
+      message:
+        'Les dates et le lieu de cette session seront supprimés. ' +
+        'Action irréversible.',
+      confirmLabel: 'Supprimer',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await onRemoveSession?.(session.id)
+      notify.success('Session supprimée')
+    } catch (e) {
+      console.error('[SessionCard] removeSession error:', e)
+      notify.error(e?.message || 'Suppression échouée')
+    }
+  }
+
+  // ─── Affichage des dates ──────────────────────────────────────────
+  const presenceCount = (session.presence_days || []).length
+  const arr = session.arrival_date
+  const dep = session.departure_date
+  const dateLine =
+    arr && dep
+      ? `${formatDateShort(arr)} → ${formatDateShort(dep)}`
+      : arr
+        ? `dès le ${formatDateShort(arr)}`
+        : dep
+          ? `jusqu'au ${formatDateShort(dep)}`
+          : 'Dates non renseignées'
+
+  return (
+    <div
+      className="rounded-md p-3 space-y-2"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+        borderLeft: `3px solid #${couleur}`,
+      }}
+    >
+      {/* Ligne 1 : Couleur + Label éditable + Bouton suppression */}
+      <div className="flex items-center gap-2">
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ background: `#${couleur}` }}
+          title="Couleur de la session"
+        />
+        {canEdit ? (
+          <input
+            type="text"
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={commitLabel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                setLabelDraft(session.label || '')
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder={`Session ${session.sort_order || 1}`}
+            className="text-sm font-semibold flex-1 px-2 py-0.5 rounded outline-none min-w-0"
+            style={{
+              background: 'transparent',
+              border: '1px solid transparent',
+              color: 'var(--txt)',
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.border = '1px solid var(--brd)'
+            }}
+            onMouseLeave={(e) => {
+              if (document.activeElement !== e.currentTarget) {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.border = '1px solid transparent'
+              }
+            }}
+          />
+        ) : (
+          <span
+            className="text-sm font-semibold flex-1 truncate"
+            style={{ color: 'var(--txt)' }}
+          >
+            {labelDisplay}
+          </span>
+        )}
+        {canEdit && canDelete && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="text-[10px] px-1.5 py-0.5 rounded-md transition-colors inline-flex items-center gap-1 shrink-0"
+            style={{
+              background: 'transparent',
+              color: 'var(--red)',
+              border: '1px solid var(--red)',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--red-bg)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            title="Supprimer cette session"
+          >
+            <Trash2 className="w-2.5 h-2.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Ligne 2 : Dates + presence count + bouton "Modifier" calendrier */}
+      <div className="flex items-center gap-2">
+        <Calendar
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: 'var(--txt-3)' }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs truncate" style={{ color: 'var(--txt-2)' }}>
+            {dateLine}
+          </div>
+          <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            {presenceCount === 0
+              ? 'Aucun jour de présence renseigné'
+              : `${presenceCount} jour${presenceCount > 1 ? 's' : ''} de présence`}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenCalendar}
+          className="text-[10px] px-2 py-1 rounded-md transition-colors shrink-0"
+          style={{
+            background: 'var(--blue-bg)',
+            color: 'var(--blue)',
+            border: '1px solid var(--blue-brd)',
+          }}
+        >
+          {canEdit ? 'Modifier' : 'Voir'}
+        </button>
+      </div>
+
+      {/* Ligne 3 : Lieu principal */}
+      <div className="flex items-center gap-2">
+        <MapPin
+          className="w-3 h-3 shrink-0"
+          style={{ color: 'var(--txt-3)' }}
+        />
+        {canEdit ? (
+          <input
+            type="text"
+            value={lieuDraft}
+            onChange={(e) => setLieuDraft(e.target.value)}
+            onBlur={commitLieu}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                setLieuDraft(session.lieu_principal_text || '')
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder="Lieu principal (Studio Paris, Mtp…)"
+            className="flex-1 text-xs px-2 py-1 rounded outline-none"
+            style={{
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+              color: 'var(--txt-2)',
+            }}
+          />
+        ) : (
+          <span
+            className="text-xs flex-1"
+            style={{
+              color: lieuDisplayValue ? 'var(--txt-2)' : 'var(--txt-3)',
+              fontStyle: lieuDisplayValue ? 'normal' : 'italic',
+            }}
+          >
+            {lieuDisplayValue || '— Lieu non renseigné —'}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Format court d'une date ISO YYYY-MM-DD → "11 mai" (FR).
+ * Renvoie la chaine brute si parsing échoue.
+ */
+function formatDateShort(iso) {
+  if (!iso || typeof iso !== 'string') return ''
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  const date = new Date(y, m - 1, d)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
 function Field({ label, icon, children }) {

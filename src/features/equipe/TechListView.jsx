@@ -96,6 +96,11 @@ export default function TechListView({
     removeMember,
     attachMember,
     detachMember,
+    // Sessions Phase 0b — exposées au MembreDrawer
+    sessionsByMembre,
+    addSession,
+    updateMemberSession,
+    removeSession,
   } = useCrew(projectId)
 
   const [showSensitive, setShowSensitive] = useState(false)
@@ -1140,9 +1145,17 @@ export default function TechListView({
         // (le bouton Retirer disparaît du drawer côté MembreDrawer).
         onRemoveMember={canDeleteEquipeMember ? removeMember : null}
         onDetachMember={detachMember}
-        onOpenPresence={(persona) => {
-          setPresenceFor({ persona, persona_key: persona.key })
-        }}
+        // Sessions Phase 0b : le drawer affiche désormais une section
+        // "Sessions" (multi-séjours). Il a sa propre modale calendrier
+        // per-session — l'ancien onOpenPresence persona-level n'est plus
+        // utilisé depuis ici (AttributionRow continue à l'utiliser pour
+        // l'édition inline).
+        sessionsByMembre={sessionsByMembre}
+        onAddSession={addSession}
+        onUpdateSession={updateMemberSession}
+        onRemoveSession={removeSession}
+        periodes={periodes}
+        tournageAnchor={tournageAnchor}
         // P4-DRAWER : action "Rattacher à un autre poste" depuis le drawer.
         // On ouvre l'AttachModal global de TechListView en passant la row
         // comme childRow ; le drawer se ferme côté MembreDrawer pour ne
