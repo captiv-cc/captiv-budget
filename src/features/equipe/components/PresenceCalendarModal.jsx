@@ -355,7 +355,16 @@ export default function PresenceCalendarModal({
             >
               Session
             </span>
-            {sortedSessions.map((s) => {
+            {sortedSessions
+              // Cas mono-session anonyme (pas de label) : on cache la
+              // chip — pas de "Sans nom" affiché à un admin qui n'a
+              // qu'un séjour standard. Multi-session : on garde tout.
+              .filter((s) => {
+                if (sortedSessions.length !== 1) return true
+                const rawLabel = (s.label || '').trim()
+                return Boolean(rawLabel)
+              })
+              .map((s) => {
               const isActive = s.id === activeSessionId
               const couleur = effectiveCouleur(s)
               return (
