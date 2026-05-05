@@ -1131,20 +1131,29 @@ export default function TechListView({
         sessions={
           presenceFor ? sessionsByMembre?.get?.(presenceFor.id) || [] : []
         }
-        // Templates des sessions déjà posées ailleurs dans le projet, hors
-        // celles déjà chez ce membre (matching par label+lieu).
+        // Templates des sessions du projet. Chaque template porte
+        // member_already_in (= ce membre est déjà participant à cette
+        // session globale). La modale les utilise pour :
+        //  - les chips "+ Template" : on filtre member_already_in côté
+        //    affichage (= on ne propose pas de rejoindre une session
+        //    où on est déjà)
+        //  - la détection de doublon au form "+ Nouvelle" : on regarde
+        //    la liste complète pour proposer de rejoindre (et fallback
+        //    sur "déjà dans cette session" si match avec already_in).
         projectSessionTemplates={(() => {
-          if (!presenceFor) return []
+          if (!presenceFor) return projectSessionTemplates
           const own = sessionsByMembre?.get?.(presenceFor.id) || []
           const ownKeys = new Set(
             own.map((s) =>
               `${(s.label || '').trim().toLowerCase()}|${(s.lieu_principal_text || '').trim().toLowerCase()}`,
             ),
           )
-          return projectSessionTemplates.filter((t) => {
-            const k = `${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`
-            return !ownKeys.has(k)
-          })
+          return projectSessionTemplates.map((t) => ({
+            ...t,
+            member_already_in: ownKeys.has(
+              `${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`,
+            ),
+          }))
         })()}
         // onCreateSession crée une nouvelle session globale dédiée au
         // membre courant via useCrew.addSession.

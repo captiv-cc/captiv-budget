@@ -62,17 +62,19 @@ export function effectiveCouleur(session) {
 /**
  * Label effectif d'une session :
  *   - le `label` saisi si présent
- *   - sinon "Session N" où N = sort_order
+ *   - sinon "Sans nom" (placeholder neutre)
  *
- * Permet à l'utilisateur de saisir des labels sémantiques ("Essais",
- * "Tournage") tout en ayant un fallback déterministe. Le front affiche
- * toujours le résultat de cette fonction, jamais le champ brut.
+ * Avant Phase A/3 le fallback était "Session N" basé sur sort_order,
+ * mais comme sort_order est calculé MAX(project)+1 globalement, ça
+ * donnait des "Session 14" / "Session 15" qui n'avaient aucun sens
+ * pour l'admin. "Sans nom" est plus honnête : la session n'a pas de
+ * nom, on incite à la renommer.
  */
 export function effectiveLabel(session) {
   if (!session) return ''
   const trimmed = (session.label || '').trim()
   if (trimmed) return trimmed
-  return `Session ${session.sort_order || 1}`
+  return 'Sans nom'
 }
 
 /**

@@ -519,6 +519,13 @@ export function useCrew(projectId) {
    * Update une session (label, dates, lieu, couleur, statut, notes…).
    * Si des champs date/presence changent, on re-agrège et on sync les
    * rows persona derrière.
+   *
+   * Phase A/3 — propagation des SESSION-LEVEL fields : modifier le
+   * label, lieu, couleur ou sort_order touche la SESSION GLOBALE
+   * partagée → toutes les participations qui pointent vers la même
+   * session_id voient le changement (côté DB c'est fait par split
+   * dans lib/crew.js, côté state local on doit le propager pour
+   * éviter d'attendre le Realtime ~2s).
    */
   const updateMemberSession = useCallback(async (sessionId, fields) => {
     if (!sessionId) throw new Error('updateMemberSession: sessionId manquant')
@@ -528,13 +535,56 @@ export function useCrew(projectId) {
       return null
     }
     markLocal()
-    // Optimistic
+    // Détermine quels SESSION-LEVEL fields sont touchés. Doit rester
+    // aligné avec la liste SESSION_LEVEL_FIELDS dans lib/crew.js.
+    const SESSION_LEVEL_KEYS = [
+      'label',
+      'lieu_principal_text',
+      'lieu_principal_id',
+      'couleur',
+      'sort_order',
+    ]
+    const sessionLevelOverrides = {}
+    for (const k of SESSION_LEVEL_KEYS) {
+      if (k in fields) sessionLevelOverrides[k] = fields[k]
+    }
+    const hasSessionLevel = Object.keys(sessionLevelOverrides).length > 0
+    const sharedSessionId = target.session_id || null
+
+    // Optimistic — propage SESSION-LEVEL aux participations partageant
+    // la même session globale, persona-level fields restant locaux à
+    // la participation cible.
     setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, ...fields } : s)),
+      prev.map((s) => {
+        if (s.id === sessionId) return { ...s, ...fields }
+        if (
+          hasSessionLevel &&
+          sharedSessionId &&
+          s.session_id === sharedSessionId
+        ) {
+          return { ...s, ...sessionLevelOverrides }
+        }
+        return s
+      }),
     )
     try {
       const updated = await updateSession(sessionId, fields)
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)))
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === sessionId) return updated
+          // Re-applique sessionLevelOverrides aux autres participations
+          // (le serveur a confirmé la valeur, on push la mise à jour
+          // confirmée).
+          if (
+            hasSessionLevel &&
+            sharedSessionId &&
+            s.session_id === sharedSessionId
+          ) {
+            return { ...s, ...sessionLevelOverrides }
+          }
+          return s
+        }),
+      )
       // Re-agrège seulement si une date/presence a bougé (sinon inutile).
       const dateFieldsTouched =
         'arrival_date' in fields ||

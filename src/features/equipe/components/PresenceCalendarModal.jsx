@@ -393,7 +393,12 @@ export default function PresenceCalendarModal({
                     Click = duplique la session chez le membre courant
                     (label + lieu + dates), équivalent UX d'un futur
                     "join shared session" (option a). */}
-                {projectSessionTemplates.map((t, i) => {
+                {projectSessionTemplates
+                  // Phase A/3 — affichage : on cache les chips de
+                  // sessions où le membre courant est DÉJÀ participant
+                  // (= pas de sens de proposer Rejoindre).
+                  .filter((t) => !t.member_already_in)
+                  .map((t, i) => {
                   const display = t.lieu ? `${t.label} (${t.lieu})` : t.label
                   const canJoin = Boolean(t.session_id && onJoinSession)
                   return (
@@ -458,6 +463,12 @@ export default function PresenceCalendarModal({
                       détecté sur le label+lieu tapé) */}
                 {creatingSession && pendingMatchTemplate ? (
                   // ── Confirmation doublon (Phase A/3c) ──────────────
+                  // 2 cas selon que le membre est déjà dans la session
+                  // matchée ou non :
+                  //  - already_in = false → propose Rejoindre (vraie
+                  //    fusion via onJoinSession) + Créer doublon
+                  //  - already_in = true  → seul "Créer doublon" est
+                  //    proposé (UNIQUE constraint empêche de joindre 2x)
                   <div
                     className="inline-flex items-center gap-2 shrink-0 rounded-md px-2 py-1"
                     style={{
@@ -469,62 +480,69 @@ export default function PresenceCalendarModal({
                     <span className="text-[11px] font-medium">
                       « {pendingMatchTemplate.label}
                       {pendingMatchTemplate.lieu ? ` (${pendingMatchTemplate.lieu})` : ''} »
-                      {' '}existe déjà
-                      {pendingMatchTemplate.member_count > 0
-                        ? ` chez ${pendingMatchTemplate.member_count} membre${pendingMatchTemplate.member_count > 1 ? 's' : ''}`
-                        : ''}
-                      .
+                      {' '}
+                      {pendingMatchTemplate.member_already_in
+                        ? 'est déjà attribuée à ce membre.'
+                        : `existe déjà${
+                            pendingMatchTemplate.member_count > 0
+                              ? ` chez ${pendingMatchTemplate.member_count} membre${pendingMatchTemplate.member_count > 1 ? 's' : ''}`
+                              : ''
+                          }.`}
                     </span>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          let created
-                          if (pendingMatchTemplate.session_id && onJoinSession) {
-                            created = await onJoinSession(pendingMatchTemplate.session_id)
-                          } else {
-                            // Fallback : pas de session_id (template
-                            // dégradé) → on tombe sur create
-                            created = await onCreateSession({
-                              label: pendingMatchTemplate.label,
-                              lieu_principal_text: pendingMatchTemplate.lieu || null,
-                              arrival_date: null,
-                              departure_date: null,
-                              presence_days: [],
-                            })
+                    {!pendingMatchTemplate.member_already_in && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            let created
+                            if (pendingMatchTemplate.session_id && onJoinSession) {
+                              created = await onJoinSession(pendingMatchTemplate.session_id)
+                            } else {
+                              created = await onCreateSession({
+                                label: pendingMatchTemplate.label,
+                                lieu_principal_text: pendingMatchTemplate.lieu || null,
+                                arrival_date: null,
+                                departure_date: null,
+                                presence_days: [],
+                              })
+                            }
+                            setCreatingSession(false)
+                            setNewLabel('')
+                            setNewLieu('')
+                            setPendingMatchTemplate(null)
+                            if (created?.id) setActiveSessionId(created.id)
+                          } catch (err) {
+                            console.error('[PresenceCalendarModal] join error:', err)
+                            notify.error('Ajout impossible : ' + (err?.message || err))
                           }
-                          setCreatingSession(false)
-                          setNewLabel('')
-                          setNewLieu('')
-                          setPendingMatchTemplate(null)
-                          if (created?.id) setActiveSessionId(created.id)
-                        } catch (err) {
-                          console.error('[PresenceCalendarModal] join error:', err)
-                          notify.error('Ajout impossible : ' + (err?.message || err))
-                        }
-                      }}
-                      className="text-[11px] px-2 py-0.5 rounded transition-colors"
-                      style={{
-                        background: 'var(--blue)',
-                        color: '#fff',
-                        fontWeight: 600,
-                      }}
-                      title="Ajouter ce membre comme participant à la session existante"
-                    >
-                      Rejoindre
-                    </button>
+                        }}
+                        className="text-[11px] px-2 py-0.5 rounded transition-colors"
+                        style={{
+                          background: 'var(--blue)',
+                          color: '#fff',
+                          fontWeight: 600,
+                        }}
+                        title="Ajouter ce membre comme participant à la session existante"
+                      >
+                        Rejoindre
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={async () => {
-                        // Skippe la détection : on crée un doublon
-                        // (sera fusionnable manuellement plus tard).
+                        // Skippe la détection : on crée un doublon en
+                        // copiant les dates et le lieu du template
+                        // (= comportement original des "+ Template").
+                        // Sera fusionnable manuellement plus tard.
                         try {
                           const created = await onCreateSession({
                             label: pendingMatchTemplate.label,
                             lieu_principal_text: pendingMatchTemplate.lieu || null,
-                            arrival_date: null,
-                            departure_date: null,
-                            presence_days: [],
+                            arrival_date: pendingMatchTemplate.arrival_date || null,
+                            departure_date: pendingMatchTemplate.departure_date || null,
+                            presence_days: Array.isArray(pendingMatchTemplate.presence_days)
+                              ? [...pendingMatchTemplate.presence_days]
+                              : [],
                           })
                           setCreatingSession(false)
                           setNewLabel('')
