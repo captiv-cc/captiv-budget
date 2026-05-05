@@ -90,6 +90,15 @@ export default function PresenceCalendarModal({
     [sortedSessions, activeSessionId],
   )
 
+  // ─── Création d'une nouvelle session (mini-form inline) ───────────
+  // Quand l'admin clique "+ Nouvelle", on transforme le bouton en un
+  // petit form (label + lieu + valider) au lieu de créer une session
+  // anonyme "Session N". Plus rapide que d'ouvrir le drawer pour
+  // renommer après création.
+  const [creatingSession, setCreatingSession] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+  const [newLieu, setNewLieu] = useState('')
+
   // Source de vérité affichée : la session active si fournie, sinon le
   // persona agrégé (comportement legacy).
   const effectiveData = activeSession || persona
@@ -140,10 +149,16 @@ export default function PresenceCalendarModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeSessionId, sortedSessions])
 
-  // Reset l'activeSessionId à la fermeture (sinon en réouvrant on
-  // afficherait l'ancienne session active même si la liste a changé).
+  // Reset l'activeSessionId + le mini-form de création à la fermeture
+  // (sinon en réouvrant on afficherait l'ancienne session active même si
+  // la liste a changé, et le form de création resterait ouvert).
   useEffect(() => {
-    if (!open) setActiveSessionId(null)
+    if (!open) {
+      setActiveSessionId(null)
+      setCreatingSession(false)
+      setNewLabel('')
+      setNewLieu('')
+    }
   }, [open])
 
   // ESC en mode picker → annule le picker (sans fermer la modale)
@@ -402,38 +417,128 @@ export default function PresenceCalendarModal({
                   )
                 })}
 
-                {/* Bouton "Nouvelle session" — vide, label par défaut
-                    "Session N" (auto via sort_order), à compléter ensuite. */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const created = await onCreateSession({
-                        label: null,
-                        lieu_principal_text: null,
-                        arrival_date: null,
-                        departure_date: null,
-                        presence_days: [],
-                      })
-                      if (created?.id) setActiveSessionId(created.id)
-                    } catch (err) {
-                      console.error('[PresenceCalendarModal] create error:', err)
-                      notify.error('Création impossible : ' + (err?.message || err))
-                    }
-                  }}
-                  className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-colors"
-                  style={{
-                    background: 'transparent',
-                    color: 'var(--blue)',
-                    border: '1px dashed var(--blue-brd)',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-bg)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  title="Créer une nouvelle session vide pour ce membre"
-                >
-                  <Plus className="w-3 h-3" />
-                  Nouvelle
-                </button>
+                {/* Bouton "Nouvelle session" / mini-form de création.
+                    Au clic, le bouton devient un petit form avec label
+                    + lieu pour que la session soit nommée dès sa création
+                    (sinon "Session N" générique pas pratique). */}
+                {creatingSession ? (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault()
+                      try {
+                        const labelTrim = newLabel.trim()
+                        const lieuTrim = newLieu.trim()
+                        const created = await onCreateSession({
+                          label: labelTrim || null,
+                          lieu_principal_text: lieuTrim || null,
+                          arrival_date: null,
+                          departure_date: null,
+                          presence_days: [],
+                        })
+                        setCreatingSession(false)
+                        setNewLabel('')
+                        setNewLieu('')
+                        if (created?.id) setActiveSessionId(created.id)
+                      } catch (err) {
+                        console.error('[PresenceCalendarModal] create error:', err)
+                        notify.error('Création impossible : ' + (err?.message || err))
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 shrink-0 rounded-md p-0.5"
+                    style={{
+                      background: 'var(--blue-bg)',
+                      border: '1px solid var(--blue-brd)',
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={newLabel}
+                      onChange={(e) => setNewLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setCreatingSession(false)
+                          setNewLabel('')
+                          setNewLieu('')
+                        }
+                      }}
+                      autoFocus
+                      placeholder="Nom (Essais…)"
+                      className="text-xs px-1.5 py-0.5 rounded outline-none"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--txt)',
+                        width: 110,
+                      }}
+                    />
+                    <span style={{ color: 'var(--txt-3)' }}>·</span>
+                    <input
+                      type="text"
+                      value={newLieu}
+                      onChange={(e) => setNewLieu(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setCreatingSession(false)
+                          setNewLabel('')
+                          setNewLieu('')
+                        }
+                      }}
+                      placeholder="Lieu"
+                      className="text-xs px-1.5 py-0.5 rounded outline-none"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--txt)',
+                        width: 90,
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="text-xs px-1.5 py-0.5 rounded inline-flex items-center"
+                      style={{
+                        background: 'var(--blue)',
+                        color: '#fff',
+                      }}
+                      title="Créer la session (Entrée)"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreatingSession(false)
+                        setNewLabel('')
+                        setNewLieu('')
+                      }}
+                      className="text-xs px-1 py-0.5 rounded transition-colors"
+                      style={{ color: 'var(--txt-3)' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+                      title="Annuler (Esc)"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCreatingSession(true)}
+                    className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-colors"
+                    style={{
+                      background: 'transparent',
+                      color: 'var(--blue)',
+                      border: '1px dashed var(--blue-brd)',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--blue-bg)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    title="Créer une nouvelle session pour ce membre"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Nouvelle
+                  </button>
+                )}
               </>
             )}
           </div>
