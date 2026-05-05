@@ -1167,6 +1167,12 @@ export default function TechListView({
         onJoinSession={(sessionId, payload) =>
           presenceFor ? joinExistingSession(presenceFor.id, sessionId, payload) : null
         }
+        // Phase A/3 : édition inline du nom/lieu de la session active
+        // depuis la modale (sans passer par le drawer). Touche la session
+        // GLOBALE → propage à tous les participants automatiquement.
+        onUpdateSessionMeta={(sessionId, fields) =>
+          updateMemberSession(sessionId, fields)
+        }
         onSave={(fields, sessionId) => {
           if (!presenceFor) return undefined
           if (sessionId) {

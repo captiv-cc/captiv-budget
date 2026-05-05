@@ -85,6 +85,11 @@ export default function PresenceCalendarModal({
   // template a un session_id de la session globale matchée).
   // Si non fournie → fallback sur onCreateSession (= duplication legacy).
   onJoinSession = null,
+  // Update méta de la session active (label + lieu). Édité inline dans
+  // un mini-panneau sous le sélecteur. Modifier le label/lieu touche la
+  // session GLOBALE → propage à tous les participants (cf. lib split).
+  // Si non fourni, le panneau d'édition n'est pas affiché.
+  onUpdateSessionMeta = null,
   onSave,
   periodes = null,
   anchorDate = null,
@@ -726,6 +731,18 @@ export default function PresenceCalendarModal({
           </div>
         )}
 
+        {/* Édition méta de la session active (Phase A/3) — visible
+            seulement si on a une session active ET onUpdateSessionMeta
+            est branché. Permet de renommer + relocaliser la session
+            sans quitter la modale. Modifier ces champs touche la
+            session GLOBALE (propage à tous les participants). */}
+        {activeSession && onUpdateSessionMeta && (
+          <SessionMetaEditor
+            session={activeSession}
+            onUpdate={(fields) => onUpdateSessionMeta(activeSession.id, fields)}
+          />
+        )}
+
         {/* Sélection rapide par période */}
         {periodes && (
           <div
@@ -1249,4 +1266,89 @@ function formatDateCompactFr(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
   if (!m) return iso
   return `${m[3]}/${m[2]}/${m[1].slice(2)}`
+}
+
+// ─── SessionMetaEditor — Édition inline du nom + lieu de la session ───────
+//
+// Mini-panneau affiché sous le sélecteur de session quand une session est
+// active et qu'on est en mode admin (canEdit). Permet de renommer une
+// session "Sans nom" en "Plateau" ou de changer son lieu sans avoir à
+// fermer la modale et passer par le drawer.
+//
+// Modifier label/lieu touche la SESSION GLOBALE (cf. lib split) → propage
+// à tous les participants. Le commit est sur onBlur (= classique).
+
+function SessionMetaEditor({ session, onUpdate }) {
+  const [labelDraft, setLabelDraft] = useState(session?.label || '')
+  const [lieuDraft, setLieuDraft] = useState(session?.lieu_principal_text || '')
+
+  // Sync drafts si la session active change (switch via les chips)
+  useEffect(() => {
+    setLabelDraft(session?.label || '')
+  }, [session?.id, session?.label])
+  useEffect(() => {
+    setLieuDraft(session?.lieu_principal_text || '')
+  }, [session?.id, session?.lieu_principal_text])
+
+  function commitLabel() {
+    const trimmed = labelDraft.trim()
+    const next = trimmed || null
+    if (next === (session?.label || null)) return
+    onUpdate({ label: next })
+  }
+
+  function commitLieu() {
+    const trimmed = lieuDraft.trim()
+    const next = trimmed || null
+    if (next === (session?.lieu_principal_text || null)) return
+    onUpdate({ lieu_principal_text: next })
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 px-5 py-2 border-b shrink-0"
+      style={{ borderColor: 'var(--brd-sub)' }}
+    >
+      <input
+        type="text"
+        value={labelDraft}
+        onChange={(e) => setLabelDraft(e.target.value)}
+        onBlur={commitLabel}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setLabelDraft(session?.label || '')
+            e.currentTarget.blur()
+          }
+        }}
+        placeholder="Nom (ex. Essais, Tournage…)"
+        className="flex-1 text-xs px-2 py-1 rounded outline-none"
+        style={{
+          background: 'var(--bg-elev)',
+          border: '1px solid var(--brd-sub)',
+          color: 'var(--txt)',
+        }}
+      />
+      <input
+        type="text"
+        value={lieuDraft}
+        onChange={(e) => setLieuDraft(e.target.value)}
+        onBlur={commitLieu}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setLieuDraft(session?.lieu_principal_text || '')
+            e.currentTarget.blur()
+          }
+        }}
+        placeholder="Lieu"
+        className="flex-1 text-xs px-2 py-1 rounded outline-none"
+        style={{
+          background: 'var(--bg-elev)',
+          border: '1px solid var(--brd-sub)',
+          color: 'var(--txt)',
+        }}
+      />
+    </div>
+  )
 }
