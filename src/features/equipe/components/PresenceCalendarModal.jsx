@@ -78,6 +78,12 @@ export default function PresenceCalendarModal({
   // retourner la session créée (avec son id) pour qu'on puisse l'activer.
   // Si non fournie → les boutons d'ajout sont cachés.
   onCreateSession = null,
+  // Phase A/3 — fait rejoindre le membre courant à une session globale
+  // existante du projet. Reçoit sessionId + payload optionnel d'override.
+  // Utilisé par les boutons "+ Template" en faible opacité (chaque
+  // template a un session_id de la session globale matchée).
+  // Si non fournie → fallback sur onCreateSession (= duplication legacy).
+  onJoinSession = null,
   onSave,
   periodes = null,
   anchorDate = null,
@@ -381,21 +387,34 @@ export default function PresenceCalendarModal({
                     "join shared session" (option a). */}
                 {projectSessionTemplates.map((t, i) => {
                   const display = t.lieu ? `${t.label} (${t.lieu})` : t.label
+                  const canJoin = Boolean(t.session_id && onJoinSession)
                   return (
                     <button
                       key={`tpl-${i}-${t.label}-${t.lieu}`}
                       type="button"
                       onClick={async () => {
                         try {
-                          const created = await onCreateSession({
-                            label: t.label,
-                            lieu_principal_text: t.lieu || null,
-                            arrival_date: t.arrival_date || null,
-                            departure_date: t.departure_date || null,
-                            presence_days: Array.isArray(t.presence_days)
-                              ? [...t.presence_days]
-                              : [],
-                          })
+                          let created
+                          if (canJoin) {
+                            // Phase A/3 : VRAI join — on rejoint la session
+                            // globale existante. Pas de payload override :
+                            // on hérite des dates / presence_days de la
+                            // session côté serveur (joinSession le fait).
+                            created = await onJoinSession(t.session_id)
+                          } else {
+                            // Fallback (cas dégradé : template sans
+                            // session_id, ou pas de onJoinSession). Crée
+                            // un doublon comme avant.
+                            created = await onCreateSession({
+                              label: t.label,
+                              lieu_principal_text: t.lieu || null,
+                              arrival_date: t.arrival_date || null,
+                              departure_date: t.departure_date || null,
+                              presence_days: Array.isArray(t.presence_days)
+                                ? [...t.presence_days]
+                                : [],
+                            })
+                          }
                           if (created?.id) setActiveSessionId(created.id)
                         } catch (err) {
                           console.error('[PresenceCalendarModal] template add error:', err)
@@ -411,7 +430,11 @@ export default function PresenceCalendarModal({
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
                       onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
-                      title={`Ajouter une session "${display}" (recopie les dates et le lieu)`}
+                      title={
+                        canJoin
+                          ? `Rejoindre la session "${display}" (partagée avec d'autres membres)`
+                          : `Ajouter une session "${display}" (recopie dates et lieu)`
+                      }
                     >
                       <Plus className="w-3 h-3" />
                       {display}

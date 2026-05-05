@@ -96,10 +96,11 @@ export default function TechListView({
     removeMember,
     attachMember,
     detachMember,
-    // Sessions Phase 0b — exposées au MembreDrawer
+    // Sessions Phase 0b + A — exposées au MembreDrawer
     sessions,
     sessionsByMembre,
     addSession,
+    joinExistingSession,
     updateMemberSession,
     removeSession,
   } = useCrew(projectId)
@@ -538,14 +539,19 @@ export default function TechListView({
     [uncategorized, selectedLotId, rowMatchesLot],
   )
 
-  // ─── Sessions Phase 0b — templates pour ajout rapide ────────────────
-  // À partir de toutes les sessions du projet, on extrait des "templates"
-  // distincts par couple (label, lieu). Permet à l'admin, depuis la
-  // modale Présence d'un membre, de cloner en 1 clic une session déjà
-  // posée chez quelqu'un d'autre du projet (préfigure le futur "join
-  // shared session" de l'option a — sessions inter-membres).
+  // ─── Sessions Phase A/3 — templates pour ajout rapide ──────────────
+  // À partir de toutes les participations du projet, on extrait des
+  // "templates" distincts par couple (label, lieu). Chaque template
+  // garde le `session_id` de la session globale matchée → permet de
+  // faire un VRAI join (Phase A/3) au lieu d'une duplication.
   //
-  // Format : [{ label, lieu, presence_days, arrival_date, departure_date }]
+  // Si plusieurs sessions globales ont le même (label, lieu) — cas
+  // hérité de la migration 1:1 où chaque membre avait sa duplication —
+  // on retient le 1er. Une UI de fusion explicite des sessions globales
+  // dupliquées viendra plus tard.
+  //
+  // Format : [{ session_id, label, lieu, presence_days,
+  //            arrival_date, departure_date }]
   const projectSessionTemplates = useMemo(() => {
     if (!Array.isArray(sessions) || sessions.length === 0) return []
     const map = new Map()
@@ -557,6 +563,7 @@ export default function TechListView({
       const key = `${label.toLowerCase()}|${lieu.toLowerCase()}`
       if (!map.has(key)) {
         map.set(key, {
+          session_id: s.session_id || null,
           label,
           lieu: lieu || null,
           presence_days: Array.isArray(s.presence_days) ? [...s.presence_days] : [],
@@ -1127,11 +1134,17 @@ export default function TechListView({
             return !ownKeys.has(k)
           })
         })()}
-        // onCreateSession crée la session chez le principal courant via
-        // useCrew.addSession. Le hook gère sort_order, sync projet_membres
-        // et state Realtime.
+        // onCreateSession crée une nouvelle session globale dédiée au
+        // membre courant via useCrew.addSession.
         onCreateSession={(payload) =>
           presenceFor ? addSession(presenceFor.id, payload) : null
+        }
+        // Phase A/3 : onJoinSession fait rejoindre une session globale
+        // existante du projet (= le membre devient un nouveau participant
+        // sans dupliquer la session). Utilisé par les boutons "+ Template"
+        // en faible opacité, qui maintenant font un VRAI join.
+        onJoinSession={(sessionId, payload) =>
+          presenceFor ? joinExistingSession(presenceFor.id, sessionId, payload) : null
         }
         onSave={(fields, sessionId) => {
           if (!presenceFor) return undefined
