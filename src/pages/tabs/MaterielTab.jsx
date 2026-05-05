@@ -16,7 +16,7 @@
 // Gating : `useProjectPermissions(projectId).can('materiel', 'edit')`.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Package, Plus } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
@@ -84,6 +84,38 @@ export default function MaterielTab() {
     othersEditingByItem,
     setMyEditingItemId,
   } = useMaterielPresence(projectId)
+
+  // ─── MAT-DUP-HIGHLIGHT : feedback visuel après duplication d'un bloc ────
+  // Quand l'user duplique un bloc, on met l'id du nouveau dans cet état :
+  // BlockList le propage à Block, qui scroll dessus + affiche un ring bleu
+  // pulsant pendant ~2.5s. Auto-clear par timeout.
+  const [highlightedBlockId, setHighlightedBlockId] = useState(null)
+  const highlightTimerRef = useRef(null)
+  const triggerBlockHighlight = useCallback((blockId) => {
+    if (!blockId) return
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    setHighlightedBlockId(blockId)
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedBlockId(null)
+      highlightTimerRef.current = null
+    }, 2500)
+  }, [])
+
+  // Wrapping : on intercepte actions.duplicateBlock pour déclencher le
+  // highlight une fois la duplication réussie. Les autres actions passent
+  // tel quel. Mémoïsé pour préserver la stabilité de la référence quand
+  // `actions` ne change pas.
+  const augmentedActions = useMemo(
+    () => ({
+      ...actions,
+      duplicateBlock: async (blockId) => {
+        const newBlock = await actions.duplicateBlock(blockId)
+        if (newBlock?.id) triggerBlockHighlight(newBlock.id)
+        return newBlock
+      },
+    }),
+    [actions, triggerBlockHighlight],
+  )
   const {
     loading,
     detailLoading,
@@ -680,11 +712,12 @@ export default function MaterielTab() {
               allLoueurs={loueurs}
               orgId={orgId}
               materielBdd={materielBdd}
-              actions={actions}
+              actions={augmentedActions}
               canEdit={canEdit}
               detailed={detailed}
               othersEditingByItem={othersEditingByItem}
               onItemEditingChange={setMyEditingItemId}
+              highlightedBlockId={highlightedBlockId}
             />
             <LoueurDocsPanel versionId={activeVersionId} canEdit={canEdit} />
           </>

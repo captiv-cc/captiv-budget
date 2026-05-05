@@ -48,6 +48,10 @@ export default function BlockList({
   //     état d'édition courant via le hook usePresence du parent.
   othersEditingByItem = null,
   onItemEditingChange = null,
+  // MAT-DUP-HIGHLIGHT : id du bloc à mettre en valeur (ring + scroll). Ce
+  // bloc vient typiquement d'être dupliqué, le parent l'auto-clear après
+  // ~2.5s.
+  highlightedBlockId = null,
 }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const menuRef = useRef(null)
@@ -281,6 +285,7 @@ export default function BlockList({
           detailed={detailed}
           othersEditingByItem={othersEditingByItem}
           onItemEditingChange={onItemEditingChange}
+          isHighlighted={block.id === highlightedBlockId}
           // Drag bloc (inchangé)
           dragInsertPosition={
             dragOverInfo?.idx === idx ? dragOverInfo.position : null

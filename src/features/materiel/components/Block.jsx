@@ -60,6 +60,9 @@ export default function Block({
   //   - onItemEditingChange : (itemId | null) => void — broadcast.
   othersEditingByItem = null,
   onItemEditingChange = null,
+  // MAT-DUP-HIGHLIGHT : si true, ce bloc est mis en valeur (ring bleu
+  // pulsant + scroll-into-view). Typiquement après duplication.
+  isHighlighted = false,
   // ─── Drag bloc (insertion line directionnelle entre blocs) ────────────
   dragInsertPosition = null,
   onBlockDragStart,
@@ -79,9 +82,23 @@ export default function Block({
   const [title, setTitle] = useState(block.titre || '')
   const [affichageMenuOpen, setAffichageMenuOpen] = useState(false)
   const affichageRef = useRef(null)
+  // MAT-DUP-HIGHLIGHT : ref pour scroll-into-view quand isHighlighted
+  // bascule à true (typiquement après duplication par un user).
+  const sectionRef = useRef(null)
 
   // Collapse/expand : état local (self-contained). Par défaut, déplié.
   const [collapsed, setCollapsed] = useState(false)
+
+  // MAT-DUP-HIGHLIGHT : si le bloc devient highlighted (= il vient
+  // d'apparaître après duplication), on déroule (au cas où il était
+  // collapsé) puis on scroll dessus.
+  useEffect(() => {
+    if (!isHighlighted) return
+    setCollapsed(false)
+    if (sectionRef.current?.scrollIntoView) {
+      sectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [isHighlighted])
 
   // Responsive : mobile (<640px) bascule du <table> vers une liste de cartes
   // (ItemRowCard) et collapse les 3 IconBtn d'actions bloc dans un ⋯
@@ -320,8 +337,17 @@ export default function Block({
         ? '0 3px 0 0 var(--blue)'
         : 'none'
 
+  // MAT-DUP-HIGHLIGHT : ring bleu épais + halo si ce bloc vient d'être
+  // dupliqué. Prioritaire sur l'indicateur de drop (insertShadow). La
+  // transition 600ms douce le ring s'estomper quand le parent retire le
+  // highlight (via timeout 2.5s).
+  const finalShadow = isHighlighted
+    ? '0 0 0 3px var(--blue), 0 12px 36px rgba(0,122,255,.30)'
+    : insertShadow
+
   return (
     <section
+      ref={sectionRef}
       className="rounded-xl overflow-hidden"
       // Les handlers dragover/enter/drop/end sont sur la section pour que le
       // drop soit accepté quand le pointeur est n'importe où sur le bloc.
@@ -334,8 +360,8 @@ export default function Block({
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
-        boxShadow: insertShadow,
-        transition: 'box-shadow 100ms ease',
+        boxShadow: finalShadow,
+        transition: 'box-shadow 600ms ease-out',
       }}
     >
       {/* Header de bloc — zone de drop (les events dragover/drop bubblent
