@@ -662,11 +662,15 @@ export default function Block({
               <Th width="32px">Flag</Th>
               {/* Label — désormais sur toutes les listes (config ET classique) */}
               <Th width="120px">Label</Th>
-              <Th>Désignation</Th>
+              {/* Désignation : largeur fixe (220px) — un nom matos tient
+                  largement dedans (~25 caractères). On garde au max pour
+                  laisser de la place à Remarques qui absorbe le reste. */}
+              <Th width="220px">Désignation</Th>
               {/* Remarques placée APRÈS Désignation (avant Qté) — retour Hugo :
                   l'info utile métier (sets, notes terrain) est lue avec la
-                  désignation, pas reléguée en bout de ligne. */}
-              <Th width="200px">Remarques</Th>
+                  désignation, pas reléguée en bout de ligne. C'est aussi la
+                  colonne flex (no width) → absorbe tout l'espace dispo. */}
+              <Th>Remarques</Th>
               <Th width="56px" align="center">Qté</Th>
               <Th width="220px">Loueurs</Th>
               <Th width="32px" />

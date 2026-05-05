@@ -293,8 +293,9 @@ export default function ItemRow({
         />
       </td>
 
-      {/* Designation + autocomplete */}
-      <td className="px-2 py-1.5 align-middle">
+      {/* Designation + autocomplete — largeur fixe pour laisser place à
+          Remarques qui absorbe le reste. */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '220px' }}>
         <DesignationAutocomplete
           value={item.designation}
           materielBddId={item.materiel_bdd_id}
@@ -308,8 +309,8 @@ export default function ItemRow({
       {/* Remarques — placée APRÈS Désignation et AVANT Qté (MAT-DETAILED-DEFAULT).
           Toujours affichée — plus de toggle "Détails" : les remarques sont
           considérées suffisamment utiles métier pour être visibles par
-          défaut. */}
-      <td className="px-2 py-1.5 align-middle" style={{ width: '200px' }}>
+          défaut. Pas de width → flex column qui absorbe l'espace dispo. */}
+      <td className="px-2 py-1.5 align-middle">
         <input
           type="text"
           value={remarques}
