@@ -51,7 +51,7 @@ import {
   effectiveCouleur,
   effectiveLabel,
   hasMultipleSessions,
-  sortSessions,
+  sortSessionsByDate,
 } from '../../../lib/sessions'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 
@@ -161,7 +161,9 @@ export default function AttributionRow({
   // Sessions Phase 0b — chips colorées si 2+ sessions actives. On ne
   // dépend QUE du nombre de sessions, pas de leur statut, pour rester
   // visible (les sessions "planifie" et "confirme" comptent toutes).
-  const orderedSessions = sessions ? sortSessions(sessions) : []
+  // Tri chronologique pour que les chips soient lisibles dans l'ordre
+  // naturel ; les couleurs (sort_order) restent attribuées par création.
+  const orderedSessions = sessions ? sortSessionsByDate(sessions) : []
   const showSessionChips = hasMultipleSessions(orderedSessions)
 
   // Logistique condensée

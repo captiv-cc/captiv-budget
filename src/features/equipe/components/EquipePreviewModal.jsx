@@ -26,6 +26,7 @@ import {
   paletteAt,
   effectiveCouleur,
   effectiveLabel,
+  firstDateOfSession,
   getActiveSessionForDay,
 } from '../../../lib/sessions'
 import PresencePlaneIcons from './PresencePlaneIcons'
@@ -92,18 +93,17 @@ export default function EquipePreviewModal({
   )
 
   // Sessions Phase 0b : pour chaque sort_order utilisé dans le projet,
-  // on agrège les labels et lieux distincts. Si tous les membres
-  // multi-sessions ont le MÊME label à cette position (cas typique :
-  // "Essais" / "Tournage" sur plusieurs personnes), on l'affiche dans
-  // la légende. Sinon on retombe sur "Session N".
+  // on agrège les labels & lieux distincts (label commun = label affiché,
+  // sinon "Session N") + la 1ʳᵉ date observée. Le résultat est trié
+  // chronologiquement (= ordre de lecture humain) plutôt que par
+  // sort_order (= ordre de création arbitraire).
   //
   // La légende n'apparaît que si au moins UN membre a 2+ sessions.
   const sessionsLegendItems = useMemo(() => {
     if (!sessionsByMembre) return []
-    // 1. Recense par sort_order les labels & lieux observés (uniquement
-    //    chez les membres multi-sessions, pour ne pas polluer la légende
-    //    avec la session 1 par défaut des membres mono-session).
-    const byOrder = new Map() // Map<order, { labels:Set, lieux:Set }>
+    // 1. Recense par sort_order les labels, lieux et la date min observée
+    //    (uniquement chez les membres multi-sessions).
+    const byOrder = new Map()
     let max = 0
     for (const m of members) {
       const list = sessionsByMembre.get?.(m.id) || []
@@ -111,17 +111,22 @@ export default function EquipePreviewModal({
       for (const s of list) {
         const order = Number(s.sort_order) || 1
         if (order > max) max = order
-        if (!byOrder.has(order)) byOrder.set(order, { labels: new Set(), lieux: new Set() })
+        if (!byOrder.has(order)) {
+          byOrder.set(order, { labels: new Set(), lieux: new Set(), minDate: null })
+        }
         const entry = byOrder.get(order)
         const trimLabel = (s.label || '').trim()
         if (trimLabel) entry.labels.add(trimLabel)
         const trimLieu = (s.lieu_principal_text || '').trim()
         if (trimLieu) entry.lieux.add(trimLieu)
+        const date = firstDateOfSession(s)
+        if (date && (!entry.minDate || date < entry.minDate)) {
+          entry.minDate = date
+        }
       }
     }
     if (max < 2) return []
-    // 2. Pour chaque position 1..max, choisis le label/lieu si unique,
-    //    sinon laisse vide (le composant légende affichera "Session N").
+    // 2. Construit les items, palette par sort_order préservée.
     const items = []
     for (let i = 1; i <= max; i += 1) {
       const entry = byOrder.get(i)
@@ -132,8 +137,17 @@ export default function EquipePreviewModal({
         color: paletteAt(i),
         label: labels.length === 1 ? labels[0] : null,
         lieu: lieux.length === 1 ? lieux[0] : null,
+        minDate: entry?.minDate || null,
       })
     }
+    // 3. Tri chronologique par minDate ; sessions sans date à la fin
+    //    départagées par sort_order.
+    items.sort((a, b) => {
+      if (!a.minDate && !b.minDate) return a.sortOrder - b.sortOrder
+      if (!a.minDate) return 1
+      if (!b.minDate) return -1
+      return a.minDate.localeCompare(b.minDate)
+    })
     return items
   }, [members, sessionsByMembre])
 

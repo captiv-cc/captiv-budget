@@ -181,10 +181,48 @@ export function hasMultipleSessions(sessions) {
 
 /**
  * Trie les sessions par sort_order croissant. Ne mute pas l'array d'entrée.
+ *
+ * À utiliser pour : la création (auto-incrément max+1), la palette
+ * (paletteAt déterministe), un éventuel drag-reorder futur. Pour les
+ * affichages utilisateur, préférer `sortSessionsByDate` qui présente
+ * les sessions dans l'ordre chronologique réel (humainement plus lisible).
  */
 export function sortSessions(sessions) {
   if (!Array.isArray(sessions)) return []
   return [...sessions].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+}
+
+/**
+ * Première date observée d'une session : `arrival_date` si fourni, sinon
+ * la 1ʳᵉ date triée des `presence_days`. Renvoie null si rien.
+ */
+export function firstDateOfSession(session) {
+  if (!session) return null
+  if (session.arrival_date) return session.arrival_date
+  if (Array.isArray(session.presence_days) && session.presence_days.length) {
+    return [...session.presence_days].sort()[0]
+  }
+  return null
+}
+
+/**
+ * Trie les sessions par 1ʳᵉ date observée (chronologique). Sessions sans
+ * date à la fin, départagées par sort_order. Ne mute pas l'array.
+ *
+ * À utiliser pour TOUS les affichages utilisateur (chips crew list,
+ * légende grille, sélecteur modale, cards drawer) : c'est l'ordre
+ * naturel pour un humain qui lit un planning.
+ */
+export function sortSessionsByDate(sessions) {
+  if (!Array.isArray(sessions)) return []
+  return [...sessions].sort((a, b) => {
+    const ad = firstDateOfSession(a)
+    const bd = firstDateOfSession(b)
+    if (!ad && !bd) return (a.sort_order || 0) - (b.sort_order || 0)
+    if (!ad) return 1 // sessions sans date en queue
+    if (!bd) return -1
+    return ad.localeCompare(bd)
+  })
 }
 
 /**

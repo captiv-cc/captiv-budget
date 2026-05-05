@@ -43,7 +43,7 @@ import {
   effectiveCouleur,
   effectiveLabel,
   effectiveLieu,
-  sortSessions,
+  sortSessionsByDate,
 } from '../../../lib/sessions'
 import { confirm } from '../../../lib/confirm'
 import { notify } from '../../../lib/notify'
@@ -871,8 +871,8 @@ function SessionsPanel({
   onRemoveSession,
   onOpenSessionCalendar,
 }) {
-  // ─── Sessions triées par sort_order ─────────────────────────────────
-  const orderedSessions = useMemo(() => sortSessions(sessions || []), [sessions])
+  // ─── Sessions triées par date (chronologique pour l'humain) ────────
+  const orderedSessions = useMemo(() => sortSessionsByDate(sessions || []), [sessions])
   const isOnly = orderedSessions.length <= 1
 
   // ─── Secteur (persona-level, code repris de l'ancien PresencePanel) ─

@@ -52,7 +52,7 @@ import { PERIODE_KEYS, PERIODE_META, expandDays, hasAnyRange } from '../../../li
 import {
   effectiveCouleur,
   effectiveLabel,
-  sortSessions,
+  sortSessionsByDate,
 } from '../../../lib/sessions'
 import { notify } from '../../../lib/notify'
 
@@ -82,8 +82,10 @@ export default function PresenceCalendarModal({
   periodes = null,
   anchorDate = null,
 }) {
-  // Sessions triées et session active courante (par défaut la 1ʳᵉ).
-  const sortedSessions = useMemo(() => sortSessions(sessions || []), [sessions])
+  // Sessions triées chronologiquement (1ʳᵉ par date) — la session
+  // par défaut sera donc la plus tôt dans le temps, plus naturel
+  // qu'une "session 1" historique au sort_order arbitraire.
+  const sortedSessions = useMemo(() => sortSessionsByDate(sessions || []), [sessions])
   const [activeSessionId, setActiveSessionId] = useState(null)
   const activeSession = useMemo(
     () => sortedSessions.find((s) => s.id === activeSessionId) || null,
