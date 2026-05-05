@@ -314,7 +314,6 @@ export default function ItemRow({
         <input
           type="text"
           value={remarques}
-          placeholder="—"
           onChange={(e) => setRemarques(e.target.value)}
           onBlur={() => saveField('remarques', remarques || null)}
           disabled={!canEdit}
