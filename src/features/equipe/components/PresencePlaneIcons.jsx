@@ -27,7 +27,20 @@ export default function PresencePlaneIcons({ persona, iso }) {
   const departure = isDepartureDay(persona, iso)
   if (!arrival && !departure) return null
 
-  const badgeStyle = {
+  // Bascule "vers le tournage" : sur un jour transit (= pas dans
+  // presence_days du membre), on rapproche l'icône du tournage. Sinon,
+  // position par défaut.
+  //   - Arrivée : par défaut top-left ; si transit → top-right
+  //     (le tournage est à droite, après le jour d'arrivée).
+  //   - Retour : par défaut top-right ; si transit → top-left
+  //     (le tournage est à gauche, avant le jour de retour).
+  // Évite les vides visuels entre badge et cellule verte la plus proche.
+  const presenceSet = new Set(persona?.presence_days || [])
+  const isWorkedDay = presenceSet.has(iso)
+  const arrivalSide = isWorkedDay ? 'left' : 'right'
+  const departureSide = isWorkedDay ? 'right' : 'left'
+
+  const badgeStyleBase = {
     position: 'absolute',
     width: 10,
     height: 10,
@@ -40,17 +53,17 @@ export default function PresencePlaneIcons({ persona, iso }) {
   }
   const iconStyle = { width: 7, height: 7 }
 
+  // Helper pour générer le style positionnel selon le côté.
+  const sideStyle = (side) =>
+    side === 'left'
+      ? { top: 0, left: 0, borderTopLeftRadius: 3, borderBottomRightRadius: 3 }
+      : { top: 0, right: 0, borderTopRightRadius: 3, borderBottomLeftRadius: 3 }
+
   return (
     <>
       {arrival && (
         <span
-          style={{
-            ...badgeStyle,
-            top: 0,
-            left: 0,
-            borderTopLeftRadius: 3,
-            borderBottomRightRadius: 3,
-          }}
+          style={{ ...badgeStyleBase, ...sideStyle(arrivalSide) }}
           aria-label="Arrivée"
           title={`Arrivée le ${formatIso(iso)}`}
         >
@@ -59,13 +72,7 @@ export default function PresencePlaneIcons({ persona, iso }) {
       )}
       {departure && (
         <span
-          style={{
-            ...badgeStyle,
-            top: 0,
-            right: 0,
-            borderTopRightRadius: 3,
-            borderBottomLeftRadius: 3,
-          }}
+          style={{ ...badgeStyleBase, ...sideStyle(departureSide) }}
           aria-label="Retour"
           title={`Retour le ${formatIso(iso)}`}
         >

@@ -722,30 +722,41 @@ function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
       const x = 'X'
       doc.text(x, cx + cellW / 2 - doc.getTextWidth(x) / 2, baseLineY)
     }
-    // Overlay badges arrivée (coin haut-gauche) / retour (coin haut-droite)
-    // — violet, lettre A / R blanche centrée dans le carré.
+    // Overlay badges arrivée / retour — violet, lettre A / R blanche.
+    // Position dynamique "vers le tournage" : sur un jour transit (pas
+    // présent ce jour-là), on bascule l'icône du côté du tournage pour
+    // éviter le vide visuel entre badge et cellule verte la plus proche.
+    //   - Arrivée : par défaut top-left ; si transit → top-right.
+    //   - Retour  : par défaut top-right ; si transit → top-left.
     const isArrival = iso === arrivalIso
     const isDeparture = iso === departureIso
     if (isArrival || isDeparture) {
       doc.setFontSize(5)
       doc.setTextColor(...C.logisticFg)
+      // Helper pour calculer x du badge selon le côté ('left' ou 'right').
+      const badgeX = (side) =>
+        side === 'left' ? cx + 0.3 : cx + cellW - 0.3 - BADGE_SIZE
       if (isArrival) {
+        const side = present ? 'left' : 'right'
+        const bx = badgeX(side)
         doc.setFillColor(...C.logisticBg)
-        doc.rect(cx + 0.3, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        doc.rect(bx, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
         const t = 'A'
         doc.text(
           t,
-          cx + 0.3 + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
+          bx + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
           y + 1.2 + BADGE_SIZE - 0.3,
         )
       }
       if (isDeparture) {
+        const side = present ? 'right' : 'left'
+        const bx = badgeX(side)
         doc.setFillColor(...C.logisticBg)
-        doc.rect(cx + cellW - 0.3 - BADGE_SIZE, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        doc.rect(bx, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
         const t = 'R'
         doc.text(
           t,
-          cx + cellW - 0.3 - BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
+          bx + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
           y + 1.2 + BADGE_SIZE - 0.3,
         )
       }
