@@ -708,9 +708,11 @@ function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
   doc.setFontSize(7)
   // Vertical center du X dans la row
   const baseLineY = rowH === ROW_H ? y + ROW_H - 2.5 : y + rowH - 4.5
-  // Taille du badge A/R coin haut (logistique). 1.6mm × 1.6mm — assez petit
-  // pour ne pas masquer le X central, assez grand pour rester lisible.
-  const BADGE_SIZE = 1.6
+  // Taille du badge A/R coin haut (logistique). 1.6mm sur un jour
+  // travaillé (partage la cellule avec le X), 2.4mm sur un jour transit
+  // (seule info de la cellule → plus grand, plus visible).
+  const BADGE_PRESENT = 1.6
+  const BADGE_TRANSIT = 2.4
   for (let i = 0; i < nbDays; i++) {
     const iso = allDays[i]
     const present = personaSet.has(iso)
@@ -731,33 +733,35 @@ function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
     const isArrival = iso === arrivalIso
     const isDeparture = iso === departureIso
     if (isArrival || isDeparture) {
-      doc.setFontSize(5)
+      // Taille adaptative : plus grand sur jour transit (badge = seule
+      // info de la cellule) que sur jour travaillé (partage avec le X).
+      const badgeSize = present ? BADGE_PRESENT : BADGE_TRANSIT
+      doc.setFontSize(present ? 5 : 7)
       doc.setTextColor(...C.logisticFg)
-      // Helper pour calculer x du badge selon le côté ('left' ou 'right').
       const badgeX = (side) =>
-        side === 'left' ? cx + 0.3 : cx + cellW - 0.3 - BADGE_SIZE
+        side === 'left' ? cx + 0.3 : cx + cellW - 0.3 - badgeSize
       if (isArrival) {
         const side = present ? 'left' : 'right'
         const bx = badgeX(side)
         doc.setFillColor(...C.logisticBg)
-        doc.rect(bx, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        doc.rect(bx, y + 1.2, badgeSize, badgeSize, 'F')
         const t = 'A'
         doc.text(
           t,
-          bx + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
-          y + 1.2 + BADGE_SIZE - 0.3,
+          bx + badgeSize / 2 - doc.getTextWidth(t) / 2,
+          y + 1.2 + badgeSize - 0.3,
         )
       }
       if (isDeparture) {
         const side = present ? 'right' : 'left'
         const bx = badgeX(side)
         doc.setFillColor(...C.logisticBg)
-        doc.rect(bx, y + 1.2, BADGE_SIZE, BADGE_SIZE, 'F')
+        doc.rect(bx, y + 1.2, badgeSize, badgeSize, 'F')
         const t = 'R'
         doc.text(
           t,
-          bx + BADGE_SIZE / 2 - doc.getTextWidth(t) / 2,
-          y + 1.2 + BADGE_SIZE - 0.3,
+          bx + badgeSize / 2 - doc.getTextWidth(t) / 2,
+          y + 1.2 + badgeSize - 0.3,
         )
       }
       doc.setFontSize(7)

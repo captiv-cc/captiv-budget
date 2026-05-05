@@ -40,10 +40,16 @@ export default function PresencePlaneIcons({ persona, iso }) {
   const arrivalSide = isWorkedDay ? 'left' : 'right'
   const departureSide = isWorkedDay ? 'right' : 'left'
 
+  // Sur un jour transit, le badge est la SEULE info de la cellule (pas de X),
+  // on lui donne plus de place pour bien le voir. Sur un jour travaillé, le
+  // badge partage la cellule avec le X — on le garde discret en coin.
+  const badgeSize = isWorkedDay ? 10 : 14
+  const iconSize = isWorkedDay ? 7 : 10
+
   const badgeStyleBase = {
     position: 'absolute',
-    width: 10,
-    height: 10,
+    width: badgeSize,
+    height: badgeSize,
     background: 'var(--purple)',
     color: '#fff',
     display: 'flex',
@@ -51,7 +57,7 @@ export default function PresencePlaneIcons({ persona, iso }) {
     justifyContent: 'center',
     pointerEvents: 'none',
   }
-  const iconStyle = { width: 7, height: 7 }
+  const iconStyle = { width: iconSize, height: iconSize }
 
   // Helper pour générer le style positionnel selon le côté.
   const sideStyle = (side) =>
