@@ -52,6 +52,7 @@ import { PERIODE_KEYS, PERIODE_META, expandDays, hasAnyRange } from '../../../li
 import {
   effectiveCouleur,
   effectiveLabel,
+  findMatchingSession,
   sortSessionsByDate,
 } from '../../../lib/sessions'
 import { notify } from '../../../lib/notify'
@@ -103,9 +104,15 @@ export default function PresenceCalendarModal({
   // petit form (label + lieu + valider) au lieu de créer une session
   // anonyme "Session N". Plus rapide que d'ouvrir le drawer pour
   // renommer après création.
+  //
+  // Phase A/3c — détection de doublon : si l'admin tape un (label, lieu)
+  // qui matche une session globale existante du projet, on propose de
+  // REJOINDRE plutôt que de créer un doublon. `pendingMatchTemplate`
+  // contient le template matchant si on est en mode confirmation.
   const [creatingSession, setCreatingSession] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [newLieu, setNewLieu] = useState('')
+  const [pendingMatchTemplate, setPendingMatchTemplate] = useState(null)
 
   // Source de vérité affichée : la session active si fournie, sinon le
   // persona agrégé (comportement legacy).
@@ -166,6 +173,7 @@ export default function PresenceCalendarModal({
       setCreatingSession(false)
       setNewLabel('')
       setNewLieu('')
+      setPendingMatchTemplate(null)
     }
   }, [open])
 
@@ -442,32 +450,154 @@ export default function PresenceCalendarModal({
                   )
                 })}
 
-                {/* Bouton "Nouvelle session" / mini-form de création.
-                    Au clic, le bouton devient un petit form avec label
-                    + lieu pour que la session soit nommée dès sa création
-                    (sinon "Session N" générique pas pratique). */}
-                {creatingSession ? (
+                {/* Bouton "Nouvelle session" / mini-form / confirmation de
+                    doublon. 3 états :
+                    - bouton "+ Nouvelle" (creatingSession = false)
+                    - form inline label+lieu (creatingSession + pas de match)
+                    - bloc de confirmation Rejoindre/Créer doublon (match
+                      détecté sur le label+lieu tapé) */}
+                {creatingSession && pendingMatchTemplate ? (
+                  // ── Confirmation doublon (Phase A/3c) ──────────────
+                  <div
+                    className="inline-flex items-center gap-2 shrink-0 rounded-md px-2 py-1"
+                    style={{
+                      background: 'var(--amber-bg)',
+                      border: '1px solid var(--amber-brd)',
+                      color: 'var(--amber)',
+                    }}
+                  >
+                    <span className="text-[11px] font-medium">
+                      « {pendingMatchTemplate.label}
+                      {pendingMatchTemplate.lieu ? ` (${pendingMatchTemplate.lieu})` : ''} »
+                      {' '}existe déjà
+                      {pendingMatchTemplate.member_count > 0
+                        ? ` chez ${pendingMatchTemplate.member_count} membre${pendingMatchTemplate.member_count > 1 ? 's' : ''}`
+                        : ''}
+                      .
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          let created
+                          if (pendingMatchTemplate.session_id && onJoinSession) {
+                            created = await onJoinSession(pendingMatchTemplate.session_id)
+                          } else {
+                            // Fallback : pas de session_id (template
+                            // dégradé) → on tombe sur create
+                            created = await onCreateSession({
+                              label: pendingMatchTemplate.label,
+                              lieu_principal_text: pendingMatchTemplate.lieu || null,
+                              arrival_date: null,
+                              departure_date: null,
+                              presence_days: [],
+                            })
+                          }
+                          setCreatingSession(false)
+                          setNewLabel('')
+                          setNewLieu('')
+                          setPendingMatchTemplate(null)
+                          if (created?.id) setActiveSessionId(created.id)
+                        } catch (err) {
+                          console.error('[PresenceCalendarModal] join error:', err)
+                          notify.error('Ajout impossible : ' + (err?.message || err))
+                        }
+                      }}
+                      className="text-[11px] px-2 py-0.5 rounded transition-colors"
+                      style={{
+                        background: 'var(--blue)',
+                        color: '#fff',
+                        fontWeight: 600,
+                      }}
+                      title="Ajouter ce membre comme participant à la session existante"
+                    >
+                      Rejoindre
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        // Skippe la détection : on crée un doublon
+                        // (sera fusionnable manuellement plus tard).
+                        try {
+                          const created = await onCreateSession({
+                            label: pendingMatchTemplate.label,
+                            lieu_principal_text: pendingMatchTemplate.lieu || null,
+                            arrival_date: null,
+                            departure_date: null,
+                            presence_days: [],
+                          })
+                          setCreatingSession(false)
+                          setNewLabel('')
+                          setNewLieu('')
+                          setPendingMatchTemplate(null)
+                          if (created?.id) setActiveSessionId(created.id)
+                        } catch (err) {
+                          console.error('[PresenceCalendarModal] force-create error:', err)
+                          notify.error('Création impossible : ' + (err?.message || err))
+                        }
+                      }}
+                      className="text-[11px] px-2 py-0.5 rounded transition-colors"
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--amber)',
+                        border: '1px solid var(--amber)',
+                      }}
+                      title="Créer une session doublon (à éviter, mais possible)"
+                    >
+                      Créer doublon
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Annule la confirmation pour revenir au form
+                        setPendingMatchTemplate(null)
+                      }}
+                      className="text-[11px] px-1 py-0.5"
+                      style={{ color: 'var(--txt-3)' }}
+                      title="Modifier le nom"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : creatingSession ? (
                   <form
-                    onSubmit={async (e) => {
+                    onSubmit={(e) => {
                       e.preventDefault()
-                      try {
-                        const labelTrim = newLabel.trim()
-                        const lieuTrim = newLieu.trim()
-                        const created = await onCreateSession({
-                          label: labelTrim || null,
-                          lieu_principal_text: lieuTrim || null,
-                          arrival_date: null,
-                          departure_date: null,
-                          presence_days: [],
-                        })
-                        setCreatingSession(false)
-                        setNewLabel('')
-                        setNewLieu('')
-                        if (created?.id) setActiveSessionId(created.id)
-                      } catch (err) {
-                        console.error('[PresenceCalendarModal] create error:', err)
-                        notify.error('Création impossible : ' + (err?.message || err))
+                      const labelTrim = newLabel.trim()
+                      const lieuTrim = newLieu.trim()
+                      // Phase A/3c — détection de doublon avant création.
+                      // Si on trouve une session existante avec le même
+                      // (label, lieu), on bascule en mode confirmation.
+                      const match = findMatchingSession(
+                        // On cherche dans tous les templates du projet
+                        // (qui contiennent déjà le member_count + session_id).
+                        projectSessionTemplates,
+                        labelTrim,
+                        lieuTrim,
+                      )
+                      if (match) {
+                        setPendingMatchTemplate(match)
+                        return
                       }
+                      // Pas de match → création directe comme avant.
+                      ;(async () => {
+                        try {
+                          const created = await onCreateSession({
+                            label: labelTrim || null,
+                            lieu_principal_text: lieuTrim || null,
+                            arrival_date: null,
+                            departure_date: null,
+                            presence_days: [],
+                          })
+                          setCreatingSession(false)
+                          setNewLabel('')
+                          setNewLieu('')
+                          if (created?.id) setActiveSessionId(created.id)
+                        } catch (err) {
+                          console.error('[PresenceCalendarModal] create error:', err)
+                          notify.error('Création impossible : ' + (err?.message || err))
+                        }
+                      })()
                     }}
                     className="inline-flex items-center gap-1 shrink-0 rounded-md p-0.5"
                     style={{

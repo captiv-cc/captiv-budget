@@ -551,7 +551,9 @@ export default function TechListView({
   // dupliquées viendra plus tard.
   //
   // Format : [{ session_id, label, lieu, presence_days,
-  //            arrival_date, departure_date }]
+  //            arrival_date, departure_date, member_count }]
+  // member_count = nb de participants déjà dans cette session globale,
+  // pour le message "existe chez X membres" de la détection de doublon.
   const projectSessionTemplates = useMemo(() => {
     if (!Array.isArray(sessions) || sessions.length === 0) return []
     const map = new Map()
@@ -569,10 +571,20 @@ export default function TechListView({
           presence_days: Array.isArray(s.presence_days) ? [...s.presence_days] : [],
           arrival_date: s.arrival_date || null,
           departure_date: s.departure_date || null,
+          member_count: 0,
         })
       }
+      const entry = map.get(key)
+      // Toutes les participations sur cette session globale : on dédupe
+      // par membre_id pour ne pas compter 2x si jamais le même membre
+      // a plusieurs participations (ne devrait pas arriver mais on est
+      // défensif).
+      if (!entry._memberIds) entry._memberIds = new Set()
+      if (s.membre_id) entry._memberIds.add(s.membre_id)
+      entry.member_count = entry._memberIds.size
     }
-    return [...map.values()]
+    // Cleanup : retire le Set interne avant export
+    return [...map.values()].map(({ _memberIds: _ignored, ...rest }) => rest)
   }, [sessions])
   const filteredByCategory = useMemo(() => {
     if (!selectedLotId) return byCategory
