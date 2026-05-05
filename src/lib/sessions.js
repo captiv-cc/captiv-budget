@@ -289,7 +289,9 @@ export function findMatchingSession(sessions, label, lieu) {
     // n'a peut-être pas pensé à saisir le lieu, on lui propose la
     // session existante).
     if (!targetLieu) return s
-    const sLieu = normalizeForMatch(s.lieu_principal_text)
+    // Accepte les 2 shapes possibles : participation (`lieu_principal_text`)
+    // ou template (`lieu`, renommé côté TechListView pour compacité).
+    const sLieu = normalizeForMatch(s.lieu_principal_text ?? s.lieu)
     if (sLieu !== targetLieu) continue
     return s
   }
