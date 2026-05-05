@@ -101,8 +101,6 @@ export default function MaterielTab() {
     flagCounts,
     checklistProgress,
     recapByLoueur,
-    detailed,
-    setDetailed,
     infosLogistiqueByLoueur, // MAT-20
     actions,
   } = mat
@@ -668,8 +666,6 @@ export default function MaterielTab() {
         onRestoreVersion={handleRestoreVersion}
         onRenameVersion={handleRenameVersion}
         onDeleteVersion={handleDeleteVersion}
-        detailed={detailed}
-        onToggleDetailed={setDetailed}
         onOpenRecap={() => setRecapOpen(true)}
         onOpenShare={handleOpenShareEssais}
         onOpenChantierMode={handleOpenChantierMode}
@@ -716,7 +712,6 @@ export default function MaterielTab() {
               materielBdd={materielBdd}
               actions={augmentedActions}
               canEdit={canEdit}
-              detailed={detailed}
               othersEditingByItem={othersEditingByItem}
               onItemEditingChange={setMyEditingItemId}
               highlightedBlockId={highlightedBlockId}

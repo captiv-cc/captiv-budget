@@ -4,25 +4,27 @@
 //
 // Un seul composant qui rend une ligne d'item quel que soit le mode du bloc :
 //
-//   - Mode "liste"  : [Flag] [Désignation] [Qté] [Loueurs] (+ Remarques en détaillé)
-//   - Mode "config" : [Flag] [Label : Désignation] [Qté] [Loueurs] (+ Remarques en détaillé)
-//                      Le label (ex. "Boîtier") est la colonne de gauche, séparée
-//                      par " : " visuellement. Pour CAM configs.
+//   - Mode "liste"  : [Flag] [Label] [Désignation] [Remarques] [Qté] [Loueurs]
+//   - Mode "config" : [Flag] [Label] [Désignation] [Remarques] [Qté] [Loueurs]
+//                      Identique à 'liste' depuis MAT-DETAILED-DEFAULT — la
+//                      seule différence config/liste reste le placeholder de
+//                      désignation (ex. "Sony FX6" vs "Désignation").
 //
-// Le toggle global `detailed` (géré dans MaterielTab → passé ici) ajoute les
-// colonnes Pré/Post/Prod + Remarques.
+// MAT-DETAILED-DEFAULT (retour Hugo) : le toggle "Détails" et les checkboxes
+// Pré · Post · Prod ont été retirés. La colonne Remarques est désormais
+// affichée par défaut, à sa nouvelle position : APRÈS Désignation, AVANT Qté.
+// La checklist terrain reste accessible via le mode chantier (/check/:token,
+// /rendu/:token) — elle n'avait pas de sens en édition admin.
 //
 // Sauvegarde :
 //   - Tous les champs sont en édition inline (onBlur ou Enter commit)
 //   - Le Flag est cyclique (clic sur la pastille)
-//   - Les checklist toggles sont directs
 //
 // Props :
 //   - item, blockAffichage : 'liste' | 'config'
 //   - loueurs, loueursById, allLoueurs, orgId
 //   - materielBdd, materielBddById
 //   - actions, canEdit
-//   - detailed : boolean (affiche les colonnes Pré/Post/Prod + Remarques)
 //   - onDelete(itemId) : handler de suppression (remonté pour confirm global)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -30,7 +32,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { GripVertical, Trash2 } from 'lucide-react'
 import { notify } from '../../../lib/notify'
 import FlagButton from './FlagButton'
-import ChecklistCells from './ChecklistCells'
 import DesignationAutocomplete from './DesignationAutocomplete'
 import LoueurPillsEditor from './LoueurPillsEditor'
 
@@ -44,7 +45,6 @@ export default function ItemRow({
   materielBdd = [],
   actions,
   canEdit = true,
-  detailed = false,
   onDelete,
   // ─── Drag & drop (pattern aligné sur Block / BlockList) ─────────────────
   // dragInsertPosition = 'before' | 'after' | null : indique où la ligne
@@ -120,18 +120,6 @@ export default function ItemRow({
         await actions.setFlag(item.id, next)
       } catch (err) {
         notify.error('Erreur changement flag : ' + (err?.message || err))
-      }
-    },
-    [actions, canEdit, item.id],
-  )
-
-  const handleToggleCheck = useCallback(
-    async (type) => {
-      if (!canEdit) return
-      try {
-        await actions.toggleCheck(item.id, type)
-      } catch (err) {
-        notify.error('Erreur check : ' + (err?.message || err))
       }
     },
     [actions, canEdit, item.id],
@@ -317,6 +305,26 @@ export default function ItemRow({
         />
       </td>
 
+      {/* Remarques — placée APRÈS Désignation et AVANT Qté (MAT-DETAILED-DEFAULT).
+          Toujours affichée — plus de toggle "Détails" : les remarques sont
+          considérées suffisamment utiles métier pour être visibles par
+          défaut. */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '200px' }}>
+        <input
+          type="text"
+          value={remarques}
+          placeholder="—"
+          onChange={(e) => setRemarques(e.target.value)}
+          onBlur={() => saveField('remarques', remarques || null)}
+          disabled={!canEdit}
+          className="w-full bg-transparent focus:outline-none text-xs"
+          style={{
+            color: 'var(--txt-2)',
+            cursor: canEdit ? 'text' : 'default',
+          }}
+        />
+      </td>
+
       {/* Quantité */}
       <td className="px-2 py-1.5 align-middle text-center" style={{ width: '56px' }}>
         <input
@@ -351,32 +359,6 @@ export default function ItemRow({
           canEdit={canEdit}
         />
       </td>
-
-      {/* Détaillé : Pré/Post/Prod */}
-      {detailed && (
-        <td className="px-2 py-1.5 align-middle text-center" style={{ width: '110px' }}>
-          <ChecklistCells item={item} onToggle={handleToggleCheck} canEdit={canEdit} />
-        </td>
-      )}
-
-      {/* Détaillé : Remarques */}
-      {detailed && (
-        <td className="px-2 py-1.5 align-middle" style={{ width: '200px' }}>
-          <input
-            type="text"
-            value={remarques}
-            placeholder="—"
-            onChange={(e) => setRemarques(e.target.value)}
-            onBlur={() => saveField('remarques', remarques || null)}
-            disabled={!canEdit}
-            className="w-full bg-transparent focus:outline-none text-xs"
-            style={{
-              color: 'var(--txt-2)',
-              cursor: canEdit ? 'text' : 'default',
-            }}
-          />
-        </td>
-      )}
 
       {/* Actions */}
       <td className="px-2 py-1.5 align-middle text-center" style={{ width: '32px' }}>

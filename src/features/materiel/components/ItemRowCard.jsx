@@ -31,7 +31,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { notify } from '../../../lib/notify'
 import FlagButton from './FlagButton'
-import ChecklistCells from './ChecklistCells'
 import DesignationAutocomplete from './DesignationAutocomplete'
 import LoueurPillsEditor from './LoueurPillsEditor'
 
@@ -45,7 +44,6 @@ export default function ItemRowCard({
   materielBdd = [],
   actions,
   canEdit = true,
-  detailed = false,
   onDelete,
 }) {
   const isConfig = blockAffichage === 'config'
@@ -105,18 +103,6 @@ export default function ItemRowCard({
         await actions.setFlag(item.id, next)
       } catch (err) {
         notify.error('Erreur changement flag : ' + (err?.message || err))
-      }
-    },
-    [actions, canEdit, item.id],
-  )
-
-  const handleToggleCheck = useCallback(
-    async (type) => {
-      if (!canEdit) return
-      try {
-        await actions.toggleCheck(item.id, type)
-      } catch (err) {
-        notify.error('Erreur check : ' + (err?.message || err))
       }
     },
     [actions, canEdit, item.id],
@@ -247,52 +233,38 @@ export default function ItemRowCard({
         </div>
       </div>
 
-      {/* Détaillé : Pré/Post/Prod + Remarques, regroupés dans un bandeau
-          visuellement séparé pour structurer le scan mobile. */}
-      {detailed && (
-        <div
-          className="flex flex-col gap-2 pt-2 mt-1"
-          style={{ borderTop: '1px dashed var(--brd-sub)' }}
+      {/* Remarques toujours affichées (MAT-DETAILED-DEFAULT). Plus de
+          checklist Pré · Post · Prod sur la vue admin — la checklist
+          terrain reste accessible via le mode chantier. */}
+      <div
+        className="flex flex-col gap-2 pt-2 mt-1"
+        style={{ borderTop: '1px dashed var(--brd-sub)' }}
+      >
+        <label
+          className="flex items-start gap-2 text-[10px] uppercase tracking-wider"
+          style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
         >
-          <div className="flex items-center gap-3">
-            <span
-              className="text-[10px] uppercase tracking-wider shrink-0"
-              style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
-            >
-              Pré · Post · Prod
-            </span>
-            <ChecklistCells
-              item={item}
-              onToggle={handleToggleCheck}
-              canEdit={canEdit}
-            />
-          </div>
-          <label
-            className="flex items-start gap-2 text-[10px] uppercase tracking-wider"
-            style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
-          >
-            <span className="pt-1 shrink-0">Remarques</span>
-            <input
-              type="text"
-              value={remarques}
-              placeholder="—"
-              onChange={(e) => setRemarques(e.target.value)}
-              onBlur={() => saveField('remarques', remarques || null)}
-              disabled={!canEdit}
-              className="flex-1 min-w-0 bg-transparent focus:outline-none text-xs placeholder:text-[color:var(--txt-3)]"
-              style={{
-                color: 'var(--txt-2)',
-                cursor: canEdit ? 'text' : 'default',
-                border: '1px solid var(--brd-sub)',
-                padding: '4px 8px',
-                borderRadius: '4px',
-                textTransform: 'none',
-                letterSpacing: 'normal',
-              }}
-            />
-          </label>
-        </div>
-      )}
+          <span className="pt-1 shrink-0">Remarques</span>
+          <input
+            type="text"
+            value={remarques}
+            placeholder="—"
+            onChange={(e) => setRemarques(e.target.value)}
+            onBlur={() => saveField('remarques', remarques || null)}
+            disabled={!canEdit}
+            className="flex-1 min-w-0 bg-transparent focus:outline-none text-xs placeholder:text-[color:var(--txt-3)]"
+            style={{
+              color: 'var(--txt-2)',
+              cursor: canEdit ? 'text' : 'default',
+              border: '1px solid var(--brd-sub)',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              textTransform: 'none',
+              letterSpacing: 'normal',
+            }}
+          />
+        </label>
+      </div>
     </div>
   )
 }

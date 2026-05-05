@@ -54,7 +54,6 @@ export default function Block({
   materielBdd = [],
   actions,
   canEdit = true,
-  detailed = false,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcast.
@@ -648,7 +647,7 @@ export default function Block({
       <div className="overflow-x-auto">
         <table
           className="w-full text-xs"
-          style={{ minWidth: detailed ? '980px' : '700px' }}
+          style={{ minWidth: '880px' }}
         >
           <thead>
             <tr
@@ -664,20 +663,22 @@ export default function Block({
               {/* Label — désormais sur toutes les listes (config ET classique) */}
               <Th width="120px">Label</Th>
               <Th>Désignation</Th>
+              {/* Remarques placée APRÈS Désignation (avant Qté) — retour Hugo :
+                  l'info utile métier (sets, notes terrain) est lue avec la
+                  désignation, pas reléguée en bout de ligne. */}
+              <Th width="200px">Remarques</Th>
               <Th width="56px" align="center">Qté</Th>
               <Th width="220px">Loueurs</Th>
-              {detailed && <Th width="110px" align="center">Pré · Post · Prod</Th>}
-              {detailed && <Th width="200px">Remarques</Th>}
               <Th width="32px" />
             </tr>
           </thead>
           <tbody>
             {items.length === 0 ? (
               <tr>
-                {/* 7 colonnes + 2 si detailed (drag / flag / label / désig /
-                    qté / loueurs [/ pré·post·prod / remarques] / delete) */}
+                {/* 8 colonnes : drag / flag / label / désig / remarques /
+                    qté / loueurs / delete */}
                 <td
-                  colSpan={detailed ? 9 : 7}
+                  colSpan={8}
                   className="px-3 py-4 text-center italic"
                   style={{ color: 'var(--txt-3)' }}
                 >
@@ -697,7 +698,6 @@ export default function Block({
                   materielBdd={materielBdd}
                   actions={actions}
                   canEdit={canEdit}
-                  detailed={detailed}
                   onDelete={handleDeleteItem}
                   dragInsertPosition={
                     itemDragOverInfo?.idx === idx
@@ -748,7 +748,6 @@ export default function Block({
                 materielBdd={materielBdd}
                 actions={actions}
                 canEdit={canEdit}
-                detailed={detailed}
                 onDelete={handleDeleteItem}
               />
             ))

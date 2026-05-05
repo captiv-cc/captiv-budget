@@ -40,8 +40,6 @@ import {
   Circle,
   ClipboardCheck,
   Copy,
-  Eye,
-  EyeOff,
   FileSearch,
   FileText,
   Lock,
@@ -77,8 +75,6 @@ export default function MaterielHeader({
   onRestoreVersion,
   onRenameVersion,
   onDeleteVersion,
-  detailed = false,
-  onToggleDetailed,
   onOpenRecap,
   onOpenShare,
   onOpenChantierMode,
@@ -150,14 +146,6 @@ export default function MaterielHeader({
   }
   if (moreActions.length > 0) {
     moreActions.push({ id: 'sep-version', type: 'separator' })
-  }
-  if (onToggleDetailed) {
-    moreActions.push({
-      id: 'toggle-detailed',
-      icon: detailed ? EyeOff : Eye,
-      label: detailed ? 'Masquer les détails' : 'Afficher les détails',
-      onClick: () => onToggleDetailed?.(!detailed),
-    })
   }
   // MAT-SHARE-4 : entrée Lien web partageable en tête des actions
   // d'export (mobile). Mise en avant via variant='primary' pour matcher
@@ -347,23 +335,6 @@ export default function MaterielHeader({
             Rendu. Sans `ml-auto` sur mobile, le cluster reste aligné à
             gauche naturellement. */}
         <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
-          {!isMobile && (
-            <button
-              type="button"
-              onClick={() => onToggleDetailed?.(!detailed)}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all"
-              style={{
-                background: detailed ? 'var(--blue-bg)' : 'var(--bg-elev)',
-                color: detailed ? 'var(--blue)' : 'var(--txt-2)',
-                border: `1px solid ${detailed ? 'var(--blue)' : 'var(--brd)'}`,
-              }}
-              title={detailed ? 'Masquer les détails (checklist + remarques)' : 'Afficher les détails (checklist + remarques)'}
-            >
-              {detailed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-              Détails
-            </button>
-          )}
-
           {!isMobile && (
             <ExportPdfMenu
               onShareLink={onShareLink}
