@@ -304,29 +304,31 @@ export default function PresenceCalendarModal({
         className="relative w-full max-w-md max-h-[92vh] flex flex-col rounded-xl shadow-xl overflow-hidden"
         style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
       >
-        {/* Header */}
+        {/* Header — compact 1 ligne. Titre et nom du membre côte à côte
+            (séparateur " · ") au lieu de stack vertical, réduit la
+            hauteur de la modale de ~30 px. */}
         <header
-          className="flex items-center gap-3 px-5 py-4 border-b shrink-0"
+          className="flex items-center gap-2.5 px-4 py-2.5 border-b shrink-0"
           style={{ borderColor: 'var(--brd-sub)' }}
         >
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{ background: 'var(--blue-bg)' }}
+          <Calendar
+            className="w-4 h-4 shrink-0"
+            style={{ color: 'var(--blue)' }}
+          />
+          <h2
+            className="text-sm font-semibold truncate flex-1 min-w-0"
+            style={{ color: 'var(--txt)' }}
           >
-            <Calendar className="w-4 h-4" style={{ color: 'var(--blue)' }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold truncate" style={{ color: 'var(--txt)' }}>
-              Présence sur le projet
-            </h2>
-            <p className="text-xs truncate" style={{ color: 'var(--txt-3)' }}>
+            <span>Présence</span>
+            <span style={{ color: 'var(--txt-3)' }}>{' · '}</span>
+            <span style={{ color: 'var(--txt-2)', fontWeight: 400 }}>
               {personaName}
-            </p>
-          </div>
+            </span>
+          </h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-md transition-colors"
+            className="p-1 rounded-md transition-colors shrink-0"
             style={{ color: 'var(--txt-3)' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hov)'
@@ -731,56 +733,61 @@ export default function PresenceCalendarModal({
           </div>
         )}
 
-        {/* Édition méta de la session active (Phase A/3) — visible
-            seulement si on a une session active ET onUpdateSessionMeta
-            est branché. Permet de renommer + relocaliser la session
-            sans quitter la modale. Modifier ces champs touche la
-            session GLOBALE (propage à tous les participants). */}
-        {activeSession && onUpdateSessionMeta && (
-          <SessionMetaEditor
-            session={activeSession}
-            onUpdate={(fields) => onUpdateSessionMeta(activeSession.id, fields)}
-          />
-        )}
-
-        {/* Sélection rapide par période */}
-        {periodes && (
+        {/* Barre fusionnée : édition méta (Nom + Lieu) à gauche +
+            raccourcis "Cocher période" à droite. Une seule strate
+            visuelle au lieu de 2 — on gagne ~50px de hauteur sur la
+            modale et on regroupe les actions liées à la session active
+            dans le même horizon visuel.
+            Affichée si l'un OU l'autre est applicable. */}
+        {((activeSession && onUpdateSessionMeta) || periodes) && (
           <div
-            className="flex flex-wrap gap-1.5 px-5 py-3 border-b shrink-0"
+            className="flex items-center gap-2 px-4 py-2 border-b shrink-0"
             style={{ borderColor: 'var(--brd-sub)' }}
           >
-            {PERIODE_KEYS.filter((k) => hasAnyRange(periodes[k])).map((k) => {
-              const meta = PERIODE_META[k]
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => selectPeriode(k)}
-                  className="text-xs px-2 py-1 rounded-md transition-opacity"
-                  style={{
-                    background: meta.bg,
-                    color: meta.color,
-                    border: `1px solid ${meta.color}`,
-                  }}
-                  title={`Sélectionner tous les jours ${meta.label.toLowerCase()}`}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-                >
-                  + {meta.label}
-                </button>
-              )
-            })}
-            {selected.size > 0 && (
-              <button
-                type="button"
-                onClick={clearAll}
-                className="text-xs px-2 py-1 rounded-md transition-colors ml-auto"
-                style={{ color: 'var(--txt-3)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-              >
-                Tout effacer
-              </button>
+            {activeSession && onUpdateSessionMeta && (
+              <SessionMetaEditor
+                session={activeSession}
+                onUpdate={(fields) => onUpdateSessionMeta(activeSession.id, fields)}
+              />
+            )}
+            {periodes && (
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                {PERIODE_KEYS.filter((k) => hasAnyRange(periodes[k])).map((k) => {
+                  const meta = PERIODE_META[k]
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => selectPeriode(k)}
+                      className="text-xs px-2 py-1 rounded-md transition-opacity inline-flex items-center gap-1"
+                      style={{
+                        background: meta.bg,
+                        color: meta.color,
+                        border: `1px solid ${meta.color}`,
+                      }}
+                      title={`Cocher tous les jours ${meta.label.toLowerCase()}`}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      {meta.label}
+                    </button>
+                  )
+                })}
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    className="text-[11px] px-1.5 py-1 rounded-md transition-colors"
+                    style={{ color: 'var(--txt-3)' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+                    title="Effacer tous les jours sélectionnés"
+                  >
+                    Effacer
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1304,11 +1311,11 @@ function SessionMetaEditor({ session, onUpdate }) {
     onUpdate({ lieu_principal_text: next })
   }
 
+  // Rendu sans wrapper de bordure — le composant est encapsulé dans une
+  // barre commune (cf. modale, fusion meta + périodes). Inputs côte à
+  // côte, équilibrés flex-1.
   return (
-    <div
-      className="flex items-center gap-2 px-5 py-2 border-b shrink-0"
-      style={{ borderColor: 'var(--brd-sub)' }}
-    >
+    <div className="flex items-center gap-2 flex-1 min-w-0">
       <input
         type="text"
         value={labelDraft}
@@ -1322,11 +1329,12 @@ function SessionMetaEditor({ session, onUpdate }) {
           }
         }}
         placeholder="Nom (ex. Essais, Tournage…)"
-        className="flex-1 text-xs px-2 py-1 rounded outline-none"
+        className="text-xs px-2 py-1 rounded outline-none min-w-0"
         style={{
           background: 'var(--bg-elev)',
           border: '1px solid var(--brd-sub)',
           color: 'var(--txt)',
+          flex: '1 1 60%',
         }}
       />
       <input
@@ -1342,11 +1350,12 @@ function SessionMetaEditor({ session, onUpdate }) {
           }
         }}
         placeholder="Lieu"
-        className="flex-1 text-xs px-2 py-1 rounded outline-none"
+        className="text-xs px-2 py-1 rounded outline-none min-w-0"
         style={{
           background: 'var(--bg-elev)',
           border: '1px solid var(--brd-sub)',
           color: 'var(--txt)',
+          flex: '1 1 40%',
         }}
       />
     </div>
