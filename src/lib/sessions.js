@@ -251,25 +251,45 @@ export function groupSessionsByMembre(sessions) {
  * Phase A — détection d'une session existante par (label, lieu).
  *
  * Sur le shape unifié (= participation enrichie par useCrew), `label` et
- * `lieu_principal_text` viennent de la session globale partagée. Donc si
- * on cherche "Tournage" + "Mtp", on trouvera la session globale qui a
- * ces valeurs, peu importe combien de participants y sont déjà.
+ * `lieu_principal_text` viennent de la session globale partagée.
  *
- * Matching case-insensitive sur les deux critères (label et lieu trim+
- * lowercase). Lieu vide accepté côté cible ET côté session.
+ * Matching tolérant :
+ *   - case-insensitive
+ *   - trim + collapse whitespace
+ *   - normalisation diacritics (NFKD) → "Zénith" === "Zenith"
+ *   - si la cible n'a PAS de lieu, on match juste sur le label (utile
+ *     quand l'admin tape juste un nom dans le mini-form sans préciser
+ *     le lieu — on lui propose quand même les sessions existantes)
+ *   - si la cible a un lieu, on match label ET lieu
  *
  * Retourne la 1ʳᵉ session matchant ou null. Le caller peut extraire le
  * `session_id` pour appeler joinSession dessus.
  */
+function normalizeForMatch(value) {
+  if (typeof value !== 'string') return ''
+  return value
+    .trim()
+    .toLowerCase()
+    // Normalise les accents : "é" → "e"
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    // Compresse les whitespace internes
+    .replace(/\s+/g, ' ')
+}
+
 export function findMatchingSession(sessions, label, lieu) {
-  const targetLabel = (label || '').trim().toLowerCase()
+  const targetLabel = normalizeForMatch(label)
   if (!targetLabel) return null // sans label, pas de matching possible
-  const targetLieu = (lieu || '').trim().toLowerCase()
+  const targetLieu = normalizeForMatch(lieu)
   if (!Array.isArray(sessions)) return null
   for (const s of sessions) {
-    const sLabel = (s.label || '').trim().toLowerCase()
+    const sLabel = normalizeForMatch(s.label)
     if (sLabel !== targetLabel) continue
-    const sLieu = (s.lieu_principal_text || '').trim().toLowerCase()
+    // Si la cible n'a pas de lieu → match sur le label seul (l'admin
+    // n'a peut-être pas pensé à saisir le lieu, on lui propose la
+    // session existante).
+    if (!targetLieu) return s
+    const sLieu = normalizeForMatch(s.lieu_principal_text)
     if (sLieu !== targetLieu) continue
     return s
   }

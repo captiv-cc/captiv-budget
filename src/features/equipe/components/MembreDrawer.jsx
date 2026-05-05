@@ -940,6 +940,7 @@ function SessionsPanel({
             session={s}
             canEdit={canEdit}
             canDelete={!isOnly}
+            isOnly={isOnly}
             lieuByIdMap={lieuByIdMap}
             onUpdateSession={onUpdateSession}
             onRemoveSession={onRemoveSession}
@@ -994,12 +995,18 @@ function SessionCard({
   session,
   canEdit,
   canDelete,
+  isOnly = false,
   lieuByIdMap,
   onUpdateSession,
   onRemoveSession,
   onOpenCalendar,
 }) {
   const couleur = effectiveCouleur(session)
+  // Si mono-session ET pas de label saisi, on cache le label complètement
+  // (= "séjour anonyme" : juste les dates et le lieu, comme avant les
+  // sessions). Pas d'incitation à nommer pour les tournages simples.
+  const rawLabel = (session.label || '').trim()
+  const isAnonymousMono = isOnly && !rawLabel
   const labelDisplay = effectiveLabel(session)
   const lieuDisplayValue = effectiveLieu(session, lieuByIdMap)
 
@@ -1047,9 +1054,16 @@ function SessionCard({
   }
 
   // ─── Affichage des dates ──────────────────────────────────────────
-  const presenceCount = (session.presence_days || []).length
-  const arr = session.arrival_date
-  const dep = session.departure_date
+  // Si arrival_date / departure_date ne sont pas explicitement saisies,
+  // on retombe sur la plage des presence_days (= les jours cochés dans
+  // le calendrier). C'est le cas le plus fréquent : l'admin coche des
+  // jours sans nécessairement remplir l'arrivée logistique.
+  const presenceDays = Array.isArray(session.presence_days)
+    ? [...session.presence_days].sort()
+    : []
+  const presenceCount = presenceDays.length
+  const arr = session.arrival_date || presenceDays[0] || null
+  const dep = session.departure_date || presenceDays[presenceDays.length - 1] || null
   const dateLine =
     arr && dep
       ? `${formatDateShort(arr)} → ${formatDateShort(dep)}`
@@ -1068,14 +1082,24 @@ function SessionCard({
         borderLeft: `3px solid #${couleur}`,
       }}
     >
-      {/* Ligne 1 : Couleur + Label éditable + Bouton suppression */}
+      {/* Ligne 1 : Couleur + Label éditable + Bouton suppression
+          En mode mono-session anonyme (= 1 seule session sans label
+          saisi), on cache le label/input pour ne pas polluer l'UI
+          d'un nom inutile. L'admin verra juste la pastille couleur,
+          les dates et le lieu — comme un simple "séjour". Si le user
+          veut nommer (cas multi-session à venir), il peut cliquer
+          sur la pastille pour révéler l'input (TODO si demandé). */}
       <div className="flex items-center gap-2">
         <span
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ background: `#${couleur}` }}
           title="Couleur de la session"
         />
-        {canEdit ? (
+        {isAnonymousMono ? (
+          // Mono-session sans nom : on n'affiche RIEN comme label
+          // (= "séjour anonyme"). Le coup d'œil va direct aux dates.
+          <span className="flex-1" />
+        ) : canEdit ? (
           <input
             type="text"
             value={labelDraft}
@@ -1088,7 +1112,7 @@ function SessionCard({
                 e.currentTarget.blur()
               }
             }}
-            placeholder={`Session ${session.sort_order || 1}`}
+            placeholder="Nom (ex. Essais, Tournage…)"
             className="text-sm font-semibold flex-1 px-2 py-0.5 rounded outline-none min-w-0"
             style={{
               background: 'transparent',

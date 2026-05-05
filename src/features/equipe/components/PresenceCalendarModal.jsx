@@ -593,6 +593,22 @@ export default function PresenceCalendarModal({
                         labelTrim,
                         lieuTrim,
                       )
+                      // Debug helper — aide l'admin si la détection
+                      // ne se déclenche pas alors qu'il s'y attendait.
+                      // Visible uniquement dans la console DevTools.
+                      // À retirer une fois la phase A stabilisée.
+                      if (!match && projectSessionTemplates?.length) {
+                        console.warn(
+                          '[PresenceCalendarModal] no match for',
+                          { label: labelTrim, lieu: lieuTrim },
+                          'against templates :',
+                          projectSessionTemplates.map((t) => ({
+                            label: t.label,
+                            lieu: t.lieu,
+                            already_in: t.member_already_in,
+                          })),
+                        )
+                      }
                       if (match) {
                         setPendingMatchTemplate(match)
                         return
