@@ -34,6 +34,10 @@ import {
   attachProjectMember,
   detachProjectMember,
   createContactQuick,
+  createSession,
+  updateSession,
+  deleteSession,
+  syncMembreFromSessions,
   groupByPerson,
   listTechlistRows,
   partitionByCategory,
@@ -41,7 +45,7 @@ import {
   personaKey,
   PERSONA_LEVEL_FIELDS,
 } from '../lib/crew'
-import { groupSessionsByMembre } from '../lib/sessions'
+import { aggregateSessionsToMembre, groupSessionsByMembre } from '../lib/sessions'
 
 export function useCrew(projectId) {
   const { org } = useAuth()
@@ -406,6 +410,150 @@ export function useCrew(projectId) {
     return created
   }, [org?.id])
 
+  // ─── Sessions (multi-séjours par membre) — Phase 0b ────────────────────
+  //
+  // Conventions :
+  //   - Le drawer attache les sessions au PRINCIPAL row de la persona
+  //     (= row sans parent_membre_id). Les rows enfants n'ont pas de
+  //     sessions propres ; on lit le principal comme source.
+  //   - Après chaque mutation on re-agrège les sessions + on synchronise
+  //     `projet_membres.{arrival_date, departure_date, presence_days}`
+  //     sur TOUTES les rows de la persona (= principal + enfants), via
+  //     `syncMembreFromSessions(personaIds, sessions)`. C'est ce qui
+  //     permet au reste de l'app (techlist, share, grille présence) de
+  //     continuer à fonctionner sans changement.
+  //
+  // En cas d'erreur on reload tout (rollback simple).
+
+  /** Helper interne : retourne tous les projet_membres.id de la persona à
+   * laquelle appartient `membreId`. Inclut le passed-in id. */
+  const getPersonaIds = useCallback((membreId) => {
+    const target = members.find((m) => m.id === membreId)
+    if (!target) return [membreId]
+    const key = personaKey(target)
+    return members.filter((m) => personaKey(m) === key).map((m) => m.id)
+  }, [members])
+
+  /** Helper interne : applique l'agrégat des sessions de `principalId` aux
+   * rows persona (state local), pour que les composants qui lisent encore
+   * `projet_membres.presence_days` voient la valeur immédiatement. */
+  const applyAggregateToMembersState = useCallback((personaIds, sessionsForPrincipal) => {
+    const agg = aggregateSessionsToMembre(sessionsForPrincipal)
+    setMembers((prev) =>
+      prev.map((m) => (personaIds.includes(m.id) ? { ...m, ...agg } : m)),
+    )
+  }, [])
+
+  /**
+   * Crée une nouvelle session pour le membre principal. `principalMembreId`
+   * est l'ID du projet_membres principal (pas un enfant) — le drawer le
+   * passe explicitement. `payload` contient label / dates / lieu / etc.
+   *
+   * sort_order est calculé automatiquement = MAX(existing) + 1.
+   */
+  const addSession = useCallback(async (principalMembreId, payload = {}) => {
+    if (!principalMembreId) throw new Error('addSession: principalMembreId manquant')
+    markLocal()
+    const existing = sessions.filter((s) => s.membre_id === principalMembreId)
+    const nextSortOrder = existing.length
+      ? Math.max(...existing.map((s) => Number(s.sort_order) || 0)) + 1
+      : 1
+    try {
+      const created = await createSession(principalMembreId, {
+        ...payload,
+        sort_order: payload.sort_order ?? nextSortOrder,
+      })
+      setSessions((prev) => [...prev, created])
+      const updated = [...existing, created]
+      const personaIds = getPersonaIds(principalMembreId)
+      applyAggregateToMembersState(personaIds, updated)
+      await syncMembreFromSessions(personaIds, updated)
+      return created
+    } catch (e) {
+      console.error('[useCrew] addSession error:', e)
+      await reload()
+      throw e
+    }
+  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+
+  /**
+   * Update une session (label, dates, lieu, couleur, statut, notes…).
+   * Si des champs date/presence changent, on re-agrège et on sync les
+   * rows persona derrière.
+   */
+  const updateMemberSession = useCallback(async (sessionId, fields) => {
+    if (!sessionId) throw new Error('updateMemberSession: sessionId manquant')
+    const target = sessions.find((s) => s.id === sessionId)
+    if (!target) {
+      console.warn('[useCrew] updateMemberSession: session introuvable', sessionId)
+      return null
+    }
+    markLocal()
+    // Optimistic
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, ...fields } : s)),
+    )
+    try {
+      const updated = await updateSession(sessionId, fields)
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)))
+      // Re-agrège seulement si une date/presence a bougé (sinon inutile).
+      const dateFieldsTouched =
+        'arrival_date' in fields ||
+        'departure_date' in fields ||
+        'presence_days' in fields
+      if (dateFieldsTouched) {
+        const principalId = updated.membre_id
+        const personaIds = getPersonaIds(principalId)
+        const principalSessions = sessions
+          .filter((s) => s.membre_id === principalId)
+          .map((s) => (s.id === sessionId ? updated : s))
+        // Si la session n'était pas encore dans le filtre (cas race), on
+        // l'ajoute défensivement.
+        if (!principalSessions.some((s) => s.id === sessionId)) {
+          principalSessions.push(updated)
+        }
+        applyAggregateToMembersState(personaIds, principalSessions)
+        await syncMembreFromSessions(personaIds, principalSessions)
+      }
+      return updated
+    } catch (e) {
+      console.error('[useCrew] updateMemberSession error:', e)
+      await reload()
+      throw e
+    }
+  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+
+  /**
+   * Supprime une session. Refuse de supprimer la dernière session du
+   * membre — un membre doit toujours en avoir au moins 1 (sinon il
+   * disparaît de la grille présence et de l'app de manière incohérente).
+   */
+  const removeSession = useCallback(async (sessionId) => {
+    if (!sessionId) throw new Error('removeSession: sessionId manquant')
+    const target = sessions.find((s) => s.id === sessionId)
+    if (!target) return
+    const principalId = target.membre_id
+    const principalSessions = sessions.filter((s) => s.membre_id === principalId)
+    if (principalSessions.length <= 1) {
+      throw new Error('Impossible de supprimer la dernière session — un membre doit en avoir au moins une.')
+    }
+    markLocal()
+    const snapshot = sessions
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    try {
+      await deleteSession(sessionId)
+      const remaining = principalSessions.filter((s) => s.id !== sessionId)
+      const personaIds = getPersonaIds(principalId)
+      applyAggregateToMembersState(personaIds, remaining)
+      await syncMembreFromSessions(personaIds, remaining)
+    } catch (e) {
+      console.error('[useCrew] removeSession error:', e)
+      setSessions(snapshot)
+      await reload()
+      throw e
+    }
+  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+
   return {
     // data brut
     members,
@@ -433,5 +581,9 @@ export function useCrew(projectId) {
     attachMember,
     detachMember,
     addContact,
+    // Sessions (Phase 0b)
+    addSession,
+    updateMemberSession,
+    removeSession,
   }
 }

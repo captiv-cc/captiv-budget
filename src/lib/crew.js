@@ -35,6 +35,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './supabase'
+import { aggregateSessionsToMembre } from './sessions'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
@@ -140,6 +141,123 @@ export async function fetchProjectSessions(projectId) {
     return rest
   })
 }
+
+
+// ─── CRUD sessions (projet_membres_sessions) ────────────────────────────────
+//
+// Phase 0b : la source de vérité bascule vers `projet_membres_sessions`.
+// Pour la rétrocompat, après chaque mutation on re-agrège les sessions du
+// membre et on synchronise `projet_membres.arrival_date / departure_date /
+// presence_days` (via `syncMembreFromSessions`). Le reste de l'app (techlist,
+// share publique, calendrier de présence) continue donc de fonctionner sans
+// modification — elle lit toujours sur projet_membres.
+//
+// Côté UI, le drawer affiche désormais les sessions comme entités de premier
+// niveau : on édite ce qu'il y a dans projet_membres_sessions, et la sync
+// vers projet_membres est faite en arrière-plan par le hook useCrew.
+
+/**
+ * Crée une session pour un membre. Le payload contient le champ libre
+ * (label, dates, presence_days, lieu_principal_text, couleur, statut, notes).
+ *
+ * `sort_order` peut être passé explicitement ; sinon le caller doit calculer
+ * MAX(existing)+1 côté UI (le hook useCrew le fait automatiquement). On ne
+ * le calcule pas ici pour rester pur (pas de sous-requête).
+ *
+ * @param {string} membreId  projet_membres.id
+ * @param {Object} payload   champs de la session
+ */
+export async function createSession(membreId, payload) {
+  if (!membreId) throw new Error('createSession: membreId manquant')
+  const insert = {
+    membre_id: membreId,
+    sort_order: payload.sort_order ?? 1,
+    label: payload.label ?? null,
+    arrival_date: payload.arrival_date ?? null,
+    departure_date: payload.departure_date ?? null,
+    presence_days: Array.isArray(payload.presence_days) ? payload.presence_days : [],
+    lieu_principal_text: payload.lieu_principal_text ?? null,
+    lieu_principal_id: payload.lieu_principal_id ?? null,
+    couleur: payload.couleur ?? null,
+    statut: payload.statut ?? 'planifie',
+    notes: payload.notes ?? null,
+  }
+  const { data, error } = await supabase
+    .from('projet_membres_sessions')
+    .insert(insert)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Update une session (champ par champ). Le trigger DB met à jour updated_at.
+ */
+export async function updateSession(sessionId, fields) {
+  if (!sessionId) throw new Error('updateSession: sessionId manquant')
+  const { data, error } = await supabase
+    .from('projet_membres_sessions')
+    .update(fields)
+    .eq('id', sessionId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Supprime une session. Si c'est la dernière session du membre, on évite
+ * — un membre doit avoir au moins 1 session. Le caller (useCrew) doit
+ * vérifier ça côté UI avant d'appeler cette fonction.
+ */
+export async function deleteSession(sessionId) {
+  if (!sessionId) throw new Error('deleteSession: sessionId manquant')
+  const { error } = await supabase
+    .from('projet_membres_sessions')
+    .delete()
+    .eq('id', sessionId)
+  if (error) throw error
+}
+
+/**
+ * Re-synchronise `projet_membres.arrival_date / departure_date / presence_days`
+ * depuis l'agrégat des sessions. Appelé après chaque create/update/delete de
+ * session pour maintenir la rétrocompat (le reste de l'app — techlist, share,
+ * grille présence — lit toujours ces colonnes-là).
+ *
+ * IMPORTANT : ces 3 champs sont persona-level (synchros sur toutes les rows
+ * d'une même personne via bulkUpdate). Donc on accepte une LISTE d'IDs : le
+ * caller (useCrew) lui passe toutes les rows de la persona — pour qu'on
+ * écrive le même agrégat sur toutes (sinon on aurait des incohérences entre
+ * la row "Cadreur" et la row "Essais cams" du même Hugo, par exemple).
+ *
+ * Le calcul se fait via `aggregateSessionsToMembre` (helper pur dans
+ * lib/sessions.js) : earliest arrival_date, latest departure_date, union
+ * dédoublonnée des presence_days.
+ *
+ * @param {string|string[]} membreIds projet_membres.id (ou liste — toutes
+ *                                    les rows de la persona)
+ * @param {Array}  sessions sessions du membre/persona (à jour)
+ * @returns {Object} l'agrégat appliqué
+ */
+export async function syncMembreFromSessions(membreIds, sessions) {
+  const ids = Array.isArray(membreIds) ? membreIds.filter(Boolean) : [membreIds].filter(Boolean)
+  if (!ids.length) throw new Error('syncMembreFromSessions: membreIds manquant')
+  const agg = aggregateSessionsToMembre(sessions)
+  const { error } = await supabase
+    .from('projet_membres')
+    .update({
+      arrival_date: agg.arrival_date,
+      departure_date: agg.departure_date,
+      presence_days: agg.presence_days,
+      updated_at: new Date().toISOString(),
+    })
+    .in('id', ids)
+  if (error) throw error
+  return agg
+}
+
 
 /**
  * Liste les contacts de l'org (pour le ContactPicker).
