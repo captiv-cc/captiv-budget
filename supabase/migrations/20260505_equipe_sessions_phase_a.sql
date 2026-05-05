@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS projet_sessions (
 
   -- Lien direct vers le projet. CASCADE car une session sans projet
   -- n'a pas de sens.
-  project_id UUID NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
 
   -- Ordre d'affichage (drag-reorder manuel éventuel). 1 = première par
   -- défaut. Sert AUSSI à indexer la palette de couleurs déterministe :
