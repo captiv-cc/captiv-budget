@@ -22,6 +22,11 @@ import { useEffect, useMemo } from 'react'
 import { X, Users, Inbox, Phone, Mail, MapPin } from 'lucide-react'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 import { groupTechlistByCategory, computePresenceColumns } from '../../../lib/crew'
+import {
+  effectiveCouleur,
+  effectiveLabel,
+  getActiveSessionForDay,
+} from '../../../lib/sessions'
 import PresencePlaneIcons from './PresencePlaneIcons'
 
 // Palette identique à la page share + EquipeTab
@@ -41,6 +46,10 @@ export default function EquipePreviewModal({
   org,
   lots = [], // lotsWithRef côté EquipeTab
   members = [], // techlistRows déjà filtrées principales (+ par lot si actif)
+  // Sessions Phase 0b : Map<membre_id, sessions[]>. Utilisé pour colorer
+  // les cellules de la grille présence selon la session active du jour.
+  // Si null/empty → cellules en vert classique (comportement legacy).
+  sessionsByMembre = null,
   lineLotMap = {}, // { devis_line_id : lotId }
   selectedLotId = null, // string | null — lot actif sur l'EquipeTab
   // EQUIPE-P4-CATEGORIES : ordre custom des catégories (drag & drop côté
@@ -216,6 +225,7 @@ export default function EquipePreviewModal({
               transitSet={transitDaysSet}
               lotInfoMap={lotInfoMap}
               lineLotMap={lineLotMap}
+              sessionsByMembre={sessionsByMembre}
               brandColor={brandColor}
             />
           )}
@@ -279,7 +289,7 @@ function ResponsiveContent(props) {
 
 // ─── Table desktop ────────────────────────────────────────────────────────
 
-function Table({ sections, showLotDot, presenceDays, transitSet, lotInfoMap, lineLotMap, brandColor }) {
+function Table({ sections, showLotDot, presenceDays, transitSet, lotInfoMap, lineLotMap, sessionsByMembre, brandColor }) {
   const nbDays = presenceDays.length
   const isLightBrand = isLightColor(brandColor)
   const brandTextColor = isLightBrand ? '#0F172A' : '#FFFFFF'
@@ -358,6 +368,7 @@ function Table({ sections, showLotDot, presenceDays, transitSet, lotInfoMap, lin
               presenceDays={presenceDays}
               lotInfoMap={lotInfoMap}
               lineLotMap={lineLotMap}
+              sessionsByMembre={sessionsByMembre}
               brandColor={brandColor}
               brandTextColor={brandTextColor}
             />
@@ -368,7 +379,7 @@ function Table({ sections, showLotDot, presenceDays, transitSet, lotInfoMap, lin
   )
 }
 
-function Section({ section, showLotDot, presenceDays, lotInfoMap, lineLotMap, brandColor, brandTextColor }) {
+function Section({ section, showLotDot, presenceDays, lotInfoMap, lineLotMap, sessionsByMembre, brandColor, brandTextColor }) {
   const isATrier = section.key === '__a_trier__'
   const totalCols = (showLotDot ? 1 : 0) + 5 + (presenceDays.length || 0)
   return (
@@ -407,13 +418,34 @@ function Section({ section, showLotDot, presenceDays, lotInfoMap, lineLotMap, br
           presenceDays={presenceDays}
           lotInfoMap={lotInfoMap}
           lineLotMap={lineLotMap}
+          memberSessions={sessionsByMembre?.get?.(m.id) || null}
         />
       ))}
     </>
   )
 }
 
-function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
+/**
+ * Convertit un hex (sans #) en `rgba(r,g,b,alpha)`. Tolérant aux formats
+ * 3-digit (#abc) et 6-digit (#aabbcc), sans # ou avec.
+ */
+function hexToRgba(hex, alpha = 1) {
+  if (!hex) return `rgba(34,197,94,${alpha})`
+  const clean = hex.replace('#', '')
+  let r = 0, g = 0, b = 0
+  if (clean.length === 3) {
+    r = parseInt(clean[0] + clean[0], 16)
+    g = parseInt(clean[1] + clean[1], 16)
+    b = parseInt(clean[2] + clean[2], 16)
+  } else if (clean.length === 6) {
+    r = parseInt(clean.slice(0, 2), 16)
+    g = parseInt(clean.slice(2, 4), 16)
+    b = parseInt(clean.slice(4, 6), 16)
+  }
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap, memberSessions }) {
   // Override > devis > contact : cohérent avec AttributionRow (le rename
   // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
   const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
@@ -424,6 +456,11 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
   const lotId = resolveLotId(m, lineLotMap)
   const lotInfo = lotId ? lotInfoMap[lotId] : null
   const presenceSet = new Set(m.presence_days || [])
+  // Sessions Phase 0b : si le membre a 2+ sessions, on colore chaque
+  // cellule avec la couleur de la session active du jour. Sinon (1 seule
+  // session ou aucune), on garde le vert classique pour rester cohérent
+  // avec la lecture rapide habituelle.
+  const hasMulti = Array.isArray(memberSessions) && memberSessions.length >= 2
 
   return (
     <tr
@@ -460,6 +497,23 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
       </td>
       {presenceDays.map((iso) => {
         const present = presenceSet.has(iso)
+        // Phase 0b : recherche de la session active du jour pour ce
+        // membre. Quand multi-sessions on l'utilise pour la couleur ;
+        // sinon on garde le vert classique.
+        const activeSession = hasMulti
+          ? getActiveSessionForDay(memberSessions, iso)
+          : null
+        const colorHex = activeSession ? effectiveCouleur(activeSession) : null
+        const cellBg = present
+          ? colorHex
+            ? hexToRgba(colorHex, 0.22)
+            : 'rgba(34,197,94,0.18)'
+          : undefined
+        const cellColor = present
+          ? colorHex
+            ? `#${colorHex}`
+            : 'rgb(22,101,52)'
+          : 'var(--txt-3)'
         return (
           <td
             key={iso}
@@ -467,11 +521,20 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
             style={{
               position: 'relative',
               borderLeft: '1px solid var(--brd-sub)',
-              background: present ? 'rgba(34,197,94,0.18)' : undefined,
-              color: present ? 'rgb(22,101,52)' : 'var(--txt-3)',
+              background: cellBg,
+              color: cellColor,
               fontWeight: present ? 700 : 400,
               fontSize: 11,
             }}
+            title={
+              activeSession
+                ? `${effectiveLabel(activeSession)}${
+                    activeSession.lieu_principal_text
+                      ? ' · ' + activeSession.lieu_principal_text
+                      : ''
+                  }`
+                : undefined
+            }
           >
             <PresencePlaneIcons persona={m} iso={iso} />
             {present ? 'X' : ''}
@@ -484,7 +547,7 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
 
 // ─── Cards mobile ──────────────────────────────────────────────────────────
 
-function CardsList({ sections, showLotDot, presenceDays, lotInfoMap, lineLotMap, brandColor }) {
+function CardsList({ sections, showLotDot, presenceDays, lotInfoMap, lineLotMap, sessionsByMembre, brandColor }) {
   const isLightBrand = isLightColor(brandColor)
   const brandTextColor = isLightBrand ? '#0F172A' : '#FFFFFF'
   return (
@@ -497,6 +560,7 @@ function CardsList({ sections, showLotDot, presenceDays, lotInfoMap, lineLotMap,
           presenceDays={presenceDays}
           lotInfoMap={lotInfoMap}
           lineLotMap={lineLotMap}
+          sessionsByMembre={sessionsByMembre}
           brandColor={brandColor}
           brandTextColor={brandTextColor}
         />
@@ -511,6 +575,7 @@ function CardSection({
   presenceDays,
   lotInfoMap,
   lineLotMap,
+  sessionsByMembre,
   brandColor,
   brandTextColor,
 }) {
@@ -542,6 +607,7 @@ function CardSection({
             presenceDays={presenceDays}
             lotInfoMap={lotInfoMap}
             lineLotMap={lineLotMap}
+            memberSessions={sessionsByMembre?.get?.(m.id) || null}
           />
         ))}
       </ul>
@@ -549,7 +615,7 @@ function CardSection({
   )
 }
 
-function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
+function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap, memberSessions }) {
   // Override > devis > contact : cohérent avec AttributionRow (le rename
   // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
   const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
@@ -561,6 +627,7 @@ function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
   const lotId = resolveLotId(m, lineLotMap)
   const lotInfo = lotId ? lotInfoMap[lotId] : null
   const presenceSet = new Set(m.presence_days || [])
+  const hasMulti = Array.isArray(memberSessions) && memberSessions.length >= 2
 
   return (
     <li className="px-3 py-2.5">
@@ -615,16 +682,39 @@ function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap }) {
           >
             {presenceDays.map((iso) => {
               const present = presenceSet.has(iso)
+              const activeSession = hasMulti
+                ? getActiveSessionForDay(memberSessions, iso)
+                : null
+              const colorHex = activeSession ? effectiveCouleur(activeSession) : null
+              const cellBg = present
+                ? colorHex
+                  ? hexToRgba(colorHex, 0.14)
+                  : 'rgba(34,197,94,0.10)'
+                : 'transparent'
+              const cellColor = present
+                ? colorHex
+                  ? `#${colorHex}`
+                  : 'rgb(34,150,75)'
+                : 'var(--txt-3)'
               return (
                 <div
                   key={iso}
                   className="flex flex-col items-center py-1 rounded-sm"
                   style={{
                     position: 'relative',
-                    background: present ? 'rgba(34,197,94,0.10)' : 'transparent',
-                    color: present ? 'rgb(34,150,75)' : 'var(--txt-3)',
+                    background: cellBg,
+                    color: cellColor,
                     opacity: present ? 1 : 0.55,
                   }}
+                  title={
+                    activeSession
+                      ? `${effectiveLabel(activeSession)}${
+                          activeSession.lieu_principal_text
+                            ? ' · ' + activeSession.lieu_principal_text
+                            : ''
+                        }`
+                      : undefined
+                  }
                 >
                   <PresencePlaneIcons persona={m} iso={iso} />
                   <span className="text-[9px] leading-none font-semibold">

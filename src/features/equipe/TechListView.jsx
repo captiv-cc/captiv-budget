@@ -1119,6 +1119,7 @@ export default function TechListView({
         org={org}
         lots={lotsWithRef}
         members={filteredTechlistRows}
+        sessionsByMembre={sessionsByMembre}
         lineLotMap={lineLotMap}
         selectedLotId={selectedLotId}
         categoryOrder={allCategories}
