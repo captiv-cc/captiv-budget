@@ -875,6 +875,7 @@ export default function TechListView({
         canEdit={canEdit}
         showSensitive={showSensitive}
         lotInfoForRow={lotInfoForRow}
+        sessionsByMembre={sessionsByMembre}
         othersEditingByRow={othersEditingByRow}
         setMyEditingRowId={setMyEditingRowId}
         onOpenMembre={(row) => setMembreDrawerKey(personaKey(row))}
@@ -930,6 +931,7 @@ export default function TechListView({
             canEdit={canEdit}
             showSensitive={showSensitive}
             lotInfoForRow={lotInfoForRow}
+            sessionsByMembre={sessionsByMembre}
             othersEditingByRow={othersEditingByRow}
             setMyEditingRowId={setMyEditingRowId}
             onOpenMembre={(row) => setMembreDrawerKey(personaKey(row))}
@@ -1302,6 +1304,7 @@ function UncategorizedBox({
   canEdit,
   showSensitive,
   lotInfoForRow,
+  sessionsByMembre,
   othersEditingByRow,
   setMyEditingRowId,
   onOpenMembre,
@@ -1389,6 +1392,7 @@ function UncategorizedBox({
             canEdit={canEdit}
             showSensitive={showSensitive}
             lotInfo={lotInfoForRow ? lotInfoForRow(row) : null}
+            sessions={sessionsByMembre?.get?.(row.id) || null}
             editingByOther={othersEditingByRow?.get(row.id) || null}
             onEditingChange={setMyEditingRowId}
             onOpenMembre={onOpenMembre}
@@ -1419,6 +1423,7 @@ function CategorySection({
   canEdit,
   showSensitive,
   lotInfoForRow,
+  sessionsByMembre,
   othersEditingByRow,
   setMyEditingRowId,
   onOpenMembre,
@@ -1678,6 +1683,7 @@ function CategorySection({
                 canEdit={canEdit}
                 showSensitive={showSensitive}
                 lotInfo={lotInfoForRow ? lotInfoForRow(row) : null}
+                sessions={sessionsByMembre?.get?.(row.id) || null}
                 editingByOther={othersEditingByRow?.get(row.id) || null}
                 onEditingChange={setMyEditingRowId}
                 onOpenMembre={onOpenMembre}

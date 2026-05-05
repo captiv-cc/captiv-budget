@@ -47,6 +47,12 @@ import {
   condensePresenceDays,
   CREW_STATUTS,
 } from '../../../lib/crew'
+import {
+  effectiveCouleur,
+  effectiveLabel,
+  hasMultipleSessions,
+  sortSessions,
+} from '../../../lib/sessions'
 import useBreakpoint from '../../../hooks/useBreakpoint'
 
 // Couleurs de statut alignées sur EquipeTab.jsx (STEPS)
@@ -109,6 +115,10 @@ export default function AttributionRow({
   // EQUIPE-P4.3 — Drawer "Vue par membre" : (row) => void appelé au clic
   // sur le nom de la personne. Ouvre la vue consolidée.
   onOpenMembre = null,
+  // Sessions Phase 0b — multi-séjours du membre. Passé par le parent
+  // (sessionsByMembre.get(row.id)). Si la liste contient 2+ sessions
+  // actives, on affiche des chips colorées sur la ligne du nom.
+  sessions = null,
 }) {
   const persona = row.persona || {}
   const fullName = fullNameFromPersona(persona)
@@ -147,6 +157,12 @@ export default function AttributionRow({
     row.specialite.trim() !== posteFromDevis.trim()
 
   const nbAttached = row.attached?.length || 0
+
+  // Sessions Phase 0b — chips colorées si 2+ sessions actives. On ne
+  // dépend QUE du nombre de sessions, pas de leur statut, pour rester
+  // visible (les sessions "planifie" et "confirme" comptent toutes).
+  const orderedSessions = sessions ? sortSessions(sessions) : []
+  const showSessionChips = hasMultipleSessions(orderedSessions)
 
   // Logistique condensée
   const firstPresenceDay = persona.presence_days?.length
@@ -363,6 +379,46 @@ export default function AttributionRow({
                 +{nbAttached}
               </span>
             )}
+            {/* Chips de sessions (Phase 0b) — affichées seulement si 2+
+                sessions. Chaque chip = couleur de la session + label court.
+                Tooltip = label complet + dates. Click = ouvre le drawer
+                pour permettre d'éditer cette session. */}
+            {showSessionChips &&
+              orderedSessions.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenMembre?.(row)
+                  }}
+                  title={[
+                    effectiveLabel(s),
+                    s.arrival_date && s.departure_date
+                      ? `${s.arrival_date} → ${s.departure_date}`
+                      : null,
+                    s.lieu_principal_text || null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 inline-flex items-center gap-1 transition-opacity"
+                  style={{
+                    background: `#${effectiveCouleur(s)}22`, // 13% opacity
+                    color: `#${effectiveCouleur(s)}`,
+                    border: `1px solid #${effectiveCouleur(s)}55`,
+                    cursor: onOpenMembre ? 'pointer' : 'default',
+                    maxWidth: 120,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: `#${effectiveCouleur(s)}` }}
+                  />
+                  <span className="truncate">{effectiveLabel(s)}</span>
+                </button>
+              ))}
             {/* Mobile : Devis link inline avec le poste (au lieu de la
                 row 3 séparée). Garde l'espace cohérent quand pas de devis
                 (badge sans contenu de fond). */}
