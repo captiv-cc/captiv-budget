@@ -127,6 +127,12 @@ export default function BlockItemAdder({
   }
 
   // ─── Commits ─────────────────────────────────────────────────────────────
+  // Après commit, on FERME le dropdown (setOpen=false). L'input reste
+  // focused et vide ; si l'user veut ajouter un autre item, taper une
+  // lettre rouvre le dropdown automatiquement (via onChange → setOpen(true)).
+  // Avant : on gardait open=true pour la "saisie en rafale", mais ça
+  // affichait les 8 items par défaut au-dessus de la barre — confus
+  // (cf. retour Hugo : "obligé de cliquer à côté pour fermer le menu").
   async function commitCatalogue(m) {
     if (!onAddFromCatalogue || submitting) return
     setSubmitting(true)
@@ -134,9 +140,7 @@ export default function BlockItemAdder({
       await onAddFromCatalogue(m)
       setQuery('')
       setHighlight(0)
-      // Reste en mode actif pour permettre la saisie en rafale.
-      calcPos()
-      setOpen(true)
+      setOpen(false)
       inputRef.current?.focus()
     } finally {
       setSubmitting(false)
@@ -155,8 +159,7 @@ export default function BlockItemAdder({
       await onAddFreeForm(text)
       setQuery('')
       setHighlight(0)
-      calcPos()
-      setOpen(true)
+      setOpen(false)
       inputRef.current?.focus()
     } finally {
       setSubmitting(false)
