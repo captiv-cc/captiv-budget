@@ -168,6 +168,19 @@ export default function DerouleTimelineView({
   const dragStateRef = useRef(null)
   dragStateRef.current = dragState
 
+  // FIX V0 : flag qui empêche le `click` natif post-drag de fire l'onClick
+  // du bloc (qui ouvrirait l'inspector). Set à true au mouseup APRÈS commit
+  // d'un drag réel, reset au prochain tick (suffisant car le `click` event
+  // est dispatché juste après `mouseup` dans la même tâche).
+  const justDraggedRef = useRef(false)
+
+  function handleBlockClick(creneau) {
+    // FIX V0 : si on vient juste de finir un drag commité, on ignore le
+    // click natif (sinon l'inspector s'ouvre tout seul après chaque drag).
+    if (justDraggedRef.current) return
+    onSelectCreneau?.(creneau)
+  }
+
   function handleBlockMouseDown(e, creneau, mode) {
     if (!canEdit) return
     if (e.button !== 0) return // left click only
@@ -186,6 +199,38 @@ export default function DerouleTimelineView({
       currentDebutMin: creneau.heure_debut_min,
       currentFinMin: creneau.heure_fin_min,
       currentLaneId: creneau.lane_id,
+      hasMoved: false,
+      altKey: e.altKey,
+    })
+  }
+
+  // ─── Click-and-drag pour création (façon Google Calendar vue jour) ─────
+  // mouseDown sur zone vide d'une lane → on enregistre le point de départ.
+  // mouseMove → on étend la "preview" entre [debutMin, mouseMin].
+  // mouseUp → si on a draggé (delta > 5 min), on ouvre l'inspector en mode
+  // création avec les heures choisies. Sinon (clic simple), comportement
+  // par défaut : créneau de 30 min à l'heure cliquée.
+  function handleLaneMouseDown(e, laneId, isMultiLaneZone = false) {
+    if (!canEdit) return
+    if (e.button !== 0) return
+    if (e.target !== e.currentTarget) return // ne pas déclencher si on clique sur un bloc enfant
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    const minutesFromTop = (y / PX_PER_HOUR) * 60
+    const startMin = Math.round((heureDebutMin + minutesFromTop) / 15) * 15
+    const clamped = Math.max(heureDebutMin, Math.min(heureFinMin - 5, startMin))
+    setDragState({
+      creneauId: null,
+      mode: 'create',
+      multiLane: isMultiLaneZone,
+      initialMouseY: e.clientY,
+      initialMouseX: e.clientX,
+      initialDebutMin: clamped,
+      initialFinMin: clamped + 30,
+      initialLaneId: isMultiLaneZone ? null : laneId,
+      currentDebutMin: clamped,
+      currentFinMin: clamped + 30,
+      currentLaneId: isMultiLaneZone ? null : laneId,
       hasMoved: false,
       altKey: e.altKey,
     })
@@ -252,6 +297,19 @@ export default function DerouleTimelineView({
         const snapped = snapToStep(deltaMin, step)
         nextFin = s.initialFinMin + snapped
         nextFin = Math.min(MAX_MIN, Math.max(s.initialDebutMin + 5, nextFin))
+      } else if (s.mode === 'create') {
+        // Click-and-drag depuis zone vide : on étend la "preview" entre
+        // initialDebutMin et la position courante du curseur.
+        // Si l'utilisateur drag vers le BAS, fin = initialDebut + delta.
+        // Si vers le HAUT, on swap (debut = position curseur, fin = initial).
+        const snapped = snapToStep(deltaMin, step)
+        if (snapped >= 0) {
+          nextDebut = s.initialDebutMin
+          nextFin = Math.min(MAX_MIN, s.initialDebutMin + Math.max(5, snapped + 30))
+        } else {
+          nextFin = s.initialDebutMin + 30
+          nextDebut = Math.max(heureDebutMin, s.initialDebutMin + snapped)
+        }
       }
 
       const hasChanged =
@@ -274,9 +332,36 @@ export default function DerouleTimelineView({
       const s = dragStateRef.current
       setDragState(null)
       if (!s) return
+
+      // Mode 'create' (click-and-drag depuis zone vide) : ouvre l'inspector
+      // en mode création avec les heures déterminées par le drag. Si l'user
+      // n'a quasi pas bougé (clic simple), on retombe sur 30 min par défaut.
+      if (s.mode === 'create') {
+        // Marque pour éviter qu'un click handler parasite ne tire derrière
+        justDraggedRef.current = true
+        setTimeout(() => {
+          justDraggedRef.current = false
+        }, 0)
+        const debut = s.hasMoved ? s.currentDebutMin : s.initialDebutMin
+        const fin = s.hasMoved ? s.currentFinMin : s.initialDebutMin + 30
+        onCreateCreneauAt?.({
+          lane_id: s.multiLane ? null : s.initialLaneId,
+          multi_lane: s.multiLane,
+          heure_debut_min: debut,
+          heure_fin_min: Math.min(MAX_MIN, fin),
+        })
+        return
+      }
+
       // Si le drag n'a pas vraiment bougé → c'est un click, on laisse passer
       // (le onClick du bloc s'appliquera via l'événement parallèle).
       if (!s.hasMoved) return
+      // Marque que le click natif qui suit le mouseup ne doit PAS ouvrir
+      // l'inspector (sinon ouverture parasite après chaque drag réussi).
+      justDraggedRef.current = true
+      setTimeout(() => {
+        justDraggedRef.current = false
+      }, 0)
       const fields = {
         heure_debut_min: s.currentDebutMin,
         heure_fin_min: s.currentFinMin,
@@ -314,39 +399,9 @@ export default function DerouleTimelineView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragState?.creneauId])
 
-  // Click sur zone vide d'une lane → suggère création
-  // V0.5 : produit des heure_debut_min / heure_fin_min en INTEGER directement
-  function handleEmptyClick(e, laneId) {
-    if (!canEdit) return
-    if (!onCreateCreneauAt) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const y = e.clientY - rect.top
-    const minutesFromTop = (y / PX_PER_HOUR) * 60
-    const heureMin = Math.round((heureDebutMin + minutesFromTop) / 15) * 15
-    const debutClamped = Math.max(heureDebutMin, Math.min(heureFinMin - 30, heureMin))
-    onCreateCreneauAt({
-      lane_id: laneId,
-      multi_lane: false,
-      heure_debut_min: debutClamped,
-      heure_fin_min: debutClamped + 30,
-    })
-  }
-
-  function handleMultiLaneClick(e) {
-    if (!canEdit) return
-    if (!onCreateCreneauAt) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const y = e.clientY - rect.top
-    const minutesFromTop = (y / PX_PER_HOUR) * 60
-    const heureMin = Math.round((heureDebutMin + minutesFromTop) / 15) * 15
-    const debutClamped = Math.max(heureDebutMin, Math.min(heureFinMin - 30, heureMin))
-    onCreateCreneauAt({
-      lane_id: null,
-      multi_lane: true,
-      heure_debut_min: debutClamped,
-      heure_fin_min: debutClamped + 30,
-    })
-  }
+  // (handleEmptyClick / handleMultiLaneClick supprimés en Phase C — la
+  // création se fait désormais via handleLaneMouseDown qui gère click +
+  // click-and-drag, façon Google Calendar.)
 
   // Sort lanes by sort_order (lane 0 d'abord)
   const sortedLanes = useMemo(
@@ -450,7 +505,7 @@ export default function DerouleTimelineView({
             <div
               key={lane.id}
               data-lane-id={lane.id}
-              onClick={(e) => handleEmptyClick(e, lane.id)}
+              onMouseDown={(e) => handleLaneMouseDown(e, lane.id, false)}
               className="flex-1 relative"
               style={{
                 borderRight: '1px solid var(--brd-sub)',
@@ -503,13 +558,47 @@ export default function DerouleTimelineView({
                       top={minToTop(debut)}
                       height={durationToHeight(fin - debut)}
                       membreInitiales={membreInitiales}
-                      onClick={() => onSelectCreneau?.(c)}
+                      onClick={() => handleBlockClick(c)}
                       canEdit={canEdit}
                       onMouseDownDrag={handleBlockMouseDown}
                       isDragging={isThisDragging && dragState.hasMoved}
                     />
                   )
                 })}
+              {/* Preview visuel pendant un click-and-drag de création
+                  (mode 'create') : un rectangle pointillé entre les heures
+                  choisies, affiché dans la lane d'origine du drag. */}
+              {dragState &&
+                dragState.mode === 'create' &&
+                dragState.initialLaneId === lane.id &&
+                dragState.hasMoved && (
+                  <div
+                    className="absolute rounded pointer-events-none"
+                    style={{
+                      top: minToTop(dragState.currentDebutMin),
+                      left: 4,
+                      right: 4,
+                      height: durationToHeight(
+                        dragState.currentFinMin - dragState.currentDebutMin,
+                      ) - 2,
+                      background: 'rgba(55, 138, 221, 0.18)',
+                      border: '1.5px dashed var(--blue)',
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: 'var(--blue)',
+                      lineHeight: 1.2,
+                      overflow: 'hidden',
+                      zIndex: 4,
+                    }}
+                  >
+                    {formatMinHHMM(dragState.currentDebutMin)} – {formatMinHHMM(dragState.currentFinMin)}
+                    <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>
+                      Nouveau créneau
+                    </div>
+                  </div>
+                )}
+
               {/* Créneau "fantôme" affiché dans la lane DESTINATION pendant
                   un drag horizontal. Il représente où le créneau atterrira. */}
               {dragState &&
@@ -554,9 +643,12 @@ export default function DerouleTimelineView({
           />
         )}
 
-        {/* Couche multi-lane : par-dessus toutes les lanes (left: TIME_COL_W) */}
+        {/* Couche multi-lane : par-dessus toutes les lanes (left: TIME_COL_W).
+            pointer-events: none sur le container → seuls les blocs enfants
+            (qui ont pointerEvents: 'auto') reçoivent les events. La création
+            d'un bloc multi-lane se fait via le toggle "Bloc multi-lane" dans
+            l'inspector au lieu d'un click-and-drag dédié (cas peu commun). */}
         <div
-          onClick={handleMultiLaneClick}
           className="absolute pointer-events-none"
           style={{
             top: 0,
@@ -576,7 +668,7 @@ export default function DerouleTimelineView({
                 top={minToTop(debut)}
                 height={durationToHeight(fin - debut)}
                 membreInitiales={membreInitiales}
-                onClick={() => onSelectCreneau?.(c)}
+                onClick={() => handleBlockClick(c)}
                 isMultiLane
                 canEdit={canEdit}
                 onMouseDownDrag={handleBlockMouseDown}
