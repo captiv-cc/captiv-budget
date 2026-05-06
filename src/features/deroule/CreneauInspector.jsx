@@ -3,19 +3,26 @@
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Ouvert sur clic d'un bloc dans la timeline ou d'une ligne dans la liste.
-// Slide depuis la droite, ne couvre PAS la timeline (max-width 380px).
+// Slide depuis la droite, ne couvre PAS la timeline.
 //
 // Trois modes :
 //   - 'view'   : si !canEdit, ou par défaut quand on ouvre un créneau existant
 //   - 'edit'   : champs éditables (toggle via bouton "Modifier")
 //   - 'create' : création (passé creneauDraft sans .id), bouton "Créer" en bas
 //
-// Champs gérés : titre, type, horaires, lane (ou multi-lane), équipe assignée,
-// lieu, statut (V3), notes, supprimer.
+// Round 1+2+3 UI/UX :
+//   - Header : border-top accentué par la couleur du type + densité réduite
+//   - Sections réordonnées : Titre → Type → Horaires (+ durée + Lane) → Équipe → Lieu → Notes
+//   - Durée affichée dynamiquement entre Début et Fin
+//   - Validation live (heure_fin <= heure_debut → bordure rouge inline)
+//   - Lendemain caché derrière un picto +1j compact (toggle visible)
+//   - Raccourcis clavier : Esc ferme, Cmd/Ctrl+Enter enregistre
+//   - MembrePicker : présents triés en haut, hors présence dans une section
+//     collapsible
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useState } from 'react'
-import { X, Trash2, Save, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { X, Trash2, Save, Plus, ChevronRight, ChevronDown } from 'lucide-react'
 import {
   CRENEAU_TYPES,
   CRENEAU_TYPE_COLORS,
@@ -49,7 +56,8 @@ const STATUT_LABELS = {
  * @param {Object|null} creneau     créneau actuel (null = panel fermé)
  * @param {boolean}     isCreate    si true, mode création (creneau = draft sans id)
  * @param {Array}       lanes
- * @param {Array}       membresPresents  membres présents ce jour selon techlist
+ * @param {Array}       membresPresents  TOUS les membres du projet (avec flag
+ *                                       present_ce_jour)
  * @param {boolean}     canEdit
  * @param {Function}    onClose
  * @param {Function}    onSave      (fields) => Promise — pour update
@@ -80,6 +88,39 @@ export default function CreneauInspector({
     setEditing(isCreate || !creneau?.id)
   }, [creneau, isCreate])
 
+  // Couleur d'accent dérivée du type courant (impacte le header en temps réel)
+  const accentColor = useMemo(
+    () => effectiveCouleurCreneau({ ...creneau, ...draft }),
+    [creneau, draft],
+  )
+
+  // Validation live des horaires
+  const dureeMin = (draft?.heure_fin_min ?? 0) - (draft?.heure_debut_min ?? 0)
+  const horaireInvalide = dureeMin <= 0
+  const horaireOver = (draft?.heure_fin_min ?? 0) > MAX_MIN
+
+  // ─── Raccourcis clavier (Esc, Cmd/Ctrl+Enter) ────────────────────────────
+  // Stable callback pour le handler global. handleSaveRef pointe toujours
+  // vers la dernière version pour ne pas figer une closure stale.
+  const handleSaveRef = useRef(null)
+  const handleCloseRef = useRef(null)
+
+  useEffect(() => {
+    if (!creneau) return undefined
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        handleCloseRef.current?.()
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (editing) handleSaveRef.current?.()
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [creneau, editing])
+
   if (!creneau) return null
 
   function patch(fields) {
@@ -88,17 +129,11 @@ export default function CreneauInspector({
 
   async function handleSave() {
     if (!canEdit) return
+    if (saving) return
+    if (horaireInvalide) return
+    if (horaireOver) return
     setSaving(true)
     try {
-      // Validation horaires basique (V0.5 — minutes INTEGER)
-      if (draft.heure_fin_min <= draft.heure_debut_min) {
-        alert('L\'heure de fin doit être après l\'heure de début.')
-        return
-      }
-      if (draft.heure_fin_min > MAX_MIN) {
-        alert(`L'heure de fin ne peut pas dépasser 04:00 du jour suivant (max ${MAX_MIN} min).`)
-        return
-      }
       if (isCreate) {
         const fields = {
           ...draft,
@@ -123,6 +158,8 @@ export default function CreneauInspector({
       setSaving(false)
     }
   }
+  handleSaveRef.current = handleSave
+  handleCloseRef.current = onClose
 
   async function handleDelete() {
     if (!canEdit) return
@@ -138,7 +175,6 @@ export default function CreneauInspector({
   }
 
   const currentLane = lanes.find((l) => l.id === draft.lane_id)
-  const color = effectiveCouleurCreneau({ ...creneau, ...draft })
 
   return (
     <>
@@ -146,9 +182,7 @@ export default function CreneauInspector({
       <div
         onClick={onClose}
         className="fixed inset-0 z-40"
-        style={{
-          background: 'rgba(0,0,0,0.35)',
-        }}
+        style={{ background: 'rgba(0,0,0,0.35)' }}
       />
 
       {/* Panel */}
@@ -158,33 +192,52 @@ export default function CreneauInspector({
           width: 'min(420px, 100vw)',
           background: 'var(--bg-surf)',
           borderLeft: '1px solid var(--brd)',
+          borderTop: `3px solid ${accentColor}`,
           boxShadow: '-8px 0 24px rgba(0,0,0,0.15)',
         }}
       >
-        {/* Header */}
+        {/* Header compact (sans la barre verticale, l'accent est sur le top) */}
         <div
-          className="flex items-center justify-between px-4 py-3"
+          className="flex items-center justify-between gap-2 px-4 py-2.5"
           style={{
             borderBottom: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
           }}
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              style={{
-                width: 4,
-                height: 24,
-                background: color,
-                borderRadius: 2,
-              }}
-            />
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
-              </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span
+                className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
+                style={{
+                  background: `${accentColor}22`,
+                  color: accentColor,
+                }}
+              >
+                {TYPE_LABELS[draft.type] || draft.type}
+              </span>
+              {!isCreate && draft.statut !== 'planifie' && (
+                <span
+                  className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
+                  style={{
+                    background: 'var(--bg-surf)',
+                    color: 'var(--txt-2)',
+                    border: '1px solid var(--brd-sub)',
+                  }}
+                >
+                  {STATUT_LABELS[draft.statut]}
+                </span>
+              )}
+            </div>
+            <div className="text-sm font-semibold truncate mt-0.5" style={{ color: 'var(--txt)' }}>
+              {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
+            </div>
+            <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+              {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
+              {dureeMin > 0 && (
+                <span style={{ marginLeft: 6, color: 'var(--txt-3)' }}>
+                  · {formatDuree(dureeMin)}
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -194,15 +247,15 @@ export default function CreneauInspector({
             style={{ color: 'var(--txt-3)', background: 'transparent' }}
             onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            title="Fermer"
+            title="Fermer (Échap)"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body — formulaire */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* Titre */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {/* Titre — proéminent */}
           <Field label="Titre">
             {editing ? (
               <input
@@ -210,147 +263,24 @@ export default function CreneauInspector({
                 value={draft.titre}
                 onChange={(e) => patch({ titre: e.target.value })}
                 placeholder="Ex: Installation caméras"
-                className="w-full px-2 py-1.5 text-sm rounded outline-none"
+                autoFocus={isCreate}
+                className="w-full px-2 py-1.5 rounded outline-none"
                 style={{
                   background: 'var(--bg-elev)',
                   color: 'var(--txt)',
                   border: '1px solid var(--brd)',
+                  fontSize: 15,
+                  fontWeight: 500,
                 }}
               />
             ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
+              <div style={{ color: 'var(--txt)', fontSize: 15, fontWeight: 500 }}>
                 {draft.titre || '(sans titre)'}
               </div>
             )}
           </Field>
 
-          {/* Horaires — V0.5 : input time + checkboxes "lendemain" pour
-              gérer les heures > 23:59 (live qui finit à 02:00 J+1) */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Début">
-              {editing ? (
-                <div className="space-y-1">
-                  <input
-                    type="time"
-                    step="300"
-                    value={formatMinTimeInput(draft.heure_debut_min)}
-                    onChange={(e) => {
-                      const m = timeToMinutes(e.target.value)
-                      if (Number.isFinite(m)) {
-                        const offset = draft.heure_debut_min >= 1440 ? 1440 : 0
-                        patch({ heure_debut_min: m + offset })
-                      }
-                    }}
-                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      color: 'var(--txt)',
-                      border: '1px solid var(--brd)',
-                    }}
-                  />
-                  <label className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                    <input
-                      type="checkbox"
-                      checked={draft.heure_debut_min >= 1440}
-                      onChange={(e) => {
-                        const base = draft.heure_debut_min % 1440
-                        patch({ heure_debut_min: base + (e.target.checked ? 1440 : 0) })
-                      }}
-                    />
-                    Lendemain
-                  </label>
-                </div>
-              ) : (
-                <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                  {formatMinHHMM(draft.heure_debut_min)}
-                </div>
-              )}
-            </Field>
-            <Field label="Fin">
-              {editing ? (
-                <div className="space-y-1">
-                  <input
-                    type="time"
-                    step="300"
-                    value={formatMinTimeInput(draft.heure_fin_min)}
-                    onChange={(e) => {
-                      const m = timeToMinutes(e.target.value)
-                      if (Number.isFinite(m)) {
-                        const offset = draft.heure_fin_min >= 1440 ? 1440 : 0
-                        patch({ heure_fin_min: m + offset })
-                      }
-                    }}
-                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      color: 'var(--txt)',
-                      border: '1px solid var(--brd)',
-                    }}
-                  />
-                  <label className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                    <input
-                      type="checkbox"
-                      checked={draft.heure_fin_min >= 1440}
-                      onChange={(e) => {
-                        const base = draft.heure_fin_min % 1440
-                        patch({ heure_fin_min: base + (e.target.checked ? 1440 : 0) })
-                      }}
-                    />
-                    Lendemain (max 04:00)
-                  </label>
-                </div>
-              ) : (
-                <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                  {formatMinHHMM(draft.heure_fin_min)}
-                </div>
-              )}
-            </Field>
-          </div>
-
-          {/* Lane / multi-lane */}
-          <Field label="Lane">
-            {editing ? (
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--txt-2)' }}>
-                  <input
-                    type="checkbox"
-                    checked={draft.multi_lane}
-                    onChange={(e) =>
-                      patch({
-                        multi_lane: e.target.checked,
-                        lane_id: e.target.checked ? null : (lanes[0]?.id || null),
-                      })
-                    }
-                  />
-                  Bloc multi-lane (couvre toutes les lanes)
-                </label>
-                {!draft.multi_lane && (
-                  <select
-                    value={draft.lane_id || ''}
-                    onChange={(e) => patch({ lane_id: e.target.value || null })}
-                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      color: 'var(--txt)',
-                      border: '1px solid var(--brd)',
-                    }}
-                  >
-                    {lanes.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.libelle}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                {draft.multi_lane ? '↔ Multi-lane' : (currentLane?.libelle || '—')}
-              </div>
-            )}
-          </Field>
-
-          {/* Type */}
+          {/* Type — chips colorés (ré-ordonné AVANT horaires car dicte la couleur) */}
           <Field label="Type">
             {editing ? (
               <div className="flex flex-wrap gap-1">
@@ -382,7 +312,98 @@ export default function CreneauInspector({
             )}
           </Field>
 
-          {/* Équipe */}
+          {/* Horaires + Lane (groupés — décisions structurantes proches) */}
+          <Field label="Horaires">
+            {editing ? (
+              <div className="space-y-2">
+                <div className="flex items-stretch gap-2">
+                  <TimeWithLendemain
+                    value={draft.heure_debut_min}
+                    onChange={(v) => patch({ heure_debut_min: v })}
+                    disabled={!canEdit}
+                  />
+                  <div className="flex items-center text-xs" style={{ color: 'var(--txt-3)' }}>
+                    →
+                  </div>
+                  <TimeWithLendemain
+                    value={draft.heure_fin_min}
+                    onChange={(v) => patch({ heure_fin_min: v })}
+                    disabled={!canEdit}
+                    invalid={horaireInvalide || horaireOver}
+                  />
+                </div>
+                <div
+                  className="text-[11px] flex items-center gap-2"
+                  style={{
+                    color: horaireInvalide || horaireOver
+                      ? 'var(--red)'
+                      : 'var(--txt-3)',
+                  }}
+                >
+                  {horaireInvalide ? (
+                    <span>L'heure de fin doit être après le début.</span>
+                  ) : horaireOver ? (
+                    <span>La fin ne peut pas dépasser 04:00 du lendemain.</span>
+                  ) : (
+                    <span>Durée : {formatDuree(dureeMin)}</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm" style={{ color: 'var(--txt)' }}>
+                {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
+                <span style={{ color: 'var(--txt-3)', marginLeft: 6 }}>
+                  · {formatDuree(dureeMin)}
+                </span>
+              </div>
+            )}
+          </Field>
+
+          {/* Lane (intégré juste après les horaires car c'est la 2e décision
+              structurante) */}
+          <Field label="Lane">
+            {editing ? (
+              <div className="space-y-1">
+                {!draft.multi_lane && (
+                  <select
+                    value={draft.lane_id || ''}
+                    onChange={(e) => patch({ lane_id: e.target.value || null })}
+                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      color: 'var(--txt)',
+                      border: '1px solid var(--brd)',
+                    }}
+                  >
+                    {lanes.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.libelle}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--txt-2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={draft.multi_lane}
+                    onChange={(e) =>
+                      patch({
+                        multi_lane: e.target.checked,
+                        lane_id: e.target.checked ? null : (lanes[0]?.id || null),
+                      })
+                    }
+                  />
+                  Bloc multi-lane (couvre toutes les lanes)
+                </label>
+              </div>
+            ) : (
+              <div className="text-sm" style={{ color: 'var(--txt)' }}>
+                {draft.multi_lane ? '↔ Multi-lane' : (currentLane?.libelle || '—')}
+              </div>
+            )}
+          </Field>
+
+          {/* Équipe assignée */}
           <Field
             label={`Équipe assignée${memberIds.length ? ` (${memberIds.length})` : ''}`}
           >
@@ -411,7 +432,9 @@ export default function CreneauInspector({
                         border: '1px solid var(--brd-sub)',
                       }}
                     >
-                      {m ? `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() : '?'}
+                      {m
+                        ? `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim()
+                        : '?'}
                     </span>
                   )
                 })}
@@ -441,7 +464,7 @@ export default function CreneauInspector({
             )}
           </Field>
 
-          {/* Statut (V3) */}
+          {/* Statut (V3 — éditable seulement en update, pas en create) */}
           {!isCreate && (
             <Field label="Statut">
               {editing ? (
@@ -494,7 +517,7 @@ export default function CreneauInspector({
 
         {/* Footer */}
         <div
-          className="flex items-center justify-between gap-2 px-4 py-3"
+          className="flex items-center justify-between gap-2 px-4 py-2.5"
           style={{
             borderTop: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
@@ -555,12 +578,14 @@ export default function CreneauInspector({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || horaireInvalide || horaireOver}
+                title={isCreate ? 'Créer (Cmd/Ctrl+Entrée)' : 'Enregistrer (Cmd/Ctrl+Entrée)'}
                 className="flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors"
                 style={{
                   color: 'white',
-                  background: saving ? 'var(--brd)' : 'var(--blue)',
+                  background: saving || horaireInvalide || horaireOver ? 'var(--brd)' : 'var(--blue)',
                   border: '1px solid transparent',
+                  cursor: saving || horaireInvalide || horaireOver ? 'not-allowed' : 'pointer',
                 }}
               >
                 {isCreate ? (
@@ -583,7 +608,7 @@ export default function CreneauInspector({
   )
 }
 
-// ─── Field — wrapper label + content ────────────────────────────────────────
+// ─── Field — wrapper label + content (densité réduite) ─────────────────────
 
 function Field({ label, children }) {
   return (
@@ -599,24 +624,102 @@ function Field({ label, children }) {
   )
 }
 
-// ─── MembrePicker — multi-select compact filtré sur membres présents ───────
+// ─── TimeWithLendemain — input time compact + toggle "+1j" discret ─────────
+//
+// V0.5 supporte les heures > 23:59 (jusqu'à 04:00 J+1) pour les lives qui
+// passent minuit. L'input HTML <input type="time"> ne gère pas natif les
+// heures > 23:59 → on utilise un toggle "+1j" inline qui ajoute/retire 1440
+// au heure_min.
+
+function TimeWithLendemain({ value, onChange, disabled, invalid }) {
+  const isLendemain = value >= 1440
+  const inputValue = formatMinTimeInput(value)
+
+  function handleTimeChange(timeStr) {
+    const m = timeToMinutes(timeStr)
+    if (Number.isFinite(m)) {
+      onChange(m + (isLendemain ? 1440 : 0))
+    }
+  }
+
+  function toggleLendemain() {
+    if (disabled) return
+    const base = value % 1440
+    onChange(base + (isLendemain ? 0 : 1440))
+  }
+
+  return (
+    <div
+      className="flex items-stretch rounded overflow-hidden"
+      style={{
+        border: `1px solid ${invalid ? 'var(--red)' : 'var(--brd)'}`,
+        background: 'var(--bg-elev)',
+        flex: 1,
+      }}
+    >
+      <input
+        type="time"
+        step="300"
+        value={inputValue}
+        onChange={(e) => handleTimeChange(e.target.value)}
+        disabled={disabled}
+        className="px-2 py-1.5 text-sm outline-none flex-1 min-w-0"
+        style={{
+          background: 'transparent',
+          color: 'var(--txt)',
+          border: 'none',
+        }}
+      />
+      <button
+        type="button"
+        onClick={toggleLendemain}
+        disabled={disabled}
+        title={isLendemain ? 'Ce jour' : 'Lendemain (+1j)'}
+        className="px-1.5 text-[10px] font-bold transition-colors"
+        style={{
+          background: isLendemain ? 'var(--blue)' : 'transparent',
+          color: isLendemain ? 'white' : 'var(--txt-3)',
+          borderLeft: '1px solid var(--brd-sub)',
+          cursor: disabled ? 'default' : 'pointer',
+          minWidth: 28,
+        }}
+      >
+        +1j
+      </button>
+    </div>
+  )
+}
+
+// ─── MembrePicker — présents en haut, hors présence collapsible ────────────
 
 function MembrePicker({ membres, selected, onChange }) {
   const [search, setSearch] = useState('')
-  const filtered = membres.filter((m) => {
-    if (!search) return true
-    const fn = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.toLowerCase()
-    return fn.includes(search.toLowerCase())
-  })
+  const [showHorsPresence, setShowHorsPresence] = useState(false)
+
+  // Sépare présents / hors présence (filtrés par search)
+  const { presents, horsPresence } = useMemo(() => {
+    const lower = search.toLowerCase()
+    const allFiltered = (membres || []).filter((m) => {
+      if (!search) return true
+      const fn = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.toLowerCase()
+      return fn.includes(lower)
+    })
+    return {
+      presents: allFiltered.filter((m) => m.present_ce_jour !== false),
+      horsPresence: allFiltered.filter((m) => m.present_ce_jour === false),
+    }
+  }, [membres, search])
 
   function toggle(id) {
     if (selected.includes(id)) onChange(selected.filter((x) => x !== id))
     else onChange([...selected, id])
   }
 
-  // Helpers de sélection rapide (FIX V0 demande Hugo)
-  const allIds = membres.map((m) => m.id)
-  const presentsIds = membres.filter((m) => m.present_ce_jour !== false).map((m) => m.id)
+  // Helpers de sélection rapide
+  const allIds = (membres || []).map((m) => m.id)
+  const presentsIds = (membres || [])
+    .filter((m) => m.present_ce_jour !== false)
+    .map((m) => m.id)
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id))
   const allPresentsSelected =
     presentsIds.length > 0 && presentsIds.every((id) => selected.includes(id))
@@ -626,10 +729,8 @@ function MembrePicker({ membres, selected, onChange }) {
   }
   function selectAllPresents() {
     if (allPresentsSelected) {
-      // Désélectionner uniquement les présents (garder les autres)
       onChange(selected.filter((id) => !presentsIds.includes(id)))
     } else {
-      // Ajouter tous les présents (garder les autres déjà cochés)
       const next = new Set(selected)
       for (const id of presentsIds) next.add(id)
       onChange([...next])
@@ -642,13 +743,13 @@ function MembrePicker({ membres, selected, onChange }) {
       style={{
         background: 'var(--bg-elev)',
         border: '1px solid var(--brd-sub)',
-        maxHeight: 240,
+        maxHeight: 260,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {/* Boutons sélection rapide */}
+      {/* Header : actions rapides + compteur */}
       <div
         className="flex items-center gap-1 px-2 py-1.5"
         style={{ borderBottom: '1px solid var(--brd-sub)' }}
@@ -684,6 +785,8 @@ function MembrePicker({ membres, selected, onChange }) {
           {selected.length}/{allIds.length}
         </span>
       </div>
+
+      {/* Search */}
       <input
         type="text"
         value={search}
@@ -696,58 +799,100 @@ function MembrePicker({ membres, selected, onChange }) {
           borderBottom: '1px solid var(--brd-sub)',
         }}
       />
-      <div className="overflow-y-auto" style={{ flex: 1, maxHeight: 160 }}>
-        {filtered.length === 0 && (
+
+      <div className="overflow-y-auto" style={{ flex: 1, maxHeight: 200 }}>
+        {/* Présents — toujours visibles */}
+        {presents.length === 0 && horsPresence.length === 0 && (
           <div className="px-2 py-2 text-xs" style={{ color: 'var(--txt-3)' }}>
             Aucun membre dans le projet
           </div>
         )}
-        {filtered.map((m) => {
-          const checked = selected.includes(m.id)
-          const fn = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
-          // FIX V0 : on affiche TOUS les membres mais on grise ceux pas présents
-          // ce jour selon la techlist (warning visuel, pas blocage).
-          const presentCeJour = m.present_ce_jour !== false
-          return (
-            <label
-              key={m.id}
-              className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer transition-colors"
+        {presents.length === 0 && horsPresence.length > 0 && (
+          <div className="px-2 py-2 text-xs" style={{ color: 'var(--txt-3)' }}>
+            Aucun membre présent ce jour
+          </div>
+        )}
+        {presents.map((m) => (
+          <MembreRow
+            key={m.id}
+            membre={m}
+            checked={selected.includes(m.id)}
+            onToggle={() => toggle(m.id)}
+            isPresent
+          />
+        ))}
+
+        {/* Hors présence — section collapsible */}
+        {horsPresence.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowHorsPresence((v) => !v)}
+              className="w-full flex items-center gap-1 px-2 py-1 text-[10px] uppercase tracking-wider font-bold transition-colors"
               style={{
-                background: checked ? 'var(--bg-hov)' : 'transparent',
-                color: 'var(--txt)',
-                opacity: presentCeJour ? 1 : 0.55,
+                background: 'var(--bg-surf)',
+                color: 'var(--txt-3)',
+                borderTop: '1px solid var(--brd-sub)',
+                borderBottom: showHorsPresence ? '1px solid var(--brd-sub)' : 'none',
               }}
-              title={presentCeJour ? '' : 'Non présent ce jour selon la techlist (assignation possible mais à vérifier)'}
             >
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggle(m.id)}
-              />
-              <span className="truncate">{fn}</span>
-              {m.specialite && (
-                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                  · {m.specialite}
-                </span>
+              {showHorsPresence ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
               )}
-              {!presentCeJour && (
-                <span
-                  className="text-[9px] ml-auto px-1 rounded shrink-0"
-                  style={{
-                    background: 'var(--bg-elev)',
-                    color: 'var(--amber)',
-                    border: '1px solid var(--brd-sub)',
-                  }}
-                >
-                  hors présence
-                </span>
-              )}
-            </label>
-          )
-        })}
+              Hors présence ({horsPresence.length})
+            </button>
+            {showHorsPresence &&
+              horsPresence.map((m) => (
+                <MembreRow
+                  key={m.id}
+                  membre={m}
+                  checked={selected.includes(m.id)}
+                  onToggle={() => toggle(m.id)}
+                  isPresent={false}
+                />
+              ))}
+          </>
+        )}
       </div>
     </div>
   )
+}
+
+function MembreRow({ membre: m, checked, onToggle, isPresent }) {
+  const fn =
+    `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
+  return (
+    <label
+      className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer transition-colors"
+      style={{
+        background: checked ? 'var(--bg-hov)' : 'transparent',
+        color: 'var(--txt)',
+        opacity: isPresent ? 1 : 0.7,
+      }}
+      title={isPresent ? '' : 'Non présent ce jour selon la techlist'}
+    >
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      <span className="truncate">{fn}</span>
+      {m.specialite && (
+        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+          · {m.specialite}
+        </span>
+      )}
+    </label>
+  )
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatDuree(min) {
+  if (typeof min !== 'number' || min <= 0) return '—'
+  const h = Math.floor(min / 60)
+  const m = Math.floor(min % 60)
+  if (h === 0) return `${m} min`
+  if (m === 0) return `${h}h`
+  return `${h}h${String(m).padStart(2, '0')}`
 }
 
 // ─── initDraft — défauts pour création ou copie depuis creneau existant ────
@@ -757,8 +902,10 @@ function initDraft(creneau) {
   if (!creneau) return null
   return {
     titre: creneau.titre || '',
-    heure_debut_min: typeof creneau.heure_debut_min === 'number' ? creneau.heure_debut_min : 540,  // 09:00
-    heure_fin_min: typeof creneau.heure_fin_min === 'number' ? creneau.heure_fin_min : 600,        // 10:00
+    heure_debut_min:
+      typeof creneau.heure_debut_min === 'number' ? creneau.heure_debut_min : 540, // 09:00
+    heure_fin_min:
+      typeof creneau.heure_fin_min === 'number' ? creneau.heure_fin_min : 600, // 10:00
     lane_id: creneau.lane_id || null,
     multi_lane: creneau.multi_lane || false,
     type: creneau.type || 'autre',
