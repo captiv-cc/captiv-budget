@@ -244,30 +244,27 @@ export async function createSession(membreId, payload = {}) {
     .single()
   if (e1) throw e1
 
-  // 2. Créer la session globale avec retry sur conflit UNIQUE(project_id,
-  //    sort_order). Audit 2026-05-06 : sans retry, deux admins concurrents
-  //    qui SELECT MAX(sort_order)+1 simultanément récupèrent le même
-  //    nombre → INSERT du 2e fail avec "duplicate key" (code 23505) et
-  //    l'utilisateur voit une notify error sans explication. Le retry
-  //    relit MAX et tente à nouveau, ce qui résout 99.9% des cas (après 3
-  //    tentatives, l'erreur remonte avec un message parlant).
+  // 2. Créer la session globale. EQUIPE-AUDIT-FIX-D : on délègue le calcul
+  //    de sort_order au trigger BEFORE INSERT côté serveur (migration
+  //    20260506_equipe_sessions_phase_a_audit_fixes.sql) qui set
+  //    sort_order = MAX+1 quand NULL. Avant : on calculait nextSortOrder
+  //    côté client → le trigger se voyait passer une valeur non-NULL et
+  //    SKIPPAIT son calcul → la race UNIQUE(project_id, sort_order) entre
+  //    2 admins concurrents restait totalement ouverte malgré le retry
+  //    (qui retombait sur le même MAX côté client).
+  //    Le retry est conservé : le trigger lui-même peut aussi racer si 2
+  //    transactions PostgreSQL passent leur SELECT MAX à la même fraction
+  //    de seconde — auquel cas la 2e échoue avec 23505 et on relance.
   const presenceDays = Array.isArray(payload.presence_days) ? payload.presence_days : []
   let session = null
   let lastError = null
   for (let attempt = 0; attempt < 3 && !session; attempt++) {
-    const { data: maxRow } = await supabase
-      .from('projet_sessions')
-      .select('sort_order')
-      .eq('project_id', member.project_id)
-      .order('sort_order', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    const nextSortOrder = (maxRow?.sort_order || 0) + 1 + attempt
     const { data, error: e2 } = await supabase
       .from('projet_sessions')
       .insert({
         project_id: member.project_id,
-        sort_order: nextSortOrder,
+        // sort_order absent : le trigger projet_sessions_auto_sort_order
+        // côté serveur calcule MAX+1 dans la même transaction.
         label: payload.label ?? null,
         start_date: payload.arrival_date ?? null,
         end_date: payload.departure_date ?? null,

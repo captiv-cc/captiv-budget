@@ -351,6 +351,11 @@ export default function PresenceCalendarModal({
   // la liste a changé, et le form de création resterait ouvert).
   useEffect(() => {
     if (!open) {
+      // EQUIPE-AUDIT-FIX-C : flush AVANT de reset les refs. Sans ça, si la
+      // modale est fermée par un changement de prop parent (et non via le
+      // X ou le backdrop qui passent par handleClose), la dernière modif
+      // pending est silencieusement perdue.
+      flushPending()
       setActiveSessionId(null)
       setCreatingSession(false)
       setNewLabel('')
@@ -365,7 +370,18 @@ export default function PresenceCalendarModal({
         saveTimerRef.current = null
       }
     }
+    // flushPending est défini in-scope, pas besoin dans les deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // EQUIPE-AUDIT-FIX-C : flush sur unmount complet (changement de page,
+  // démontage parent). flushPending lit les refs courantes — OK avec [].
+  useEffect(() => {
+    return () => {
+      flushPending()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Fermeture propre : on flush les changements pending avant d'appeler
   // onClose. handleClose remplace le bouton "Enregistrer" + "Annuler" du

@@ -23,7 +23,7 @@
 //     annuaire / présence / catégorie. Cohérent avec le clic sur le nom.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Phone,
@@ -719,9 +719,13 @@ function PosteInline({ value, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value === '—' ? '' : value)
 
-  if (!editing && !editing && draft !== (value === '—' ? '' : value)) {
-    setDraft(value === '—' ? '' : value)
-  }
+  // EQUIPE-AUDIT-FIX-B : sync draft ← value via useEffect (était setState
+  // pendant render avec un double `!editing && !editing` douteux). Le draft
+  // n'est rendu qu'en mode `editing` (sinon on rend `value` direct), donc
+  // le décalage 1-frame de useEffect n'est pas visible utilisateur.
+  useEffect(() => {
+    if (!editing) setDraft(value === '—' ? '' : value)
+  }, [value, editing])
 
   if (editing) {
     return (
@@ -781,10 +785,11 @@ function InlineText({ value, placeholder, icon, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
 
-  // Quand value change depuis le parent (optimistic update terminé), resync.
-  if (!editing && draft !== value) {
-    setDraft(value)
-  }
+  // EQUIPE-AUDIT-FIX-B : resync draft ← value via useEffect quand l'optimistic
+  // update du parent change la valeur (était setState pendant render).
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [value, editing])
 
   if (!canEdit) {
     return (

@@ -435,15 +435,31 @@ export default function EquipeTab() {
   }
 
   async function updateMembre(id, fields) {
+    // EQUIPE-AUDIT-FIX-A : optimistic + rollback + notify.error si échec.
+    // Avant : pas d'await ni try/catch → toast "Enregistré" même en cas
+    // d'échec réseau, état UI désynchronisé persistant.
+    const snapshot = membres
     setMembres((p) => p.map((m) => (m.id === id ? { ...m, ...fields } : m)))
-    await supabase.from('projet_membres').update(fields).eq('id', id)
+    const { error } = await supabase.from('projet_membres').update(fields).eq('id', id)
+    if (error) {
+      setMembres(snapshot)
+      notify.error("Échec d'enregistrement : " + error.message)
+      return
+    }
     showToast('Enregistré')
   }
 
   async function removeMembre(id) {
     if (!confirm('Désattribuer cette personne du poste ?')) return
-    await supabase.from('projet_membres').delete().eq('id', id)
+    // EQUIPE-AUDIT-FIX-A : optimistic + rollback + notify.error si échec.
+    const snapshot = membres
     setMembres((p) => p.filter((m) => m.id !== id))
+    const { error } = await supabase.from('projet_membres').delete().eq('id', id)
+    if (error) {
+      setMembres(snapshot)
+      notify.error('Échec de suppression : ' + error.message)
+      return
+    }
     showToast('Retiré', false)
   }
 
