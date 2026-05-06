@@ -391,18 +391,26 @@ export default function PresenceCalendarModal({
     onClose?.()
   }
 
-  // ESC en mode picker → annule le picker (sans fermer la modale)
+  // ESC en mode picker → annule le picker (sans fermer la modale).
+  // EQUIPE-AUDIT-FIX-K : ESC en mode presence → ferme la modale (cohérent
+  // avec MembreDrawer). handleClose flush l'autosave avant de fermer.
   useEffect(() => {
-    if (pickerMode === 'presence') return undefined
+    if (!open) return undefined
     function onKey(e) {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (pickerMode !== 'presence') {
         setPickerMode('presence')
+      } else {
+        handleClose()
       }
     }
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [pickerMode])
+    // handleClose est défini in-scope, capturé par closure ; même chose
+    // pour pickerMode et open via useEffect deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerMode, open])
 
   // Map jour → liste de périodes qui le couvrent
   const dayToPeriodes = useMemo(() => {

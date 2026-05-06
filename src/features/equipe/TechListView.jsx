@@ -603,6 +603,30 @@ export default function TechListView({
     // Cleanup : retire le Set interne avant export
     return [...map.values()].map(({ _memberIds: _ignored, ...rest }) => rest)
   }, [sessions])
+
+  // EQUIPE-AUDIT-FIX-E : projectSessionTemplates annoté `member_already_in`
+  // pour le membre actuellement ouvert dans la modale Présence. Avant : ce
+  // calcul était fait dans une IIFE inline `(() => {...})()` au moment du
+  // render JSX → nouvelle référence d'array à chaque render TechListView →
+  // PresenceCalendarModal re-rendait sa liste de templates même quand
+  // rien de pertinent ne changeait. Mémoïsé sur (presenceFor.id,
+  // projectSessionTemplates, sessionsByMembre) pour stabilité.
+  const projectSessionTemplatesForActive = useMemo(() => {
+    if (!presenceFor) return projectSessionTemplates
+    const own = sessionsByMembre?.get?.(presenceFor.id) || []
+    const ownKeys = new Set(
+      own.map((s) =>
+        `${(s.label || '').trim().toLowerCase()}|${(s.lieu_principal_text || '').trim().toLowerCase()}`,
+      ),
+    )
+    return projectSessionTemplates.map((t) => ({
+      ...t,
+      member_already_in: ownKeys.has(
+        `${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`,
+      ),
+    }))
+  }, [presenceFor, projectSessionTemplates, sessionsByMembre])
+
   const filteredByCategory = useMemo(() => {
     if (!selectedLotId) return byCategory
     const out = {}
@@ -738,6 +762,10 @@ export default function TechListView({
   }
 
   // Fermer sur clic extérieur
+  // EQUIPE-AUDIT-FIX-F : ajout de `touchstart` en plus de `mousedown` —
+  // sur certains contextes mobile (iOS Safari notamment) le mousedown
+  // n'est pas systématiquement émis pour un tap hors zone, donc le menu
+  // restait ouvert.
   useEffect(() => {
     if (!exportOpen) return
     function h(e) {
@@ -746,7 +774,11 @@ export default function TechListView({
       setExportOpen(false)
     }
     document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
+    document.addEventListener('touchstart', h)
+    return () => {
+      document.removeEventListener('mousedown', h)
+      document.removeEventListener('touchstart', h)
+    }
   }, [exportOpen])
 
   // Cleanup : si la preview est encore ouverte au démontage du composant
@@ -1161,21 +1193,7 @@ export default function TechListView({
         //  - la détection de doublon au form "+ Nouvelle" : on regarde
         //    la liste complète pour proposer de rejoindre (et fallback
         //    sur "déjà dans cette session" si match avec already_in).
-        projectSessionTemplates={(() => {
-          if (!presenceFor) return projectSessionTemplates
-          const own = sessionsByMembre?.get?.(presenceFor.id) || []
-          const ownKeys = new Set(
-            own.map((s) =>
-              `${(s.label || '').trim().toLowerCase()}|${(s.lieu_principal_text || '').trim().toLowerCase()}`,
-            ),
-          )
-          return projectSessionTemplates.map((t) => ({
-            ...t,
-            member_already_in: ownKeys.has(
-              `${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`,
-            ),
-          }))
-        })()}
+        projectSessionTemplates={projectSessionTemplatesForActive}
         // onCreateSession crée une nouvelle session globale dédiée au
         // membre courant via useCrew.addSession.
         onCreateSession={(payload) =>

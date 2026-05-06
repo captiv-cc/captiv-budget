@@ -474,7 +474,10 @@ export default function AttributionRow({
             >
               {persona.contact.telephone && (
                 <a
-                  href={`tel:${persona.contact.telephone}`}
+                  // EQUIPE-AUDIT-FIX-G : encodeURIComponent pour gérer les
+                  // numéros avec espaces / + (ex: +33 6 12 34) qui cassaient
+                  // le href sur certains clients mobiles.
+                  href={`tel:${encodeURIComponent(persona.contact.telephone)}`}
                   className="flex items-center gap-0.5 hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -484,7 +487,10 @@ export default function AttributionRow({
               )}
               {persona.contact.email && (
                 <a
-                  href={`mailto:${persona.contact.email}`}
+                  // EQUIPE-AUDIT-FIX-G : encodeURIComponent pour les emails
+                  // contenant un + (alias gmail) qui s'affichaient comme
+                  // espace dans certains user-agents.
+                  href={`mailto:${encodeURIComponent(persona.contact.email)}`}
                   className="flex items-center gap-0.5 hover:underline truncate"
                   onClick={(e) => e.stopPropagation()}
                 >

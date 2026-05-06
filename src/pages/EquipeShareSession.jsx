@@ -554,7 +554,13 @@ function Row({
   const tel = showSensitive ? formatPhone(m.contact?.telephone || m.telephone || '') : ''
   const email = showSensitive ? (m.contact?.email || m.email || '') : ''
   const secteur = m.secteur || m.contact?.ville || ''
-  const lotId = m.devis_line?.devis_id ? devisIdToLotId[m.devis_line.devis_id] : null
+  // EQUIPE-AUDIT-FIX-J : fallback m.lot_id pour les rows ad-hoc (EQUIPE-P4.4
+  // — membres rattachés à un lot directement, sans devis_line). Sans ce
+  // fallback la pastille de lot disparaissait pour ces rows côté share, alors
+  // qu'elle reste visible côté admin (TechListView lotInfoForRow).
+  const lotId = m.devis_line?.devis_id
+    ? devisIdToLotId[m.devis_line.devis_id]
+    : (m.lot_id || null)
   const lotInfo = lotId ? lotInfoMap[lotId] : null
   const presenceSet = new Set(m.presence_days || [])
 
@@ -858,7 +864,13 @@ function Card({
   const telRaw = showSensitive ? (m.contact?.telephone || m.telephone || '') : ''
   const email = showSensitive ? (m.contact?.email || m.email || '') : ''
   const secteur = m.secteur || m.contact?.ville || ''
-  const lotId = m.devis_line?.devis_id ? devisIdToLotId[m.devis_line.devis_id] : null
+  // EQUIPE-AUDIT-FIX-J : fallback m.lot_id pour les rows ad-hoc (EQUIPE-P4.4
+  // — membres rattachés à un lot directement, sans devis_line). Sans ce
+  // fallback la pastille de lot disparaissait pour ces rows côté share, alors
+  // qu'elle reste visible côté admin (TechListView lotInfoForRow).
+  const lotId = m.devis_line?.devis_id
+    ? devisIdToLotId[m.devis_line.devis_id]
+    : (m.lot_id || null)
   const lotInfo = lotId ? lotInfoMap[lotId] : null
   const presenceSet = new Set(m.presence_days || [])
 

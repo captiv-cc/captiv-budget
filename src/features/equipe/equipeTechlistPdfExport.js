@@ -752,10 +752,14 @@ function drawPresenceCells(doc, col, persona, allDays, y, rowH, memberSessions =
         ? getActiveSessionForDay(memberSessions, iso)
         : null
       const colorHex = activeSession ? effectiveCouleur(activeSession) : null
-      if (colorHex) {
+      // EQUIPE-AUDIT-FIX-I : hexToRgb peut retourner null (couleur invalide
+      // ou null) — dans ce cas on retombe sur le vert presenceFg/presenceBg
+      // au lieu de noir.
+      const rgb = colorHex ? hexToRgb(colorHex) : null
+      if (rgb) {
         // Background : couleur session avec alpha (mix sur blanc à
         // ~22%) ; foreground : couleur session pleine pour le X.
-        const [r, g, b] = hexToRgb(colorHex)
+        const [r, g, b] = rgb
         // Mix avec blanc (255) — ~22% session, 78% blanc
         const bgR = Math.round(0.22 * r + 0.78 * 255)
         const bgG = Math.round(0.22 * g + 0.78 * 255)
@@ -884,8 +888,15 @@ function withAlpha(rgb, alpha) {
 // Hex (sans # ou avec) → [r, g, b] entiers 0-255. Utilisé pour le coloring
 // des cellules X par session (Phase A) — la couleur de session est en hex,
 // jsPDF veut du tuple RGB.
+// EQUIPE-AUDIT-FIX-I : retourne null si hex invalide (avant : retournait
+// [0,0,0] = noir → cellules X tracées en noir au lieu du vert presenceFg
+// par défaut quand une session avait `couleur: null` ou une valeur cassée).
+// Les callers doivent garder un branch `if (rgb)` pour le fallback couleur
+// par défaut.
 function hexToRgb(hex) {
   const clean = (hex || '').replace('#', '')
+  const isHex = /^[0-9a-f]+$/i.test(clean)
+  if (!isHex) return null
   if (clean.length === 3) {
     return [
       parseInt(clean[0] + clean[0], 16),
@@ -900,7 +911,7 @@ function hexToRgb(hex) {
       parseInt(clean.slice(4, 6), 16),
     ]
   }
-  return [0, 0, 0]
+  return null
 }
 
 // Construit la liste des items de légende (1 par session globale du
@@ -975,9 +986,9 @@ function drawSessionsLegend(doc, items, y) {
       cursorY += 4
       cursorX = startX + doc.getTextWidth('SESSIONS') + 4
     }
-    // Pastille couleur
-    const [r, g, b] = hexToRgb(it.color)
-    doc.setFillColor(r, g, b)
+    // Pastille couleur — fallback presenceFg si couleur invalide.
+    const rgb = hexToRgb(it.color) || C.presenceFg
+    doc.setFillColor(...rgb)
     doc.circle(cursorX + dotW / 2, cursorY - 1.2, dotW / 2, 'F')
     cursorX += dotW + 1.5
     // Label

@@ -546,10 +546,18 @@ export default function EquipeTab() {
     const csv = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
       .join('\n')
+    // EQUIPE-AUDIT-FIX-H : Blob + URL.createObjectURL au lieu de
+    // `data:text/csv;...` — Chrome bloque silencieusement les data: URLs
+    // au-delà de ~2 MB. Pour un projet avec beaucoup de membres ça pouvait
+    // produire un download invisible. Le BOM ﻿ garantit qu'Excel
+    // ouvre l'UTF-8 sans casser les accents.
+    const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+    a.href = url
     a.download = `crew-${project?.name || 'projet'}.csv`
     a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   if (loading)
