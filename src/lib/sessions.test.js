@@ -73,10 +73,12 @@ describe('effectiveLabel', () => {
     expect(effectiveLabel({ sort_order: 1, label: '  Tournage  ' })).toBe('Tournage')
   })
 
-  it('fallback "Session N" si vide', () => {
-    expect(effectiveLabel({ sort_order: 1, label: '' })).toBe('Session 1')
-    expect(effectiveLabel({ sort_order: 2, label: null })).toBe('Session 2')
-    expect(effectiveLabel({ sort_order: 3 })).toBe('Session 3')
+  it('fallback "Sans nom" si vide', () => {
+    // Phase A/3 : on a abandonné "Session N" (numéro arbitraire) au profit
+    // d'un placeholder neutre "Sans nom" — plus honnête côté admin.
+    expect(effectiveLabel({ sort_order: 1, label: '' })).toBe('Sans nom')
+    expect(effectiveLabel({ sort_order: 2, label: null })).toBe('Sans nom')
+    expect(effectiveLabel({ sort_order: 3 })).toBe('Sans nom')
   })
 
   it('gère session null', () => {
