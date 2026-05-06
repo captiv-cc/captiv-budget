@@ -19,11 +19,48 @@
 
 ## 🚧 En cours
 
-_(rien pour l'instant)_
+_(rien pour l'instant — chantier Équipe Sessions Phase A bouclé le 2026-05-08)_
 
 ---
 
 ## 📋 Backlog
+
+### LOGISTIQUE V1/V2/V3 — Tab dédiée régie
+**Ajouté le** : 2026-04-15 · **Priorité** : haute · **Effort estimé** : ~7-10j total (3 vagues)
+
+Chantier complet documenté dans [`CHANTIER_LOGISTIQUE.md`](./CHANTIER_LOGISTIQUE.md) :
+- **V1 (~3j)** — calendrier vue d'ensemble, hébergements (lieux + chambres + assignments), repas (planning + attendance)
+- **V2 (~3j)** — transports (train/avion/voiture), documents (vouchers/billets), véhicules régie
+- **V3 (~3-4j)** — per diems, notes de frais, lieux tournage, export PDF "Carnet de route", partage public régie, intégration Budget Réel
+
+**Prérequis** : 6 questions ouvertes à trancher avec Hugo avant V1 (niveau de détail chambres, types de repas, aspect financier, migration `hebergement` TEXT existant, permissions, orientation vue).
+
+**Articulation** : la techlist reste source de vérité pour `presence_days` / `arrival_*` / `departure_*` ; LOGISTIQUE enrichit (hébergement/repas/transport structurés) sans remplacer.
+
+---
+
+### Polish Équipe résiduel — backlog audits Phase A
+**Ajouté le** : 2026-05-08 · **Priorité** : basse · **Effort estimé** : ~0.5j
+
+Findings non-bloquants identifiés lors des audits de fin de chantier
+Sessions Phase A. Liste détaillée dans
+[`CHANTIER_EQUIPE_BACKLOG.md`](./CHANTIER_EQUIPE_BACKLOG.md) :
+~10 items 🟠 Important + 🟡 Mineur + 🤔 Suspects (rollback EquipeTab trop large, lot_id fallback share, autosave stale closure modale, drift PERSONA_LEVEL_FIELDS, etc).
+
+À reprendre opportunistiquement quand on touche aux fichiers concernés,
+ou en passe cleanup dédiée avant un futur chantier Équipe.
+
+---
+
+### DEVIS-4 — Collab temps réel type Google Sheets
+**Ajouté le** : 2026-05 · **Priorité** : moyenne · **Effort estimé** : ~4-5j
+
+Édition collaborative en temps réel des lignes de devis (présence des
+curseurs, locks optimistes, broadcast Realtime). Pattern à inspirer de
+ce qui a été fait pour le matériel (MAT-9B) et la checklist terrain.
+Pas de doc dédiée — à créer au démarrage.
+
+---
 
 ### [archivé — voir ✅ Terminé] Refonte de la page Projet (ProjetTab) — vue résumée + édition contrôlée
 **Ajouté le** : 2026-04-11
@@ -217,6 +254,68 @@ _(rien de listé pour l'instant)_
 ---
 
 ## ✅ Terminé
+
+### Chantier Équipe — Sessions Phase A (refonte multi-membres + share + PDF)
+**Bouclé le** : 2026-05-08
+**Commits clés** : `5dc2cd7` (migration SQL sessions) → `9e229a5` (useCrew session globale) → `5693f69` (joinSession) → `831d456` (finalisation Phase A) → `a7243c9` (fix audit critiques 4/7) → `1bd7753` (backlog Important + Mineur) → `e5b36b2` (drift SQL) → `4746153` (hotfix share_equipe_fetch) → `b9c3b0f` (fix lint BOM)
+
+Refacto majeure du modèle Équipe : passage de 1-membre-par-session à des
+sessions globales partagées entre N membres (`projet_sessions` +
+`projet_session_membres`). Inclut :
+- Migration SQL Phase A (sessions globales, denorm `project_id`, triggers
+  auto sort_order, garde-fous cross-project, drop table legacy)
+- Refonte modale Présence (autosave debounced, indicateur partage, chip
+  badge `👥N`, SessionMetaEditor inline, raccourcis Prépa/Tournage)
+- UI : chips de session dans la crew list, grille présence colorée,
+  légende sessions, drawer cohérent
+- Page share publique + PDF export avec coloring cellules X par session
+  + légende
+- 4 fixes critiques d'audit (rollback updateMembre/removeMembre,
+  setState during render → useEffect, flushPending sur unmount,
+  sort_order délégué au trigger DB)
+- 7 fixes audit Important + Mineur (mémoïsation projectSessionTemplates,
+  touchstart export menu, encodeURIComponent tel/mailto, Blob CSV,
+  hexToRgb null-safe, lot_id ad-hoc share, ESC modale)
+
+Backlog résiduel (non bloquant) consigné dans
+[`CHANTIER_EQUIPE_BACKLOG.md`](./CHANTIER_EQUIPE_BACKLOG.md).
+
+---
+
+### Chantier Livrables (LIV-1 → LIV-23) — Tab Livrables complète
+**Bouclé le** : 2026-04 (Vague 1) → 2026-05 (Pipeline + Gantt + intégration planning)
+**Commits** : ~50 commits, `LIV-*` dans les messages
+
+CRUD blocs + livrables + étapes, vue liste + Pipeline + Gantt, drag/resize,
+mode Focus, export PDF vue d'ensemble, sync bidirectionnelle avec Planning,
+duplication cross-project, soft delete + corbeille. Roadmap détaillée :
+[`CHANTIER_LIV_ROADMAP.md`](./CHANTIER_LIV_ROADMAP.md).
+
+---
+
+### Chantier Matériel (MAT-1 → MAT-23) — Tab Matériel + checklist terrain + rendu loueur
+**Bouclé le** : 2026-04 → 2026-05
+**Commits** : ~80 commits, `MAT-*` dans les messages
+
+CRUD matos par bloc, catalogue matériel global, dropdown loueurs, drag &
+drop, collab Realtime, checklist terrain (route `/check/:token` plein
+écran tactile), photos par item/bloc, bilan PDF essais, retrait soft +
+additifs, rendu loueur (route `/rendu/:token`), bon de retour PDF + ZIP
+par loueur, optimistic updates partout. Handoff doc :
+[`CHANTIER_MAT_HANDOFF.md`](./CHANTIER_MAT_HANDOFF.md).
+
+---
+
+### Chantier Planning (PL-1 → PL-8 + PG-1 → PG-5) — Tab Planning projet + Planning global
+**Bouclé le** : 2026-04
+**Commits** : ~40 commits, `PL-*` / `PG-*` dans les messages
+
+5 vues (mois, semaine/jour, kanban, table, gantt v2 + swimlanes), filtres
++ vues sauvegardées + presets, export iCal (token public), responsive
+mobile, page Planning globale tous-projets confondus, RLS events
+granulaire (PERM-1 → PERM-8).
+
+---
 
 ### Refonte ProjetTab.jsx — vue résumée + édition contrôlée
 **Bouclé le** : 2026-04-11
