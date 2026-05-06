@@ -12,6 +12,7 @@ import {
   effectiveCouleurCreneau,
   sortCreneauxByTime,
   creneauDureeMin,
+  formatMinHHMM,
 } from '../../lib/deroule'
 
 export default function DerouleListView({
@@ -95,7 +96,7 @@ export default function DerouleListView({
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <td className="px-3 py-2 align-middle whitespace-nowrap font-medium" style={{ color: 'var(--txt)' }}>
-                  {c.heure_debut.slice(0, 5)} – {c.heure_fin.slice(0, 5)}
+                  {formatMinHHMM(c.heure_debut_min)} – {formatMinHHMM(c.heure_fin_min)}
                 </td>
                 <td className="px-3 py-2 align-middle hidden sm:table-cell" style={{ color: 'var(--txt-3)' }}>
                   {dureeStr}

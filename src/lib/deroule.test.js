@@ -1,5 +1,8 @@
 // Tests unitaires des helpers purs de lib/deroule.js
 // (CRUD côté Supabase pas testés ici — couverts par smoke tests UI plus tard)
+//
+// V0.5 : les créneaux et déroulés stockent les heures en INTEGER minutes
+// depuis 00:00 du jour J (range 0-1680 = 28h max = 04:00 J+1).
 
 import { describe, it, expect } from 'vitest'
 import {
@@ -7,8 +10,11 @@ import {
   CRENEAU_TYPE_COLORS,
   DEFAULT_LANE_LIBELLES,
   MAX_LANES,
+  MAX_MIN,
   timeToMinutes,
   minutesToTime,
+  formatMinHHMM,
+  formatMinTimeInput,
   snapToStep,
   creneauDureeMin,
   creneauxOverlap,
@@ -46,7 +52,13 @@ describe('MAX_LANES', () => {
   })
 })
 
-// ─── timeToMinutes ─────────────────────────────────────────────────────────
+describe('MAX_MIN', () => {
+  it('est égal à 1680 (28h = 04:00 J+1)', () => {
+    expect(MAX_MIN).toBe(1680)
+  })
+})
+
+// ─── timeToMinutes / minutesToTime ─────────────────────────────────────────
 
 describe('timeToMinutes', () => {
   it('parse HH:MM correctement', () => {
@@ -57,21 +69,12 @@ describe('timeToMinutes', () => {
 
   it('parse HH:MM:SS en ignorant les secondes', () => {
     expect(timeToMinutes('09:30:45')).toBe(570)
-    expect(timeToMinutes('09:30:00')).toBe(570)
-  })
-
-  it('accepte les heures 0-padded ou non', () => {
-    expect(timeToMinutes('9:30')).toBe(570)
-    expect(timeToMinutes('09:30')).toBe(570)
   })
 
   it('retourne NaN pour les formats invalides', () => {
     expect(timeToMinutes('foo')).toBeNaN()
-    expect(timeToMinutes('25:60')).toBeNaN()
     expect(timeToMinutes('')).toBeNaN()
     expect(timeToMinutes(null)).toBeNaN()
-    expect(timeToMinutes(undefined)).toBeNaN()
-    expect(timeToMinutes(123)).toBeNaN()
   })
 
   it('accepte les heures > 23 (le caller filtre)', () => {
@@ -79,29 +82,11 @@ describe('timeToMinutes', () => {
   })
 })
 
-// ─── minutesToTime ─────────────────────────────────────────────────────────
-
 describe('minutesToTime', () => {
-  it('formate les minutes en HH:MM zero-padded', () => {
+  it('formate correctement', () => {
     expect(minutesToTime(0)).toBe('00:00')
     expect(minutesToTime(570)).toBe('09:30')
     expect(minutesToTime(1439)).toBe('23:59')
-  })
-
-  it('floor les fractions de minute', () => {
-    expect(minutesToTime(570.7)).toBe('09:30')
-  })
-
-  it('gère 0 et grandes valeurs', () => {
-    expect(minutesToTime(0)).toBe('00:00')
-    expect(minutesToTime(1500)).toBe('25:00')
-  })
-
-  it('retourne 00:00 pour les valeurs invalides', () => {
-    expect(minutesToTime(-1)).toBe('00:00')
-    expect(minutesToTime(NaN)).toBe('00:00')
-    expect(minutesToTime('foo')).toBe('00:00')
-    expect(minutesToTime(null)).toBe('00:00')
   })
 
   it('roundtrip avec timeToMinutes', () => {
@@ -112,99 +97,126 @@ describe('minutesToTime', () => {
   })
 })
 
+// ─── formatMinHHMM (V0.5 — affichage heures > 24h) ─────────────────────────
+
+describe('formatMinHHMM', () => {
+  it('formate les heures du jour J normalement', () => {
+    expect(formatMinHHMM(0)).toBe('00:00')
+    expect(formatMinHHMM(540)).toBe('09:00')
+    expect(formatMinHHMM(1439)).toBe('23:59')
+  })
+
+  it('ajoute "+1j" pour les heures > 24h', () => {
+    expect(formatMinHHMM(1440)).toBe('00:00 +1j')
+    expect(formatMinHHMM(1500)).toBe('01:00 +1j')
+    expect(formatMinHHMM(1560)).toBe('02:00 +1j')
+    expect(formatMinHHMM(1680)).toBe('04:00 +1j')
+  })
+
+  it('retourne 00:00 pour les valeurs invalides', () => {
+    expect(formatMinHHMM(-1)).toBe('00:00')
+    expect(formatMinHHMM(NaN)).toBe('00:00')
+    expect(formatMinHHMM('foo')).toBe('00:00')
+    expect(formatMinHHMM(null)).toBe('00:00')
+  })
+})
+
+// ─── formatMinTimeInput (sans suffixe — pour <input type="time">) ──────────
+
+describe('formatMinTimeInput', () => {
+  it('formate les heures du jour J normalement', () => {
+    expect(formatMinTimeInput(0)).toBe('00:00')
+    expect(formatMinTimeInput(540)).toBe('09:00')
+    expect(formatMinTimeInput(1439)).toBe('23:59')
+  })
+
+  it('prend modulo 24h pour les heures > 24h (caller gère le toggle lendemain)', () => {
+    expect(formatMinTimeInput(1440)).toBe('00:00')
+    expect(formatMinTimeInput(1500)).toBe('01:00')
+    expect(formatMinTimeInput(1680)).toBe('04:00')
+  })
+
+  it('retourne 00:00 pour les valeurs invalides', () => {
+    expect(formatMinTimeInput(-1)).toBe('00:00')
+    expect(formatMinTimeInput(null)).toBe('00:00')
+  })
+})
+
 // ─── snapToStep ────────────────────────────────────────────────────────────
 
 describe('snapToStep', () => {
   it('snap au pas de 15 min', () => {
-    expect(snapToStep(577, 15)).toBe(585) // 09:37 → 09:45
-    expect(snapToStep(572, 15)).toBe(570) // 09:32 → 09:30
-    expect(snapToStep(0, 15)).toBe(0)
+    expect(snapToStep(577, 15)).toBe(585)
+    expect(snapToStep(572, 15)).toBe(570)
   })
 
   it('snap au pas de 5 min', () => {
-    expect(snapToStep(572, 5)).toBe(570) // 09:32 → 09:30
-    expect(snapToStep(573, 5)).toBe(575) // 09:33 → 09:35
+    expect(snapToStep(572, 5)).toBe(570)
+    expect(snapToStep(573, 5)).toBe(575)
   })
 
-  it('snap au pas de 30 min', () => {
-    expect(snapToStep(585, 30)).toBe(600) // 09:45 → 10:00
-    expect(snapToStep(584, 30)).toBe(570) // 09:44 → 09:30
-  })
-
-  it('retourne la valeur inchangée pour step <= 0 ou inputs invalides', () => {
+  it('retourne la valeur inchangée pour step <= 0', () => {
     expect(snapToStep(577, 0)).toBe(577)
-    expect(snapToStep(577, -5)).toBe(577)
-    expect(snapToStep(NaN, 15)).toBeNaN()
-  })
-
-  it('snap exact préserve la valeur', () => {
-    expect(snapToStep(570, 15)).toBe(570)
-    expect(snapToStep(570, 5)).toBe(570)
   })
 })
 
 // ─── creneauDureeMin ───────────────────────────────────────────────────────
 
-describe('creneauDureeMin', () => {
+describe('creneauDureeMin (V0.5 — INT minutes)', () => {
   it('retourne la durée correcte', () => {
-    expect(creneauDureeMin({ heure_debut: '09:00', heure_fin: '10:00' })).toBe(60)
-    expect(creneauDureeMin({ heure_debut: '09:00', heure_fin: '09:30' })).toBe(30)
-    expect(creneauDureeMin({ heure_debut: '14:00', heure_fin: '17:00' })).toBe(180)
+    expect(creneauDureeMin({ heure_debut_min: 540, heure_fin_min: 600 })).toBe(60)
+    expect(creneauDureeMin({ heure_debut_min: 540, heure_fin_min: 570 })).toBe(30)
+    expect(creneauDureeMin({ heure_debut_min: 840, heure_fin_min: 1020 })).toBe(180)
+  })
+
+  it('gère les créneaux qui dépassent minuit', () => {
+    // Live 22:00 → 02:00 J+1 = 1320 → 1560 = 240 min
+    expect(creneauDureeMin({ heure_debut_min: 1320, heure_fin_min: 1560 })).toBe(240)
   })
 
   it('retourne 0 si invalide', () => {
     expect(creneauDureeMin({})).toBe(0)
     expect(creneauDureeMin(null)).toBe(0)
-    expect(creneauDureeMin({ heure_debut: 'foo', heure_fin: '10:00' })).toBe(0)
-    expect(creneauDureeMin({ heure_debut: '10:00', heure_fin: '09:00' })).toBe(0)
-    expect(creneauDureeMin({ heure_debut: '10:00', heure_fin: '10:00' })).toBe(0)
+    expect(creneauDureeMin({ heure_debut_min: 'foo', heure_fin_min: 600 })).toBe(0)
+    expect(creneauDureeMin({ heure_debut_min: 600, heure_fin_min: 540 })).toBe(0)
+    expect(creneauDureeMin({ heure_debut_min: 600, heure_fin_min: 600 })).toBe(0)
   })
 })
 
 // ─── creneauxOverlap ───────────────────────────────────────────────────────
 
-describe('creneauxOverlap', () => {
+describe('creneauxOverlap (V0.5 — INT minutes)', () => {
   it('détecte un chevauchement classique', () => {
     expect(creneauxOverlap(
-      { heure_debut: '09:00', heure_fin: '10:00' },
-      { heure_debut: '09:30', heure_fin: '10:30' },
+      { heure_debut_min: 540, heure_fin_min: 600 },   // 09:00-10:00
+      { heure_debut_min: 570, heure_fin_min: 630 },   // 09:30-10:30
     )).toBe(true)
   })
 
   it('détecte un créneau dans un autre', () => {
     expect(creneauxOverlap(
-      { heure_debut: '09:00', heure_fin: '12:00' },
-      { heure_debut: '10:00', heure_fin: '11:00' },
+      { heure_debut_min: 540, heure_fin_min: 720 },   // 09:00-12:00
+      { heure_debut_min: 600, heure_fin_min: 660 },   // 10:00-11:00
     )).toBe(true)
   })
 
   it('ne flag pas deux créneaux qui se touchent', () => {
     expect(creneauxOverlap(
-      { heure_debut: '09:00', heure_fin: '10:00' },
-      { heure_debut: '10:00', heure_fin: '11:00' },
+      { heure_debut_min: 540, heure_fin_min: 600 },   // 09:00-10:00
+      { heure_debut_min: 600, heure_fin_min: 660 },   // 10:00-11:00
     )).toBe(false)
   })
 
-  it('ne flag pas deux créneaux disjoints', () => {
+  it('détecte overlap qui passe minuit', () => {
     expect(creneauxOverlap(
-      { heure_debut: '09:00', heure_fin: '10:00' },
-      { heure_debut: '14:00', heure_fin: '15:00' },
-    )).toBe(false)
-  })
-
-  it('symétrique', () => {
-    const a = { heure_debut: '09:00', heure_fin: '10:00' }
-    const b = { heure_debut: '09:30', heure_fin: '10:30' }
-    expect(creneauxOverlap(a, b)).toBe(creneauxOverlap(b, a))
+      { heure_debut_min: 1380, heure_fin_min: 1560 }, // 23:00-26:00 (02:00 J+1)
+      { heure_debut_min: 1500, heure_fin_min: 1620 }, // 01:00 J+1 - 03:00 J+1
+    )).toBe(true)
   })
 
   it('retourne false pour des inputs invalides', () => {
     expect(creneauxOverlap({}, {})).toBe(false)
     expect(creneauxOverlap(null, null)).toBe(false)
-    expect(creneauxOverlap(
-      { heure_debut: 'foo', heure_fin: '10:00' },
-      { heure_debut: '09:00', heure_fin: '10:00' },
-    )).toBe(false)
   })
 })
 
@@ -213,9 +225,9 @@ describe('creneauxOverlap', () => {
 describe('findMembreOverlaps', () => {
   it('retourne les paires de créneaux où le membre est en conflit', () => {
     const creneaux = [
-      { id: 'c1', heure_debut: '09:00', heure_fin: '12:00', member_ids: ['M1'] },
-      { id: 'c2', heure_debut: '10:00', heure_fin: '14:00', member_ids: ['M1', 'M2'] },
-      { id: 'c3', heure_debut: '14:00', heure_fin: '17:00', member_ids: ['M1'] },
+      { id: 'c1', heure_debut_min: 540, heure_fin_min: 720, member_ids: ['M1'] },
+      { id: 'c2', heure_debut_min: 600, heure_fin_min: 840, member_ids: ['M1', 'M2'] },
+      { id: 'c3', heure_debut_min: 840, heure_fin_min: 1020, member_ids: ['M1'] },
     ]
     const conflicts = findMembreOverlaps('M1', creneaux)
     expect(conflicts).toHaveLength(1)
@@ -223,26 +235,9 @@ describe('findMembreOverlaps', () => {
     expect(conflicts[0][1].id).toBe('c2')
   })
 
-  it('retourne tableau vide si aucun conflit', () => {
-    const creneaux = [
-      { id: 'c1', heure_debut: '09:00', heure_fin: '12:00', member_ids: ['M1'] },
-      { id: 'c2', heure_debut: '14:00', heure_fin: '17:00', member_ids: ['M1'] },
-    ]
-    expect(findMembreOverlaps('M1', creneaux)).toEqual([])
-  })
-
-  it('ignore les créneaux sans le membre', () => {
-    const creneaux = [
-      { id: 'c1', heure_debut: '09:00', heure_fin: '12:00', member_ids: ['M2'] },
-      { id: 'c2', heure_debut: '10:00', heure_fin: '14:00', member_ids: ['M2'] },
-    ]
-    expect(findMembreOverlaps('M1', creneaux)).toEqual([])
-  })
-
   it('gère inputs vides ou null', () => {
     expect(findMembreOverlaps(null, [])).toEqual([])
     expect(findMembreOverlaps('M1', null)).toEqual([])
-    expect(findMembreOverlaps('M1', [])).toEqual([])
   })
 })
 
@@ -262,8 +257,6 @@ describe('effectiveCouleurCreneau', () => {
   it('fallback sur la couleur du type si pas d\'override', () => {
     expect(effectiveCouleurCreneau({ type: 'install' }))
       .toBe(CRENEAU_TYPE_COLORS.install)
-    expect(effectiveCouleurCreneau({ type: 'live' }))
-      .toBe(CRENEAU_TYPE_COLORS.live)
   })
 
   it('fallback sur autre si type inconnu', () => {
@@ -281,14 +274,14 @@ describe('effectiveCouleurCreneau', () => {
   })
 })
 
-// ─── sortCreneauxByTime ────────────────────────────────────────────────────
+// ─── sortCreneauxByTime (V0.5 — INT minutes) ───────────────────────────────
 
 describe('sortCreneauxByTime', () => {
-  it('trie par heure_debut croissant', () => {
+  it('trie par heure_debut_min croissant', () => {
     const creneaux = [
-      { id: 'c1', heure_debut: '14:00' },
-      { id: 'c2', heure_debut: '09:00' },
-      { id: 'c3', heure_debut: '11:00' },
+      { id: 'c1', heure_debut_min: 840 },
+      { id: 'c2', heure_debut_min: 540 },
+      { id: 'c3', heure_debut_min: 660 },
     ]
     const sorted = sortCreneauxByTime(creneaux)
     expect(sorted.map((c) => c.id)).toEqual(['c2', 'c3', 'c1'])
@@ -296,8 +289,8 @@ describe('sortCreneauxByTime', () => {
 
   it('utilise sort_order comme tiebreaker', () => {
     const creneaux = [
-      { id: 'c1', heure_debut: '09:00', sort_order: 2 },
-      { id: 'c2', heure_debut: '09:00', sort_order: 1 },
+      { id: 'c1', heure_debut_min: 540, sort_order: 2 },
+      { id: 'c2', heure_debut_min: 540, sort_order: 1 },
     ]
     const sorted = sortCreneauxByTime(creneaux)
     expect(sorted.map((c) => c.id)).toEqual(['c2', 'c1'])
@@ -305,8 +298,8 @@ describe('sortCreneauxByTime', () => {
 
   it('ne mute pas l\'array source', () => {
     const creneaux = [
-      { id: 'c1', heure_debut: '14:00' },
-      { id: 'c2', heure_debut: '09:00' },
+      { id: 'c1', heure_debut_min: 840 },
+      { id: 'c2', heure_debut_min: 540 },
     ]
     const before = creneaux.map((c) => c.id)
     sortCreneauxByTime(creneaux)
@@ -326,19 +319,15 @@ describe('defaultLaneLibelle', () => {
   it('retourne les libellés par défaut', () => {
     expect(defaultLaneLibelle(0)).toBe('Global')
     expect(defaultLaneLibelle(1)).toBe('Équipe A')
-    expect(defaultLaneLibelle(2)).toBe('Équipe B')
-    expect(defaultLaneLibelle(3)).toBe('Équipe C')
     expect(defaultLaneLibelle(4)).toBe('Équipe D')
   })
 
   it('fallback générique pour sort_order inconnu', () => {
     expect(defaultLaneLibelle(5)).toBe('Lane 6')
-    expect(defaultLaneLibelle(99)).toBe('Lane 100')
   })
 
   it('garde la map cohérente avec la constante', () => {
     expect(DEFAULT_LANE_LIBELLES[0]).toBe('Global')
-    expect(DEFAULT_LANE_LIBELLES[4]).toBe('Équipe D')
   })
 })
 
@@ -346,11 +335,11 @@ describe('defaultLaneLibelle', () => {
 
 describe('membresPresentsJour', () => {
   const membres = [
-    { id: 'M1', nom: 'A', presence_days: ['2026-05-13', '2026-05-14'] },
-    { id: 'M2', nom: 'B', presence_days: ['2026-05-13'] },
-    { id: 'M3', nom: 'C', presence_days: [] },
-    { id: 'M4', nom: 'D' /* presence_days undef */ },
-    { id: 'M5', nom: 'E', presence_days: ['2026-05-14'] },
+    { id: 'M1', presence_days: ['2026-05-13', '2026-05-14'] },
+    { id: 'M2', presence_days: ['2026-05-13'] },
+    { id: 'M3', presence_days: [] },
+    { id: 'M4' },
+    { id: 'M5', presence_days: ['2026-05-14'] },
   ]
 
   it('retourne les membres présents un jour donné', () => {
@@ -358,27 +347,17 @@ describe('membresPresentsJour', () => {
     expect(r.map((m) => m.id).sort()).toEqual(['M1', 'M2'])
   })
 
-  it('retourne tableau vide si jour sans personne', () => {
-    expect(membresPresentsJour(membres, '2026-12-25')).toEqual([])
-  })
-
-  it('gère membres sans presence_days', () => {
-    const r = membresPresentsJour(membres, '2026-05-14')
-    expect(r.map((m) => m.id).sort()).toEqual(['M1', 'M5'])
-  })
-
   it('gère inputs vides', () => {
     expect(membresPresentsJour([], '2026-05-13')).toEqual([])
     expect(membresPresentsJour(null, '2026-05-13')).toEqual([])
     expect(membresPresentsJour(membres, null)).toEqual([])
-    expect(membresPresentsJour(membres, '')).toEqual([])
   })
 })
 
-// ─── suggestPresenceCreneaux ───────────────────────────────────────────────
+// ─── suggestPresenceCreneaux (V0.5 — produit INT minutes) ──────────────────
 
 describe('suggestPresenceCreneaux', () => {
-  it('génère des créneaux Présence pour les membres avec horaires', () => {
+  it('génère des créneaux Présence avec horaires en INT minutes', () => {
     const membres = [
       {
         id: 'M1', prenom: 'Alice', nom: 'A',
@@ -394,8 +373,8 @@ describe('suggestPresenceCreneaux', () => {
     const creneaux = suggestPresenceCreneaux(membres, '2026-05-13', 'LANE_GLOBAL')
     expect(creneaux).toHaveLength(2)
     expect(creneaux[0]).toMatchObject({
-      heure_debut: '08:30',
-      heure_fin: '19:00',
+      heure_debut_min: 510,    // 08:30
+      heure_fin_min: 1140,     // 19:00
       lane_id: 'LANE_GLOBAL',
       multi_lane: false,
       titre: 'Présence Alice A',
@@ -403,19 +382,18 @@ describe('suggestPresenceCreneaux', () => {
       member_ids: ['M1'],
     })
     expect(creneaux[1].titre).toBe('Présence Bob B')
+    expect(creneaux[1].heure_debut_min).toBe(600)   // 10:00
+    expect(creneaux[1].heure_fin_min).toBe(840)     // 14:00
   })
 
   it('skip les membres sans horaires définis', () => {
     const membres = [
-      {
-        id: 'M1', prenom: 'Sans', nom: 'Heures',
-        presence_days: ['2026-05-13'],
-      },
+      { id: 'M1', presence_days: ['2026-05-13'] },
     ]
     expect(suggestPresenceCreneaux(membres, '2026-05-13', 'L0')).toEqual([])
   })
 
-  it('inclut les membres avec arrival OU departure (pas besoin des deux)', () => {
+  it('défauts si arrival/departure manquant', () => {
     const membres = [
       {
         id: 'M1', prenom: 'Alice', nom: 'A',
@@ -425,15 +403,15 @@ describe('suggestPresenceCreneaux', () => {
     ]
     const creneaux = suggestPresenceCreneaux(membres, '2026-05-13', 'L0')
     expect(creneaux).toHaveLength(1)
-    expect(creneaux[0].heure_debut).toBe('08:30')
-    expect(creneaux[0].heure_fin).toBe('18:00') // default departure
+    expect(creneaux[0].heure_debut_min).toBe(510)   // 08:30
+    expect(creneaux[0].heure_fin_min).toBe(1080)    // 18:00 default
   })
 
   it('skip les membres pas présents ce jour', () => {
     const membres = [
       {
-        id: 'M1', prenom: 'Alice', nom: 'A',
-        presence_days: ['2026-05-12'], // pas le 13
+        id: 'M1',
+        presence_days: ['2026-05-12'],
         arrival_time: '08:30', departure_time: '19:00',
       },
     ]

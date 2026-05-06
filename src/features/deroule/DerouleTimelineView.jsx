@@ -20,8 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import {
-  timeToMinutes,
-  minutesToTime,
+  formatMinHHMM,
   effectiveCouleurCreneau,
   defaultLaneLibelle,
   CRENEAU_TYPE_COLORS,
@@ -72,20 +71,21 @@ export default function DerouleTimelineView({
     return map
   }, [membres])
 
-  // Bornes timeline
-  const heureDebutMin = timeToMinutes(deroule?.heure_debut || '00:00')
-  const heureFinMin = timeToMinutes(deroule?.heure_fin || '23:59')
+  // Bornes timeline (V0.5 : déjà en minutes INTEGER côté DB)
+  const heureDebutMin = deroule?.heure_debut_min ?? 0
+  const heureFinMin = deroule?.heure_fin_min ?? 1439
   const totalMin = Math.max(60, heureFinMin - heureDebutMin)
   const totalHeight = (totalMin / 60) * PX_PER_HOUR
   const stepMin = deroule?.display_step_min || 15
 
-  // Génère les graduations heures (chaque heure pleine est labelée)
+  // Génère les graduations heures (chaque heure pleine est labelée).
+  // V0.5 : formatMinHHMM gère le suffixe "+1j" pour les heures > 24h.
   const graduations = useMemo(() => {
     const out = []
     for (let m = heureDebutMin; m <= heureFinMin; m += stepMin) {
       out.push({
         minutes: m,
-        label: m % 60 === 0 ? minutesToTime(m) : null,
+        label: m % 60 === 0 ? formatMinHHMM(m) : null,
         isHourMark: m % 60 === 0,
       })
     }
@@ -123,6 +123,7 @@ export default function DerouleTimelineView({
   }
 
   // Click sur zone vide d'une lane → suggère création
+  // V0.5 : produit des heure_debut_min / heure_fin_min en INTEGER directement
   function handleEmptyClick(e, laneId) {
     if (!canEdit) return
     if (!onCreateCreneauAt) return
@@ -134,8 +135,8 @@ export default function DerouleTimelineView({
     onCreateCreneauAt({
       lane_id: laneId,
       multi_lane: false,
-      heure_debut: minutesToTime(debutClamped),
-      heure_fin: minutesToTime(debutClamped + 30),
+      heure_debut_min: debutClamped,
+      heure_fin_min: debutClamped + 30,
     })
   }
 
@@ -150,8 +151,8 @@ export default function DerouleTimelineView({
     onCreateCreneauAt({
       lane_id: null,
       multi_lane: true,
-      heure_debut: minutesToTime(debutClamped),
-      heure_fin: minutesToTime(debutClamped + 30),
+      heure_debut_min: debutClamped,
+      heure_fin_min: debutClamped + 30,
     })
   }
 
@@ -285,10 +286,8 @@ export default function DerouleTimelineView({
                 <CreneauBlock
                   key={c.id}
                   creneau={c}
-                  top={minToTop(timeToMinutes(c.heure_debut))}
-                  height={durationToHeight(
-                    timeToMinutes(c.heure_fin) - timeToMinutes(c.heure_debut),
-                  )}
+                  top={minToTop(c.heure_debut_min)}
+                  height={durationToHeight(c.heure_fin_min - c.heure_debut_min)}
                   membreInitiales={membreInitiales}
                   onClick={() => onSelectCreneau?.(c)}
                 />
@@ -326,10 +325,8 @@ export default function DerouleTimelineView({
             <CreneauBlock
               key={c.id}
               creneau={c}
-              top={minToTop(timeToMinutes(c.heure_debut))}
-              height={durationToHeight(
-                timeToMinutes(c.heure_fin) - timeToMinutes(c.heure_debut),
-              )}
+              top={minToTop(c.heure_debut_min)}
+              height={durationToHeight(c.heure_fin_min - c.heure_debut_min)}
               membreInitiales={membreInitiales}
               onClick={() => onSelectCreneau?.(c)}
               isMultiLane
@@ -361,7 +358,7 @@ export default function DerouleTimelineView({
                 borderRadius: 8,
               }}
             >
-              {minutesToTime(nowMin)}
+              {formatMinHHMM(nowMin)}
             </div>
           </div>
         )}
@@ -532,7 +529,7 @@ function CreneauBlock({ creneau, top, height, membreInitiales, onClick, isMultiL
       onMouseLeave={(e) => {
         e.currentTarget.style.boxShadow = 'none'
       }}
-      title={`${creneau.titre} · ${creneau.heure_debut.slice(0, 5)} – ${creneau.heure_fin.slice(0, 5)}`}
+      title={`${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`}
     >
       <div
         style={{
@@ -559,7 +556,7 @@ function CreneauBlock({ creneau, top, height, membreInitiales, onClick, isMultiL
             marginTop: 1,
           }}
         >
-          {creneau.heure_debut.slice(0, 5)} – {creneau.heure_fin.slice(0, 5)}
+          {formatMinHHMM(creneau.heure_debut_min)} – {formatMinHHMM(creneau.heure_fin_min)}
           {creneau.lieu_text && <> · {creneau.lieu_text}</>}
         </div>
       )}

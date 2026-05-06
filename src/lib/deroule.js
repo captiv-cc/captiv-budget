@@ -73,6 +73,42 @@ export const DEFAULT_LANE_LIBELLES = {
 /** Max lanes (lane 0 + lanes 1..4). */
 export const MAX_LANES = 5
 
+/**
+ * Limite max V0.5 pour les heures (en minutes depuis 00:00 du jour J).
+ * 1680 min = 28h = 04:00 du jour J+1. Permet les créneaux nuit (live qui
+ * déborde sur le lendemain) jusqu'à 4h du matin max.
+ */
+export const MAX_MIN = 1680
+
+/**
+ * Formate des minutes en string HH:MM, avec mention "+1j" si > 24h.
+ *   formatMinHHMM(540)  → "09:00"
+ *   formatMinHHMM(1500) → "01:00 +1j"
+ *   formatMinHHMM(1560) → "02:00 +1j"
+ */
+export function formatMinHHMM(min) {
+  if (typeof min !== 'number' || isNaN(min) || min < 0) return '00:00'
+  const overflow = min >= 1440
+  const m = overflow ? min - 1440 : min
+  const h = Math.floor(m / 60)
+  const mm = Math.floor(m % 60)
+  const base = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  return overflow ? `${base} +1j` : base
+}
+
+/**
+ * Formate des minutes en string HH:MM SANS suffixe — utile pour les inputs
+ * `<input type="time">` qui ne supportent que 00:00-23:59. Pour les heures
+ * > 23:59, on prend modulo et le caller doit gérer le toggle "lendemain".
+ */
+export function formatMinTimeInput(min) {
+  if (typeof min !== 'number' || isNaN(min) || min < 0) return '00:00'
+  const m = min >= 1440 ? min - 1440 : min
+  const h = Math.floor(m / 60)
+  const mm = Math.floor(m % 60)
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
 // ─── Helpers temps ──────────────────────────────────────────────────────────
 
 /**
@@ -136,11 +172,14 @@ export function snapToStep(minutes, step) {
 
 /**
  * Durée d'un créneau en minutes. Retourne 0 si invalide.
+ * V0.5 : lit heure_debut_min / heure_fin_min (INTEGER) directement.
  */
 export function creneauDureeMin(creneau) {
-  const debut = timeToMinutes(creneau?.heure_debut)
-  const fin = timeToMinutes(creneau?.heure_fin)
-  if (isNaN(debut) || isNaN(fin) || fin <= debut) return 0
+  const debut = creneau?.heure_debut_min
+  const fin = creneau?.heure_fin_min
+  if (typeof debut !== 'number' || typeof fin !== 'number' || fin <= debut) {
+    return 0
+  }
   return fin - debut
 }
 
@@ -159,11 +198,14 @@ export function creneauDureeMin(creneau) {
  * @returns {boolean}
  */
 export function creneauxOverlap(a, b) {
-  const aDebut = timeToMinutes(a?.heure_debut)
-  const aFin = timeToMinutes(a?.heure_fin)
-  const bDebut = timeToMinutes(b?.heure_debut)
-  const bFin = timeToMinutes(b?.heure_fin)
-  if (isNaN(aDebut) || isNaN(aFin) || isNaN(bDebut) || isNaN(bFin)) {
+  const aDebut = a?.heure_debut_min
+  const aFin = a?.heure_fin_min
+  const bDebut = b?.heure_debut_min
+  const bFin = b?.heure_fin_min
+  if (
+    typeof aDebut !== 'number' || typeof aFin !== 'number' ||
+    typeof bDebut !== 'number' || typeof bFin !== 'number'
+  ) {
     return false
   }
   return aDebut < bFin && bDebut < aFin
@@ -206,13 +248,13 @@ export function effectiveCouleurCreneau(creneau) {
 }
 
 /**
- * Tri stable des créneaux : par heure_debut croissante, puis sort_order.
+ * Tri stable des créneaux : par heure_debut_min croissante, puis sort_order.
  */
 export function sortCreneauxByTime(creneaux) {
   if (!Array.isArray(creneaux)) return []
   return [...creneaux].sort((a, b) => {
-    const aMin = timeToMinutes(a.heure_debut)
-    const bMin = timeToMinutes(b.heure_debut)
+    const aMin = a.heure_debut_min ?? 0
+    const bMin = b.heure_debut_min ?? 0
     if (aMin !== bMin) return aMin - bMin
     return (a.sort_order ?? 0) - (b.sort_order ?? 0)
   })
@@ -256,8 +298,9 @@ export function suggestPresenceCreneaux(membres, dateJour, laneId) {
   return presents
     .filter((m) => m.arrival_time || m.departure_time)
     .map((m) => ({
-      heure_debut: m.arrival_time || '09:00',
-      heure_fin: m.departure_time || '18:00',
+      // V0.5 : heure_debut_min / heure_fin_min (INTEGER minutes since 00:00)
+      heure_debut_min: m.arrival_time ? timeToMinutes(m.arrival_time) : 540,    // 09:00
+      heure_fin_min: m.departure_time ? timeToMinutes(m.departure_time) : 1080,  // 18:00
       lane_id: laneId,
       multi_lane: false,
       titre: `Présence ${m.prenom || ''} ${m.nom || ''}`.trim(),
@@ -305,7 +348,7 @@ export async function fetchDerouleComplet(derouleId) {
       .from('projet_deroule_creneaux')
       .select('*')
       .eq('deroule_id', derouleId)
-      .order('heure_debut', { ascending: true }),
+      .order('heure_debut_min', { ascending: true }),
     supabase
       .from('projet_deroule_creneau_membres')
       .select('*, creneau:projet_deroule_creneaux!inner(deroule_id)')
@@ -352,6 +395,8 @@ export async function createDeroule(payload) {
   if (!payload?.date_jour) throw new Error('createDeroule: date_jour manquant')
 
   // 1. Insert déroulé
+  // V0.5 : heure_debut_min / heure_fin_min en INTEGER (minutes since 00:00).
+  // Defaults : 0 (00:00) → 1439 (23:59). Range max : 1680 (04:00 J+1).
   const { data: deroule, error: e1 } = await supabase
     .from('projet_deroules')
     .insert({
@@ -360,8 +405,8 @@ export async function createDeroule(payload) {
       titre: payload.titre ?? null,
       granularite_min: payload.granularite_min ?? 5,
       display_step_min: payload.display_step_min ?? 15,
-      heure_debut: payload.heure_debut ?? '00:00',
-      heure_fin: payload.heure_fin ?? '23:59',
+      heure_debut_min: payload.heure_debut_min ?? 0,
+      heure_fin_min: payload.heure_fin_min ?? 1439,
       statut: 'planifie',
       notes: payload.notes ?? null,
     })
@@ -506,11 +551,18 @@ export async function deleteLane(laneId) {
  */
 export async function createCreneau(payload) {
   if (!payload?.deroule_id) throw new Error('createCreneau: deroule_id manquant')
-  if (!payload?.heure_debut || !payload?.heure_fin) {
-    throw new Error('createCreneau: heure_debut et heure_fin requis')
+  // V0.5 : heure_debut_min / heure_fin_min en INTEGER (minutes since 00:00).
+  // Range valide : [0, MAX_MIN]. Range max 1680 = 28h = 04:00 J+1.
+  const debutMin = payload.heure_debut_min
+  const finMin = payload.heure_fin_min
+  if (typeof debutMin !== 'number' || typeof finMin !== 'number') {
+    throw new Error('createCreneau: heure_debut_min et heure_fin_min requis')
   }
-  if (timeToMinutes(payload.heure_fin) <= timeToMinutes(payload.heure_debut)) {
-    throw new Error('createCreneau: heure_fin doit être après heure_debut')
+  if (finMin <= debutMin) {
+    throw new Error('createCreneau: heure_fin_min doit être > heure_debut_min')
+  }
+  if (debutMin < 0 || finMin > MAX_MIN) {
+    throw new Error(`createCreneau: heures hors range [0, ${MAX_MIN}]`)
   }
 
   const memberIds = Array.isArray(payload.member_ids)
@@ -522,8 +574,8 @@ export async function createCreneau(payload) {
     .from('projet_deroule_creneaux')
     .insert({
       deroule_id: payload.deroule_id,
-      heure_debut: payload.heure_debut,
-      heure_fin: payload.heure_fin,
+      heure_debut_min: debutMin,
+      heure_fin_min: finMin,
       lane_id: payload.multi_lane ? null : payload.lane_id ?? null,
       multi_lane: payload.multi_lane === true,
       titre: payload.titre ?? '',

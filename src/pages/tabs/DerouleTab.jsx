@@ -125,11 +125,12 @@ export default function DerouleTab() {
   async function handleCreateDeroule() {
     if (!canEdit) return
     try {
+      // V0.5 : minutes INTEGER (0 = 00:00, 1439 = 23:59, 1680 max = 04:00 J+1)
       await createDeroule({
         date_jour: selectedDate,
         titre: null,
-        heure_debut: '00:00',
-        heure_fin: '23:59',
+        heure_debut_min: 0,
+        heure_fin_min: 1439,
       })
       notify.success('Déroulé créé')
     } catch (e) {
@@ -177,6 +178,10 @@ export default function DerouleTab() {
       lane_id: draft.lane_id || globalLane?.id || null,
       titre: '',
       type: 'autre',
+      // V0.5 : si appelé depuis le bouton flottant mobile sans heures,
+      // défauts 09:00 → 09:30 (540 → 570 minutes).
+      heure_debut_min: draft.heure_debut_min ?? 540,
+      heure_fin_min: draft.heure_fin_min ?? 570,
     })
   }
 
@@ -350,8 +355,8 @@ export default function DerouleTab() {
             handleCreateCreneauAt({
               lane_id: lanes.find((l) => l.sort_order === 0)?.id || null,
               multi_lane: false,
-              heure_debut: '09:00',
-              heure_fin: '09:30',
+              heure_debut_min: 540,    // 09:00
+              heure_fin_min: 570,      // 09:30
             })
           }
           className="fixed bottom-6 right-6 flex items-center gap-1 px-3 py-2 text-sm rounded-full shadow-lg z-30"

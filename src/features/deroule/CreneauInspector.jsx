@@ -20,8 +20,11 @@ import {
   CRENEAU_TYPES,
   CRENEAU_TYPE_COLORS,
   CRENEAU_STATUTS,
+  MAX_MIN,
   effectiveCouleurCreneau,
   timeToMinutes,
+  formatMinTimeInput,
+  formatMinHHMM,
 } from '../../lib/deroule'
 
 const TYPE_LABELS = {
@@ -87,9 +90,13 @@ export default function CreneauInspector({
     if (!canEdit) return
     setSaving(true)
     try {
-      // Validation horaires basique
-      if (timeToMinutes(draft.heure_fin) <= timeToMinutes(draft.heure_debut)) {
+      // Validation horaires basique (V0.5 — minutes INTEGER)
+      if (draft.heure_fin_min <= draft.heure_debut_min) {
         alert('L\'heure de fin doit être après l\'heure de début.')
+        return
+      }
+      if (draft.heure_fin_min > MAX_MIN) {
+        alert(`L'heure de fin ne peut pas dépasser 04:00 du jour suivant (max ${MAX_MIN} min).`)
         return
       }
       if (isCreate) {
@@ -176,7 +183,7 @@ export default function CreneauInspector({
                 {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
               </div>
               <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                {draft.heure_debut?.slice(0, 5)} – {draft.heure_fin?.slice(0, 5)}
+                {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
               </div>
             </div>
           </div>
@@ -217,45 +224,84 @@ export default function CreneauInspector({
             )}
           </Field>
 
-          {/* Horaires */}
+          {/* Horaires — V0.5 : input time + checkboxes "lendemain" pour
+              gérer les heures > 23:59 (live qui finit à 02:00 J+1) */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Début">
               {editing ? (
-                <input
-                  type="time"
-                  step="300"
-                  value={draft.heure_debut?.slice(0, 5)}
-                  onChange={(e) => patch({ heure_debut: e.target.value })}
-                  className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                  style={{
-                    background: 'var(--bg-elev)',
-                    color: 'var(--txt)',
-                    border: '1px solid var(--brd)',
-                  }}
-                />
+                <div className="space-y-1">
+                  <input
+                    type="time"
+                    step="300"
+                    value={formatMinTimeInput(draft.heure_debut_min)}
+                    onChange={(e) => {
+                      const m = timeToMinutes(e.target.value)
+                      if (Number.isFinite(m)) {
+                        const offset = draft.heure_debut_min >= 1440 ? 1440 : 0
+                        patch({ heure_debut_min: m + offset })
+                      }
+                    }}
+                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      color: 'var(--txt)',
+                      border: '1px solid var(--brd)',
+                    }}
+                  />
+                  <label className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                    <input
+                      type="checkbox"
+                      checked={draft.heure_debut_min >= 1440}
+                      onChange={(e) => {
+                        const base = draft.heure_debut_min % 1440
+                        patch({ heure_debut_min: base + (e.target.checked ? 1440 : 0) })
+                      }}
+                    />
+                    Lendemain
+                  </label>
+                </div>
               ) : (
                 <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                  {draft.heure_debut?.slice(0, 5)}
+                  {formatMinHHMM(draft.heure_debut_min)}
                 </div>
               )}
             </Field>
             <Field label="Fin">
               {editing ? (
-                <input
-                  type="time"
-                  step="300"
-                  value={draft.heure_fin?.slice(0, 5)}
-                  onChange={(e) => patch({ heure_fin: e.target.value })}
-                  className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                  style={{
-                    background: 'var(--bg-elev)',
-                    color: 'var(--txt)',
-                    border: '1px solid var(--brd)',
-                  }}
-                />
+                <div className="space-y-1">
+                  <input
+                    type="time"
+                    step="300"
+                    value={formatMinTimeInput(draft.heure_fin_min)}
+                    onChange={(e) => {
+                      const m = timeToMinutes(e.target.value)
+                      if (Number.isFinite(m)) {
+                        const offset = draft.heure_fin_min >= 1440 ? 1440 : 0
+                        patch({ heure_fin_min: m + offset })
+                      }
+                    }}
+                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      color: 'var(--txt)',
+                      border: '1px solid var(--brd)',
+                    }}
+                  />
+                  <label className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                    <input
+                      type="checkbox"
+                      checked={draft.heure_fin_min >= 1440}
+                      onChange={(e) => {
+                        const base = draft.heure_fin_min % 1440
+                        patch({ heure_fin_min: base + (e.target.checked ? 1440 : 0) })
+                      }}
+                    />
+                    Lendemain (max 04:00)
+                  </label>
+                </div>
               ) : (
                 <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                  {draft.heure_fin?.slice(0, 5)}
+                  {formatMinHHMM(draft.heure_fin_min)}
                 </div>
               )}
             </Field>
@@ -705,13 +751,14 @@ function MembrePicker({ membres, selected, onChange }) {
 }
 
 // ─── initDraft — défauts pour création ou copie depuis creneau existant ────
+// V0.5 : draft stocke heure_debut_min / heure_fin_min en INTEGER minutes.
 
 function initDraft(creneau) {
   if (!creneau) return null
   return {
     titre: creneau.titre || '',
-    heure_debut: creneau.heure_debut || '09:00',
-    heure_fin: creneau.heure_fin || '10:00',
+    heure_debut_min: typeof creneau.heure_debut_min === 'number' ? creneau.heure_debut_min : 540,  // 09:00
+    heure_fin_min: typeof creneau.heure_fin_min === 'number' ? creneau.heure_fin_min : 600,        // 10:00
     lane_id: creneau.lane_id || null,
     multi_lane: creneau.multi_lane || false,
     type: creneau.type || 'autre',
