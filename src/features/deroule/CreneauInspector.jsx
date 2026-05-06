@@ -568,18 +568,76 @@ function MembrePicker({ membres, selected, onChange }) {
     else onChange([...selected, id])
   }
 
+  // Helpers de sélection rapide (FIX V0 demande Hugo)
+  const allIds = membres.map((m) => m.id)
+  const presentsIds = membres.filter((m) => m.present_ce_jour !== false).map((m) => m.id)
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id))
+  const allPresentsSelected =
+    presentsIds.length > 0 && presentsIds.every((id) => selected.includes(id))
+
+  function toggleAll() {
+    onChange(allSelected ? [] : allIds)
+  }
+  function selectAllPresents() {
+    if (allPresentsSelected) {
+      // Désélectionner uniquement les présents (garder les autres)
+      onChange(selected.filter((id) => !presentsIds.includes(id)))
+    } else {
+      // Ajouter tous les présents (garder les autres déjà cochés)
+      const next = new Set(selected)
+      for (const id of presentsIds) next.add(id)
+      onChange([...next])
+    }
+  }
+
   return (
     <div
       className="rounded"
       style={{
         background: 'var(--bg-elev)',
         border: '1px solid var(--brd-sub)',
-        maxHeight: 200,
+        maxHeight: 240,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
+      {/* Boutons sélection rapide */}
+      <div
+        className="flex items-center gap-1 px-2 py-1.5"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <button
+          type="button"
+          onClick={toggleAll}
+          disabled={allIds.length === 0}
+          className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
+          style={{
+            background: allSelected ? 'var(--blue)' : 'var(--bg-surf)',
+            color: allSelected ? 'white' : 'var(--txt-2)',
+            border: `1px solid ${allSelected ? 'var(--blue)' : 'var(--brd-sub)'}`,
+          }}
+        >
+          {allSelected ? 'Aucun' : 'Tous'}
+        </button>
+        <button
+          type="button"
+          onClick={selectAllPresents}
+          disabled={presentsIds.length === 0}
+          className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
+          style={{
+            background: allPresentsSelected ? 'var(--blue)' : 'var(--bg-surf)',
+            color: allPresentsSelected ? 'white' : 'var(--txt-2)',
+            border: `1px solid ${allPresentsSelected ? 'var(--blue)' : 'var(--brd-sub)'}`,
+          }}
+          title="Sélectionne uniquement les membres présents ce jour selon la techlist"
+        >
+          Tous présents ({presentsIds.length})
+        </button>
+        <span className="ml-auto text-[10px]" style={{ color: 'var(--txt-3)' }}>
+          {selected.length}/{allIds.length}
+        </span>
+      </div>
       <input
         type="text"
         value={search}

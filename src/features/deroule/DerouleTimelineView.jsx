@@ -73,8 +73,8 @@ export default function DerouleTimelineView({
   }, [membres])
 
   // Bornes timeline
-  const heureDebutMin = timeToMinutes(deroule?.heure_debut || '06:00')
-  const heureFinMin = timeToMinutes(deroule?.heure_fin || '23:00')
+  const heureDebutMin = timeToMinutes(deroule?.heure_debut || '00:00')
+  const heureFinMin = timeToMinutes(deroule?.heure_fin || '23:59')
   const totalMin = Math.max(60, heureFinMin - heureDebutMin)
   const totalHeight = (totalMin / 60) * PX_PER_HOUR
   const stepMin = deroule?.display_step_min || 15

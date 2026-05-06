@@ -360,8 +360,8 @@ export async function createDeroule(payload) {
       titre: payload.titre ?? null,
       granularite_min: payload.granularite_min ?? 5,
       display_step_min: payload.display_step_min ?? 15,
-      heure_debut: payload.heure_debut ?? '06:00',
-      heure_fin: payload.heure_fin ?? '23:00',
+      heure_debut: payload.heure_debut ?? '00:00',
+      heure_fin: payload.heure_fin ?? '23:59',
       statut: 'planifie',
       notes: payload.notes ?? null,
     })

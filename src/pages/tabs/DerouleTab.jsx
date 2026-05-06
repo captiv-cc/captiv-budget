@@ -128,8 +128,8 @@ export default function DerouleTab() {
       await createDeroule({
         date_jour: selectedDate,
         titre: null,
-        heure_debut: '06:00',
-        heure_fin: '23:00',
+        heure_debut: '00:00',
+        heure_fin: '23:59',
       })
       notify.success('Déroulé créé')
     } catch (e) {
