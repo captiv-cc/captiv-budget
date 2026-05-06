@@ -1,4 +1,4 @@
-# CHANTIER CONDUITE / DÉROULÉ JOUR
+# CHANTIER DÉROULÉ JOUR
 
 > **État** : Roadmap notée — démarrage prévu après LOGISTIQUE V1 (ou avant
 > selon priorité Hugo). Document vivant, à mettre à jour au fil des vagues.
@@ -13,19 +13,14 @@ agrégateur des call sheets.
 
 ## Nommage
 
-**Décision à prendre avant V1** :
-- `conduite` (terme broadcast pro français — précis mais ambigu hors contexte)
-- **`déroulé`** *(reco)* — neutre, accessible tous métiers (pub, fiction, live, corporate)
-- `rundown` — anglo niche, friction lecture FR
-- `feuille de service` — fiction uniquement
-
-Le code utilisera `conduite` (vocab métier) ou `derouleÉ` selon décision.
-La tab UI utilisera la décision finale Hugo. Ce doc utilise "conduite" par
-défaut, à remplacer.
+**Décision validée 2026-05-08** : **"Déroulé"** retenu (accessible tous
+métiers, cohérent avec le français de l'app). Code SQL/JS utilise la
+forme sans accent : `deroule` (table `projet_deroules`, lib
+`deroule.js`, hook `useDeroule`, route `/share/deroule/:token`).
 
 ## Pourquoi une tab dédiée
 
-La techlist gère "qui travaille quel jour". La conduite gère "qui fait quoi
+La techlist gère "qui travaille quel jour". Le déroulé gère "qui fait quoi
 **dans la journée**, heure par heure". Cas d'usage typique (live ZLAN) :
 
 ```
@@ -44,16 +39,16 @@ Aucune tab existante ne couvre ce besoin :
 - **Logistique (futur)** = hébergement / repas / transport, pas de déroulé
   artistique du tournage
 
-La conduite est aussi le **bloc principal d'une call sheet** — un futur
+Le déroulé est aussi le **bloc principal d'une call sheet** — un futur
 export PDF "feuille de service" agrégera : projet info + techlist du jour
-+ conduite + logistique (lieux/repas) + contacts d'urgence.
++ déroulé + logistique (lieux/repas) + contacts d'urgence.
 
 ## Architecture data
 
 3 tables, FK nullable vers `logistique_lieux` (préparation V2 logistique).
 
 ```sql
-projet_conduites (1 row par jour)
+projet_deroules (1 row par jour)
   ├ id (uuid PK)
   ├ project_id (FK projects)
   ├ date_jour (date NOT NULL)
@@ -68,16 +63,16 @@ projet_conduites (1 row par jour)
   ├ created_at, updated_at, created_by
   └ UNIQUE(project_id, date_jour)
 
-projet_conduite_lanes (catalogue des lanes du jour)
+projet_deroule_lanes (catalogue des lanes du jour)
   ├ id (uuid PK)
-  ├ conduite_id (FK)
+  ├ deroule_id (FK)
   ├ sort_order (int 0..4 — lane 0 toujours "Global")
   ├ libelle (text 'Équipe A')       -- défaut "Équipe A/B/C/D" pour 1..4
-  └ UNIQUE(conduite_id, sort_order)
+  └ UNIQUE(deroule_id, sort_order)
 
-projet_conduite_creneaux (1 row par bloc)
+projet_deroule_creneaux (1 row par bloc)
   ├ id (uuid PK)
-  ├ conduite_id (FK)
+  ├ deroule_id (FK)
   ├ heure_debut (time NOT NULL)
   ├ heure_fin (time NOT NULL)
   ├ lane_id (FK lanes)              -- mode mono-lane
@@ -94,7 +89,7 @@ projet_conduite_creneaux (1 row par bloc)
   ├ created_at, updated_at, created_by
   └ CHECK heure_fin > heure_debut
 
-projet_conduite_creneau_membres (assignations N-N)
+projet_deroule_creneau_membres (assignations N-N)
   ├ id (uuid PK)
   ├ creneau_id (FK)
   ├ membre_id (FK projet_membres)
@@ -108,10 +103,10 @@ Lecture pour tous les membres avec accès projet, écriture pour
 Le partage public passe par token (cf. Vague 2).
 
 **Triggers** :
-- `BEFORE INSERT/UPDATE` sur `projet_conduite_creneaux` : sort_order auto
-  (max+1 par conduite si NULL, pattern Phase A)
-- `BEFORE INSERT/UPDATE` cross-conduite check : empêche un créneau de
-  pointer vers une lane d'une autre conduite
+- `BEFORE INSERT/UPDATE` sur `projet_deroule_creneaux` : sort_order auto
+  (max+1 par déroulé si NULL, pattern Phase A)
+- `BEFORE INSERT/UPDATE` cross-deroule check : empêche un créneau de
+  pointer vers une lane d'une autre déroulé
 
 ## Vagues de livraison
 
@@ -121,15 +116,15 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
 
 **A. Foundation data (~1j)**
 - Migration SQL : 4 tables + RLS + triggers + indexes
-- `lib/conduite.js` : helpers purs (overlap detection, snap-to-grid,
+- `lib/deroule.js` : helpers purs (overlap detection, snap-to-grid,
   membres présents un jour donné, tri chronologique des créneaux,
   conversion time ↔ minutes pour les calculs)
-- `lib/conduite.test.js` : tests unitaires des helpers
-- `hooks/useConduite.js` : CRUD + Realtime (pattern useCrew/useMateriel)
+- `lib/deroule.test.js` : tests unitaires des helpers
+- `hooks/useDeroule.js` : CRUD + Realtime (pattern useCrew/useMateriel)
 - Permissions : `canEdit` projet, hooks de gating
 
 **B. UI core lecture (~1.5j)**
-- Page `ConduiteTab.jsx` (entry point, sélecteur jour + actions)
+- Page `DerouleTab.jsx` (entry point, sélecteur jour + actions)
 - Vue **Timeline** desktop : axe heures vertical + lanes en colonnes
 - Vue **Liste** alternative (toggle Timeline/Liste, default mobile)
 - Side-panel inspecteur (clic bloc, slide depuis la droite, ne couvre
@@ -155,7 +150,7 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
   jour, propose un créneau "Présence" lane Global de `arrival_time` à
   `departure_time` (preview, validation manuelle avant import)
 - **Now line** : trait horizontal rouge marquant l'heure courante,
-  visible UNIQUEMENT si conduite affichée = aujourd'hui
+  visible UNIQUEMENT si déroulé affichée = aujourd'hui
 - Lanes nommables : header de lane éditable (default "Équipe A/B/C/D"
   pour lanes 1-4, "Global" pour lane 0)
 - Bouton "+ Ajouter une lane" jusqu'à 5, "Supprimer la lane" si vide
@@ -163,16 +158,16 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
 
 ### Vague 2 — Partage public + intégration portail (~2j)
 
-- Migration SQL : `conduite_share_tokens` (calqué sur `equipe_share_tokens`)
-- Lib `conduiteShare.js` + hook `useConduiteShareSession`
-- Modal `ConduiteShareModal` : créer / révoquer / lister les liens
-- Page `ConduiteShareSession.jsx` : route `/share/conduite/:token`
+- Migration SQL : `deroule_share_tokens` (calqué sur `equipe_share_tokens`)
+- Lib `derouleShare.js` + hook `useDerouleShareSession`
+- Modal `DerouleShareModal` : créer / révoquer / lister les liens
+- Page `DerouleShareSession.jsx` : route `/share/deroule/:token`
   - Vue Liste compacte mobile-first (lecture seule, pas de drag)
   - Now line interactive
   - Filtres : par lane / par membre (le presta voit "ses" créneaux)
-- Sous-page portail projet : `/share/projet/:token/conduite`
-  - RPC `share_projet_conduite_fetch` (cohérent avec `share_projet_equipe_fetch`)
-  - Réutilise le composant `ConduiteShareView` (export named)
+- Sous-page portail projet : `/share/projet/:token/deroule`
+  - RPC `share_projet_deroule_fetch` (cohérent avec `share_projet_equipe_fetch`)
+  - Réutilise le composant `DerouleShareView` (export named)
 - Intégration menu portail projet (cf. ProjectShareSession.jsx)
 
 ### Vague 3 — Mode régie live (~1.5j)
@@ -195,7 +190,7 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
   - Header projet (cover, titre, ref, date jour)
   - Équipe du jour (techlist filtrée par presence_days, avec
     `arrival_time` / `departure_time`)
-  - Conduite (vue liste compacte triée chrono, avec lanes en colonnes
+  - Déroulé (vue liste compacte triée chrono, avec lanes en colonnes
     ou une seule colonne avec badge lane selon mise en page)
   - Lieux (depuis Logistique V1 si disponible)
   - Repas (idem)
@@ -203,20 +198,20 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
   - Plan d'accès / météo (V4.5)
 - Distribution : token public, page de prévisualisation `/callsheet/:token`
   avec bouton télécharger PDF
-- Versioning : à chaque envoi, snapshot JSONB de la conduite + équipe
+- Versioning : à chaque envoi, snapshot JSONB de la déroulé + équipe
   → permet de voir l'historique des versions distribuées
 - Bouton "Nouvelle version" qui re-snapshot et notifie tous les destinataires
 
 ### Vague 5 — Templates et avancé (~2j)
 
-- Bouton "Dupliquer ce jour" : copie d'une conduite vers une autre
+- Bouton "Dupliquer ce jour" : copie d'une déroulé vers une autre
   date du même projet (utile pour live multi-jours répétitifs)
 - Bouton "Importer depuis un autre projet" : sélectionne un projet
-  passé, import sa conduite type "live show / fiction 1j / corporate"
+  passé, import sa déroulé type "live show / fiction 1j / corporate"
 - Templates en bibliothèque (org-level) : "Live broadcast standard",
   "Tournage pub 1 jour", "Tournage fiction journée type"
 - Documents attachés par créneau (storyboard, plan de feu, brief
-  technique) : table `projet_conduite_creneau_documents`,
+  technique) : table `projet_deroule_creneau_documents`,
   bucket Storage, upload + preview
 - Versioning visible : timeline des révisions ("Modifié il y a 2h par Lucie")
 - Diff entre versions : "Qu'est-ce qui a changé depuis la v3 envoyée
@@ -229,24 +224,24 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
   qui couvre la date du jour)
 - **Source** des horaires `arrival_time` / `departure_time` pour le
   bouton "Importer présences"
-- **Pas de retour** : la conduite ne modifie jamais la techlist. Si
+- **Pas de retour** : la déroulé ne modifie jamais la techlist. Si
   l'admin veut changer les heures de présence, il le fait dans la modale
-  Présence et la conduite reflète au prochain refresh.
+  Présence et la déroulé reflète au prochain refresh.
 - **Warning UX** : si on assigne Marc à un créneau hors de
   `arrival_time` / `departure_time`, on affiche un warning (pas blocage).
 
 ### Logistique V1+ (futur)
-- `lieu_id` sur `projet_conduite_creneaux` → FK nullable vers
+- `lieu_id` sur `projet_deroule_creneaux` → FK nullable vers
   `logistique_lieux` (table pas encore créée, on prépare le terrain)
 - Repas auto : un créneau type='repas' peut pointer un fournisseur
   Logistique
-- Vue d'ensemble Logistique pourrait afficher les créneaux conduite
+- Vue d'ensemble Logistique pourrait afficher les créneaux déroulé
   comme overlay (V3 logistique)
 
 ### Planning
 - **Pas de sync auto** — Planning reste agenda projet haut niveau.
 - Idée V5 (optionnelle) : un événement Planning de type "Tournage" peut
-  ouvrir directement la conduite du jour correspondant en 1 clic.
+  ouvrir directement la déroulé du jour correspondant en 1 clic.
 
 ### Budget Réel
 - Pas en V1-V4. V5+ : remontée des coûts par créneau (heures × tarif
@@ -254,14 +249,14 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
 
 ### Livrables
 - Pas de lien direct. Les jours de tournage du Planning sont la base
-  des dates auxquelles on crée des conduites — rien d'automatique.
+  des dates auxquelles on crée des déroulés — rien d'automatique.
 
 ### Call sheets
-- La conduite est la **source principale** pour les call sheets PDF.
+- Le déroulé est la **source principale** pour les call sheets PDF.
   Cf. Vague 4. Elle alimente, jamais l'inverse.
 
 ### Page share projet (portail global)
-- Vague 2 ajoute la sous-page `/share/projet/:token/conduite` —
+- Vague 2 ajoute la sous-page `/share/projet/:token/deroule` —
   intégration au portail projet existant (cohérent avec equipe,
   livrables, materiel).
 
@@ -269,22 +264,22 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
 
 ```
 supabase/migrations/
-  ├ <date>_conduite_v1_schema.sql              (V1)
-  ├ <date>_conduite_v2_share_tokens.sql        (V2)
-  ├ <date>_conduite_v4_callsheets.sql          (V4)
-  └ <date>_conduite_v5_documents.sql           (V5)
+  ├ <date>_deroule_v1_schema.sql              (V1)
+  ├ <date>_deroule_v2_share_tokens.sql        (V2)
+  ├ <date>_deroule_v4_callsheets.sql          (V4)
+  └ <date>_deroule_v5_documents.sql           (V5)
 
 src/
-  ├ lib/conduite.js                            (fetch + CRUD + helpers)
-  ├ lib/conduite.test.js                       (tests helpers purs)
-  ├ lib/conduiteShare.js                       (V2)
+  ├ lib/deroule.js                            (fetch + CRUD + helpers)
+  ├ lib/deroule.test.js                       (tests helpers purs)
+  ├ lib/derouleShare.js                       (V2)
   ├ lib/callsheetExport.js                     (V4 — PDF jsPDF)
-  ├ hooks/useConduite.js                       (V1)
-  ├ hooks/useConduiteShareSession.js           (V2)
-  ├ pages/tabs/ConduiteTab.jsx                 (V1 entry point)
-  ├ pages/ConduiteShareSession.jsx             (V2 — /share/conduite/:token)
-  ├ pages/ProjectShareConduiteSession.jsx      (V2 — sous-page portail)
-  └ features/conduite/
+  ├ hooks/useDeroule.js                       (V1)
+  ├ hooks/useDerouleShareSession.js           (V2)
+  ├ pages/tabs/DerouleTab.jsx                 (V1 entry point)
+  ├ pages/DerouleShareSession.jsx             (V2 — /share/deroule/:token)
+  ├ pages/ProjectShareDerouleSession.jsx      (V2 — sous-page portail)
+  └ features/deroule/
       ├ TimelineView.jsx                       (vue principale desktop)
       ├ ListView.jsx                           (vue compacte / mobile)
       ├ CreneauInspector.jsx                   (side-panel édition)
@@ -292,7 +287,7 @@ src/
       ├ LaneHeader.jsx                         (header lane éditable)
       ├ NowLine.jsx                            (indicateur heure courante)
       ├ ImportPresencesModal.jsx               (V1 import depuis techlist)
-      ├ ConduiteShareModal.jsx                 (V2 gestion liens)
+      ├ DerouleShareModal.jsx                 (V2 gestion liens)
       ├ CallsheetExportModal.jsx               (V4 export PDF)
       └ components/
           ├ CreneauBlock.jsx                   (rectangle bloc cliquable)
@@ -303,13 +298,13 @@ src/
 
 Routes à ajouter dans `src/router.jsx` :
 ```
-/projets/:id/conduite              (V1)
-/share/conduite/:token             (V2)
-/share/projet/:token/conduite      (V2 — sous-page)
+/projets/:id/deroule              (V1)
+/share/deroule/:token             (V2)
+/share/projet/:token/deroule      (V2 — sous-page)
 /callsheet/:token                  (V4)
 ```
 
-ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
+ProjectSideNav : ajouter l'entrée "Déroulé" (ou "Déroulé") entre
 Équipe et Matériel.
 
 ## Permissions
@@ -326,7 +321,7 @@ ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
 
 ## Questions ouvertes (à trancher avant V1)
 
-1. **Nom final** : "Conduite" / "Déroulé" / "Rundown" ?
+1. **Nom final** : "Déroulé" / "Déroulé" / "Rundown" ?
    (Reco Claude : "Déroulé", accessible tous métiers.)
 
 2. **Lane "Global" toujours présente** ? Reco oui (lane 0 non
@@ -338,7 +333,7 @@ ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
    du contraire.
 
 4. **Granularité par projet ou par jour** ? Reco : par jour
-   (`granularite_min` sur `projet_conduites`). Permet à un live précis
+   (`granularite_min` sur `projet_deroules`). Permet à un live précis
    d'utiliser 5min, et à un tournage fiction d'utiliser 30min sans
    imposer un standard.
 
@@ -349,7 +344,7 @@ ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
 
 6. **Nuit après minuit** : un créneau peut-il aller de 23h à 02h ? V1
    on bloque à un jour max. V2 : split auto en 2 créneaux liés
-   (23-24h sur conduite J et 00-02h sur conduite J+1).
+   (23-24h sur déroulé J et 00-02h sur déroulé J+1).
 
 7. **Mode régie live** dès V1 ou V3 ? Reco V3 — V1 se concentre sur
    la création/édition, pas l'opérationnel direct.
@@ -359,7 +354,7 @@ ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
    (préférences, désinscription, fenêtres horaires).
 
 9. **Templates inter-projets** : V5 ou avant ? Reco V5 — on observe
-   d'abord 2-3 conduites créées en V1 pour comprendre les vrais
+   d'abord 2-3 déroulés créés en V1 pour comprendre les vrais
    patterns à templater.
 
 10. **Documents attachés par créneau** : V5 ou besoin observé en V1 ?
@@ -371,17 +366,17 @@ ProjectSideNav : ajouter l'entrée "Conduite" (ou "Déroulé") entre
 - Synchronisation calendrier externe (export iCal du jour pour les
   membres qui veulent l'avoir dans leur calendrier perso, comme
   PL-8 v1 a fait pour le Planning)
-- Mode "rehearsal" : générer une conduite "à blanc" pour répétition
+- Mode "rehearsal" : générer une déroulé "à blanc" pour répétition
   (ex: filage live à 14h pour le live à 20h) avec heures décalées
 - Métriques post-tournage : durée réelle vs prévue, blocs retardés,
-  pour analyser et améliorer les futures conduites
-- Intégration AI : "Génère-moi une conduite type pour un live broadcast
+  pour analyser et améliorer les futurs déroulés
+- Intégration AI : "Génère-moi une déroulé type pour un live broadcast
   3 caméras 2h" en partant des templates org
 
 ## Notes méta
 
-- Préfixe migrations : `<date>_conduite_v<N>_<scope>.sql`
-- Préfixe commits : `conduite-v<N>` (cohérent avec `livrables-v1`,
+- Préfixe migrations : `<date>_deroule_v<N>_<scope>.sql`
+- Préfixe commits : `deroule-v<N>` (cohérent avec `livrables-v1`,
   `materiel-v1`, etc.)
 - À chaque vague livrée, mettre à jour ce doc avec la date de
   bouclage et les commits clés.

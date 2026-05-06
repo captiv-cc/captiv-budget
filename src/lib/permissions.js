@@ -54,6 +54,9 @@ export const OUTILS = {
   // Voir supabase/migrations/20260420_budget_perm_catalogue.sql.
   DEVIS: 'devis',
   BUDGET: 'budget',
+  // DÉROULÉ V1 (2026-05-08) — Tab planning tournage par journée (rundown).
+  // Cf. CHANTIER_DEROULE.md + 20260508_deroule_v1_schema.sql.
+  DEROULE: 'deroule',
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────

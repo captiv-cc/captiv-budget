@@ -19,7 +19,16 @@
 
 ## 🚧 En cours
 
-_(rien pour l'instant — chantier Équipe Sessions Phase A bouclé le 2026-05-08)_
+### Déroulé V1 — Phase A Foundation
+**Démarré le** : 2026-05-08
+
+Tab "Déroulé" (planning tournage par journée, rundown). Décision nom :
+"Déroulé" validée, code SQL/JS utilise `deroule`. Phase A foundation
+en cours : migration SQL + lib + tests + hook + permissions. Vagues B
+(UI core), C (édition fluide drag/resize), D (polish + import présences)
+suivent — V1 livrable estimée en ~4-5j total.
+
+Roadmap complète : [`CHANTIER_DEROULE.md`](./CHANTIER_DEROULE.md).
 
 ---
 
@@ -34,7 +43,7 @@ qui fait quoi, à quelle heure, sur quelle équipe, à quel endroit. Multi-lane
 import des présences techlist en 1 clic, partage public via lien, futur
 agrégateur des call sheets.
 
-Roadmap complète : [`CHANTIER_CONDUITE.md`](./CHANTIER_CONDUITE.md) :
+Roadmap complète : [`CHANTIER_DEROULE.md`](./CHANTIER_DEROULE.md) :
 - **V1 (~4-5j)** — édition fluide : timeline desktop + liste mobile,
   multi-lane, drag/resize, snap 15min/5min, import présences,
   now line, overlap warnings
