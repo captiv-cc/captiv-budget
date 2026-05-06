@@ -30,6 +30,9 @@ import {
   effectiveSecteur,
   DEFAULT_CATEGORIES,
   PERSONA_LEVEL_FIELDS,
+  SESSION_LEVEL_FIELDS,
+  PARTICIPATION_LEVEL_FIELDS,
+  flattenParticipation,
 } from './crew.js'
 
 describe('personaKey', () => {
@@ -442,5 +445,163 @@ describe('effectiveSecteur', () => {
 
   it('null si rien', () => {
     expect(effectiveSecteur({ secteur: null, contact: null })).toBe(null)
+  })
+})
+
+// ─── Phase A — Sessions partagées (split SESSION × PARTICIPATION) ──────────
+
+describe('SESSION_LEVEL_FIELDS / PARTICIPATION_LEVEL_FIELDS', () => {
+  it('inclut tous les champs partagés au niveau session globale', () => {
+    expect(SESSION_LEVEL_FIELDS).toEqual(
+      expect.arrayContaining([
+        'label',
+        'lieu_principal_text',
+        'lieu_principal_id',
+        'couleur',
+        'sort_order',
+        'start_date',
+        'end_date',
+      ]),
+    )
+  })
+
+  it('inclut tous les champs propres au membre côté participation', () => {
+    expect(PARTICIPATION_LEVEL_FIELDS).toEqual(
+      expect.arrayContaining([
+        'presence_days',
+        'arrival_date',
+        'arrival_time',
+        'departure_date',
+        'departure_time',
+        'statut',
+        'notes',
+      ]),
+    )
+  })
+
+  it('aucun champ ne doit être à la fois SESSION et PARTICIPATION', () => {
+    // Garde-fou : un champ qui serait dans les deux listes serait
+    // ambigu pour le splitter de updateSession (et pour la propagation
+    // optimistic dans useCrew). Audit 2026-05-06 : pas de chevauchement.
+    const overlap = SESSION_LEVEL_FIELDS.filter((f) =>
+      PARTICIPATION_LEVEL_FIELDS.includes(f),
+    )
+    expect(overlap).toEqual([])
+  })
+
+  it('SESSION_LEVEL_FIELDS contient start_date et end_date (régression audit)', () => {
+    // Avant audit 2026-05-06, useCrew.js avait sa propre liste
+    // SESSION_LEVEL_KEYS qui omettait start_date/end_date → drift entre
+    // la propagation locale et le split DB. Cette assertion fixe cet
+    // accord pour qu'un futur split re-fasse pas le bug.
+    expect(SESSION_LEVEL_FIELDS).toContain('start_date')
+    expect(SESSION_LEVEL_FIELDS).toContain('end_date')
+  })
+})
+
+describe('flattenParticipation', () => {
+  // Shape réel reçu de Supabase via fetchProjectSessions (avec inner join).
+  const sample = {
+    id: 'p1',
+    membre_id: 'm1',
+    session_id: 'gs1',
+    presence_days: ['2026-05-12', '2026-05-13'],
+    arrival_date: '2026-05-12',
+    arrival_time: '14:30',
+    departure_date: '2026-05-14',
+    departure_time: '08:00',
+    statut: 'confirme',
+    notes: 'transit perso',
+    created_at: '2026-05-01T10:00:00Z',
+    updated_at: '2026-05-01T10:00:00Z',
+    session: {
+      id: 'gs1',
+      project_id: 'pr1',
+      sort_order: 2,
+      label: 'Tournage Mtp',
+      lieu_principal_text: 'Montpellier',
+      lieu_principal_id: null,
+      couleur: '378ADD',
+      start_date: '2026-05-11',
+      end_date: '2026-05-15',
+      statut: 'planifie',
+      notes: 'Briefing 13h',
+    },
+  }
+
+  it('expose un shape unifié avec id = participation.id (pas session.id)', () => {
+    const out = flattenParticipation(sample)
+    // Critique : si l'UI confond les deux, l'update toucherait la session
+    // globale entière au lieu d'une seule participation (cf. updateSession
+    // qui split via SESSION_LEVEL_FIELDS / PARTICIPATION_LEVEL_FIELDS).
+    expect(out.id).toBe('p1')
+    expect(out.session_id).toBe('gs1')
+  })
+
+  it('aplatit les SESSION-LEVEL fields depuis session.*', () => {
+    const out = flattenParticipation(sample)
+    expect(out.label).toBe('Tournage Mtp')
+    expect(out.lieu_principal_text).toBe('Montpellier')
+    expect(out.couleur).toBe('378ADD')
+    expect(out.sort_order).toBe(2)
+    expect(out.start_date).toBe('2026-05-11')
+    expect(out.end_date).toBe('2026-05-15')
+  })
+
+  it('garde les PARTICIPATION-LEVEL fields depuis le row de jointure', () => {
+    const out = flattenParticipation(sample)
+    expect(out.presence_days).toEqual(['2026-05-12', '2026-05-13'])
+    expect(out.arrival_date).toBe('2026-05-12')
+    expect(out.arrival_time).toBe('14:30')
+    expect(out.departure_date).toBe('2026-05-14')
+    expect(out.departure_time).toBe('08:00')
+    expect(out.statut).toBe('confirme')
+    expect(out.notes).toBe('transit perso')
+  })
+
+  it('défaults raisonnables sur entrées partielles', () => {
+    const out = flattenParticipation({ id: 'p2', membre_id: 'm2', session: {} })
+    expect(out.id).toBe('p2')
+    expect(out.session_id).toBeNull()
+    expect(out.label).toBeNull()
+    expect(out.couleur).toBeNull()
+    expect(out.sort_order).toBe(1)
+    expect(out.presence_days).toEqual([])
+    expect(out.statut).toBe('planifie')
+    expect(out.start_date).toBeNull()
+    expect(out.end_date).toBeNull()
+  })
+
+  it('null si entrée null', () => {
+    expect(flattenParticipation(null)).toBeNull()
+    expect(flattenParticipation(undefined)).toBeNull()
+  })
+
+  it('présence non-array → array vide (défense XSS/typing)', () => {
+    const out = flattenParticipation({
+      id: 'p3',
+      session: {},
+      presence_days: 'not-an-array',
+    })
+    expect(out.presence_days).toEqual([])
+  })
+
+  it('sort_order par défaut = 1 si null/undefined côté session', () => {
+    const out = flattenParticipation({
+      id: 'p4',
+      session: { sort_order: null },
+    })
+    expect(out.sort_order).toBe(1)
+  })
+
+  it('sort_order = 0 préservé (pas écrasé par le ?? 1)', () => {
+    // ?? n'écrase pas 0 — important parce que le trigger DB peut
+    // assigner 0 transitoirement (avant que le BEFORE INSERT trigger
+    // ne calcule MAX+1). Cosmétique mais évite des surprises.
+    const out = flattenParticipation({
+      id: 'p5',
+      session: { sort_order: 0 },
+    })
+    expect(out.sort_order).toBe(0)
   })
 })

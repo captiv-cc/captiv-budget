@@ -42,6 +42,13 @@ import {
   fullNameFromPersona,
   effectiveSecteur,
 } from '../../lib/crew'
+import {
+  effectiveCouleur,
+  getActiveSessionForDay,
+  groupSessionsByMembre,
+  paletteAt,
+  firstDateOfSession,
+} from '../../lib/sessions'
 import { pickOrgLogo } from '../../lib/branding'
 import { loadImageAsJpeg, computeLogoBox } from '../../lib/pdfImageLoader'
 
@@ -101,6 +108,10 @@ export async function buildTechlistPdf(payload, options = {}) {
     // Crew list). Si fourni, on respecte cet ordre dans les sections du PDF ;
     // sinon fallback DEFAULT_CATEGORIES.
     categoryOrder = [],
+    // Sessions Phase A — array shape unifié (= ce que retourne useCrew /
+    // share_equipe_fetch). Sert au coloring des cellules X par session +
+    // à la légende sessions au-dessus du tableau. Vide → fallback vert.
+    sessions = [],
   } = payload || {}
   const generatedAt = options.generatedAt || new Date().toISOString()
 
@@ -173,10 +184,18 @@ export async function buildTechlistPdf(payload, options = {}) {
   // ─── 3. Stats compactes (uniquement le nb de personnes) ────────────────
   y = drawStats(doc, rows, y + 2)
 
+  // ─── 3b. Légende sessions (Phase A) ────────────────────────────────────
+  // Affichée si le projet a 2+ sessions distinctes.
+  const sessionsByMembre = groupSessionsByMembre(sessions)
+  const sessionsLegendItems = buildSessionsLegendItems(sessions)
+  if (sessionsLegendItems.length >= 2) {
+    y = drawSessionsLegend(doc, sessionsLegendItems, y + 2)
+  }
+
   // ─── 4. Tableau ────────────────────────────────────────────────────────
   drawTable(
     doc,
-    { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder },
+    { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder, sessionsByMembre },
     y + 3,
   )
 
@@ -373,7 +392,7 @@ function resolveColumns({ showLotCol, showAlimCol, presenceDays }) {
   return cols
 }
 
-function drawTable(doc, { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder = [] }, y) {
+function drawTable(doc, { rows, cols, showSensitive, presenceDays, transitSet, brandColor, brandTextColor, categoryOrder = [], sessionsByMembre = null }, y) {
   // EQUIPE-P4-CATEGORIES : on respecte l'ordre custom posé côté Crew list
   // (drag & drop des headers de catégories, persisté en localStorage côté
   // admin et dans projects.metadata.equipe.category_order côté share).
@@ -465,6 +484,13 @@ function drawTable(doc, { rows, cols, showSensitive, presenceDays, transitSet, b
         zebra: i % 2 === 1,
         rowH,
         posteLines,
+        // Sessions du membre courant (Phase A) — utilisées par
+        // drawPresenceCells pour coloriser les cellules X selon la
+        // session active du jour. Vide si pas de sessions.
+        // /!\ row.id = principal projet_membres.id (= session.membre_id),
+        //     PAS row.persona.id — ce dernier n'existe pas, persona étant
+        //     un agrégat persona-level sans id propre. Bug fix 2026-05-07.
+        memberSessions: sessionsByMembre?.get?.(sectionRows[i]?.id) || [],
       }, y)
       y += rowH
     }
@@ -592,7 +618,7 @@ function drawSectionHeader(doc, label, count, isATrier, brandColor, brandTextCol
   return y + SECTION_H
 }
 
-function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH, posteLines }, y) {
+function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH, posteLines, memberSessions = [] }, y) {
   // Zebra (background couvrant toute la row, hauteur dynamique)
   if (zebra) {
     doc.setFillColor(...C.bgZebra)
@@ -661,7 +687,7 @@ function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH
         break
       }
       case 'presence': {
-        drawPresenceCells(doc, c, persona, presenceDays, y, rowH)
+        drawPresenceCells(doc, c, persona, presenceDays, y, rowH, memberSessions)
         break
       }
       case 'lot': {
@@ -697,13 +723,17 @@ function drawTableRow(doc, row, cols, { showSensitive, presenceDays, zebra, rowH
   }
 }
 
-function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
+function drawPresenceCells(doc, col, persona, allDays, y, rowH, memberSessions = []) {
   const nbDays = allDays.length
   if (nbDays === 0) return
   const cellW = col.w / nbDays
   const personaSet = new Set(persona?.presence_days || [])
   const arrivalIso = persona?.arrival_date || null
   const departureIso = persona?.departure_date || null
+  // Sessions Phase A — coloring : si le membre a au moins 1 session, on
+  // utilise la couleur de la session active du jour (effectiveCouleur).
+  // Sinon fallback C.presenceBg / C.presenceFg classique (vert).
+  const hasSessions = Array.isArray(memberSessions) && memberSessions.length >= 1
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   // Vertical center du X dans la row
@@ -718,9 +748,26 @@ function drawPresenceCells(doc, col, persona, allDays, y, rowH) {
     const present = personaSet.has(iso)
     const cx = col.x + i * cellW
     if (present) {
-      doc.setFillColor(...C.presenceBg)
-      doc.rect(cx + 0.3, y + 1.2, cellW - 0.6, rowH - 2.4, 'F')
-      doc.setTextColor(...C.presenceFg)
+      const activeSession = hasSessions
+        ? getActiveSessionForDay(memberSessions, iso)
+        : null
+      const colorHex = activeSession ? effectiveCouleur(activeSession) : null
+      if (colorHex) {
+        // Background : couleur session avec alpha (mix sur blanc à
+        // ~22%) ; foreground : couleur session pleine pour le X.
+        const [r, g, b] = hexToRgb(colorHex)
+        // Mix avec blanc (255) — ~22% session, 78% blanc
+        const bgR = Math.round(0.22 * r + 0.78 * 255)
+        const bgG = Math.round(0.22 * g + 0.78 * 255)
+        const bgB = Math.round(0.22 * b + 0.78 * 255)
+        doc.setFillColor(bgR, bgG, bgB)
+        doc.rect(cx + 0.3, y + 1.2, cellW - 0.6, rowH - 2.4, 'F')
+        doc.setTextColor(r, g, b)
+      } else {
+        doc.setFillColor(...C.presenceBg)
+        doc.rect(cx + 0.3, y + 1.2, cellW - 0.6, rowH - 2.4, 'F')
+        doc.setTextColor(...C.presenceFg)
+      }
       const x = 'X'
       doc.text(x, cx + cellW / 2 - doc.getTextWidth(x) / 2, baseLineY)
     }
@@ -832,6 +879,113 @@ function ensureSpace(doc, y, requiredHeight, onNewPage) {
 function withAlpha(rgb, alpha) {
   const a = Math.max(0, Math.min(1, alpha))
   return rgb.map((c) => Math.round(c * a + 255 * (1 - a)))
+}
+
+// Hex (sans # ou avec) → [r, g, b] entiers 0-255. Utilisé pour le coloring
+// des cellules X par session (Phase A) — la couleur de session est en hex,
+// jsPDF veut du tuple RGB.
+function hexToRgb(hex) {
+  const clean = (hex || '').replace('#', '')
+  if (clean.length === 3) {
+    return [
+      parseInt(clean[0] + clean[0], 16),
+      parseInt(clean[1] + clean[1], 16),
+      parseInt(clean[2] + clean[2], 16),
+    ]
+  }
+  if (clean.length === 6) {
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16),
+    ]
+  }
+  return [0, 0, 0]
+}
+
+// Construit la liste des items de légende (1 par session globale du
+// projet) à partir des sessions Phase A. Trié chronologique, label
+// commun affiché s'il existe, sinon fallback "Session N".
+function buildSessionsLegendItems(sessions) {
+  if (!Array.isArray(sessions) || sessions.length === 0) return []
+  const byOrder = new Map()
+  for (const s of sessions) {
+    const order = Number(s?.sort_order) || 1
+    if (!byOrder.has(order)) {
+      byOrder.set(order, { labels: new Set(), lieux: new Set(), minDate: null })
+    }
+    const entry = byOrder.get(order)
+    const trimLabel = (s?.label || '').trim()
+    if (trimLabel) entry.labels.add(trimLabel)
+    const trimLieu = (s?.lieu_principal_text || '').trim()
+    if (trimLieu) entry.lieux.add(trimLieu)
+    const date = firstDateOfSession(s)
+    if (date && (!entry.minDate || date < entry.minDate)) {
+      entry.minDate = date
+    }
+  }
+  const items = []
+  for (const [order, entry] of byOrder) {
+    const labels = [...entry.labels]
+    const lieux = [...entry.lieux]
+    items.push({
+      sortOrder: order,
+      color: paletteAt(order),
+      label: labels.length === 1 ? labels[0] : null,
+      lieu: lieux.length === 1 ? lieux[0] : null,
+      minDate: entry.minDate || null,
+    })
+  }
+  items.sort((a, b) => {
+    if (!a.minDate && !b.minDate) return a.sortOrder - b.sortOrder
+    if (!a.minDate) return 1
+    if (!b.minDate) return -1
+    return a.minDate.localeCompare(b.minDate)
+  })
+  return items
+}
+
+// Dessine la légende sessions en haut du tableau. Format compact :
+// "Sessions  ● Tournage (Mtp)   ● Install (Zénith)  ..." sur 1 ligne
+// (wrap auto si trop large pour la page).
+function drawSessionsLegend(doc, items, y) {
+  if (!items || !items.length) return y
+  const startX = MARGIN_X
+  const maxX = MARGIN_X + CONTENT_W
+  let cursorX = startX
+  let cursorY = y + 4
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...C.textMuted)
+  doc.text('SESSIONS', cursorX, cursorY)
+  cursorX += doc.getTextWidth('SESSIONS') + 4
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  for (const it of items) {
+    const display = it.label
+      ? it.lieu
+        ? `${it.label} (${it.lieu})`
+        : it.label
+      : `Session ${it.sortOrder}`
+    const dotW = 2
+    const textW = doc.getTextWidth(display)
+    const itemW = dotW + 1.5 + textW + 4
+    // Wrap si débordement
+    if (cursorX + itemW > maxX) {
+      cursorY += 4
+      cursorX = startX + doc.getTextWidth('SESSIONS') + 4
+    }
+    // Pastille couleur
+    const [r, g, b] = hexToRgb(it.color)
+    doc.setFillColor(r, g, b)
+    doc.circle(cursorX + dotW / 2, cursorY - 1.2, dotW / 2, 'F')
+    cursorX += dotW + 1.5
+    // Label
+    doc.setTextColor(...C.text)
+    doc.text(display, cursorX, cursorY)
+    cursorX += textW + 4
+  }
+  return cursorY + 1
 }
 
 // Détermine si une couleur RGB est "claire" pour choisir un texte noir/blanc

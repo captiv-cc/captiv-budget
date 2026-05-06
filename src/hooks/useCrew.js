@@ -45,6 +45,7 @@ import {
   listCategories,
   personaKey,
   PERSONA_LEVEL_FIELDS,
+  SESSION_LEVEL_FIELDS,
 } from '../lib/crew'
 import { aggregateSessionsToMembre, groupSessionsByMembre } from '../lib/sessions'
 
@@ -68,6 +69,14 @@ export function useCrew(projectId) {
   // state est déjà à jour grâce à l'optimistic update).
   const aliveRef = useRef(true)
   const lastLocalActivityRef = useRef(0)
+  // Audit 2026-05-06 — sessionsRef synchronisée avec setSessions pour
+  // éviter les closures stale dans les callbacks (cf. updateMemberSession,
+  // joinExistingSession, removeSession, addSession). Sans cette ref, deux
+  // mutations rapides (toggle 2 jours dans la même fenêtre de debounce)
+  // pouvaient agréger des dates incohérentes parce que le 2e callback
+  // utilisait le `sessions` capturé au render précédent. La ref est mise
+  // à jour à chaque setSessions via un wrapper.
+  const sessionsRef = useRef([])
   useEffect(() => {
     aliveRef.current = true
     return () => {
@@ -173,6 +182,12 @@ export function useCrew(projectId) {
           event: '*',
           schema: 'public',
           table: 'projet_session_membres',
+          // Audit fix 2026-05-06 : project_id est désormais dénormalisé
+          // sur projet_session_membres (cf. migration 20260506) → on peut
+          // filtrer côté serveur. Avant ce fix, le channel recevait les
+          // events de TOUS les projets, ce qui spammait debouncedReload
+          // et réveille des reload inutiles sur projets cousins.
+          filter: `project_id=eq.${projectId}`,
         },
         debouncedReload,
       )
@@ -201,6 +216,13 @@ export function useCrew(projectId) {
   // qui rendent une row (chips colorées, grille présence colorée…).
   // Map<membre_id, sessions[]>. Trie par sort_order assuré par le helper.
   const sessionsByMembre = useMemo(() => groupSessionsByMembre(sessions), [sessions])
+
+  // Sync sessionsRef avec sessions (cf. déclaration plus haut). Hooké
+  // après le setSessions pour que les callbacks lisent toujours la version
+  // la plus récente plutôt que la version capturée dans la closure.
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
 
   // ─── Mutations projet_membres (optimistic) ────────────────────────────────
 
@@ -464,15 +486,14 @@ export function useCrew(projectId) {
   const addSession = useCallback(async (principalMembreId, payload = {}) => {
     if (!principalMembreId) throw new Error('addSession: principalMembreId manquant')
     markLocal()
-    const existing = sessions.filter((s) => s.membre_id === principalMembreId)
-    const nextSortOrder = existing.length
-      ? Math.max(...existing.map((s) => Number(s.sort_order) || 0)) + 1
-      : 1
+    // sessionsRef au lieu du closure `sessions` : si l'admin enchaîne
+    // 2 ajouts rapides, le 2e callback voit déjà le 1er ajouté.
+    const existing = sessionsRef.current.filter((s) => s.membre_id === principalMembreId)
     try {
-      const created = await createSession(principalMembreId, {
-        ...payload,
-        sort_order: payload.sort_order ?? nextSortOrder,
-      })
+      // sort_order est désormais calculé côté serveur par createSession
+      // (avec retry sur conflit 23505). Le payload.sort_order n'est plus
+      // utilisé — on le retire pour éviter le faux-sentiment qu'il est honoré.
+      const created = await createSession(principalMembreId, payload)
       setSessions((prev) => [...prev, created])
       const updated = [...existing, created]
       const personaIds = getPersonaIds(principalMembreId)
@@ -484,7 +505,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+  }, [reload, markLocal, getPersonaIds, applyAggregateToMembersState])
 
   /**
    * Phase A/3 — fait rejoindre un membre à une session existante du
@@ -503,7 +524,10 @@ export function useCrew(projectId) {
       const created = await joinSession(principalMembreId, sessionId, payload)
       setSessions((prev) => [...prev, created])
       const personaIds = getPersonaIds(principalMembreId)
-      const principalSessions = sessions.filter((s) => s.membre_id === principalMembreId)
+      // sessionsRef pour éviter la closure stale (cf. addSession).
+      const principalSessions = sessionsRef.current.filter(
+        (s) => s.membre_id === principalMembreId,
+      )
       const updated = [...principalSessions, created]
       applyAggregateToMembersState(personaIds, updated)
       await syncMembreFromSessions(personaIds, updated)
@@ -513,7 +537,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+  }, [reload, markLocal, getPersonaIds, applyAggregateToMembersState])
 
   /**
    * Update une session (label, dates, lieu, couleur, statut, notes…).
@@ -527,25 +551,22 @@ export function useCrew(projectId) {
    * dans lib/crew.js, côté state local on doit le propager pour
    * éviter d'attendre le Realtime ~2s).
    */
-  const updateMemberSession = useCallback(async (sessionId, fields) => {
-    if (!sessionId) throw new Error('updateMemberSession: sessionId manquant')
-    const target = sessions.find((s) => s.id === sessionId)
+  // NB sur le naming : `participationId` reflète la sémantique réelle
+  // (= projet_session_membres.id, l'`id` du shape unifié). L'ancien nom
+  // `sessionId` était trompeur — c'est jamais l'id de la session globale.
+  const updateMemberSession = useCallback(async (participationId, fields) => {
+    if (!participationId) throw new Error('updateMemberSession: participationId manquant')
+    const target = sessionsRef.current.find((s) => s.id === participationId)
     if (!target) {
-      console.warn('[useCrew] updateMemberSession: session introuvable', sessionId)
+      console.warn('[useCrew] updateMemberSession: participation introuvable', participationId)
       return null
     }
     markLocal()
-    // Détermine quels SESSION-LEVEL fields sont touchés. Doit rester
-    // aligné avec la liste SESSION_LEVEL_FIELDS dans lib/crew.js.
-    const SESSION_LEVEL_KEYS = [
-      'label',
-      'lieu_principal_text',
-      'lieu_principal_id',
-      'couleur',
-      'sort_order',
-    ]
+    // Détermine quels SESSION-LEVEL fields sont touchés. Source unique :
+    // SESSION_LEVEL_FIELDS importé depuis lib/crew.js — empêche le drift
+    // crew.js (split DB) ↔ useCrew.js (propagation locale optimistic).
     const sessionLevelOverrides = {}
-    for (const k of SESSION_LEVEL_KEYS) {
+    for (const k of SESSION_LEVEL_FIELDS) {
       if (k in fields) sessionLevelOverrides[k] = fields[k]
     }
     const hasSessionLevel = Object.keys(sessionLevelOverrides).length > 0
@@ -556,7 +577,7 @@ export function useCrew(projectId) {
     // la participation cible.
     setSessions((prev) =>
       prev.map((s) => {
-        if (s.id === sessionId) return { ...s, ...fields }
+        if (s.id === participationId) return { ...s, ...fields }
         if (
           hasSessionLevel &&
           sharedSessionId &&
@@ -568,10 +589,10 @@ export function useCrew(projectId) {
       }),
     )
     try {
-      const updated = await updateSession(sessionId, fields)
+      const updated = await updateSession(participationId, fields)
       setSessions((prev) =>
         prev.map((s) => {
-          if (s.id === sessionId) return updated
+          if (s.id === participationId) return updated
           // Re-applique sessionLevelOverrides aux autres participations
           // (le serveur a confirmé la valeur, on push la mise à jour
           // confirmée).
@@ -593,12 +614,11 @@ export function useCrew(projectId) {
       if (dateFieldsTouched) {
         const principalId = updated.membre_id
         const personaIds = getPersonaIds(principalId)
-        const principalSessions = sessions
+        // sessionsRef pour la version la plus fraîche (cf. note plus haut).
+        const principalSessions = sessionsRef.current
           .filter((s) => s.membre_id === principalId)
-          .map((s) => (s.id === sessionId ? updated : s))
-        // Si la session n'était pas encore dans le filtre (cas race), on
-        // l'ajoute défensivement.
-        if (!principalSessions.some((s) => s.id === sessionId)) {
+          .map((s) => (s.id === participationId ? updated : s))
+        if (!principalSessions.some((s) => s.id === participationId)) {
           principalSessions.push(updated)
         }
         applyAggregateToMembersState(personaIds, principalSessions)
@@ -610,28 +630,33 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+  }, [reload, markLocal, getPersonaIds, applyAggregateToMembersState])
 
   /**
-   * Supprime une session. Refuse de supprimer la dernière session du
-   * membre — un membre doit toujours en avoir au moins 1 (sinon il
-   * disparaît de la grille présence et de l'app de manière incohérente).
+   * Supprime une session. Phase A : un membre peut désormais avoir 0
+   * sessions sans casser quoi que ce soit (l'UI gère naturellement
+   * l'état "aucune date saisie", cf. crew list qui affiche
+   * "Cliquer pour configurer la présence" + drawer qui affiche
+   * "+ Ajouter une session" en mode vide).
+   *
+   * L'ancienne garde "au moins 1 session par membre" était un héritage
+   * du modèle Phase 0a et a été levée le 2026-05-07 — un membre sans
+   * session = membre sans présence saisie, état parfaitement valide.
    */
-  const removeSession = useCallback(async (sessionId) => {
-    if (!sessionId) throw new Error('removeSession: sessionId manquant')
-    const target = sessions.find((s) => s.id === sessionId)
+  const removeSession = useCallback(async (participationId) => {
+    if (!participationId) throw new Error('removeSession: participationId manquant')
+    // sessionsRef : reflète l'état le plus frais (cf. note sessionsRef).
+    const currentSessions = sessionsRef.current
+    const target = currentSessions.find((s) => s.id === participationId)
     if (!target) return
     const principalId = target.membre_id
-    const principalSessions = sessions.filter((s) => s.membre_id === principalId)
-    if (principalSessions.length <= 1) {
-      throw new Error('Impossible de supprimer la dernière session — un membre doit en avoir au moins une.')
-    }
+    const principalSessions = currentSessions.filter((s) => s.membre_id === principalId)
     markLocal()
-    const snapshot = sessions
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    const snapshot = currentSessions
+    setSessions((prev) => prev.filter((s) => s.id !== participationId))
     try {
-      await deleteSession(sessionId)
-      const remaining = principalSessions.filter((s) => s.id !== sessionId)
+      await deleteSession(participationId)
+      const remaining = principalSessions.filter((s) => s.id !== participationId)
       const personaIds = getPersonaIds(principalId)
       applyAggregateToMembersState(personaIds, remaining)
       await syncMembreFromSessions(personaIds, remaining)
@@ -641,7 +666,7 @@ export function useCrew(projectId) {
       await reload()
       throw e
     }
-  }, [sessions, reload, markLocal, getPersonaIds, applyAggregateToMembersState])
+  }, [reload, markLocal, getPersonaIds, applyAggregateToMembersState])
 
   return {
     // data brut

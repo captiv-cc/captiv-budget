@@ -87,6 +87,10 @@ export default function MembreDrawer({
   // sessionsByMembre : Map<membre_id, sessions[]> — depuis useCrew. Le
   // drawer lit les sessions du principalRow uniquement.
   sessionsByMembre = null,
+  // Map<sessionId, count> — utilisé pour transférer l'indicateur
+  // "session partagée à N membres" à la modale Présence ouverte
+  // depuis le drawer (UX cohérente avec le chemin TechListView).
+  sessionParticipantsCount = null,
   onAddSession, // (principalMembreId, payload) => Promise<session>
   onUpdateSession, // (sessionId, fields) => Promise<session>
   onRemoveSession, // (sessionId) => Promise<void>
@@ -496,32 +500,34 @@ export default function MembreDrawer({
       </aside>
 
       {/* ─── Modale calendrier per-session ───────────────────────────────
-          Réutilise PresenceCalendarModal en lui passant la session
-          courante comme `persona` (mêmes champs : presence_days,
-          arrival_date, departure_date). À la sauvegarde, on route vers
-          updateMemberSession plutôt que updatePersona — ce qui touche
-          UNIQUEMENT cette session, et déclenche la sync vers
-          projet_membres derrière. */}
+          Audit fix 2026-05-07 : on passe désormais `sessions` (array
+          contenant la session en cours d'édition) + sessionParticipantsCount
+          + onRemoveSession + onUpdateSessionMeta pour que la modale
+          fournisse exactement la même UX que via TechListView (chip
+          colorée avec badge `👥N` si partagée, bouton × pour retirer,
+          édition inline du label/lieu via SessionMetaEditor).
+          Le `persona` reste en fallback pour la compat de l'API mais le
+          code de la modale activera le mode "session active" car
+          sessions est non vide. */}
       <PresenceCalendarModal
         open={Boolean(editingSession)}
         onClose={() => setEditingSession(null)}
-        personaName={
-          editingSession
-            ? `${fullName} — ${effectiveLabel(editingSession)}`
-            : ''
+        personaName={fullName}
+        sessions={editingSession ? [editingSession] : []}
+        sessionParticipantsCount={sessionParticipantsCount}
+        onUpdateSessionMeta={(sessionId, fields) =>
+          onUpdateSession?.(sessionId, fields)
         }
-        persona={
-          editingSession
-            ? {
-                presence_days: editingSession.presence_days || [],
-                arrival_date: editingSession.arrival_date || '',
-                departure_date: editingSession.departure_date || '',
-              }
-            : null
-        }
-        onSave={async (fields) => {
-          if (!editingSession) return
-          await onUpdateSession?.(editingSession.id, fields)
+        onRemoveSession={async (sessionId) => {
+          await onRemoveSession?.(sessionId)
+          // Après suppression, la modale se ferme automatiquement (plus
+          // de session restante dans le tableau passé). On synchronise
+          // l'état local du drawer pour retirer la session courante.
+          setEditingSession(null)
+        }}
+        onSave={async (fields, sessionId) => {
+          if (!sessionId && !editingSession) return
+          await onUpdateSession?.(sessionId || editingSession.id, fields)
         }}
         periodes={periodes}
         anchorDate={tournageAnchor}
@@ -939,7 +945,12 @@ function SessionsPanel({
             key={s.id}
             session={s}
             canEdit={canEdit}
-            canDelete={!isOnly}
+            // Phase A : la suppression est désormais autorisée même sur
+            // la dernière session (un membre peut être sans présence
+            // saisie — état valide). Avant : canDelete={!isOnly} pour
+            // empêcher la suppression de la mono-session, contrainte
+            // levée le 2026-05-07 côté useCrew + UI ici.
+            canDelete={canEdit}
             isOnly={isOnly}
             lieuByIdMap={lieuByIdMap}
             onUpdateSession={onUpdateSession}

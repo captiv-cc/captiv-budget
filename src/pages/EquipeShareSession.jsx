@@ -23,6 +23,17 @@ import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import { groupTechlistByCategory, computePresenceColumns } from '../lib/crew'
 import PresencePlaneIcons from '../features/equipe/components/PresencePlaneIcons'
+// Sessions Phase A : helpers purs pour calculer la légende et la couleur
+// active par jour, identiques à ceux utilisés dans EquipePreviewModal
+// (= cohérence visuelle entre vue interne et vue partagée).
+import {
+  effectiveCouleur,
+  effectiveLabel,
+  getActiveSessionForDay,
+  groupSessionsByMembre,
+  paletteAt,
+  firstDateOfSession,
+} from '../lib/sessions'
 
 // Palette identique à EquipeTab/PDF pour les badges de lot.
 const LOT_PALETTE = [
@@ -85,6 +96,10 @@ function ShareContent({ payload, theme, setTheme }) {
   // à chaque render → recalcul inutile).
   const lots = useMemo(() => payload.lots || [], [payload.lots])
   const membres = useMemo(() => payload.membres || [], [payload.membres])
+  // Sessions Phase A : flat array depuis la RPC (cf. migration
+  // 20260507_share_equipe_include_sessions). Vide pour les vieux
+  // payloads pré-Phase A — pas de crash, juste pas de coloring sessions.
+  const sessions = useMemo(() => payload.sessions || [], [payload.sessions])
   // EQUIPE-P4-CATEGORIES : ordre custom des catégories tel que défini par
   // l'admin sur la Crew list. La RPC le retourne au top-level du payload
   // (extrait de projects.metadata.equipe.category_order). Tableau vide =
@@ -135,6 +150,50 @@ function ShareContent({ payload, theme, setTheme }) {
     [membres, categoryOrder],
   )
 
+  // Sessions Phase A — agrégats pour le rendu :
+  // - sessionsByMembre : pour le coloring des cellules X par session
+  // - sessionsLegendItems : pour la légende au-dessus du tableau (1 chip
+  //   par session distincte du projet, mêmes règles que EquipePreviewModal).
+  const sessionsByMembre = useMemo(() => groupSessionsByMembre(sessions), [sessions])
+  const sessionsLegendItems = useMemo(() => {
+    if (!sessions.length) return []
+    const byOrder = new Map()
+    for (const s of sessions) {
+      const order = Number(s.sort_order) || 1
+      if (!byOrder.has(order)) {
+        byOrder.set(order, { labels: new Set(), lieux: new Set(), minDate: null })
+      }
+      const entry = byOrder.get(order)
+      const trimLabel = (s.label || '').trim()
+      if (trimLabel) entry.labels.add(trimLabel)
+      const trimLieu = (s.lieu_principal_text || '').trim()
+      if (trimLieu) entry.lieux.add(trimLieu)
+      const date = firstDateOfSession(s)
+      if (date && (!entry.minDate || date < entry.minDate)) {
+        entry.minDate = date
+      }
+    }
+    const items = []
+    for (const [order, entry] of byOrder) {
+      const labels = [...entry.labels]
+      const lieux = [...entry.lieux]
+      items.push({
+        sortOrder: order,
+        color: paletteAt(order),
+        label: labels.length === 1 ? labels[0] : null,
+        lieu: lieux.length === 1 ? lieux[0] : null,
+        minDate: entry.minDate || null,
+      })
+    }
+    items.sort((a, b) => {
+      if (!a.minDate && !b.minDate) return a.sortOrder - b.sortOrder
+      if (!a.minDate) return 1
+      if (!b.minDate) return -1
+      return a.minDate.localeCompare(b.minDate)
+    })
+    return items
+  }, [sessions])
+
   // Stats compactes
   const totalPersonae = useMemo(
     () => new Set(membres.map((m) => m.contact?.id || m.id)).size,
@@ -178,6 +237,16 @@ function ShareContent({ payload, theme, setTheme }) {
           </div>
         )}
 
+        {/* ── Légende sessions (Phase A) ─────────────────────────────────
+            Affichée si le projet a au moins 2 sessions distinctes (sinon
+            la couleur unique n'a rien à expliquer). Reproduit la légende
+            de la modale Vue Seule interne pour cohérence visuelle. */}
+        {sessionsLegendItems.length >= 2 && (
+          <div className="mt-4">
+            <SessionsLegend items={sessionsLegendItems} />
+          </div>
+        )}
+
         {/* ── Stats ──────────────────────────────────────────────────────── */}
         <p
           className="text-sm mt-4 mb-3"
@@ -216,6 +285,7 @@ function ShareContent({ payload, theme, setTheme }) {
                 lotInfoMap={lotInfoMap}
                 devisIdToLotId={devisIdToLotId}
                 brandColor={brandColor}
+                sessionsByMembre={sessionsByMembre}
               />
             </div>
             {/* Tablette + desktop : tableau dense */}
@@ -235,6 +305,7 @@ function ShareContent({ payload, theme, setTheme }) {
                 lotInfoMap={lotInfoMap}
                 devisIdToLotId={devisIdToLotId}
                 brandColor={brandColor}
+                sessionsByMembre={sessionsByMembre}
               />
             </div>
           </>
@@ -292,6 +363,7 @@ function Table({
   lotInfoMap,
   devisIdToLotId,
   brandColor,
+  sessionsByMembre = null,
 }) {
   const nbDays = presenceDays.length
   const isLightBrand = isLightColor(brandColor)
@@ -379,6 +451,7 @@ function Table({
               devisIdToLotId={devisIdToLotId}
               brandColor={brandColor}
               brandTextColor={brandTextColor}
+              sessionsByMembre={sessionsByMembre}
             />
           ))}
         </tbody>
@@ -396,6 +469,7 @@ function Section({
   devisIdToLotId,
   brandColor,
   brandTextColor,
+  sessionsByMembre = null,
 }) {
   const isATrier = section.key === '__a_trier__'
   const totalCols =
@@ -444,6 +518,7 @@ function Section({
           presenceDays={presenceDays}
           lotInfoMap={lotInfoMap}
           devisIdToLotId={devisIdToLotId}
+          memberSessions={sessionsByMembre?.get?.(m.id) || []}
         />
       ))}
     </>
@@ -458,7 +533,12 @@ function Row({
   presenceDays,
   lotInfoMap,
   devisIdToLotId,
+  memberSessions = [],
 }) {
+  // Sessions Phase A — coloring : si le membre a au moins 1 session,
+  // chaque cellule X cochée prend la couleur de la session active du
+  // jour. Sinon (legacy / pas de session), couleur verte par défaut.
+  const hasSessions = memberSessions.length >= 1
   // Poste résolu (cohérent avec l'admin Crew list / AttributionRow) :
   // 1. m.specialite — override local sur l'attribution (rename par l'admin).
   // 2. m.devis_line.produit — poste original de la ligne de devis.
@@ -532,6 +612,24 @@ function Row({
       </td>
       {presenceDays.map((iso) => {
         const present = presenceSet.has(iso)
+        // Session active du jour pour ce membre — détermine la couleur
+        // de la cellule X. Si aucune session ne couvre le jour (ou pas
+        // de sessions du tout), fallback vert classique pour la
+        // compatibilité visuelle.
+        const activeSession = hasSessions
+          ? getActiveSessionForDay(memberSessions, iso)
+          : null
+        const colorHex = activeSession ? effectiveCouleur(activeSession) : null
+        const cellBg = present
+          ? colorHex
+            ? hexToRgba(colorHex, 0.22)
+            : 'rgba(34,197,94,0.18)'
+          : undefined
+        const cellColor = present
+          ? colorHex
+            ? `#${colorHex}`
+            : 'rgb(22,101,52)'
+          : 'var(--txt-3)'
         return (
           <td
             key={iso}
@@ -539,11 +637,20 @@ function Row({
             style={{
               position: 'relative',
               borderLeft: '1px solid var(--brd-sub)',
-              background: present ? 'rgba(34,197,94,0.18)' : undefined,
-              color: present ? 'rgb(22,101,52)' : 'var(--txt-3)',
+              background: cellBg,
+              color: cellColor,
               fontWeight: present ? 700 : 400,
               fontSize: 11,
             }}
+            title={
+              activeSession
+                ? `${effectiveLabel(activeSession)}${
+                    activeSession.lieu_principal_text
+                      ? ' · ' + activeSession.lieu_principal_text
+                      : ''
+                  }`
+                : undefined
+            }
           >
             <PresencePlaneIcons persona={m} iso={iso} />
             {present ? 'X' : ''}
@@ -641,6 +748,7 @@ function CardsList({
   lotInfoMap,
   devisIdToLotId,
   brandColor,
+  sessionsByMembre = null,
 }) {
   const isLightBrand = isLightColor(brandColor)
   const brandTextColor = isLightBrand ? '#0F172A' : '#FFFFFF'
@@ -657,6 +765,7 @@ function CardsList({
           devisIdToLotId={devisIdToLotId}
           brandColor={brandColor}
           brandTextColor={brandTextColor}
+          sessionsByMembre={sessionsByMembre}
         />
       ))}
     </div>
@@ -672,6 +781,7 @@ function CardSection({
   devisIdToLotId,
   brandColor,
   brandTextColor,
+  sessionsByMembre = null,
 }) {
   const isATrier = section.key === '__a_trier__'
   return (
@@ -711,6 +821,7 @@ function CardSection({
             presenceDays={presenceDays}
             lotInfoMap={lotInfoMap}
             devisIdToLotId={devisIdToLotId}
+            memberSessions={sessionsByMembre?.get?.(m.id) || []}
           />
         ))}
       </ul>
@@ -726,7 +837,9 @@ function Card({
   presenceDays,
   lotInfoMap,
   devisIdToLotId,
+  memberSessions = [],
 }) {
+  const hasSessions = memberSessions.length >= 1
   // Poste résolu (cohérent avec l'admin Crew list / AttributionRow) :
   // 1. m.specialite — override local sur l'attribution (rename par l'admin).
   // 2. m.devis_line.produit — poste original de la ligne de devis.
@@ -826,16 +939,39 @@ function Card({
           >
             {presenceDays.map((iso) => {
               const present = presenceSet.has(iso)
+              const activeSession = hasSessions
+                ? getActiveSessionForDay(memberSessions, iso)
+                : null
+              const colorHex = activeSession ? effectiveCouleur(activeSession) : null
+              const cellBg = present
+                ? colorHex
+                  ? hexToRgba(colorHex, 0.16)
+                  : 'rgba(34,197,94,0.10)'
+                : 'transparent'
+              const cellColor = present
+                ? colorHex
+                  ? `#${colorHex}`
+                  : 'rgb(34,150,75)'
+                : 'var(--txt-3)'
               return (
                 <div
                   key={iso}
                   className="flex flex-col items-center py-1 rounded-sm"
                   style={{
                     position: 'relative',
-                    background: present ? 'rgba(34,197,94,0.10)' : 'transparent',
-                    color: present ? 'rgb(34,150,75)' : 'var(--txt-3)',
+                    background: cellBg,
+                    color: cellColor,
                     opacity: present ? 1 : 0.55,
                   }}
+                  title={
+                    activeSession
+                      ? `${effectiveLabel(activeSession)}${
+                          activeSession.lieu_principal_text
+                            ? ' · ' + activeSession.lieu_principal_text
+                            : ''
+                        }`
+                      : undefined
+                  }
                 >
                   <PresencePlaneIcons persona={m} iso={iso} />
                   <span className="text-[9px] leading-none font-semibold">
@@ -932,6 +1068,72 @@ function isLightColor(hex) {
   const g = parseInt(v.slice(2, 4), 16)
   const b = parseInt(v.slice(4, 6), 16)
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160
+}
+
+// Hex (sans #) → "rgba(r,g,b,a)". Utilisé pour les fonds de cellule
+// session-colorées avec un alpha contrôlé (typiquement 0.22 pour rester
+// lisible sur fond clair ET sombre).
+function hexToRgba(hex, alpha = 1) {
+  if (!hex) return `rgba(34,197,94,${alpha})`
+  const clean = hex.replace('#', '')
+  let r = 0, g = 0, b = 0
+  if (clean.length === 3) {
+    r = parseInt(clean[0] + clean[0], 16)
+    g = parseInt(clean[1] + clean[1], 16)
+    b = parseInt(clean[2] + clean[2], 16)
+  } else if (clean.length === 6) {
+    r = parseInt(clean.slice(0, 2), 16)
+    g = parseInt(clean.slice(2, 4), 16)
+    b = parseInt(clean.slice(4, 6), 16)
+  }
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+// Légende sessions (Phase A) — affichée au-dessus du tableau quand le
+// projet a 2+ sessions distinctes. Reproduit visuellement la légende
+// utilisée dans EquipePreviewModal pour cohérence vue interne / partagée.
+function SessionsLegend({ items }) {
+  return (
+    <div
+      className="rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+    >
+      <span
+        className="text-[10px] uppercase tracking-widest font-bold shrink-0"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Sessions
+      </span>
+      {items.map((it) => {
+        const display = it.label
+          ? it.lieu
+            ? `${it.label} (${it.lieu})`
+            : it.label
+          : `Session ${it.sortOrder}`
+        return (
+          <span
+            key={it.sortOrder}
+            className="text-[11px] inline-flex items-center gap-1.5"
+            style={{ color: 'var(--txt-2)' }}
+          >
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ background: `#${it.color}` }}
+            />
+            {display}
+          </span>
+        )
+      })}
+      {/* Hint réservé au desktop : sur mobile pas de hover, le texte
+          serait trompeur. Caché en < sm. */}
+      <span
+        className="hidden sm:inline text-[10px] italic ml-auto"
+        style={{ color: 'var(--txt-3)' }}
+      >
+        Survolez une cellule pour le détail
+      </span>
+    </div>
+  )
 }
 
 // ─── Réutilisation par le portail projet ─────────────────────────────────────

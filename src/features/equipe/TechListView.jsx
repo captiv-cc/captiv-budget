@@ -539,6 +539,23 @@ export default function TechListView({
     [uncategorized, selectedLotId, rowMatchesLot],
   )
 
+  // ─── Sessions Phase A/3 — count participants par session_id ───────
+  // Map<sessionId, nombre de membres distincts> sur tout le projet.
+  // Utilisé par la modale Présence pour afficher l'indicateur "Session
+  // partagée avec N autres membres" sous le sélecteur.
+  const sessionParticipantsCount = useMemo(() => {
+    const out = new Map()
+    if (!Array.isArray(sessions)) return out
+    const buckets = new Map()
+    for (const s of sessions) {
+      if (!s.session_id || !s.membre_id) continue
+      if (!buckets.has(s.session_id)) buckets.set(s.session_id, new Set())
+      buckets.get(s.session_id).add(s.membre_id)
+    }
+    for (const [k, v] of buckets) out.set(k, v.size)
+    return out
+  }, [sessions])
+
   // ─── Sessions Phase A/3 — templates pour ajout rapide ──────────────
   // À partir de toutes les participations du projet, on extrait des
   // "templates" distincts par couple (label, lieu). Chaque template
@@ -664,6 +681,10 @@ export default function TechListView({
         // en italique avec couleur discrète + bagdes A/R violet.
         presenceDays: presenceDaysForPdf,
         transitSet: pdfTransitSet,
+        // Sessions Phase A — passé pour coloriser les cellules X par
+        // session + afficher la légende sessions au-dessus du tableau.
+        // Le PDF reproduit la cohérence visuelle du Vue Seule interne.
+        sessions,
         showSensitive: true, // décision Hugo : coordonnées visibles par défaut
         // EQUIPE-P4-CATEGORIES : ordre custom des sections (drag & drop)
         categoryOrder: allCategories,
@@ -1173,6 +1194,13 @@ export default function TechListView({
         onUpdateSessionMeta={(sessionId, fields) =>
           updateMemberSession(sessionId, fields)
         }
+        // Map<sessionId, count> — sert à l'indicateur "session partagée
+        // avec N autres membres" sous le sélecteur de la modale.
+        sessionParticipantsCount={sessionParticipantsCount}
+        // Phase A — suppression directe d'une session depuis la modale
+        // (évite l'aller-retour via le drawer pour un retrait simple).
+        // Confirm + auto-switch sur la session restante côté modal.
+        onRemoveSession={removeSession}
         onSave={(fields, sessionId) => {
           if (!presenceFor) return undefined
           if (sessionId) {
@@ -1260,6 +1288,7 @@ export default function TechListView({
         // utilisé depuis ici (AttributionRow continue à l'utiliser pour
         // l'édition inline).
         sessionsByMembre={sessionsByMembre}
+        sessionParticipantsCount={sessionParticipantsCount}
         onAddSession={addSession}
         onUpdateSession={updateMemberSession}
         onRemoveSession={removeSession}

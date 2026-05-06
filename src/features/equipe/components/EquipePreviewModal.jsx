@@ -92,25 +92,29 @@ export default function EquipePreviewModal({
     [members],
   )
 
-  // Sessions Phase 0b : pour chaque sort_order utilisé dans le projet,
-  // on agrège les labels & lieux distincts (label commun = label affiché,
-  // sinon "Session N") + la 1ʳᵉ date observée. Le résultat est trié
-  // chronologiquement (= ordre de lecture humain) plutôt que par
-  // sort_order (= ordre de création arbitraire).
+  // Sessions Phase A : pour chaque sort_order RÉELLEMENT utilisé par les
+  // membres multi-sessions du projet, on agrège les labels & lieux
+  // distincts + la 1ʳᵉ date observée. Trié chronologiquement (ordre de
+  // lecture humain) plutôt que par sort_order arbitraire.
   //
-  // La légende n'apparaît que si au moins UN membre a 2+ sessions.
+  // Audit fix 2026-05-07 : avant on bouclait `for (let i = 1; i <= max)`,
+  // ce qui créait des items fantômes "Session N" pour les sort_orders
+  // manquants (= sessions supprimées via le cleanup). Maintenant on
+  // n'itère que sur les entries réellement présentes dans byOrder.
   const sessionsLegendItems = useMemo(() => {
     if (!sessionsByMembre) return []
-    // 1. Recense par sort_order les labels, lieux et la date min observée
-    //    (uniquement chez les membres multi-sessions).
+    // 1. Recense par sort_order les labels, lieux et la date min observée.
+    //    Audit fix 2026-05-07 : on inclut désormais TOUTES les sessions
+    //    du projet (mono ou multi), pour rester cohérent avec le seuil
+    //    1+ session dans AttributionRow (les chips Présence apparaissent
+    //    dès 1 session). Avant : `if (list.length < 2) continue` filtrait
+    //    les membres mono-session, ce qui cachait des sessions comme
+    //    "Transport" portée par un seul membre.
     const byOrder = new Map()
-    let max = 0
     for (const m of members) {
       const list = sessionsByMembre.get?.(m.id) || []
-      if (list.length < 2) continue
       for (const s of list) {
         const order = Number(s.sort_order) || 1
-        if (order > max) max = order
         if (!byOrder.has(order)) {
           byOrder.set(order, { labels: new Set(), lieux: new Set(), minDate: null })
         }
@@ -125,19 +129,18 @@ export default function EquipePreviewModal({
         }
       }
     }
-    if (max < 2) return []
-    // 2. Construit les items, palette par sort_order préservée.
+    // 2. Construit les items uniquement pour les sort_orders RÉELS.
+    //    Évite les "Session N" fantômes pour les slots vides.
     const items = []
-    for (let i = 1; i <= max; i += 1) {
-      const entry = byOrder.get(i)
-      const labels = entry ? [...entry.labels] : []
-      const lieux = entry ? [...entry.lieux] : []
+    for (const [order, entry] of byOrder) {
+      const labels = [...entry.labels]
+      const lieux = [...entry.lieux]
       items.push({
-        sortOrder: i,
-        color: paletteAt(i),
+        sortOrder: order,
+        color: paletteAt(order),
         label: labels.length === 1 ? labels[0] : null,
         lieu: lieux.length === 1 ? lieux[0] : null,
-        minDate: entry?.minDate || null,
+        minDate: entry.minDate || null,
       })
     }
     // 3. Tri chronologique par minDate ; sessions sans date à la fin
@@ -348,8 +351,9 @@ function SessionsLegend({ items }) {
           </span>
         )
       })}
+      {/* Hint réservé au desktop : pas de hover sur mobile, texte trompeur. */}
       <span
-        className="text-[10px] italic ml-auto"
+        className="hidden sm:inline text-[10px] italic ml-auto"
         style={{ color: 'var(--txt-3)' }}
       >
         Survolez une cellule pour le détail
@@ -579,11 +583,11 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap, membe
   const lotId = resolveLotId(m, lineLotMap)
   const lotInfo = lotId ? lotInfoMap[lotId] : null
   const presenceSet = new Set(m.presence_days || [])
-  // Sessions Phase 0b : si le membre a 2+ sessions, on colore chaque
-  // cellule avec la couleur de la session active du jour. Sinon (1 seule
-  // session ou aucune), on garde le vert classique pour rester cohérent
-  // avec la lecture rapide habituelle.
-  const hasMulti = Array.isArray(memberSessions) && memberSessions.length >= 2
+  // Sessions Phase A : dès qu'au moins 1 session existe pour le membre,
+  // on colore les cellules avec la couleur de la session active du jour
+  // + tooltip "Label · Lieu". Avant : seuil 2+ (audit fix 2026-05-07).
+  // Cohérent avec l'AttributionRow qui affiche les chips dès 1 session.
+  const hasMulti = Array.isArray(memberSessions) && memberSessions.length >= 1
 
   return (
     <tr

@@ -120,11 +120,16 @@ export async function fetchProjectMembers(projectId) {
 //     l'id de la session globale (utile pour Phase A/3 — détection
 //     partage / fusion)
 //
-// La table legacy `projet_membres_sessions` n'est PLUS lue ici. Elle reste
-// physiquement en DB jusqu'à la Phase A/3 (sécurité rollback).
+// La table legacy `projet_membres_sessions` a été DROP dans
+// 20260506_drop_legacy_projet_membres_sessions.sql après vérification
+// d'intégrité (toutes les rows source migrées 1:1 via le seed Phase A).
 
-/** Champs édités côté SESSION GLOBALE (= partagés entre tous les participants). */
-const SESSION_LEVEL_FIELDS = [
+/** Champs édités côté SESSION GLOBALE (= partagés entre tous les participants).
+ *  Exporté pour que useCrew.js réutilise EXACTEMENT la même liste lors de la
+ *  propagation optimistic locale (single source of truth). Audit 2026-05-06 :
+ *  une recopie locale dans useCrew.js manquait `start_date`/`end_date`, ce qui
+ *  aurait provoqué un drift dès qu'on aurait branché ces champs côté UI. */
+export const SESSION_LEVEL_FIELDS = [
   'label',
   'lieu_principal_text',
   'lieu_principal_id',
@@ -135,7 +140,7 @@ const SESSION_LEVEL_FIELDS = [
 ]
 
 /** Champs édités côté PARTICIPATION (= propres au membre). */
-const PARTICIPATION_LEVEL_FIELDS = [
+export const PARTICIPATION_LEVEL_FIELDS = [
   'presence_days',
   'arrival_date',
   'arrival_time',
@@ -150,7 +155,7 @@ const PARTICIPATION_LEVEL_FIELDS = [
  * Préserve la compat de l'API existante (les composants ne voient pas la
  * distinction session globale / participation).
  */
-function flattenParticipation(p) {
+export function flattenParticipation(p) {
   if (!p) return null
   const sess = p.session || {}
   return {
@@ -163,6 +168,12 @@ function flattenParticipation(p) {
     lieu_principal_text: sess.lieu_principal_text ?? null,
     lieu_principal_id: sess.lieu_principal_id ?? null,
     couleur: sess.couleur ?? null,
+    // start_date/end_date sont SESSION-LEVEL : exposés en lecture seule pour
+    // que la propagation optimistic locale (cf. useCrew.updateMemberSession)
+    // les voie. L'UI Phase A actuelle ne les édite pas — chaque participant
+    // pose ses dates persos dans arrival_date/departure_date.
+    start_date: sess.start_date ?? null,
+    end_date: sess.end_date ?? null,
     // PARTICIPATION-LEVEL (perso)
     presence_days: Array.isArray(p.presence_days) ? p.presence_days : [],
     arrival_date: p.arrival_date || null,
@@ -233,38 +244,57 @@ export async function createSession(membreId, payload = {}) {
     .single()
   if (e1) throw e1
 
-  // 2. Calculer le prochain sort_order disponible sur ce projet.
-  const { data: maxRow } = await supabase
-    .from('projet_sessions')
-    .select('sort_order')
-    .eq('project_id', member.project_id)
-    .order('sort_order', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  const nextSortOrder = (maxRow?.sort_order || 0) + 1
-
-  // 3. Créer la session globale.
+  // 2. Créer la session globale avec retry sur conflit UNIQUE(project_id,
+  //    sort_order). Audit 2026-05-06 : sans retry, deux admins concurrents
+  //    qui SELECT MAX(sort_order)+1 simultanément récupèrent le même
+  //    nombre → INSERT du 2e fail avec "duplicate key" (code 23505) et
+  //    l'utilisateur voit une notify error sans explication. Le retry
+  //    relit MAX et tente à nouveau, ce qui résout 99.9% des cas (après 3
+  //    tentatives, l'erreur remonte avec un message parlant).
   const presenceDays = Array.isArray(payload.presence_days) ? payload.presence_days : []
-  const { data: session, error: e2 } = await supabase
-    .from('projet_sessions')
-    .insert({
-      project_id: member.project_id,
-      sort_order: nextSortOrder,
-      label: payload.label ?? null,
-      start_date: payload.arrival_date ?? null,
-      end_date: payload.departure_date ?? null,
-      presence_days: presenceDays,
-      lieu_principal_text: payload.lieu_principal_text ?? null,
-      lieu_principal_id: payload.lieu_principal_id ?? null,
-      couleur: payload.couleur ?? null,
-      statut: payload.statut ?? 'planifie',
-      notes: payload.notes ?? null,
-    })
-    .select('*')
-    .single()
-  if (e2) throw e2
+  let session = null
+  let lastError = null
+  for (let attempt = 0; attempt < 3 && !session; attempt++) {
+    const { data: maxRow } = await supabase
+      .from('projet_sessions')
+      .select('sort_order')
+      .eq('project_id', member.project_id)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const nextSortOrder = (maxRow?.sort_order || 0) + 1 + attempt
+    const { data, error: e2 } = await supabase
+      .from('projet_sessions')
+      .insert({
+        project_id: member.project_id,
+        sort_order: nextSortOrder,
+        label: payload.label ?? null,
+        start_date: payload.arrival_date ?? null,
+        end_date: payload.departure_date ?? null,
+        presence_days: presenceDays,
+        lieu_principal_text: payload.lieu_principal_text ?? null,
+        lieu_principal_id: payload.lieu_principal_id ?? null,
+        couleur: payload.couleur ?? null,
+        statut: payload.statut ?? 'planifie',
+        notes: payload.notes ?? null,
+      })
+      .select('*')
+      .single()
+    if (!e2) {
+      session = data
+      break
+    }
+    lastError = e2
+    // Code 23505 = unique_violation. On retry ; sinon on remonte l'erreur.
+    if (e2.code !== '23505') break
+  }
+  if (!session) {
+    throw new Error(
+      `Création session échouée après plusieurs tentatives (race sort_order). ${lastError?.message || ''}`,
+    )
+  }
 
-  // 4. Créer la participation pour ce membre (mêmes valeurs que session
+  // 3. Créer la participation pour ce membre (mêmes valeurs que session
   //    au début — l'admin pourra les diverger ensuite via updateSession).
   const { data: participation, error: e3 } = await supabase
     .from('projet_session_membres')
@@ -281,7 +311,7 @@ export async function createSession(membreId, payload = {}) {
     .single()
   if (e3) throw e3
 
-  // 5. Return shape unifié (avec session embarquée pour le flatten).
+  // 4. Return shape unifié (avec session embarquée pour le flatten).
   return flattenParticipation({
     ...participation,
     session,
@@ -340,7 +370,17 @@ export async function joinSession(membreId, sessionId, payload = {}) {
     })
     .select('*')
     .single()
-  if (e2) throw e2
+  if (e2) {
+    // Audit 2026-05-06 : UNIQUE(session_id, membre_id) renvoie code 23505
+    // si le membre est déjà participant. Cas possible : Realtime out-of-
+    // sync entre 2 admins, ou double-clic rapide sur un bouton template.
+    // On normalise l'erreur en message lisible plutôt que de laisser
+    // remonter le brut SQL "duplicate key value violates unique constraint…".
+    if (e2.code === '23505') {
+      throw new Error('Ce membre fait déjà partie de cette session.')
+    }
+    throw e2
+  }
 
   return flattenParticipation({ ...participation, session })
 }

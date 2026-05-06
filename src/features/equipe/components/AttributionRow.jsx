@@ -50,7 +50,6 @@ import {
 import {
   effectiveCouleur,
   effectiveLabel,
-  hasMultipleSessions,
   sortSessionsByDate,
 } from '../../../lib/sessions'
 import useBreakpoint from '../../../hooks/useBreakpoint'
@@ -158,13 +157,18 @@ export default function AttributionRow({
 
   const nbAttached = row.attached?.length || 0
 
-  // Sessions Phase 0b — chips colorées si 2+ sessions actives. On ne
-  // dépend QUE du nombre de sessions, pas de leur statut, pour rester
-  // visible (les sessions "planifie" et "confirme" comptent toutes).
-  // Tri chronologique pour que les chips soient lisibles dans l'ordre
-  // naturel ; les couleurs (sort_order) restent attribuées par création.
+  // Sessions Phase A — chips colorées dès qu'il y a au moins 1 session
+  // active (= statut ≠ 'annule'). Avant : seuil à 2+ sessions
+  // (hasMultipleSessions), ce qui rendait l'UI incohérente entre les
+  // membres mono-session (texte vert plat) et multi-session (chips
+  // colorées). Hugo a demandé l'uniformité 2026-05-07. Pour le cas où
+  // il n'y a aucune session mais des dates persona-level (legacy /
+  // fallback), on retombe sur le texte plat vert.
   const orderedSessions = sessions ? sortSessionsByDate(sessions) : []
-  const showSessionChips = hasMultipleSessions(orderedSessions)
+  const activeSessionsCount = orderedSessions.filter(
+    (s) => s?.statut !== 'annule',
+  ).length
+  const showSessionChips = activeSessionsCount >= 1
 
   // Logistique condensée
   const firstPresenceDay = persona.presence_days?.length

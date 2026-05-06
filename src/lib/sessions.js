@@ -8,18 +8,16 @@
 //   - 2+ sessions : projet à phases distinctes ou tournage découpé. Ex :
 //     "Essais Paris" + "Tournage Mtp", ou "Tournage Lyon" + "Tournage Toulouse".
 //
-// Phase 0a (cette migration) : la table `projet_membres_sessions` existe et
-// est seedée (1 session par membre existant). L'UI Équipe n'utilise pas
-// encore les sessions — elles sont juste lues en arrière-plan, prêtes pour
-// la bascule UI en Phase 0b.
-//
-// Source de vérité actuelle (Phase 0a) :
+// Phase A (état courant — 2026-05) : modèle "session globale + participation".
+//   • `projet_sessions` (table session globale) : 1 row par session distincte
+//   • `projet_session_membres` (jointure participation) : presence_days et
+//     dates d'arrivée/retour PROPRES à chaque membre
 //   • `projet_membres.arrival_date / departure_date / presence_days` reste
-//     LA source. La table sessions est synchronisée par le seed initial.
-//   • La bascule (sessions = source) viendra en Phase 0b avec l'UI multi-sessions.
+//     synchronisé depuis les sessions (cf. syncMembreFromSessions) pour
+//     compat avec le reste de l'app (PDF export, share, grid simple).
 //
-// Helpers exportés ici sont 100% PURE (pas de fetch). Les fetchs Supabase
-// se feront via un futur `useSessions` hook quand l'UI les consommera.
+// Helpers exportés ici sont 100% PURE (pas de fetch). Le fetch + CRUD vit
+// dans lib/crew.js / hooks/useCrew.js.
 // ════════════════════════════════════════════════════════════════════════════
 
 // Palette couleurs pour les sessions. Choisie pour bonne distinction visuelle
@@ -291,7 +289,11 @@ export function findMatchingSession(sessions, label, lieu) {
     if (!targetLieu) return s
     // Accepte les 2 shapes possibles : participation (`lieu_principal_text`)
     // ou template (`lieu`, renommé côté TechListView pour compacité).
-    const sLieu = normalizeForMatch(s.lieu_principal_text ?? s.lieu)
+    // `||` plutôt que `??` : si `lieu_principal_text === ''` (cas où le
+    // shape unifié a une string vide au lieu de null), on veut tomber sur
+    // `s.lieu` au lieu de garder la string vide. `??` ne fait le fallback
+    // QUE sur null/undefined, pas sur '' — d'où le bug latent corrigé ici.
+    const sLieu = normalizeForMatch(s.lieu_principal_text || s.lieu)
     if (sLieu !== targetLieu) continue
     return s
   }

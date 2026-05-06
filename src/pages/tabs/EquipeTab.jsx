@@ -63,11 +63,20 @@ function getStep(key) {
   return STEPS.find((s) => s.key === key) || STEPS[0]
 }
 
+// Cascade m → m.contact pour le prénom/nom : quand le membre est lié à un
+// contact d'annuaire, ses propres prenom/nom côté projet_membres sont NULL
+// (le canonique vit sur contacts). Sans cette cascade, l'OrphansBlock
+// affichait "—" pour tous les membres rattachés à un contact (cf. fix
+// 2026-05-07 — pareil pattern que SHARE-NAME-CASCADE côté RPC).
 function fullName(m) {
-  return `${m.prenom || ''} ${m.nom || ''}`.trim() || '—'
+  const prenom = m?.prenom || m?.contact?.prenom || ''
+  const nom = m?.nom || m?.contact?.nom || ''
+  return `${prenom} ${nom}`.trim() || '—'
 }
 function initials(m) {
-  return ((m.prenom?.[0] || '') + (m.nom?.[0] || '')).toUpperCase() || '?'
+  const prenom = m?.prenom || m?.contact?.prenom || ''
+  const nom = m?.nom || m?.contact?.nom || ''
+  return ((prenom[0] || '') + (nom[0] || '')).toUpperCase() || '?'
 }
 
 function regimeStyle(regime) {

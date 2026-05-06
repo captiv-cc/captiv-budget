@@ -28,7 +28,7 @@
 //   />
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   X,
   ChevronLeft,
@@ -38,6 +38,9 @@ import {
   PlaneLanding,
   PlaneTakeoff,
   Plus,
+  Users,
+  Edit2,
+  MapPin,
 } from 'lucide-react'
 import {
   WEEKDAYS_SHORT_FR,
@@ -56,6 +59,7 @@ import {
   sortSessionsByDate,
 } from '../../../lib/sessions'
 import { notify } from '../../../lib/notify'
+import { confirm } from '../../../lib/confirm'
 
 export default function PresenceCalendarModal({
   open,
@@ -90,6 +94,18 @@ export default function PresenceCalendarModal({
   // session GLOBALE → propage à tous les participants (cf. lib split).
   // Si non fourni, le panneau d'édition n'est pas affiché.
   onUpdateSessionMeta = null,
+  // Map<sessionId, count> — nombre de participants distincts par
+  // session globale du projet. Sert à afficher l'indicateur "session
+  // partagée à N membres" sous le sélecteur (nudge UX critique pour
+  // la sécurité des données : modifier label/lieu ici affecte tout
+  // le monde, l'admin doit en être conscient).
+  sessionParticipantsCount = null,
+  // Phase A — supprimer la session active directement depuis la modale
+  // (× sur la chip active). Reçoit le participationId (= activeSessionId).
+  // Si non fournie, le bouton × n'apparaît pas (ex: contexte read-only).
+  // L'auto-switch sur une session restante se fait côté modale après
+  // succès du delete.
+  onRemoveSession = null,
   onSave,
   periodes = null,
   anchorDate = null,
@@ -149,25 +165,186 @@ export default function PresenceCalendarModal({
     return startOfMonth(new Date())
   })
 
-  // Reset à l'ouverture + à chaque switch de session active. Quand on
-  // ouvre la modale et qu'on a des sessions, on initialise la sélection
-  // active sur la 1ʳᵉ session par sort_order.
+  // ─── Autosave (Phase A/4) ─────────────────────────────────────────
+  // Plus de bouton "Enregistrer" : chaque changement local (toggle d'un
+  // jour, set d'une arrivée/retour) déclenche un save debounced. Le
+  // bouton "Fermer" se contente de fermer la modale et flush les
+  // changements pending au passage.
+  //
+  // Mécanique :
+  //   - savedSnapshotRef : snapshot du dernier état "synchronisé" avec
+  //     le serveur (init ou save réussi). Sert de référence de comparaison.
+  //   - saveTimerRef + pendingPayloadRef : timer de debounce + payload
+  //     à envoyer si la modale se ferme avant qu'il ne fire (flushPending).
+  //   - initializingRef : flag synchrone pour skipper l'autosave
+  //     immédiatement après un reset depuis le src (sinon on saverait
+  //     l'ancien selected sur la nouvelle sessionId — bug critique vu
+  //     pendant l'écriture).
+  const savedSnapshotRef = useRef(null)
+  const saveTimerRef = useRef(null)
+  const pendingPayloadRef = useRef(null)
+  const initializingRef = useRef(false)
+
+  // Effet 1 — sélection initiale de la session active à l'ouverture
+  // (séparé du reset de state pour ne pas re-binder le state local sur
+  // chaque changement de ref de sortedSessions, ce qui écraserait les
+  // saisies en cours quand un realtime / save optimistic arrive).
   useEffect(() => {
     if (!open) return
-    // Si on a des sessions et pas encore de session active sélectionnée,
-    // on prend la 1ère par défaut.
     if (sortedSessions.length && !activeSessionId) {
       setActiveSessionId(sortedSessions[0].id)
-      return // Le prochain run du même effect (avec activeSessionId set) fera le reset
     }
-    // Reset des champs depuis la source courante (active session ou persona)
+  }, [open, sortedSessions, activeSessionId])
+
+  // Effet 2 — reset du state local quand la session active change (ou
+  // quand la modale s'ouvre sans session). Ne dépend QUE de open et
+  // activeSessionId : on ne veut pas écraser l'input courant à chaque
+  // changement de ref props (realtime, optimistic update).
+  useEffect(() => {
+    if (!open) return
+    // Si activeSessionId pas encore initialisé mais qu'il devrait l'être
+    // (sortedSessions non vide), on attend l'effet 1.
+    if (sortedSessions.length && !activeSessionId) return
+    // Flush pending changes pour la session précédente avant de réinitialiser
+    flushPending()
+    initializingRef.current = true
     const src = activeSession || persona
-    setSelected(new Set(src?.presence_days || []))
-    setArrivalDate(src?.arrival_date || '')
-    setDepartureDate(src?.departure_date || '')
+    const snap = buildSnapshot(src)
+    savedSnapshotRef.current = snap
+    setSelected(new Set(snap.presence_days))
+    setArrivalDate(snap.arrival_date)
+    setDepartureDate(snap.departure_date)
     setPickerMode('presence')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeSessionId, sortedSessions])
+  }, [open, activeSessionId])
+
+  // Helpers snapshots
+  function buildSnapshot(src) {
+    return {
+      presence_days: (src?.presence_days || []).slice().sort(),
+      arrival_date: src?.arrival_date || '',
+      departure_date: src?.departure_date || '',
+    }
+  }
+  function snapshotsMatch(a, b) {
+    if (!a || !b) return false
+    if (a.arrival_date !== b.arrival_date) return false
+    if (a.departure_date !== b.departure_date) return false
+    if (a.presence_days.length !== b.presence_days.length) return false
+    for (let i = 0; i < a.presence_days.length; i++) {
+      if (a.presence_days[i] !== b.presence_days[i]) return false
+    }
+    return true
+  }
+
+  // Save un payload immédiatement (sans debounce). Utilisé par :
+  //   - le timer de debounce (autosave)
+  //   - flushPending (à la fermeture / au changement de session)
+  //
+  // En cas d'erreur (RLS denied, réseau, migration manquante…) on
+  // RESTAURE pendingPayloadRef pour permettre une nouvelle tentative au
+  // prochain toggle (sinon l'utilisateur croit que c'est sauvegardé alors
+  // que la diff est perdue côté front). Audit 2026-05-06.
+  async function performSave(fields, sessionId) {
+    try {
+      await onSave?.(fields, sessionId)
+      // Met à jour le snapshot pour refléter ce qui a été sauvegardé
+      // (uniquement si on est toujours sur la même session — sinon le
+      // reset effect aura écrasé savedSnapshotRef avec la nouvelle src).
+      if (sessionId === activeSessionId) {
+        savedSnapshotRef.current = {
+          presence_days: fields.presence_days,
+          arrival_date: fields.arrival_date || '',
+          departure_date: fields.departure_date || '',
+        }
+      }
+    } catch (err) {
+      console.error('[PresenceCalendarModal] autosave error:', err)
+      // Restaure pending pour qu'un retry soit possible (ex. l'utilisateur
+      // bouge un autre jour → la nouvelle diff écrase le pending mais au
+      // moins le savedSnapshot reste l'ancien et la prochaine save sera
+      // déclenchée). On NE met PAS à jour savedSnapshotRef pour que la
+      // diff reste détectable au prochain toggle.
+      if (sessionId === activeSessionId) {
+        pendingPayloadRef.current = { fields, sessionId }
+      }
+      const msg = err?.message || String(err)
+      const colMissing = /column\s+[\w."]+\s+does not exist/i.exec(msg)
+      if (colMissing) {
+        notify.error(
+          `Enregistrement impossible : ${colMissing[0]}. La migration SQL n'a probablement pas été passée — vérifiez les fichiers supabase/migrations/ avec votre admin.`,
+        )
+      } else {
+        notify.error('Enregistrement échoué : ' + msg)
+      }
+    }
+  }
+
+  // Annule le timer pending et exécute immédiatement le save (si pending).
+  // Utilisé à la fermeture et au changement de session.
+  function flushPending() {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const pending = pendingPayloadRef.current
+    pendingPayloadRef.current = null
+    if (!pending) return
+    // Fire-and-forget : on ne bloque pas la fermeture de la modale sur
+    // le retour du serveur. performSave gère ses propres erreurs.
+    performSave(pending.fields, pending.sessionId)
+  }
+
+  // Effet d'autosave — réagit aux changements de selected/arrivalDate/
+  // departureDate. Compare au snapshot ; si diff, schedule un save dans 500ms.
+  useEffect(() => {
+    if (!open) return undefined
+    // Skip immédiatement après un reset (le state local n'a pas encore
+    // appliqué les nouvelles valeurs setSelected/setArrivalDate, donc une
+    // comparaison maintenant donnerait un faux diff).
+    if (initializingRef.current) {
+      initializingRef.current = false
+      return undefined
+    }
+    if (!savedSnapshotRef.current) return undefined
+
+    const localSnap = {
+      presence_days: [...selected].sort(),
+      arrival_date: arrivalDate,
+      departure_date: departureDate,
+    }
+
+    if (snapshotsMatch(localSnap, savedSnapshotRef.current)) {
+      // Pas de diff : annule un éventuel save en attente (cas où l'utilisateur
+      // a fait/défait la même action dans la fenêtre de debounce).
+      pendingPayloadRef.current = null
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      return undefined
+    }
+
+    const fields = {
+      presence_days: localSnap.presence_days,
+      arrival_date: localSnap.arrival_date || null,
+      departure_date: localSnap.departure_date || null,
+    }
+    pendingPayloadRef.current = { fields, sessionId: activeSessionId }
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      const pending = pendingPayloadRef.current
+      pendingPayloadRef.current = null
+      if (pending) performSave(pending.fields, pending.sessionId)
+    }, 500)
+
+    // Pas de cleanup : on gère le timer manuellement (sinon une re-render
+    // intermédiaire annulerait le save avant qu'il ne fire).
+    return undefined
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selected, arrivalDate, departureDate, activeSessionId])
 
   // Reset l'activeSessionId + le mini-form de création à la fermeture
   // (sinon en réouvrant on afficherait l'ancienne session active même si
@@ -179,8 +356,24 @@ export default function PresenceCalendarModal({
       setNewLabel('')
       setNewLieu('')
       setPendingMatchTemplate(null)
+      // Reset des refs autosave pour éviter qu'un payload pending d'une
+      // session précédente ne soit envoyé sur la prochaine ouverture.
+      savedSnapshotRef.current = null
+      pendingPayloadRef.current = null
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
     }
   }, [open])
+
+  // Fermeture propre : on flush les changements pending avant d'appeler
+  // onClose. handleClose remplace le bouton "Enregistrer" + "Annuler" du
+  // précédent design (autosave = pas de différence sémantique).
+  function handleClose() {
+    flushPending()
+    onClose?.()
+  }
 
   // ESC en mode picker → annule le picker (sans fermer la modale)
   useEffect(() => {
@@ -246,45 +439,6 @@ export default function PresenceCalendarModal({
     setSelected(new Set())
   }
 
-  async function handleSave() {
-    const presence_days = [...selected].sort()
-    try {
-      // Cleanup P4 : on ne save QUE les 3 champs gérés ici. Les champs
-      // logistique (heures, hébergement, chauffeur, notes) restent gérés
-      // par la future tab Logistique — on ne les touche plus depuis ici
-      // pour éviter d'écraser des valeurs saisies ailleurs.
-      // Phase 0b : si une session est active, on la passe en 2ᵉ argument
-      // pour que l'appelant route vers updateMemberSession (sinon il
-      // retombe sur updatePersona — chemin legacy).
-      await onSave?.(
-        {
-          presence_days,
-          arrival_date: arrivalDate || null,
-          departure_date: departureDate || null,
-        },
-        activeSessionId,
-      )
-      onClose?.()
-    } catch (err) {
-      // Cause typique : migration SQL pas encore passée → "column X does
-      // not exist". Sans ce try/catch, l'erreur était avalée silencieusement
-      // et l'utilisateur voyait "tout s'annule" sans comprendre pourquoi.
-      console.error('[PresenceCalendarModal] save error:', err)
-      const msg = err?.message || String(err)
-      // Détection migration manquante pour message plus parlant
-      const colMissing = /column\s+[\w."]+\s+does not exist/i.exec(msg)
-      if (colMissing) {
-        notify.error(
-          `Enregistrement impossible : ${colMissing[0]}. La migration SQL n'a probablement pas été passée — vérifiez les fichiers supabase/migrations/ avec votre admin.`,
-        )
-      } else {
-        notify.error('Enregistrement échoué : ' + msg)
-      }
-      // On NE ferme PAS la modale → l'utilisateur peut réessayer ou copier
-      // ses saisies avant de fermer manuellement.
-    }
-  }
-
   // Pour les boutons "aligner sur 1er/dernier jour de présence"
   const sortedDays = selected.size ? [...selected].sort() : []
   const firstPresenceDay = sortedDays[0] || null
@@ -297,7 +451,7 @@ export default function PresenceCalendarModal({
       className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6"
       style={{ background: 'rgba(0,0,0,0.5)' }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose?.()
+        if (e.target === e.currentTarget) handleClose()
       }}
     >
       <div
@@ -327,7 +481,7 @@ export default function PresenceCalendarModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded-md transition-colors shrink-0"
             style={{ color: 'var(--txt-3)' }}
             onMouseEnter={(e) => {
@@ -338,7 +492,7 @@ export default function PresenceCalendarModal({
               e.currentTarget.style.background = 'transparent'
               e.currentTarget.style.color = 'var(--txt-3)'
             }}
-            title="Fermer"
+            title="Fermer (sauvegarde automatique)"
           >
             <X className="w-4 h-4" />
           </button>
@@ -374,30 +528,122 @@ export default function PresenceCalendarModal({
               .map((s) => {
               const isActive = s.id === activeSessionId
               const couleur = effectiveCouleur(s)
+              // Indicateur "session partagée" — uniquement sur la chip
+              // ACTIVE, pour ne pas allonger les chips inactives et
+              // déclencher du scroll horizontal sur des projets multi-
+              // sessions. L'admin voit l'info dès qu'il sélectionne, et
+              // le tooltip (sur l'icône Users) explique le warning.
+              const sharedCount = s.session_id
+                ? sessionParticipantsCount?.get?.(s.session_id) || 0
+                : 0
+              const isShared = sharedCount >= 2
+              const baseTitle = s.lieu_principal_text
+                ? `${effectiveLabel(s)} · ${s.lieu_principal_text}`
+                : effectiveLabel(s)
+              const title = isShared
+                ? `${baseTitle}\n— Partagée avec ${sharedCount - 1} autre${sharedCount - 1 > 1 ? 's' : ''} membre${sharedCount - 1 > 1 ? 's' : ''}. Modifier le nom ou le lieu affecte tout le monde.`
+                : baseTitle
+              // Le bouton × n'apparaît que sur la chip ACTIVE — sinon il
+              // faudrait nester un button-dans-button pour déclencher
+              // delete sans déclencher activate. Sur l'active, le clic
+              // sur la chip = no-op, donc on peut sereinement mettre
+              // le delete à côté avec stopPropagation pour la sécurité.
+              const showDelete = isActive && Boolean(onRemoveSession)
               return (
-                <button
+                <span
                   key={s.id}
-                  type="button"
-                  onClick={() => setActiveSessionId(s.id)}
-                  className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1.5 shrink-0 transition-colors"
+                  className="inline-flex items-center shrink-0 rounded-md transition-colors"
                   style={{
                     background: isActive ? `#${couleur}22` : 'transparent',
-                    color: isActive ? `#${couleur}` : 'var(--txt-2)',
                     border: `1px solid ${isActive ? `#${couleur}` : 'var(--brd-sub)'}`,
-                    fontWeight: isActive ? 600 : 400,
                   }}
-                  title={
-                    s.lieu_principal_text
-                      ? `${effectiveLabel(s)} · ${s.lieu_principal_text}`
-                      : effectiveLabel(s)
-                  }
                 >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ background: `#${couleur}` }}
-                  />
-                  {effectiveLabel(s)}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSessionId(s.id)}
+                    className="text-xs pl-2.5 pr-2 py-1 inline-flex items-center gap-1.5"
+                    style={{
+                      background: 'transparent',
+                      color: isActive ? `#${couleur}` : 'var(--txt-2)',
+                      fontWeight: isActive ? 600 : 400,
+                      border: 'none',
+                    }}
+                    title={title}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: `#${couleur}` }}
+                    />
+                    {effectiveLabel(s)}
+                    {isActive && isShared && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] shrink-0"
+                        style={{ opacity: 0.85, marginLeft: 2 }}
+                      >
+                        <Users style={{ width: 10, height: 10 }} />
+                        {sharedCount}
+                      </span>
+                    )}
+                  </button>
+                  {showDelete && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        const ok = await confirm({
+                          title: `Retirer « ${effectiveLabel(s)} » de ce membre ?`,
+                          message: isShared
+                            ? `La session restera pour les ${sharedCount - 1} autre${sharedCount - 1 > 1 ? 's' : ''} membre${sharedCount - 1 > 1 ? 's' : ''} qui y participent. Seules les dates et infos perso de ce membre seront supprimées.`
+                            : 'La session sera supprimée et les dates / lieu perdus. Action irréversible.',
+                          confirmLabel: 'Retirer',
+                          destructive: true,
+                        })
+                        if (!ok) return
+                        // Annule un éventuel save autosave en attente — on
+                        // ne veut pas écrire pendant qu'on supprime.
+                        if (saveTimerRef.current) {
+                          clearTimeout(saveTimerRef.current)
+                          saveTimerRef.current = null
+                        }
+                        pendingPayloadRef.current = null
+                        try {
+                          await onRemoveSession(s.id)
+                          // Auto-switch : si d'autres sessions restent, on
+                          // active la 1ʳᵉ ; sinon on ferme la modale.
+                          const remaining = sortedSessions.filter((x) => x.id !== s.id)
+                          if (remaining.length) {
+                            setActiveSessionId(remaining[0].id)
+                          } else {
+                            onClose?.()
+                          }
+                          notify.success('Session retirée du membre')
+                        } catch (err) {
+                          console.error('[PresenceCalendarModal] remove error:', err)
+                          notify.error('Suppression échouée : ' + (err?.message || err))
+                        }
+                      }}
+                      className="px-1.5 py-1 transition-colors"
+                      style={{
+                        background: 'transparent',
+                        color: `#${couleur}`,
+                        opacity: 0.6,
+                        border: 'none',
+                        borderLeft: `1px solid ${isActive ? `#${couleur}66` : 'var(--brd-sub)'}`,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1'
+                        e.currentTarget.style.color = 'var(--red)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.6'
+                        e.currentTarget.style.color = `#${couleur}`
+                      }}
+                      title="Retirer cette session du membre"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
               )
             })}
 
@@ -599,6 +845,12 @@ export default function PresenceCalendarModal({
                       e.preventDefault()
                       const labelTrim = newLabel.trim()
                       const lieuTrim = newLieu.trim()
+                      // Garde-fou anti-fantôme (audit 2026-05-07) : on
+                      // refuse de créer une session avec label ET lieu
+                      // vides — c'est exactement le cas qui produit les
+                      // sessions "Sans nom" qui polluent l'UI ensuite.
+                      // Le bouton submit est désactivé visuellement aussi.
+                      if (!labelTrim && !lieuTrim) return
                       // Phase A/3c — détection de doublon avant création.
                       // Si on trouve une session existante avec le même
                       // (label, lieu), on bascule en mode confirmation.
@@ -683,17 +935,33 @@ export default function PresenceCalendarModal({
                         width: 90,
                       }}
                     />
-                    <button
-                      type="submit"
-                      className="text-xs px-1.5 py-0.5 rounded inline-flex items-center"
-                      style={{
-                        background: 'var(--blue)',
-                        color: '#fff',
-                      }}
-                      title="Créer la session (Entrée)"
-                    >
-                      <CheckCircle className="w-3 h-3" />
-                    </button>
+                    {(() => {
+                      // Garde-fou anti-fantôme : on ne peut soumettre que
+                      // si au moins le label OU le lieu est saisi. Évite
+                      // les sessions "Sans nom" 100% vides qui polluent
+                      // la liste après création.
+                      const canSubmit = Boolean(newLabel.trim() || newLieu.trim())
+                      return (
+                        <button
+                          type="submit"
+                          disabled={!canSubmit}
+                          className="text-xs px-1.5 py-0.5 rounded inline-flex items-center transition-opacity"
+                          style={{
+                            background: 'var(--blue)',
+                            color: '#fff',
+                            opacity: canSubmit ? 1 : 0.4,
+                            cursor: canSubmit ? 'pointer' : 'not-allowed',
+                          }}
+                          title={
+                            canSubmit
+                              ? 'Créer la session (Entrée)'
+                              : 'Saisis au moins un nom ou un lieu pour créer la session'
+                          }
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                        </button>
+                      )
+                    })()}
                     <button
                       type="button"
                       onClick={() => {
@@ -733,62 +1001,27 @@ export default function PresenceCalendarModal({
           </div>
         )}
 
-        {/* Barre fusionnée : édition méta (Nom + Lieu) à gauche +
-            raccourcis "Cocher période" à droite. Une seule strate
-            visuelle au lieu de 2 — on gagne ~50px de hauteur sur la
-            modale et on regroupe les actions liées à la session active
-            dans le même horizon visuel.
-            Affichée si l'un OU l'autre est applicable. */}
-        {((activeSession && onUpdateSessionMeta) || periodes) && (
+        {/* Bandeau partage — supprimé en commit 3 : l'info migre sur la
+            chip active (badge `Users + count` + tooltip détaillé). Plus
+            discret, plus contextualisé. Voir le rendu dans la chip ci-
+            dessus. */}
+
+        {/* Barre d'édition méta de la session active (Nom + Lieu).
+            Rendu type "titre éditable" : pas de visuel formulaire, juste
+            le nom de la session avec une icône crayon pour l'affordance.
+            Click sur le texte → mode input. Esc/Enter/blur → commit.
+            Les raccourcis Prépa/Tournage ont été déplacés au-dessus du
+            calendrier (ils agissent sur le calendrier, pas sur la
+            session — c'était la confusion principale du commit 2). */}
+        {activeSession && onUpdateSessionMeta && (
           <div
             className="flex items-center gap-2 px-4 py-2 border-b shrink-0"
             style={{ borderColor: 'var(--brd-sub)' }}
           >
-            {activeSession && onUpdateSessionMeta && (
-              <SessionMetaEditor
-                session={activeSession}
-                onUpdate={(fields) => onUpdateSessionMeta(activeSession.id, fields)}
-              />
-            )}
-            {periodes && (
-              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                {PERIODE_KEYS.filter((k) => hasAnyRange(periodes[k])).map((k) => {
-                  const meta = PERIODE_META[k]
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => selectPeriode(k)}
-                      className="text-xs px-2 py-1 rounded-md transition-opacity inline-flex items-center gap-1"
-                      style={{
-                        background: meta.bg,
-                        color: meta.color,
-                        border: `1px solid ${meta.color}`,
-                      }}
-                      title={`Cocher tous les jours ${meta.label.toLowerCase()}`}
-                      onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
-                      onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-                    >
-                      <CheckCircle className="w-3 h-3" />
-                      {meta.label}
-                    </button>
-                  )
-                })}
-                {selected.size > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearAll}
-                    className="text-[11px] px-1.5 py-1 rounded-md transition-colors"
-                    style={{ color: 'var(--txt-3)' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-                    title="Effacer tous les jours sélectionnés"
-                  >
-                    Effacer
-                  </button>
-                )}
-              </div>
-            )}
+            <SessionMetaEditor
+              session={activeSession}
+              onUpdate={(fields) => onUpdateSessionMeta(activeSession.id, fields)}
+            />
           </div>
         )}
 
@@ -831,31 +1064,80 @@ export default function PresenceCalendarModal({
 
           {/* Calendrier */}
           <div>
-            {/* Nav mois */}
-            <div className="flex items-center justify-between mb-3">
+            {/* Nav mois — sur 1 ligne avec les raccourcis "Cocher période"
+                à droite. Plus de confusion possible avec l'édition de la
+                session : ici on agit clairement sur le calendrier (cf.
+                retour Hugo commit 3, "boutons Prépa/Tournage qui se
+                confondent avec rename"). */}
+            <div className="flex items-center gap-2 mb-3">
               <button
                 type="button"
                 onClick={() => setViewMonth(addMonths(viewMonth, -1))}
-                className="p-1 rounded transition-colors"
+                className="p-1 rounded transition-colors shrink-0"
                 style={{ color: 'var(--txt-2)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <div className="text-sm font-semibold" style={{ color: 'var(--txt)' }}>
+              <div className="text-sm font-semibold shrink-0" style={{ color: 'var(--txt)' }}>
                 {MONTHS_FR[viewMonth.getMonth()]} {viewMonth.getFullYear()}
               </div>
               <button
                 type="button"
                 onClick={() => setViewMonth(addMonths(viewMonth, 1))}
-                className="p-1 rounded transition-colors"
+                className="p-1 rounded transition-colors shrink-0"
                 style={{ color: 'var(--txt-2)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
+
+              {periodes && (
+                <div className="flex items-center gap-1.5 ml-auto flex-wrap justify-end">
+                  <span
+                    className="text-[10px] uppercase tracking-wider shrink-0"
+                    style={{ color: 'var(--txt-3)' }}
+                  >
+                    Cocher
+                  </span>
+                  {PERIODE_KEYS.filter((k) => hasAnyRange(periodes[k])).map((k) => {
+                    const meta = PERIODE_META[k]
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => selectPeriode(k)}
+                        className="text-[11px] px-1.5 py-0.5 rounded-md transition-opacity inline-flex items-center gap-1 shrink-0"
+                        style={{
+                          background: meta.bg,
+                          color: meta.color,
+                          border: `1px solid ${meta.color}`,
+                        }}
+                        title={`Cocher tous les jours ${meta.label.toLowerCase()}`}
+                        onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                        onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+                      >
+                        {meta.label}
+                      </button>
+                    )
+                  })}
+                  {selected.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearAll}
+                      className="text-[11px] px-1 py-0.5 rounded-md transition-colors shrink-0"
+                      style={{ color: 'var(--txt-3)' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
+                      title="Effacer tous les jours sélectionnés"
+                    >
+                      Effacer
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Headers jours */}
@@ -995,38 +1277,46 @@ export default function PresenceCalendarModal({
               })}
             </div>
           </div>
-
-          {/* ── Arrivée / Retour : UX progressive (sans heures, sans
-              hébergement, sans chauffeur, sans notes — tout cela est géré
-              dans la future tab Logistique). */}
-          <ArrivalDepartureSection
-            arrivalDate={arrivalDate}
-            departureDate={departureDate}
-            firstPresenceDay={firstPresenceDay}
-            lastPresenceDay={lastPresenceDay}
-            pickerMode={pickerMode}
-            onPickArrival={() => setPickerMode((m) => (m === 'arrival' ? 'presence' : 'arrival'))}
-            onPickDeparture={() => setPickerMode((m) => (m === 'departure' ? 'presence' : 'departure'))}
-            onClearArrival={() => setArrivalDate('')}
-            onClearDeparture={() => setDepartureDate('')}
-            onSetArrivalDate={setArrivalDate}
-            onSetDepartureDate={setDepartureDate}
-          />
         </div>
 
-        {/* Footer */}
+        {/* Footer fusionné : chips Arrivée/Retour à gauche + compteur de
+            jours + bouton Fermer à droite. Plus de bouton Enregistrer
+            (autosave) ni d'Annuler (= incohérent avec autosave). En cas
+            de mobile / chips multiples, flex-wrap pour éviter le squish. */}
         <footer
-          className="flex items-center justify-between gap-3 px-5 py-3 border-t shrink-0"
+          className="flex items-center justify-between gap-2 px-4 py-2.5 border-t shrink-0 flex-wrap"
           style={{ borderColor: 'var(--brd-sub)' }}
         >
-          <div className="text-xs" style={{ color: 'var(--txt-2)' }}>
-            <strong style={{ color: 'var(--txt)' }}>{selected.size}</strong> jour
-            {selected.size > 1 ? 's' : ''} sélectionné{selected.size > 1 ? 's' : ''}
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <ArrivalDepartureSection
+              arrivalDate={arrivalDate}
+              departureDate={departureDate}
+              firstPresenceDay={firstPresenceDay}
+              lastPresenceDay={lastPresenceDay}
+              pickerMode={pickerMode}
+              onPickArrival={() =>
+                setPickerMode((m) => (m === 'arrival' ? 'presence' : 'arrival'))
+              }
+              onPickDeparture={() =>
+                setPickerMode((m) => (m === 'departure' ? 'presence' : 'departure'))
+              }
+              onClearArrival={() => setArrivalDate('')}
+              onClearDeparture={() => setDepartureDate('')}
+              onSetArrivalDate={setArrivalDate}
+              onSetDepartureDate={setDepartureDate}
+            />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto pl-3 shrink-0"
+            style={{ borderLeft: '1px solid var(--brd-sub)' }}
+          >
+            <span className="text-[11px] shrink-0" style={{ color: 'var(--txt-3)' }}>
+              {selected.size > 0
+                ? `${selected.size} j`
+                : '—'}
+            </span>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="text-xs px-3 py-1.5 rounded-md transition-colors"
               style={{
                 background: 'transparent',
@@ -1035,23 +1325,9 @@ export default function PresenceCalendarModal({
               }}
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              title="Fermer (les modifications sont sauvegardées automatiquement)"
             >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors"
-              style={{
-                background: 'var(--blue)',
-                color: '#fff',
-                border: '1px solid var(--blue)',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-            >
-              <CheckCircle className="w-3.5 h-3.5" />
-              Enregistrer
+              Fermer
             </button>
           </div>
         </footer>
@@ -1311,12 +1587,31 @@ function SessionMetaEditor({ session, onUpdate }) {
     onUpdate({ lieu_principal_text: next })
   }
 
-  // Rendu sans wrapper de bordure — le composant est encapsulé dans une
-  // barre commune (cf. modale, fusion meta + périodes). Inputs côte à
-  // côte, équilibrés flex-1.
+  // Rendu "titre éditable" — pas de visuel formulaire (qui faisait
+  // penser à un panneau de paramètres et créait la confusion avec les
+  // raccourcis Prépa/Tournage). À la place :
+  //   - Nom : grosse police semi-bold, texte plat, soulignement subtil
+  //     au focus pour signaler l'éditable.
+  //   - Lieu : petite police avec icône MapPin pour marquer le rôle.
+  //   - Icône crayon Edit2 à droite (toujours visible) → affordance
+  //     que cette ligne est éditable.
+  // Comportement : focus → souligne, blur/Enter → commit, Esc → revert.
+  // Click sur le crayon → focus le 1er input vide (ou le label).
+  const labelInputRef = useRef(null)
+  const lieuInputRef = useRef(null)
+
+  function focusFirstEmpty() {
+    if (!labelDraft && labelInputRef.current) {
+      labelInputRef.current.focus()
+    } else if (lieuInputRef.current) {
+      lieuInputRef.current.focus()
+    }
+  }
+
   return (
     <div className="flex items-center gap-2 flex-1 min-w-0">
       <input
+        ref={labelInputRef}
         type="text"
         value={labelDraft}
         onChange={(e) => setLabelDraft(e.target.value)}
@@ -1328,36 +1623,102 @@ function SessionMetaEditor({ session, onUpdate }) {
             e.currentTarget.blur()
           }
         }}
-        placeholder="Nom (ex. Essais, Tournage…)"
-        className="text-xs px-2 py-1 rounded outline-none min-w-0"
+        placeholder="Nom de la session"
+        className="text-sm font-semibold outline-none min-w-0 px-1 py-0.5 rounded transition-colors"
         style={{
-          background: 'var(--bg-elev)',
-          border: '1px solid var(--brd-sub)',
+          background: 'transparent',
+          border: 'none',
+          borderBottom: '1px dashed transparent',
           color: 'var(--txt)',
-          flex: '1 1 60%',
+          flex: '1 1 55%',
         }}
-      />
-      <input
-        type="text"
-        value={lieuDraft}
-        onChange={(e) => setLieuDraft(e.target.value)}
-        onBlur={commitLieu}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur()
-          if (e.key === 'Escape') {
-            setLieuDraft(session?.lieu_principal_text || '')
-            e.currentTarget.blur()
+        onFocus={(e) => {
+          e.currentTarget.style.borderBottom = '1px solid var(--blue)'
+          e.currentTarget.style.background = 'var(--bg-elev)'
+        }}
+        onMouseEnter={(e) => {
+          if (document.activeElement !== e.currentTarget) {
+            e.currentTarget.style.borderBottom = '1px dashed var(--brd)'
           }
         }}
-        placeholder="Lieu"
-        className="text-xs px-2 py-1 rounded outline-none min-w-0"
-        style={{
-          background: 'var(--bg-elev)',
-          border: '1px solid var(--brd-sub)',
-          color: 'var(--txt)',
-          flex: '1 1 40%',
+        onMouseLeave={(e) => {
+          if (document.activeElement !== e.currentTarget) {
+            e.currentTarget.style.borderBottom = '1px dashed transparent'
+          }
         }}
+        onBlurCapture={(e) => {
+          e.currentTarget.style.borderBottom = '1px dashed transparent'
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title="Cliquer pour modifier le nom de la session"
       />
+      <span
+        className="inline-flex items-center gap-1 shrink-0 min-w-0"
+        style={{ flex: '1 1 45%' }}
+      >
+        <MapPin
+          style={{ width: 11, height: 11, color: 'var(--txt-3)' }}
+          className="shrink-0"
+        />
+        <input
+          ref={lieuInputRef}
+          type="text"
+          value={lieuDraft}
+          onChange={(e) => setLieuDraft(e.target.value)}
+          onBlur={commitLieu}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') {
+              setLieuDraft(session?.lieu_principal_text || '')
+              e.currentTarget.blur()
+            }
+          }}
+          placeholder="Lieu"
+          className="text-xs outline-none min-w-0 px-1 py-0.5 rounded transition-colors flex-1"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            borderBottom: '1px dashed transparent',
+            color: 'var(--txt-2)',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderBottom = '1px solid var(--blue)'
+            e.currentTarget.style.background = 'var(--bg-elev)'
+          }}
+          onMouseEnter={(e) => {
+            if (document.activeElement !== e.currentTarget) {
+              e.currentTarget.style.borderBottom = '1px dashed var(--brd)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (document.activeElement !== e.currentTarget) {
+              e.currentTarget.style.borderBottom = '1px dashed transparent'
+            }
+          }}
+          onBlurCapture={(e) => {
+            e.currentTarget.style.borderBottom = '1px dashed transparent'
+            e.currentTarget.style.background = 'transparent'
+          }}
+          title="Cliquer pour modifier le lieu"
+        />
+      </span>
+      <button
+        type="button"
+        onClick={focusFirstEmpty}
+        className="p-1 rounded transition-colors shrink-0"
+        style={{ color: 'var(--txt-3)' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = 'var(--blue)'
+          e.currentTarget.style.background = 'var(--bg-hov)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = 'var(--txt-3)'
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title="Renommer la session"
+      >
+        <Edit2 className="w-3 h-3" />
+      </button>
     </div>
   )
 }

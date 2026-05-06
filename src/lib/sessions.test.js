@@ -25,8 +25,11 @@ import {
   aggregateSessionsToMembre,
   hasMultipleSessions,
   sortSessions,
+  sortSessionsByDate,
+  firstDateOfSession,
   groupSessionsByMembre,
   buildDayToSessionMap,
+  findMatchingSession,
 } from './sessions'
 
 // ── paletteAt / effectiveCouleur ──────────────────────────────────────────
@@ -317,5 +320,150 @@ describe('buildDayToSessionMap', () => {
   it('retourne Map vide si days vide', () => {
     expect(buildDayToSessionMap([], []).size).toBe(0)
     expect(buildDayToSessionMap(null, []).size).toBe(0)
+  })
+})
+
+// ── firstDateOfSession ────────────────────────────────────────────────────
+describe('firstDateOfSession', () => {
+  it('retourne arrival_date en priorité', () => {
+    expect(firstDateOfSession({
+      arrival_date: '2026-05-11',
+      presence_days: ['2026-05-15'],
+    })).toBe('2026-05-11')
+  })
+
+  it('retombe sur la 1ère presence_day quand pas d\'arrival', () => {
+    expect(firstDateOfSession({
+      arrival_date: null,
+      presence_days: ['2026-05-15', '2026-05-12', '2026-05-14'],
+    })).toBe('2026-05-12')
+  })
+
+  it('retourne null si aucune date', () => {
+    expect(firstDateOfSession({})).toBeNull()
+    expect(firstDateOfSession(null)).toBeNull()
+  })
+})
+
+// ── sortSessionsByDate ────────────────────────────────────────────────────
+describe('sortSessionsByDate', () => {
+  it('tri chronologique par 1ʳᵉ date observée', () => {
+    const sorted = sortSessionsByDate([
+      { id: 'b', arrival_date: '2026-05-15', sort_order: 1 },
+      { id: 'a', arrival_date: '2026-05-10', sort_order: 2 },
+      { id: 'c', arrival_date: '2026-05-20', sort_order: 3 },
+    ])
+    expect(sorted.map((s) => s.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('place les sessions sans date en queue (départage par sort_order)', () => {
+    const sorted = sortSessionsByDate([
+      { id: 'undated2', sort_order: 5 },
+      { id: 'b', arrival_date: '2026-05-15' },
+      { id: 'undated1', sort_order: 3 },
+    ])
+    expect(sorted.map((s) => s.id)).toEqual(['b', 'undated1', 'undated2'])
+  })
+
+  it('ne mute pas l\'array d\'entrée', () => {
+    const input = [
+      { id: 'a', arrival_date: '2026-05-15' },
+      { id: 'b', arrival_date: '2026-05-10' },
+    ]
+    const original = [...input]
+    sortSessionsByDate(input)
+    expect(input).toEqual(original)
+  })
+})
+
+// ── findMatchingSession (Phase A — détection doublon) ─────────────────────
+describe('findMatchingSession', () => {
+  const sessions = [
+    {
+      id: 's1',
+      session_id: 'gs1',
+      label: 'Tournage',
+      lieu_principal_text: 'Montpellier',
+    },
+    {
+      id: 's2',
+      session_id: 'gs2',
+      label: 'Essais Caméra',
+      lieu_principal_text: 'Paris VIF',
+    },
+    {
+      id: 's3',
+      session_id: 'gs3',
+      label: 'Tournage',
+      lieu_principal_text: 'Lyon',
+    },
+  ]
+
+  it('match exact label + lieu', () => {
+    const m = findMatchingSession(sessions, 'Tournage', 'Montpellier')
+    expect(m?.id).toBe('s1')
+  })
+
+  it('case-insensitive', () => {
+    const m = findMatchingSession(sessions, 'TOURNAGE', 'montpellier')
+    expect(m?.id).toBe('s1')
+  })
+
+  it('normalise les accents (NFKD)', () => {
+    // "Zénith" doit matcher "Zenith" (et inversement) après normalisation.
+    const ss = [{ id: 'z1', label: 'Zenith Sud', lieu_principal_text: '' }]
+    expect(findMatchingSession(ss, 'Zénith Sud', '')?.id).toBe('z1')
+    const ss2 = [{ id: 'z2', label: 'Zénith Sud', lieu_principal_text: '' }]
+    expect(findMatchingSession(ss2, 'Zenith Sud', '')?.id).toBe('z2')
+  })
+
+  it('compresse les whitespace internes', () => {
+    expect(
+      findMatchingSession(
+        [{ id: 's', label: 'Essais  Caméra', lieu_principal_text: 'Paris  VIF' }],
+        'Essais Caméra',
+        'Paris VIF',
+      )?.id,
+    ).toBe('s')
+  })
+
+  it('match label seul si pas de lieu cible', () => {
+    // Quand l'admin tape juste le nom (sans lieu), on propose la 1ère
+    // session matchant le label, peu importe le lieu côté DB.
+    const m = findMatchingSession(sessions, 'Tournage', '')
+    expect(['s1', 's3']).toContain(m?.id)
+  })
+
+  it('renvoie null sans label cible', () => {
+    expect(findMatchingSession(sessions, '', 'Paris')).toBeNull()
+    expect(findMatchingSession(sessions, '   ', 'Paris')).toBeNull()
+  })
+
+  it('renvoie null si pas de match', () => {
+    expect(findMatchingSession(sessions, 'Inexistant', 'Mars')).toBeNull()
+  })
+
+  it('accepte le shape template (clé `lieu` au lieu de `lieu_principal_text`)', () => {
+    // Les `projectSessionTemplates` exposent `lieu` (raccourci), pas
+    // `lieu_principal_text`. La fonction doit fallback sur `lieu`.
+    const templates = [{ id: 't1', label: 'Tournage', lieu: 'Bordeaux' }]
+    expect(findMatchingSession(templates, 'Tournage', 'Bordeaux')?.id).toBe('t1')
+  })
+
+  it('match malgré lieu_principal_text vide via fallback || sur lieu', () => {
+    // Audit fix : `s.lieu_principal_text || s.lieu` (et pas ??), pour
+    // bien fallback même quand lieu_principal_text='' (string vide).
+    const mixed = [{ id: 'mx', label: 'X', lieu_principal_text: '', lieu: 'Mtp' }]
+    expect(findMatchingSession(mixed, 'X', 'Mtp')?.id).toBe('mx')
+  })
+
+  it('renvoie null si lieu cible diffère du lieu DB', () => {
+    expect(findMatchingSession(sessions, 'Tournage', 'Toulouse')).toBeNull()
+  })
+
+  it('robuste sur entrées dégradées', () => {
+    expect(findMatchingSession(null, 'X', 'Y')).toBeNull()
+    expect(findMatchingSession([], 'X', 'Y')).toBeNull()
+    expect(findMatchingSession([{ label: null }], 'X', 'Y')).toBeNull()
   })
 })
