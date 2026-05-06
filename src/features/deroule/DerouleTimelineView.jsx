@@ -18,7 +18,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, AlertTriangle } from 'lucide-react'
 import {
   formatMinHHMM,
   effectiveCouleurCreneau,
@@ -39,6 +39,8 @@ const TIME_COL_W = 56
  * @param {Map}     creneauxByLane
  * @param {Array}   creneauxMultiLane
  * @param {Array}   membres                   techlist du projet
+ * @param {Map}     conflictsByCreneau        creneauId → [{creneau, membre}, ...]
+ *                                             Phase D — overlap warnings
  * @param {boolean} canEdit
  * @param {Function} onSelectCreneau          (creneau) => void — ouvre l'inspecteur
  * @param {Function} onCreateCreneauAt        ({ lane_id, multi_lane, heure_debut, heure_fin }) => void
@@ -53,6 +55,7 @@ export default function DerouleTimelineView({
   creneauxByLane,
   creneauxMultiLane,
   membres,
+  conflictsByCreneau,
   canEdit,
   onSelectCreneau,
   onCreateCreneauAt,
@@ -562,6 +565,7 @@ export default function DerouleTimelineView({
                       canEdit={canEdit}
                       onMouseDownDrag={handleBlockMouseDown}
                       isDragging={isThisDragging && dragState.hasMoved}
+                      conflicts={conflictsByCreneau?.get?.(c.id) || []}
                     />
                   )
                 })}
@@ -673,6 +677,7 @@ export default function DerouleTimelineView({
                 canEdit={canEdit}
                 onMouseDownDrag={handleBlockMouseDown}
                 isDragging={isThisDragging && dragState.hasMoved}
+                conflicts={conflictsByCreneau?.get?.(c.id) || []}
               />
             )
           })}
@@ -851,10 +856,37 @@ function CreneauBlock({
   canEdit,
   onMouseDownDrag,
   isDragging,
+  conflicts = [],
 }) {
   const color = effectiveCouleurCreneau(creneau)
   const minH = 24
   const HANDLE_PX = 6 // zone de resize en haut/bas du bloc
+
+  // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
+  // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
+  // détaillé (membres en conflit + créneaux concernés).
+  const hasConflict = Array.isArray(conflicts) && conflicts.length > 0
+  // Dédupe les membres en conflit (un même membre peut apparaître plusieurs
+  // fois si overlap multi-créneaux) et compose un tooltip lisible.
+  const conflictTooltip = useMemo(() => {
+    if (!hasConflict) return ''
+    const byMembre = new Map()
+    for (const { creneau: other, membre } of conflicts) {
+      if (!byMembre.has(membre.id)) {
+        const fn = `${membre.prenom || membre.contact?.prenom || ''} ${membre.nom || membre.contact?.nom || ''}`.trim() || '?'
+        byMembre.set(membre.id, { fn, others: [] })
+      }
+      byMembre.get(membre.id).others.push(other)
+    }
+    const lines = []
+    for (const { fn, others } of byMembre.values()) {
+      const titres = others
+        .map((o) => `${o.titre || '(sans titre)'} (${formatMinHHMM(o.heure_debut_min)}–${formatMinHHMM(o.heure_fin_min)})`)
+        .join(', ')
+      lines.push(`⚠ ${fn} : conflit avec ${titres}`)
+    }
+    return lines.join('\n')
+  }, [hasConflict, conflicts])
 
   function handleMouseDown(e) {
     if (!canEdit || !onMouseDownDrag) return
@@ -900,19 +932,28 @@ function CreneauBlock({
         pointerEvents: 'auto',
         opacity: isDragging ? 0.55 : (creneau.statut === 'annule' ? 0.5 : 1),
         textDecoration: creneau.statut === 'annule' ? 'line-through' : 'none',
-        outline: isDragging ? `2px solid ${color}` : 'none',
+        // Phase D — bordure rouge si conflit (override le boxShadow hover)
+        outline: isDragging
+          ? `2px solid ${color}`
+          : hasConflict
+          ? '1.5px solid #E24B4A'
+          : 'none',
         outlineOffset: isDragging ? 1 : 0,
         zIndex: isDragging ? 5 : 'auto',
         userSelect: 'none',
         transition: isDragging ? 'none' : 'box-shadow 0.15s',
       }}
       onMouseEnter={(e) => {
-        if (!isDragging) e.currentTarget.style.boxShadow = '0 0 0 1px ' + color
+        if (!isDragging && !hasConflict) e.currentTarget.style.boxShadow = '0 0 0 1px ' + color
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.boxShadow = 'none'
       }}
-      title={`${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`}
+      title={
+        hasConflict
+          ? `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}\n\n${conflictTooltip}`
+          : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
+      }
     >
       <div
         style={{
@@ -927,6 +968,18 @@ function CreneauBlock({
       >
         {isMultiLane && (
           <span style={{ marginRight: 4, opacity: 0.6 }}>↔</span>
+        )}
+        {hasConflict && (
+          <AlertTriangle
+            className="inline-block"
+            style={{
+              width: 11,
+              height: 11,
+              marginRight: 4,
+              color: '#E24B4A',
+              verticalAlign: '-1px',
+            }}
+          />
         )}
         {creneau.titre || '(sans titre)'}
       </div>

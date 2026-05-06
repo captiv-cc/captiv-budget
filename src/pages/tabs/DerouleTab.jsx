@@ -39,6 +39,7 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // décision Hugo "pas de contrainte dure". Le picker liste TOUS les membres
 // du projet, avec un indicateur visuel sur ceux non présents ce jour.
 // import { membresPresentsJour } from '../../lib/deroule'
+import { findMembreOverlaps } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
 import DerouleListView from '../../features/deroule/DerouleListView'
@@ -107,6 +108,29 @@ export default function DerouleTab() {
         setMembres(data || [])
       })
   }, [canRead, projectId])
+
+  // ─── Phase D — Détection des conflits d'assignation ─────────────────────
+  // Pour chaque membre, on cherche les paires de créneaux qui se chevauchent
+  // dans le temps. Si un membre est dans 2 créneaux qui overlappent, ces
+  // créneaux sont marqués "en conflit" → la TimelineView/ListView les rend
+  // avec un visuel d'alerte (bordure rouge + tooltip détaillé).
+  const conflictsByCreneau = useMemo(() => {
+    const map = new Map()
+    if (!Array.isArray(creneaux) || creneaux.length === 0) return map
+    if (!Array.isArray(membres) || membres.length === 0) return map
+    for (const m of membres) {
+      const pairs = findMembreOverlaps(m.id, creneaux)
+      for (const [a, b] of pairs) {
+        const arrA = map.get(a.id) || []
+        arrA.push({ creneau: b, membre: m })
+        map.set(a.id, arrA)
+        const arrB = map.get(b.id) || []
+        arrB.push({ creneau: a, membre: m })
+        map.set(b.id, arrB)
+      }
+    }
+    return map
+  }, [creneaux, membres])
 
   // ─── Tous les membres du projet, annotés "présent ce jour" ou non ────────
   // FIX V0 : on liste TOUS les membres (décision Hugo : pas de contrainte
@@ -331,6 +355,7 @@ export default function DerouleTab() {
           creneauxByLane={creneauxByLane}
           creneauxMultiLane={creneauxMultiLane}
           membres={membres}
+          conflictsByCreneau={conflictsByCreneau}
           canEdit={canEdit}
           onSelectCreneau={handleSelectCreneau}
           onCreateCreneauAt={handleCreateCreneauAt}
@@ -344,6 +369,7 @@ export default function DerouleTab() {
           lanes={lanes}
           creneaux={creneaux}
           membres={membres}
+          conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={handleSelectCreneau}
         />
       )}

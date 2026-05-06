@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useMemo } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import {
   effectiveCouleurCreneau,
   sortCreneauxByTime,
@@ -19,6 +20,7 @@ export default function DerouleListView({
   lanes,
   creneaux,
   membres,
+  conflictsByCreneau,
   onSelectCreneau,
 }) {
   const laneById = useMemo(() => {
@@ -83,6 +85,9 @@ export default function DerouleListView({
             const dureeStr = dureeMin >= 60
               ? `${Math.floor(dureeMin / 60)}h${dureeMin % 60 ? String(dureeMin % 60).padStart(2, '0') : ''}`
               : `${dureeMin}min`
+            // Phase D — conflits d'assignation
+            const conflicts = conflictsByCreneau?.get?.(c.id) || []
+            const hasConflict = conflicts.length > 0
             return (
               <tr
                 key={c.id}
@@ -117,6 +122,17 @@ export default function DerouleListView({
                     className="inline-block w-1.5 h-1.5 rounded-full mr-2"
                     style={{ background: color }}
                   />
+                  {hasConflict && (
+                    <AlertTriangle
+                      className="inline-block mr-1.5"
+                      style={{
+                        width: 12,
+                        height: 12,
+                        color: '#E24B4A',
+                        verticalAlign: '-2px',
+                      }}
+                    />
+                  )}
                   <span style={{ textDecoration: c.statut === 'annule' ? 'line-through' : 'none' }}>
                     {c.titre || '(sans titre)'}
                   </span>
