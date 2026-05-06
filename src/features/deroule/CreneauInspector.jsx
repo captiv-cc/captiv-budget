@@ -710,6 +710,12 @@ function MembrePicker({ membres, selected, onChange }) {
     }
   }, [membres, search])
 
+  // Quand l'utilisateur tape une recherche, on déplie automatiquement la
+  // section "Hors présence" pour qu'il voie les résultats matching dedans
+  // (sinon il devrait cliquer le chevron à chaque fois pour comprendre
+  // pourquoi sa recherche "ne donne rien").
+  const effectiveShowHorsPresence = showHorsPresence || search.trim().length > 0
+
   function toggle(id) {
     if (selected.includes(id)) onChange(selected.filter((x) => x !== id))
     else onChange([...selected, id])
@@ -833,17 +839,22 @@ function MembrePicker({ membres, selected, onChange }) {
                 background: 'var(--bg-surf)',
                 color: 'var(--txt-3)',
                 borderTop: '1px solid var(--brd-sub)',
-                borderBottom: showHorsPresence ? '1px solid var(--brd-sub)' : 'none',
+                borderBottom: effectiveShowHorsPresence ? '1px solid var(--brd-sub)' : 'none',
               }}
+              title={
+                search.trim()
+                  ? 'Auto-déplié pendant la recherche'
+                  : 'Membres non présents ce jour selon la techlist'
+              }
             >
-              {showHorsPresence ? (
+              {effectiveShowHorsPresence ? (
                 <ChevronDown className="w-3 h-3" />
               ) : (
                 <ChevronRight className="w-3 h-3" />
               )}
               Hors présence ({horsPresence.length})
             </button>
-            {showHorsPresence &&
+            {effectiveShowHorsPresence &&
               horsPresence.map((m) => (
                 <MembreRow
                   key={m.id}
