@@ -25,6 +25,34 @@ _(rien pour l'instant — chantier Équipe Sessions Phase A bouclé le 2026-05-0
 
 ## 📋 Backlog
 
+### CONDUITE / DÉROULÉ JOUR — Tab planning tournage heure par heure
+**Ajouté le** : 2026-05-08 · **Priorité** : haute (demandé par Hugo) · **Effort estimé** : ~12-13j sur 5 vagues · **V1 livrable en ~4-5j**
+
+Tab dédiée pour gérer le déroulé temporel d'une journée de tournage :
+qui fait quoi, à quelle heure, sur quelle équipe, à quel endroit. Multi-lane
+(jusqu'à 5 équipes parallèles), granularité 5 min stockée / 15 min affichée,
+import des présences techlist en 1 clic, partage public via lien, futur
+agrégateur des call sheets.
+
+Roadmap complète : [`CHANTIER_CONDUITE.md`](./CHANTIER_CONDUITE.md) :
+- **V1 (~4-5j)** — édition fluide : timeline desktop + liste mobile,
+  multi-lane, drag/resize, snap 15min/5min, import présences,
+  now line, overlap warnings
+- **V2 (~2j)** — partage public : token + page `/share/conduite/:token`
+  + intégration sous-page portail projet
+- **V3 (~1.5j)** — mode régie live : statuts par créneau (planifie /
+  en_cours / fait), auto-highlight bloc en cours
+- **V4 (~3j)** — call sheets PDF : agrégat équipe + conduite + lieux +
+  contacts urgence, distribution lien public, versioning snapshot
+- **V5 (~2j)** — templates inter-projets, documents attachés par
+  créneau, diff entre versions
+
+**Décision en attente** : nom final de la tab. Reco doc : "Déroulé"
+(accessible tous métiers vs "Conduite" trop broadcast vs "Rundown"
+anglo niche). À trancher avant V1.
+
+---
+
 ### LOGISTIQUE V1/V2/V3 — Tab dédiée régie
 **Ajouté le** : 2026-04-15 · **Priorité** : haute · **Effort estimé** : ~7-10j total (3 vagues)
 
