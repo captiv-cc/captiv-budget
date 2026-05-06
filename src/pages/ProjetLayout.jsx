@@ -46,6 +46,7 @@ import {
   Activity,
   Users,
   Calendar,
+  Clock,
   Clapperboard,
   CheckSquare,
   Package,
@@ -94,6 +95,14 @@ const ALL_TABS = [
     outil: 'devis',
   },
   { key: 'equipe', label: 'Équipe', icon: Users, path: 'equipe', finance: false, outil: 'equipe' },
+  {
+    key: 'deroule',
+    label: 'Déroulé',
+    icon: Clock,
+    path: 'deroule',
+    finance: false,
+    outil: 'deroule',
+  },
   {
     key: 'planning',
     label: 'Planning',
