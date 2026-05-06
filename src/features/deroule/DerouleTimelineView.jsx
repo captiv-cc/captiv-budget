@@ -72,8 +72,31 @@ export default function DerouleTimelineView({
   }, [membres])
 
   // Bornes timeline (V0.5 : déjà en minutes INTEGER côté DB)
+  // FIX : étendre dynamiquement heureFinMin au max entre la borne configurée
+  // du déroulé ET le créneau le plus tardif. Sinon un créneau qui déborde
+  // sur le lendemain (ex: live 23:00 → 02:30 +1j) est tracé hors viewport.
   const heureDebutMin = deroule?.heure_debut_min ?? 0
-  const heureFinMin = deroule?.heure_fin_min ?? 1439
+  const heureFinMinConfig = deroule?.heure_fin_min ?? 1439
+  // Récupère le max heure_fin_min de tous les créneaux (multi_lane + lanes)
+  const allCreneaux = useMemo(() => {
+    const arr = []
+    for (const lane of lanes || []) {
+      const cs = creneauxByLane.get(lane.id) || []
+      for (const c of cs) arr.push(c)
+    }
+    for (const c of creneauxMultiLane || []) arr.push(c)
+    return arr
+  }, [lanes, creneauxByLane, creneauxMultiLane])
+  const maxCreneauFin = useMemo(() => {
+    let max = heureFinMinConfig
+    for (const c of allCreneaux) {
+      if (typeof c.heure_fin_min === 'number' && c.heure_fin_min > max) {
+        max = c.heure_fin_min
+      }
+    }
+    return max
+  }, [allCreneaux, heureFinMinConfig])
+  const heureFinMin = maxCreneauFin
   const totalMin = Math.max(60, heureFinMin - heureDebutMin)
   const totalHeight = (totalMin / 60) * PX_PER_HOUR
   const stepMin = deroule?.display_step_min || 15
