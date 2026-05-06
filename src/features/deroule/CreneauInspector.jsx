@@ -595,12 +595,15 @@ function MembrePicker({ membres, selected, onChange }) {
       <div className="overflow-y-auto" style={{ flex: 1, maxHeight: 160 }}>
         {filtered.length === 0 && (
           <div className="px-2 py-2 text-xs" style={{ color: 'var(--txt-3)' }}>
-            Aucun membre présent ce jour
+            Aucun membre dans le projet
           </div>
         )}
         {filtered.map((m) => {
           const checked = selected.includes(m.id)
           const fn = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
+          // FIX V0 : on affiche TOUS les membres mais on grise ceux pas présents
+          // ce jour selon la techlist (warning visuel, pas blocage).
+          const presentCeJour = m.present_ce_jour !== false
           return (
             <label
               key={m.id}
@@ -608,7 +611,9 @@ function MembrePicker({ membres, selected, onChange }) {
               style={{
                 background: checked ? 'var(--bg-hov)' : 'transparent',
                 color: 'var(--txt)',
+                opacity: presentCeJour ? 1 : 0.55,
               }}
+              title={presentCeJour ? '' : 'Non présent ce jour selon la techlist (assignation possible mais à vérifier)'}
             >
               <input
                 type="checkbox"
@@ -619,6 +624,18 @@ function MembrePicker({ membres, selected, onChange }) {
               {m.specialite && (
                 <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
                   · {m.specialite}
+                </span>
+              )}
+              {!presentCeJour && (
+                <span
+                  className="text-[9px] ml-auto px-1 rounded shrink-0"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--amber)',
+                    border: '1px solid var(--brd-sub)',
+                  }}
+                >
+                  hors présence
                 </span>
               )}
             </label>

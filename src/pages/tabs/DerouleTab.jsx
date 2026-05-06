@@ -35,7 +35,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useDeroule } from '../../hooks/useDeroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
-import { membresPresentsJour } from '../../lib/deroule'
+// FIX V0 : on n'utilise plus membresPresentsJour pour filtrer le picker —
+// décision Hugo "pas de contrainte dure". Le picker liste TOUS les membres
+// du projet, avec un indicateur visuel sur ceux non présents ce jour.
+// import { membresPresentsJour } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
 import DerouleListView from '../../features/deroule/DerouleListView'
@@ -105,11 +108,17 @@ export default function DerouleTab() {
       })
   }, [canRead, projectId])
 
-  // ─── Membres présents le jour sélectionné (pour ContactPicker filtré) ────
-  const membresPresents = useMemo(
-    () => membresPresentsJour(membres, selectedDate),
-    [membres, selectedDate],
-  )
+  // ─── Tous les membres du projet, annotés "présent ce jour" ou non ────────
+  // FIX V0 : on liste TOUS les membres (décision Hugo : pas de contrainte
+  // dure), avec un flag `present_ce_jour` que le MembrePicker affiche en
+  // indicateur visuel léger.
+  const membresAvecPresence = useMemo(() => {
+    if (!Array.isArray(membres)) return []
+    return membres.map((m) => {
+      const days = Array.isArray(m?.presence_days) ? m.presence_days : []
+      return { ...m, present_ce_jour: days.includes(selectedDate) }
+    })
+  }, [membres, selectedDate])
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
@@ -361,7 +370,7 @@ export default function DerouleTab() {
         <CreneauInspector
           creneau={inspectedCreneau}
           lanes={lanes}
-          membresPresents={membresPresents}
+          membresPresents={membresAvecPresence}
           canEdit={canEdit}
           onClose={() => setInspectedCreneau(null)}
           onSave={handleSaveCreneau}
@@ -374,7 +383,7 @@ export default function DerouleTab() {
           creneau={creatingDraft}
           isCreate
           lanes={lanes}
-          membresPresents={membresPresents}
+          membresPresents={membresAvecPresence}
           canEdit={canEdit}
           onClose={() => setCreatingDraft(null)}
           onCreate={handleCreateCreneauSubmit}

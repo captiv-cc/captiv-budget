@@ -101,8 +101,13 @@ export default function DerouleTimelineView({
 
   const isToday = useMemo(() => {
     if (!deroule?.date_jour) return false
-    const today = now.toISOString().slice(0, 10)
-    return today === deroule.date_jour
+    // FIX V0 : comparer en local time (cohérent avec selectedDate côté
+    // DerouleTab qui utilise isoDate(new Date()) local). Avant : toISOString()
+    // était UTC → décalage potentiel en soirée tardive ou tôt le matin.
+    const yyyy = now.getFullYear()
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const dd = String(now.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}` === deroule.date_jour
   }, [deroule?.date_jour, now])
 
   const nowMin = isToday ? now.getHours() * 60 + now.getMinutes() : null
@@ -291,6 +296,20 @@ export default function DerouleTimelineView({
             </div>
           )
         })}
+
+        {/* Spacer 80px à droite pour matcher la colonne "+ Lane" du header.
+            Sans ce spacer, les lanes flex-1 du body s'étalent sur 80px de
+            plus que celles du header → décalage croissant vers la droite. */}
+        {canAddLane && canEdit && (
+          <div
+            style={{
+              width: 80,
+              minWidth: 80,
+              borderLeft: '1px dashed var(--brd-sub)',
+              opacity: 0.4,
+            }}
+          />
+        )}
 
         {/* Couche multi-lane : par-dessus toutes les lanes (left: TIME_COL_W) */}
         <div
@@ -607,13 +626,14 @@ function hexToRgb(hex) {
 
 function hexToBgFill(hex) {
   const [r, g, b] = hexToRgb(hex)
-  // Mix avec blanc à ~88% pour un fond très pâle
-  return `rgba(${r}, ${g}, ${b}, 0.12)`
+  // FIX V0 : 0.18 (au lieu de 0.12) pour mieux ressortir sur dark mode.
+  // Sur fond très foncé, 0.12 était presque invisible.
+  return `rgba(${r}, ${g}, ${b}, 0.18)`
 }
 
 function hexToAvatarBg(hex) {
   const [r, g, b] = hexToRgb(hex)
-  return `rgba(${r}, ${g}, ${b}, 0.25)`
+  return `rgba(${r}, ${g}, ${b}, 0.3)`
 }
 
 function hexToTextColor(hex) {
