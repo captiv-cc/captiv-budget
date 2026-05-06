@@ -23,8 +23,10 @@ import {
   formatMinHHMM,
   effectiveCouleurCreneau,
   defaultLaneLibelle,
+  snapToStep,
   CRENEAU_TYPE_COLORS,
   MAX_LANES,
+  MAX_MIN,
 } from '../../lib/deroule'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
@@ -43,6 +45,7 @@ const TIME_COL_W = 56
  * @param {Function} onAddLane                (libelle?) => void
  * @param {Function} onUpdateLane             (laneId, fields) => void
  * @param {Function} onDeleteLane             (laneId) => void
+ * @param {Function} onMoveCreneau            (creneauId, fields) => Promise — Phase C
  */
 export default function DerouleTimelineView({
   deroule,
@@ -56,8 +59,10 @@ export default function DerouleTimelineView({
   onAddLane,
   onUpdateLane,
   onDeleteLane,
+  onMoveCreneau,
 }) {
   const containerRef = useRef(null)
+  const bodyRef = useRef(null) // pour calcul lane sous mouseX en drag horizontal
 
   // Mapping membre_id → initiales pour les avatars
   const membreInitiales = useMemo(() => {
@@ -144,6 +149,170 @@ export default function DerouleTimelineView({
   function durationToHeight(durMin) {
     return (durMin / 60) * PX_PER_HOUR
   }
+
+  // ─── Phase C — Drag & drop + resize ────────────────────────────────────
+  // dragState capture le créneau en cours de manipulation et les deltas
+  // souris depuis le début du drag. Pendant le drag, le bloc concerné
+  // est rendu avec une position dérivée + visuel "ghost" (opacity, outline).
+  // Au mouseup, on commit via onMoveCreneau(creneauId, fields).
+  //
+  // mode :
+  //   - 'move'         : déplace le bloc (heure_debut + heure_fin shift de
+  //                       deltaMin, durée préservée). Drag horizontal aussi
+  //                       pour changer de lane.
+  //   - 'resize-top'   : ajuste heure_debut_min sans toucher heure_fin_min.
+  //   - 'resize-bottom': ajuste heure_fin_min sans toucher heure_debut_min.
+  //
+  // Snap : 15 min par défaut, 5 min si Alt enfoncé pendant le drag.
+  const [dragState, setDragState] = useState(null)
+  const dragStateRef = useRef(null)
+  dragStateRef.current = dragState
+
+  function handleBlockMouseDown(e, creneau, mode) {
+    if (!canEdit) return
+    if (e.button !== 0) return // left click only
+    e.stopPropagation()
+    e.preventDefault()
+    setDragState({
+      creneauId: creneau.id,
+      mode,
+      initialMouseY: e.clientY,
+      initialMouseX: e.clientX,
+      initialDebutMin: creneau.heure_debut_min,
+      initialFinMin: creneau.heure_fin_min,
+      initialLaneId: creneau.lane_id,
+      multiLane: creneau.multi_lane,
+      // valeurs courantes pendant le drag (override visuel + commit final)
+      currentDebutMin: creneau.heure_debut_min,
+      currentFinMin: creneau.heure_fin_min,
+      currentLaneId: creneau.lane_id,
+      hasMoved: false,
+      altKey: e.altKey,
+    })
+  }
+
+  // Listener global mouseMove + mouseUp pendant un drag actif
+  useEffect(() => {
+    if (!dragState) return undefined
+
+    function pixelsToMin(deltaPx) {
+      return (deltaPx / PX_PER_HOUR) * 60
+    }
+
+    function findLaneIdAtX(clientX) {
+      // Trouve la lane sous mouseX en parcourant les rect des colonnes lane
+      // (les divs lane ont un attribut data-lane-id pour les retrouver).
+      if (!bodyRef.current) return null
+      const laneEls = bodyRef.current.querySelectorAll('[data-lane-id]')
+      for (const el of laneEls) {
+        const r = el.getBoundingClientRect()
+        if (clientX >= r.left && clientX <= r.right) {
+          return el.getAttribute('data-lane-id')
+        }
+      }
+      return null
+    }
+
+    function onMove(e) {
+      const s = dragStateRef.current
+      if (!s) return
+      const step = e.altKey ? 5 : 15
+      const deltaY = e.clientY - s.initialMouseY
+      const deltaMin = pixelsToMin(deltaY)
+      let nextDebut = s.initialDebutMin
+      let nextFin = s.initialFinMin
+      let nextLaneId = s.initialLaneId
+
+      if (s.mode === 'move') {
+        const snapped = snapToStep(deltaMin, step)
+        nextDebut = s.initialDebutMin + snapped
+        nextFin = s.initialFinMin + snapped
+        // Clamp dans les bornes
+        if (nextDebut < heureDebutMin) {
+          const correction = heureDebutMin - nextDebut
+          nextDebut += correction
+          nextFin += correction
+        }
+        if (nextFin > MAX_MIN) {
+          const correction = nextFin - MAX_MIN
+          nextDebut -= correction
+          nextFin -= correction
+        }
+        // Drag horizontal entre lanes (uniquement pour les blocs non multi-lane)
+        if (!s.multiLane) {
+          const laneId = findLaneIdAtX(e.clientX)
+          if (laneId) nextLaneId = laneId
+        }
+      } else if (s.mode === 'resize-top') {
+        const snapped = snapToStep(deltaMin, step)
+        nextDebut = s.initialDebutMin + snapped
+        // Pas plus haut que heureDebutMin, pas plus bas que finMin - 5
+        nextDebut = Math.max(heureDebutMin, Math.min(s.initialFinMin - 5, nextDebut))
+      } else if (s.mode === 'resize-bottom') {
+        const snapped = snapToStep(deltaMin, step)
+        nextFin = s.initialFinMin + snapped
+        nextFin = Math.min(MAX_MIN, Math.max(s.initialDebutMin + 5, nextFin))
+      }
+
+      const hasChanged =
+        nextDebut !== s.initialDebutMin ||
+        nextFin !== s.initialFinMin ||
+        nextLaneId !== s.initialLaneId
+      const hasMoved = s.hasMoved || Math.abs(deltaY) > 3 || Math.abs(e.clientX - s.initialMouseX) > 3
+
+      setDragState({
+        ...s,
+        currentDebutMin: nextDebut,
+        currentFinMin: nextFin,
+        currentLaneId: nextLaneId,
+        altKey: e.altKey,
+        hasMoved: hasMoved && hasChanged,
+      })
+    }
+
+    async function onUp() {
+      const s = dragStateRef.current
+      setDragState(null)
+      if (!s) return
+      // Si le drag n'a pas vraiment bougé → c'est un click, on laisse passer
+      // (le onClick du bloc s'appliquera via l'événement parallèle).
+      if (!s.hasMoved) return
+      const fields = {
+        heure_debut_min: s.currentDebutMin,
+        heure_fin_min: s.currentFinMin,
+      }
+      if (s.mode === 'move' && !s.multiLane && s.currentLaneId !== s.initialLaneId) {
+        fields.lane_id = s.currentLaneId
+      }
+      // Skip le call si rien n'a changé
+      const noChange =
+        fields.heure_debut_min === s.initialDebutMin &&
+        fields.heure_fin_min === s.initialFinMin &&
+        !('lane_id' in fields)
+      if (noChange) return
+      try {
+        await onMoveCreneau?.(s.creneauId, fields)
+      } catch (err) {
+        console.error('[DerouleTimelineView] move/resize commit error', err)
+      }
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        setDragState(null)
+      }
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('keydown', onKey)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragState?.creneauId])
 
   // Click sur zone vide d'une lane → suggère création
   // V0.5 : produit des heure_debut_min / heure_fin_min en INTEGER directement
@@ -242,6 +411,7 @@ export default function DerouleTimelineView({
 
       {/* Body timeline */}
       <div
+        ref={bodyRef}
         className="relative flex"
         style={{ height: totalHeight + 16, minHeight: 200 }}
       >
@@ -279,6 +449,7 @@ export default function DerouleTimelineView({
           return (
             <div
               key={lane.id}
+              data-lane-id={lane.id}
               onClick={(e) => handleEmptyClick(e, lane.id)}
               className="flex-1 relative"
               style={{
@@ -305,16 +476,66 @@ export default function DerouleTimelineView({
               ))}
 
               {/* Créneaux mono-lane */}
-              {creneauxLane.map((c) => (
-                <CreneauBlock
-                  key={c.id}
-                  creneau={c}
-                  top={minToTop(c.heure_debut_min)}
-                  height={durationToHeight(c.heure_fin_min - c.heure_debut_min)}
-                  membreInitiales={membreInitiales}
-                  onClick={() => onSelectCreneau?.(c)}
-                />
-              ))}
+              {creneauxLane
+                .filter((c) => {
+                  // Pendant un drag horizontal vers une autre lane, on
+                  // affiche le créneau dans la lane de destination courante.
+                  // Le créneau est masqué dans sa lane d'origine.
+                  if (
+                    dragState &&
+                    dragState.creneauId === c.id &&
+                    dragState.mode === 'move' &&
+                    !dragState.multiLane &&
+                    dragState.currentLaneId !== lane.id
+                  ) {
+                    return false
+                  }
+                  return true
+                })
+                .map((c) => {
+                  const isThisDragging = dragState?.creneauId === c.id
+                  const debut = isThisDragging ? dragState.currentDebutMin : c.heure_debut_min
+                  const fin = isThisDragging ? dragState.currentFinMin : c.heure_fin_min
+                  return (
+                    <CreneauBlock
+                      key={c.id}
+                      creneau={c}
+                      top={minToTop(debut)}
+                      height={durationToHeight(fin - debut)}
+                      membreInitiales={membreInitiales}
+                      onClick={() => onSelectCreneau?.(c)}
+                      canEdit={canEdit}
+                      onMouseDownDrag={handleBlockMouseDown}
+                      isDragging={isThisDragging && dragState.hasMoved}
+                    />
+                  )
+                })}
+              {/* Créneau "fantôme" affiché dans la lane DESTINATION pendant
+                  un drag horizontal. Il représente où le créneau atterrira. */}
+              {dragState &&
+                dragState.mode === 'move' &&
+                !dragState.multiLane &&
+                dragState.currentLaneId === lane.id &&
+                dragState.initialLaneId !== lane.id &&
+                dragState.hasMoved && (() => {
+                  const draggedCreneau =
+                    [...creneauxByLane.values()].flat().find((c) => c.id === dragState.creneauId)
+                  if (!draggedCreneau) return null
+                  return (
+                    <CreneauBlock
+                      key={`ghost-${dragState.creneauId}`}
+                      creneau={draggedCreneau}
+                      top={minToTop(dragState.currentDebutMin)}
+                      height={durationToHeight(
+                        dragState.currentFinMin - dragState.currentDebutMin,
+                      )}
+                      membreInitiales={membreInitiales}
+                      onClick={() => {}}
+                      canEdit={false}
+                      isDragging
+                    />
+                  )
+                })()}
             </div>
           )
         })}
@@ -344,17 +565,25 @@ export default function DerouleTimelineView({
             bottom: 0,
           }}
         >
-          {creneauxMultiLane.map((c) => (
-            <CreneauBlock
-              key={c.id}
-              creneau={c}
-              top={minToTop(c.heure_debut_min)}
-              height={durationToHeight(c.heure_fin_min - c.heure_debut_min)}
-              membreInitiales={membreInitiales}
-              onClick={() => onSelectCreneau?.(c)}
-              isMultiLane
-            />
-          ))}
+          {creneauxMultiLane.map((c) => {
+            const isThisDragging = dragState?.creneauId === c.id
+            const debut = isThisDragging ? dragState.currentDebutMin : c.heure_debut_min
+            const fin = isThisDragging ? dragState.currentFinMin : c.heure_fin_min
+            return (
+              <CreneauBlock
+                key={c.id}
+                creneau={c}
+                top={minToTop(debut)}
+                height={durationToHeight(fin - debut)}
+                membreInitiales={membreInitiales}
+                onClick={() => onSelectCreneau?.(c)}
+                isMultiLane
+                canEdit={canEdit}
+                onMouseDownDrag={handleBlockMouseDown}
+                isDragging={isThisDragging && dragState.hasMoved}
+              />
+            )
+          })}
         </div>
 
         {/* Now line */}
@@ -520,16 +749,51 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete }) {
 
 // ─── CreneauBlock — rectangle cliquable ────────────────────────────────────
 
-function CreneauBlock({ creneau, top, height, membreInitiales, onClick, isMultiLane }) {
+function CreneauBlock({
+  creneau,
+  top,
+  height,
+  membreInitiales,
+  onClick,
+  isMultiLane,
+  canEdit,
+  onMouseDownDrag,
+  isDragging,
+}) {
   const color = effectiveCouleurCreneau(creneau)
   const minH = 24
+  const HANDLE_PX = 6 // zone de resize en haut/bas du bloc
+
+  function handleMouseDown(e) {
+    if (!canEdit || !onMouseDownDrag) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    let mode = 'move'
+    if (y < HANDLE_PX) mode = 'resize-top'
+    else if (y > rect.height - HANDLE_PX) mode = 'resize-bottom'
+    onMouseDownDrag(e, creneau, mode)
+  }
+
+  function getCursor(e) {
+    if (!canEdit) return 'pointer'
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    if (y < HANDLE_PX || y > rect.height - HANDLE_PX) return 'ns-resize'
+    return 'grab'
+  }
 
   return (
     <div
       onClick={(e) => {
+        // Pendant un drag avec hasMoved, le mouseup reset dragState avant
+        // que le click ne tire — donc on n'ouvre pas l'inspector. OK.
         e.stopPropagation()
-        onClick?.(creneau)
+        if (!isDragging) onClick?.(creneau)
       }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={canEdit ? (e) => {
+        e.currentTarget.style.cursor = getCursor(e)
+      } : undefined}
       className="absolute rounded-r"
       style={{
         top,
@@ -539,15 +803,19 @@ function CreneauBlock({ creneau, top, height, membreInitiales, onClick, isMultiL
         background: hexToBgFill(color),
         borderLeft: `2px solid ${color}`,
         padding: '4px 8px',
-        cursor: 'pointer',
+        cursor: canEdit ? 'grab' : 'pointer',
         overflow: 'hidden',
         pointerEvents: 'auto',
-        opacity: creneau.statut === 'annule' ? 0.5 : 1,
+        opacity: isDragging ? 0.55 : (creneau.statut === 'annule' ? 0.5 : 1),
         textDecoration: creneau.statut === 'annule' ? 'line-through' : 'none',
-        transition: 'box-shadow 0.15s',
+        outline: isDragging ? `2px solid ${color}` : 'none',
+        outlineOffset: isDragging ? 1 : 0,
+        zIndex: isDragging ? 5 : 'auto',
+        userSelect: 'none',
+        transition: isDragging ? 'none' : 'box-shadow 0.15s',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = '0 0 0 1px ' + color
+        if (!isDragging) e.currentTarget.style.boxShadow = '0 0 0 1px ' + color
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.boxShadow = 'none'

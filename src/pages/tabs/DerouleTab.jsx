@@ -337,6 +337,7 @@ export default function DerouleTab() {
           onAddLane={handleAddLane}
           onUpdateLane={updateLane}
           onDeleteLane={handleDeleteLane}
+          onMoveCreneau={updateCreneau}
         />
       ) : (
         <DerouleListView
