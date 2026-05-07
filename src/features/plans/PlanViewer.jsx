@@ -66,7 +66,16 @@ export default function PlanViewer({
   signedUrl: signedUrlFromProps = null,
   onClose,
 }) {
-  const preloaded = Boolean(planFromProps && signedUrlFromProps)
+  // FIX (share/anon) : `preloaded` se déduit de la PRÉSENCE de `plan` en props,
+  // PAS de `signedUrl` (qui peut être null si la policy storage anon refuse de
+  // signer le path — cas typique du portail projet quand la policy
+  // `plans_storage_anon_share` n'inclut pas project_share_tokens dans son OR).
+  // Sans ce changement, un signed_url null faisait basculer en mode auth et
+  // appelait `getPlan()` directement sur la table → bloqué par RLS pour anon
+  // → erreur peu claire "Cannot coerce the result to a single JSON object".
+  // Désormais : si le caller a passé un `plan`, on reste en mode preloaded
+  // et on affiche une erreur explicite si `signedUrl` manque.
+  const preloaded = Boolean(planFromProps)
   const [planFromFetch, setPlanFromFetch] = useState(null)
   const [signedUrlFromFetch, setSignedUrlFromFetch] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -130,7 +139,20 @@ export default function PlanViewer({
     setSelectedVersionNum(null)
     setHistoricalUrls({})
     if (preloaded) {
-      // Mode preloaded : rien à fetch, juste reset l'erreur.
+      // Mode preloaded (share/anon) : rien à fetch.
+      // Si signedUrl manque malgré le mode preloaded → la policy storage
+      // anon a refusé de signer le path. On affiche une erreur explicite
+      // plutôt que de tomber dans `getPlan()` qui ne marcherait pas non
+      // plus pour un anon.
+      if (!signedUrlFromProps) {
+        setError(
+          new Error(
+            "Le fichier n'est pas accessible via ce lien public. Le lien est peut-être expiré, ou la policy storage doit être mise à jour côté serveur.",
+          ),
+        )
+        setLoading(false)
+        return
+      }
       setError(null)
       setLoading(false)
       return
@@ -172,7 +194,7 @@ export default function PlanViewer({
     return () => {
       cancelled = true
     }
-  }, [planId, preloaded])
+  }, [planId, preloaded, signedUrlFromProps])
 
   // Génère lazy la signed URL d'une version historique en mode auth quand
   // l'utilisateur la sélectionne. En mode preloaded, l'URL est déjà dans le
