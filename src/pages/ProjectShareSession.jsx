@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  AlertCircle, Loader2, Users, CheckSquare, Package, Map as MapIcon, ChevronRight,
+  AlertCircle, Loader2, Users, CheckSquare, Package, Map as MapIcon, Clock, ChevronRight,
 } from 'lucide-react'
 import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -87,6 +87,20 @@ const PAGE_REGISTRY = {
       if (!t) return null
       const count = Number(t.count || 0)
       return `${count} plan${count > 1 ? 's' : ''}`
+    },
+  },
+  deroule: {
+    label: 'Déroulé',
+    description: 'Planning par journée — créneaux, équipes, lieux',
+    Icon: Clock,
+    color: 'var(--green)',
+    bgColor: 'var(--green-bg)',
+    teaser: (hub) => {
+      const t = hub?.teasers?.deroule
+      if (!t) return null
+      const jours = Number(t.jours || 0)
+      const creneaux = Number(t.creneaux || 0)
+      return `${jours} jour${jours > 1 ? 's' : ''} · ${creneaux} créneau${creneaux > 1 ? 'x' : ''}`
     },
   },
 }

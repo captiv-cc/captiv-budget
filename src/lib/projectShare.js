@@ -26,7 +26,7 @@ const TOKEN_BYTES = 24 // 24 bytes → 32 chars base64url
 //   2. Créer la RPC share_projet_<page>_fetch côté SQL
 //   3. Ajouter le fetcher correspondant dans ce fichier
 //   4. Ajouter le hook + la page React + la carte du hub
-export const SHARE_PAGES = ['equipe', 'livrables', 'materiel', 'plans']
+export const SHARE_PAGES = ['equipe', 'livrables', 'materiel', 'plans', 'deroule']
 
 // Configuration par défaut pour chaque page (utilisée à la création d'un
 // token si l'admin ne précise rien). Conventions miroir des share dédiés :
@@ -61,6 +61,12 @@ export const DEFAULT_PAGE_CONFIGS = {
     scope: 'all',
     selected_plan_ids: [],
     show_versions: false,
+  },
+  // Déroulé : un seul toggle (notes internes + coordonnées membres).
+  // Pattern aligné sur derouleShare.js — la RPC share_projet_deroule_fetch
+  // lit cette clé.
+  deroule: {
+    show_sensitive: true,
   },
 }
 
@@ -399,6 +405,20 @@ export async function fetchMaterielPayload(token, password = null) {
   })
   if (error) {
     console.error('[projectShare] share_projet_materiel_fetch error', error)
+    throw error
+  }
+  if (!data) throw new Error('Token invalide ou page non activée')
+  return data
+}
+
+export async function fetchDeroulePayload(token, password = null) {
+  if (!token) throw new Error('fetchDeroulePayload : token requis')
+  const { data, error } = await supabase.rpc('share_projet_deroule_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
+  if (error) {
+    console.error('[projectShare] share_projet_deroule_fetch error', error)
     throw error
   }
   if (!data) throw new Error('Token invalide ou page non activée')

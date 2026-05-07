@@ -29,6 +29,7 @@ import {
   Trash2,
   Lock,
   AlertCircle,
+  Share2,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -41,9 +42,11 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // import { membresPresentsJour } from '../../lib/deroule'
 import { findMembreOverlaps } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
+import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
 import DerouleListView from '../../features/deroule/DerouleListView'
 import CreneauInspector from '../../features/deroule/CreneauInspector'
+import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 
 const OUTIL_KEY = 'deroule'
 
@@ -63,6 +66,8 @@ export default function DerouleTab() {
   // Inspecteur ouvert sur quel créneau (null = fermé)
   const [inspectedCreneau, setInspectedCreneau] = useState(null)
   const [creatingDraft, setCreatingDraft] = useState(null)
+  // Modale de partage (Vague 2)
+  const [shareOpen, setShareOpen] = useState(false)
 
   // Bascule auto vers liste sur mobile
   useEffect(() => {
@@ -164,7 +169,18 @@ export default function DerouleTab() {
 
   async function handleDeleteDeroule() {
     if (!canEdit || !deroule?.id) return
-    if (!window.confirm(`Supprimer le déroulé du ${formatDate(selectedDate)} ?`)) return
+    const nbCreneaux = creneaux.length
+    const nbLanes = lanes.length
+    const detail = nbCreneaux > 0
+      ? `${nbCreneaux} créneau${nbCreneaux > 1 ? 'x' : ''} et ${nbLanes} lane${nbLanes > 1 ? 's' : ''} seront définitivement supprimé${nbCreneaux > 1 ? 's' : ''}.`
+      : `${nbLanes} lane${nbLanes > 1 ? 's' : ''} seront définitivement supprimé${nbLanes > 1 ? 's' : ''} (déroulé vide).`
+    const ok = await confirm({
+      title: `Supprimer le déroulé du ${formatDate(selectedDate)}`,
+      message: `${detail} Cette action est irréversible.`,
+      confirmLabel: 'Supprimer',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await deleteDeroule(deroule.id)
       notify.success('Déroulé supprimé')
@@ -306,6 +322,22 @@ export default function DerouleTab() {
           {!isMobile && deroule && (
             <ViewToggle view={view} onChange={setView} />
           )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+              style={{
+                color: 'var(--txt-2)',
+                background: 'transparent',
+                border: '1px solid var(--brd)',
+              }}
+              title="Crée un lien public partageable du déroulé"
+            >
+              <Share2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Partager</span>
+            </button>
+          )}
           {deroule && canEdit && (
             <button
               type="button"
@@ -326,16 +358,22 @@ export default function DerouleTab() {
             <button
               type="button"
               onClick={handleDeleteDeroule}
-              className="p-1.5 rounded transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
               style={{
-                color: 'var(--txt-3)',
+                color: 'var(--red)',
                 background: 'transparent',
+                border: '1px solid var(--red-brd, rgba(226,75,74,0.3))',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--red)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-              title="Supprimer ce déroulé"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--red-bg)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+              title={`Supprimer le déroulé du ${formatDate(selectedDate)} et tous ses créneaux`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Supprimer</span>
             </button>
           )}
         </div>
@@ -421,6 +459,13 @@ export default function DerouleTab() {
           onCreate={handleCreateCreneauSubmit}
         />
       )}
+
+      {/* Modale de partage (Vague 2) */}
+      <DerouleShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        projectId={projectId}
+      />
     </div>
   )
 }

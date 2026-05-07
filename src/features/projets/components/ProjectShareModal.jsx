@@ -28,6 +28,7 @@ import {
   Calendar,
   CheckSquare,
   ChevronDown,
+  Clock,
   Copy,
   ExternalLink,
   Eye,
@@ -96,6 +97,13 @@ const PAGE_DEFS = {
     Icon: MapIcon,
     color: 'var(--blue)',
     bgColor: 'var(--blue-bg)',
+  },
+  deroule: {
+    label: 'Déroulé',
+    description: 'Planning par journée — créneaux, équipes, lieux',
+    Icon: Clock,
+    color: 'var(--green)',
+    bgColor: 'var(--green-bg)',
   },
 }
 
@@ -1003,6 +1011,12 @@ function PageCard({
               categories={plansCategories}
             />
           )}
+          {pageKey === 'deroule' && (
+            <DerouleSubForm
+              config={config}
+              onConfigChange={onConfigChange}
+            />
+          )}
         </div>
       )}
     </div>
@@ -1281,6 +1295,24 @@ function LivrablesSubForm({ config, onConfigChange }) {
         />
       </div>
     </>
+  )
+}
+
+// ─── Sub-form Déroulé (Vague 2) ─────────────────────────────────────────────
+//
+// Un seul toggle : show_sensitive (notes internes + coordonnées membres).
+// Strictement aligné sur DerouleShareModal pour cohérence côté admin.
+
+function DerouleSubForm({ config, onConfigChange }) {
+  return (
+    <div className="space-y-1">
+      <Toggle
+        checked={config?.show_sensitive !== false}
+        onChange={(v) => onConfigChange({ show_sensitive: v })}
+        label="Afficher les notes internes et coordonnées"
+        hint="Notes des créneaux/déroulés + tel/email des membres"
+      />
+    </div>
   )
 }
 

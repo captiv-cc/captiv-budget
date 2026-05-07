@@ -21,6 +21,7 @@ import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
 import EquipeShareSession from './pages/EquipeShareSession'
+import DerouleShareSession from './pages/DerouleShareSession'
 import MatosShareSession from './pages/MatosShareSession'
 import PlansShareSession from './pages/PlansShareSession'
 import ProjectShareSession from './pages/ProjectShareSession'
@@ -28,6 +29,7 @@ import ProjectShareEquipeSession from './pages/ProjectShareEquipeSession'
 import ProjectShareLivrablesSession from './pages/ProjectShareLivrablesSession'
 import ProjectShareMaterielSession from './pages/ProjectShareMaterielSession'
 import ProjectSharePlansSession from './pages/ProjectSharePlansSession'
+import ProjectShareDerouleSession from './pages/ProjectShareDerouleSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -121,6 +123,10 @@ function AppRoutes() {
           la RPC share_livrables_fetch (SECURITY DEFINER). Hors Layout app. */}
       <Route path="/share/livrables/:token" element={<LivrableShareSession />} />
       <Route path="/share/equipe/:token" element={<EquipeShareSession />} />
+      {/* Partage public déroulé (Vague 2). Vue READ-ONLY filtrée par token,
+          show_sensitive contrôle l'exposition des notes internes + coords
+          membres. La RPC share_deroule_fetch est SECURITY DEFINER. Hors Layout. */}
+      <Route path="/share/deroule/:token" element={<DerouleShareSession />} />
       {/* Partage public matériel (MATOS-SHARE). Vue READ-ONLY filtrée par
           token.config (loueurs, qté, remarques, flags, checklist, photos).
           La RPC share_matos_fetch est SECURITY DEFINER et applique les
@@ -156,6 +162,10 @@ function AppRoutes() {
       <Route
         path="/share/projet/:token/plans"
         element={<ProjectSharePlansSession />}
+      />
+      <Route
+        path="/share/projet/:token/deroule"
+        element={<ProjectShareDerouleSession />}
       />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}

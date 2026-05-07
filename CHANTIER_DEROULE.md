@@ -156,19 +156,33 @@ Estimé total ~12-13j sur 5 vagues, V1 livrable en 4-5j.
 - Bouton "+ Ajouter une lane" jusqu'à 5, "Supprimer la lane" si vide
 - Tests smoke + lint + commit
 
-### Vague 2 — Partage public + intégration portail (~2j)
+### Vague 2 — Partage public + intégration portail ✅ (livrée 2026-05-08)
 
-- Migration SQL : `deroule_share_tokens` (calqué sur `equipe_share_tokens`)
-- Lib `derouleShare.js` + hook `useDerouleShareSession`
-- Modal `DerouleShareModal` : créer / révoquer / lister les liens
-- Page `DerouleShareSession.jsx` : route `/share/deroule/:token`
-  - Vue Liste compacte mobile-first (lecture seule, pas de drag)
-  - Now line interactive
-  - Filtres : par lane / par membre (le presta voit "ses" créneaux)
-- Sous-page portail projet : `/share/projet/:token/deroule`
-  - RPC `share_projet_deroule_fetch` (cohérent avec `share_projet_equipe_fetch`)
-  - Réutilise le composant `DerouleShareView` (export named)
-- Intégration menu portail projet (cf. ProjectShareSession.jsx)
+- ✅ Migration SQL `20260508_deroule_share_tokens.sql` : table
+  `deroule_share_tokens` (project_id, token, label, show_sensitive,
+  expiration, audit), helper `_deroule_share_resolve`, RPC
+  `share_deroule_fetch` (anon), RPC `share_projet_deroule_fetch`
+  (variante portail projet via `_project_share_token_resolve`),
+  update `share_projet_fetch` (teaser `deroule`),
+  RPC admin `revoke_deroule_share_token`
+- ✅ Lib `derouleShare.js` (CRUD + URL helpers) + hook
+  `useDerouleShareSession` (anon fetch) + hook `useDerouleShareTokens`
+  (admin CRUD)
+- ✅ Modal `DerouleShareModal` : créer / révoquer / restaurer / supprimer,
+  toggle show_sensitive (notes internes + coords), expiration optionnelle
+- ✅ Page `DerouleShareSession.jsx` : route `/share/deroule/:token`,
+  sélecteur de date (chips horizontales), vue liste compacte mobile-first
+  (read-only), branding org, toggle light/dark
+- ✅ Sous-page portail projet : route `/share/projet/:token/deroule`,
+  composant `ProjectShareDerouleSession`, réutilise `DerouleShareView`
+  (export named depuis `DerouleShareSession`)
+- ✅ Intégration hub portail (`ProjectShareSession`) : carte teaser Déroulé
+  (jours · créneaux), `PAGE_DEFS` étendu dans `ProjectShareModal` avec
+  sub-form `DerouleSubForm` (toggle show_sensitive)
+- ✅ `SHARE_PAGES` étendu (`'deroule'`), `DEFAULT_PAGE_CONFIGS.deroule`,
+  `fetchDeroulePayload`, `useProjectShareDeroule`
+- ✅ Bouton "Partager" dans header `DerouleTab` (canEdit gate)
+- ✅ Lint clean (0 errors), tests inchangés
 
 ### Vague 3 — Mode régie live (~1.5j)
 

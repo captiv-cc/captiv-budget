@@ -19,14 +19,20 @@
 
 ## 🚧 En cours
 
-### Déroulé V1 — Phase A Foundation
-**Démarré le** : 2026-05-08
+### Déroulé — Vagues 3-5 (régie live + call sheets + templates)
+**Démarré le** : 2026-05-08 · **V1 + Vague 2 livrées le 2026-05-08**
 
-Tab "Déroulé" (planning tournage par journée, rundown). Décision nom :
-"Déroulé" validée, code SQL/JS utilise `deroule`. Phase A foundation
-en cours : migration SQL + lib + tests + hook + permissions. Vagues B
-(UI core), C (édition fluide drag/resize), D (polish + import présences)
-suivent — V1 livrable estimée en ~4-5j total.
+Tab "Déroulé" (planning tournage par journée, rundown). V1 (foundation +
+UI core + drag/resize + overlap warnings) **livrée**. Vague 2 (partage
+public + intégration portail projet) **livrée** : tokens
+`deroule_share_tokens`, page `/share/deroule/:token`, sous-page portail
+`/share/projet/:token/deroule`, modal admin, bouton Partager dans
+DerouleTab.
+
+Reste à faire :
+- **V3 (~1.5j)** — mode régie live : statuts créneau animés, auto-highlight
+- **V4 (~3j)** — call sheets PDF agrégat équipe + déroulé + lieux
+- **V5 (~2j)** — templates inter-projets, diff entre versions
 
 Roadmap complète : [`CHANTIER_DEROULE.md`](./CHANTIER_DEROULE.md).
 
