@@ -282,8 +282,35 @@ function ShareContent({ payload, theme, setTheme }) {
 // l'accent porte déjà l'info "tu es ici").
 
 function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
+  // [SHARE-11] Auto-scroll horizontal du selector pour centrer le jour actif
+  // au mount. Sinon, sur mobile étroit, le jour sélectionné peut être hors
+  // viewport (ex : VEN 15 caché à droite quand on n'affiche que MAR/MER/JEU).
+  // Le scroll ne se déclenche qu'une fois — on ne veut PAS re-scroller à
+  // chaque clic utilisateur, ça créerait des sauts désorientants.
+  const containerRef = useRef(null)
+  const activeChipRef = useRef(null)
+  const didScrollRef = useRef(false)
+  useEffect(() => {
+    if (didScrollRef.current) return
+    if (!selectedId) return
+    const container = containerRef.current
+    const chip = activeChipRef.current
+    if (!container || !chip) return
+    didScrollRef.current = true
+
+    // Centrage horizontal du chip actif dans le container scrollable.
+    // chip.offsetLeft / container.clientWidth donnent les coordonnées
+    // relatives au container scrollable. On vise chip-center == container-center.
+    const targetScroll =
+      chip.offsetLeft + chip.offsetWidth / 2 - container.clientWidth / 2
+    container.scrollLeft = Math.max(0, targetScroll)
+  }, [selectedId])
+
   return (
-    <div className="-mx-1 overflow-x-auto flex-1 min-w-0">
+    <div
+      ref={containerRef}
+      className="-mx-1 overflow-x-auto flex-1 min-w-0"
+    >
       <div className="inline-flex items-center gap-2 px-1 pb-1">
         {deroules.map((d) => {
           const isActive = d.id === selectedId
@@ -292,6 +319,7 @@ function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
           return (
             <button
               key={d.id}
+              ref={isActive ? activeChipRef : null}
               type="button"
               onClick={() => onSelect(d.id)}
               className="rounded-md px-3 py-2 text-xs whitespace-nowrap transition-all flex flex-col items-center min-w-[68px]"
@@ -342,6 +370,9 @@ function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
 // attendu : le destinataire scroll latéralement pour explorer les lanes).
 
 function ViewToggle({ view, onChange }) {
+  // [SHARE-11] Sur mobile (< sm), on cache le label texte et on garde
+  // uniquement l'icône — sinon le toggle prend ~50% de la largeur écran
+  // au détriment du day selector adjacent.
   return (
     <div
       className="inline-flex items-center rounded-md p-0.5 shrink-0"
@@ -356,7 +387,7 @@ function ViewToggle({ view, onChange }) {
         title="Vue timeline (lanes × heures)"
       >
         <LayoutGrid className="w-3.5 h-3.5" />
-        Timeline
+        <span className="hidden sm:inline">Timeline</span>
       </ToggleBtn>
       <ToggleBtn
         active={view === 'liste'}
@@ -364,7 +395,7 @@ function ViewToggle({ view, onChange }) {
         title="Vue liste"
       >
         <ListIcon className="w-3.5 h-3.5" />
-        Liste
+        <span className="hidden sm:inline">Liste</span>
       </ToggleBtn>
     </div>
   )
