@@ -803,12 +803,14 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
 // blocs de 30min, alors écrasés). Le seuil est basé sur la hauteur effective
 // du bloc — plus robuste si PX_PER_HOUR change.
 //
-// [SHARE-8] Style visuel distinct pour les créneaux multi-lane :
-//   - mono-lane : rectangle arrondi avec border-left épaisse (le "bloc lane")
-//   - multi-lane : bandeau transverse — pas de border-radius, pas de bordures
-//                  gauche/droite, top + bottom marquées 2px, étendu d'un bord
-//                  à l'autre. Sémantique visuelle : "c'est un évènement qui
-//                  traverse toutes les colonnes", pas un bloc dans une lane.
+// [SHARE-9] Style identique pour mono-lane et multi-lane : même apparence
+// (rounded, border-left épaisse, fond translucide). La seule différence est
+// l'étendue horizontale (multi-lane s'étend de bord à bord, mono-lane reste
+// confiné à sa lane) et l'indicateur subtil ↔ devant le titre. Décision
+// Hugo : "trop incohérents par rapport aux autres" avec l'ancien bandeau.
+//
+// Ordre des infos cohérent entre compact et normal : titre EN PREMIER,
+// heure ENSUITE (alignement avec le layout normal sur 2 lignes).
 
 function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = false, onClick }) {
   const color = effectiveCouleurCreneau(c)
@@ -820,14 +822,19 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   const renderedHeight = Math.max(minH, height - 2)
   const isCompact = renderedHeight < COMPACT_BLOCK_THRESHOLD_PX
 
-  // Style commun à tous les blocs. Le visuel mono vs multi-lane se joue
-  // sur 4 axes : positionnement horizontal (collé aux bords vs marges 4px),
-  // bordures (left épaisse vs top+bottom marquées), arrondi (oui vs non),
-  // intensité du fond (un peu plus marqué en multi-lane pour compenser
-  // l'absence de border-radius qui le détache visuellement moins).
-  const sharedStyle = {
+  // Style commun mono / multi-lane. La seule différence est le positionnement
+  // horizontal : multi-lane s'étend pleine largeur (gérée par le container
+  // parent qui le positionne par-dessus toutes les lanes), mono-lane reste
+  // confiné à sa colonne avec une petite marge.
+  const blockStyle = {
     top,
+    left: isMultiLane ? 4 : 4,
+    right: isMultiLane ? 4 : 4,
     height: renderedHeight,
+    background: `${color}26`,
+    borderLeft: `3px solid ${color}`,
+    border: `1px solid ${color}55`,
+    borderRadius: 4,
     color: 'var(--txt)',
     opacity: isCancel ? 0.5 : 1,
     textDecoration: isCancel ? 'line-through' : 'none',
@@ -835,52 +842,34 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
     zIndex: isMultiLane ? 5 : 2,
     cursor: 'pointer',
   }
-  const variantStyle = isMultiLane
-    ? {
-        left: 0,
-        right: 0,
-        background: `${color}33`,
-        borderTop: `2px solid ${color}`,
-        borderBottom: `2px solid ${color}`,
-        borderRadius: 0,
-      }
-    : {
-        left: 4,
-        right: 4,
-        background: `${color}26`,
-        borderLeft: `3px solid ${color}`,
-        border: `1px solid ${color}55`,
-        borderRadius: 4,
-      }
+
+  const titrePrefix = isMultiLane ? '↔ ' : ''
+  const titre = c.titre || '(sans titre)'
 
   if (isCompact) {
     return (
       <button
         type="button"
         onClick={onClick}
-        className="absolute text-left flex items-center gap-1.5 overflow-hidden"
+        className="absolute text-left flex items-center gap-2 overflow-hidden"
         style={{
-          ...sharedStyle,
-          ...variantStyle,
+          ...blockStyle,
           padding: '2px 6px',
           fontSize: 11,
         }}
-        title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}`}
+        title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}`}
       >
-        {isMultiLane && (
-          <span
-            className="text-[10px] leading-none"
-            style={{ color, opacity: 0.8 }}
-            aria-hidden="true"
-          >
-            ↔
-          </span>
-        )}
-        <span className="font-semibold whitespace-nowrap" style={{ color }}>
-          {formatMinHHMM(c.heure_debut_min)}
+        <span
+          className="font-semibold truncate"
+          style={{ color: 'var(--txt)', minWidth: 0 }}
+        >
+          {titrePrefix}{titre}
         </span>
-        <span className="truncate" style={{ color: 'var(--txt)', minWidth: 0 }}>
-          {c.titre || '(sans titre)'}
+        <span
+          className="whitespace-nowrap shrink-0 text-[10px]"
+          style={{ color }}
+        >
+          {formatMinHHMM(c.heure_debut_min)}
         </span>
       </button>
     )
@@ -897,27 +886,17 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
       onClick={onClick}
       className="absolute overflow-hidden text-left"
       style={{
-        ...sharedStyle,
-        ...variantStyle,
+        ...blockStyle,
         padding: '4px 8px',
         fontSize: 11,
       }}
-      title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}`}
+      title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}`}
     >
       <div
-        className="font-semibold leading-tight truncate flex items-center gap-1"
+        className="font-semibold leading-tight truncate"
         style={{ color: 'var(--txt)' }}
       >
-        {isMultiLane && (
-          <span
-            className="text-[11px] leading-none shrink-0"
-            style={{ color, opacity: 0.8 }}
-            aria-hidden="true"
-          >
-            ↔
-          </span>
-        )}
-        <span className="truncate">{c.titre || '(sans titre)'}</span>
+        {titrePrefix}{titre}
       </div>
       <div
         className="text-[10px] leading-tight mt-0.5 flex items-center gap-1.5 flex-wrap"
