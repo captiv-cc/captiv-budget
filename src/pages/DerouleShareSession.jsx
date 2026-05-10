@@ -394,29 +394,56 @@ function ToggleBtn({ active, onClick, title, children }) {
 // Améliorations Vague 2.1 :
 //   - SHARE-1+2 : auto-scroll au mount vers le 1er créneau (ou now line si jour J)
 //   - SHARE-3   : légende des types de créneau présents dans le jour
-//   - SHARE-4   : layout compact pour blocs courts (< 25min)
+//   - SHARE-4   : layout compact pour blocs de petite hauteur rendue (< 36px)
 //   - SHARE-5   : click sur bloc → drawer détail read-only
+//   - SHARE-7   : crop intelligent ±1h autour des bornes des créneaux
+//                 (au lieu d'afficher la plage 00:00–23:59 quand seule la
+//                 fenêtre 11:00–00:00 contient des événements).
+//   - SHARE-8   : créneaux multi-lane rendus en bandeau transverse
+//                 (top/bottom borders marquées, pas de border-radius) pour
+//                 les distinguer visuellement des blocs mono-lane.
 //
-// La timeline auto-étend la borne basse pour absorber les créneaux nuit
-// qui débordent sur le lendemain (V0.5 : heure_fin_min jusqu'à 1680 = 04:00 J+1).
+// La timeline étend dynamiquement la borne haute si un créneau déborde
+// au-delà des bornes configurées (V0.5 : heure_fin_min jusqu'à 1680 = 04:00 J+1).
 
-const COMPACT_BLOCK_THRESHOLD_MIN = 25 // <= 25min → layout compact horizontal
+const COMPACT_BLOCK_THRESHOLD_PX = 36 // hauteur rendue < 36px → layout compact horizontal
 const SCROLL_OFFSET_TOP = 80 // marge en haut du viewport pour l'auto-scroll
 
 function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, showSensitive }) {
-  // Bornes timeline : on étend dynamiquement heureFinMin si un créneau
-  // déborde au-delà de la borne configurée du déroulé (sinon on tronque).
-  const heureDebutMin = deroule?.heure_debut_min ?? 0
-  const heureFinMinConfig = deroule?.heure_fin_min ?? 1439
-  const heureFinMin = useMemo(() => {
-    let max = heureFinMinConfig
+  // [SHARE-7] Crop intelligent — la timeline n'affiche que la plage active
+  // [1er créneau − 60min, dernier créneau + 60min], snappée sur les heures
+  // rondes (10:30 → 10:00, 23:45 → 24:00). Évite l'immense vide en haut/bas
+  // quand l'activité ne commence qu'à 11:00 sur un déroulé "00:00–23:59".
+  // Si aucun créneau, on retombe sur les bornes configurées du déroulé pour
+  // afficher la grille vide attendue.
+  const { heureDebutMin, heureFinMin } = useMemo(() => {
+    const startConfig = deroule?.heure_debut_min ?? 0
+    const endConfig = deroule?.heure_fin_min ?? 1439
+
+    if (creneaux.length === 0) {
+      return { heureDebutMin: startConfig, heureFinMin: endConfig }
+    }
+
+    let firstStart = Infinity
+    let lastEnd = -Infinity
     for (const c of creneaux) {
-      if (typeof c.heure_fin_min === 'number' && c.heure_fin_min > max) {
-        max = c.heure_fin_min
+      if (typeof c.heure_debut_min === 'number' && c.heure_debut_min < firstStart) {
+        firstStart = c.heure_debut_min
+      }
+      if (typeof c.heure_fin_min === 'number' && c.heure_fin_min > lastEnd) {
+        lastEnd = c.heure_fin_min
       }
     }
-    return max
-  }, [creneaux, heureFinMinConfig])
+    if (!isFinite(firstStart) || !isFinite(lastEnd)) {
+      return { heureDebutMin: startConfig, heureFinMin: endConfig }
+    }
+
+    // Clamp [0, 1680] = [00:00, 04:00 J+1] pour les créneaux nuit.
+    const startCropped = Math.max(0, Math.floor((firstStart - 60) / 60) * 60)
+    const endCropped = Math.min(1680, Math.ceil((lastEnd + 60) / 60) * 60)
+
+    return { heureDebutMin: startCropped, heureFinMin: endCropped }
+  }, [creneaux, deroule])
   const stepMin = deroule?.display_step_min || 15
 
   // Now line — refresh chaque minute, visible uniquement si déroulé = aujourd'hui.
@@ -770,8 +797,18 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
 // ─── Bloc créneau read-only (timeline) ──────────────────────────────────────
 //
 // Rectangle coloré positionné en absolute. Click → ouvre le drawer détail.
-// SHARE-4 : layout compact horizontal pour les blocs courts (≤ 25min) — sinon
-// le titre se retrouve écrasé. En compact : titre tronqué inline avec heure.
+//
+// [SHARE-4] Layout compact horizontal quand la hauteur rendue est < 36px
+// (au lieu de "durée ≤ 25min" qui laissait passer en mode 2-lignes les
+// blocs de 30min, alors écrasés). Le seuil est basé sur la hauteur effective
+// du bloc — plus robuste si PX_PER_HOUR change.
+//
+// [SHARE-8] Style visuel distinct pour les créneaux multi-lane :
+//   - mono-lane : rectangle arrondi avec border-left épaisse (le "bloc lane")
+//   - multi-lane : bandeau transverse — pas de border-radius, pas de bordures
+//                  gauche/droite, top + bottom marquées 2px, étendu d'un bord
+//                  à l'autre. Sémantique visuelle : "c'est un évènement qui
+//                  traverse toutes les colonnes", pas un bloc dans une lane.
 
 function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = false, onClick }) {
   const color = effectiveCouleurCreneau(c)
@@ -780,34 +817,65 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   const isCancel = c.statut === 'annule'
   const dureeMin = creneauDureeMin(c)
 
-  // [SHARE-4] Mode compact pour blocs courts.
-  const isCompact = dureeMin <= COMPACT_BLOCK_THRESHOLD_MIN
+  const renderedHeight = Math.max(minH, height - 2)
+  const isCompact = renderedHeight < COMPACT_BLOCK_THRESHOLD_PX
+
+  // Style commun à tous les blocs. Le visuel mono vs multi-lane se joue
+  // sur 4 axes : positionnement horizontal (collé aux bords vs marges 4px),
+  // bordures (left épaisse vs top+bottom marquées), arrondi (oui vs non),
+  // intensité du fond (un peu plus marqué en multi-lane pour compenser
+  // l'absence de border-radius qui le détache visuellement moins).
+  const sharedStyle = {
+    top,
+    height: renderedHeight,
+    color: 'var(--txt)',
+    opacity: isCancel ? 0.5 : 1,
+    textDecoration: isCancel ? 'line-through' : 'none',
+    pointerEvents: 'auto',
+    zIndex: isMultiLane ? 5 : 2,
+    cursor: 'pointer',
+  }
+  const variantStyle = isMultiLane
+    ? {
+        left: 0,
+        right: 0,
+        background: `${color}33`,
+        borderTop: `2px solid ${color}`,
+        borderBottom: `2px solid ${color}`,
+        borderRadius: 0,
+      }
+    : {
+        left: 4,
+        right: 4,
+        background: `${color}26`,
+        borderLeft: `3px solid ${color}`,
+        border: `1px solid ${color}55`,
+        borderRadius: 4,
+      }
 
   if (isCompact) {
     return (
       <button
         type="button"
         onClick={onClick}
-        className="absolute rounded text-left flex items-center gap-1.5 overflow-hidden"
+        className="absolute text-left flex items-center gap-1.5 overflow-hidden"
         style={{
-          top,
-          left: isMultiLane ? 6 : 4,
-          right: isMultiLane ? 6 : 4,
-          height: Math.max(minH, height - 2),
-          background: `${color}26`,
-          borderLeft: `3px solid ${color}`,
-          border: `1px solid ${color}55`,
+          ...sharedStyle,
+          ...variantStyle,
           padding: '2px 6px',
           fontSize: 11,
-          color: 'var(--txt)',
-          opacity: isCancel ? 0.5 : 1,
-          textDecoration: isCancel ? 'line-through' : 'none',
-          pointerEvents: 'auto',
-          zIndex: isMultiLane ? 5 : 2,
-          cursor: 'pointer',
         }}
-        title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}`}
+        title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}`}
       >
+        {isMultiLane && (
+          <span
+            className="text-[10px] leading-none"
+            style={{ color, opacity: 0.8 }}
+            aria-hidden="true"
+          >
+            ↔
+          </span>
+        )}
         <span className="font-semibold whitespace-nowrap" style={{ color }}>
           {formatMinHHMM(c.heure_debut_min)}
         </span>
@@ -827,31 +895,29 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
     <button
       type="button"
       onClick={onClick}
-      className="absolute rounded overflow-hidden text-left"
+      className="absolute overflow-hidden text-left"
       style={{
-        top,
-        left: isMultiLane ? 6 : 4,
-        right: isMultiLane ? 6 : 4,
-        height: Math.max(minH, height - 2),
-        background: `${color}26`,
-        borderLeft: `3px solid ${color}`,
-        border: `1px solid ${color}55`,
+        ...sharedStyle,
+        ...variantStyle,
         padding: '4px 8px',
         fontSize: 11,
-        color: 'var(--txt)',
-        opacity: isCancel ? 0.5 : 1,
-        textDecoration: isCancel ? 'line-through' : 'none',
-        pointerEvents: 'auto',
-        zIndex: isMultiLane ? 5 : 2,
-        cursor: 'pointer',
       }}
-      title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}`}
+      title={`${c.titre || '(sans titre)'} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}`}
     >
       <div
-        className="font-semibold leading-tight truncate"
+        className="font-semibold leading-tight truncate flex items-center gap-1"
         style={{ color: 'var(--txt)' }}
       >
-        {c.titre || '(sans titre)'}
+        {isMultiLane && (
+          <span
+            className="text-[11px] leading-none shrink-0"
+            style={{ color, opacity: 0.8 }}
+            aria-hidden="true"
+          >
+            ↔
+          </span>
+        )}
+        <span className="truncate">{c.titre || '(sans titre)'}</span>
       </div>
       <div
         className="text-[10px] leading-tight mt-0.5 flex items-center gap-1.5 flex-wrap"
