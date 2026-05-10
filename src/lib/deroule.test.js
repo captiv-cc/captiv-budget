@@ -146,8 +146,12 @@ describe('formatMinTimeInput', () => {
 
 describe('snapToStep', () => {
   it('snap au pas de 15 min', () => {
-    expect(snapToStep(577, 15)).toBe(585)
+    // 577 → 570 (= 9h30, distance 7) vs 585 (= 9h45, distance 8) : 570 plus proche
+    expect(snapToStep(577, 15)).toBe(570)
+    // 572 → 570 (= 9h30, distance 2) vs 585 (distance 13) : 570 plus proche
     expect(snapToStep(572, 15)).toBe(570)
+    // 578 (au-delà de la moitié de step depuis 570) → 585
+    expect(snapToStep(578, 15)).toBe(585)
   })
 
   it('snap au pas de 5 min', () => {

@@ -160,7 +160,8 @@ export function minutesToTime(minutes) {
  * @param {number} step   pas en minutes (5, 10, 15, 30…)
  * @returns {number}
  *
- * snapToStep(577, 15) → 585 (= 09:45, plus proche que 570)
+ * snapToStep(577, 15) → 570 (= 09:30, distance 7 — plus proche que 585 distance 8)
+ * snapToStep(578, 15) → 585 (= 09:45, on bascule au-delà de la moitié du step)
  * snapToStep(572, 5)  → 570 (= 09:30)
  */
 export function snapToStep(minutes, step) {
