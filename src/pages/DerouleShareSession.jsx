@@ -15,7 +15,8 @@
 // Pattern aligné sur EquipeShareSession.jsx (P4.2D).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -559,8 +560,10 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // [SHARE-5] Drawer détail au clic sur un bloc.
-  const [selectedCreneau, setSelectedCreneau] = useState(null)
+  // [SHARE-5 / SHARE-10] Popover détail au clic sur un bloc.
+  // selected = { creneau, anchorRect } — anchorRect est le getBoundingClientRect
+  // du bouton bloc au moment du clic. Sert d'ancre pour positionner le popover.
+  const [selected, setSelected] = useState(null)
 
   // Helper pour rendre un bloc dans une lane (mono ou multi). Utilise
   // minToDisplayY pour gérer le repliage.
@@ -575,7 +578,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
         height={height}
         membreById={membreById}
         isMultiLane={isMultiLane}
-        onClick={() => setSelectedCreneau(c)}
+        onClick={(rect) => setSelected({ creneau: c, anchorRect: rect })}
       />
     )
   }
@@ -775,19 +778,22 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
         )}
       </div>
 
-      {/* [SHARE-5] Drawer détail créneau (overlay) */}
-      {selectedCreneau && (
-        <CreneauDetailDrawer
-          creneau={selectedCreneau}
+      {/* [SHARE-5 / SHARE-10] Popover détail créneau, render via Portal.
+          Desktop : popover ancré à droite (ou gauche si overflow) du bloc.
+          Mobile  : bottom-sheet qui remonte du bas. */}
+      {selected && (
+        <CreneauDetailPopover
+          creneau={selected.creneau}
+          anchorRect={selected.anchorRect}
           lane={
-            selectedCreneau.multi_lane
+            selected.creneau.multi_lane
               ? null
-              : lanes.find((l) => l.id === selectedCreneau.lane_id) || null
+              : lanes.find((l) => l.id === selected.creneau.lane_id) || null
           }
           totalLanes={lanes.length}
           membreById={membreById}
           showSensitive={showSensitive}
-          onClose={() => setSelectedCreneau(null)}
+          onClose={() => setSelected(null)}
         />
       )}
     </>
@@ -822,6 +828,10 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   const renderedHeight = Math.max(minH, height - 2)
   const isCompact = renderedHeight < COMPACT_BLOCK_THRESHOLD_PX
 
+  // Le handler passe le BoundingClientRect du bouton au parent — sert d'ancre
+  // pour positionner le popover détail à côté du bloc cliqué (SHARE-10).
+  const handleClick = (e) => onClick?.(e.currentTarget.getBoundingClientRect())
+
   // Style commun mono / multi-lane. La seule différence est le positionnement
   // horizontal : multi-lane s'étend pleine largeur (gérée par le container
   // parent qui le positionne par-dessus toutes les lanes), mono-lane reste
@@ -850,7 +860,7 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
     return (
       <button
         type="button"
-        onClick={onClick}
+        onClick={handleClick}
         className="absolute text-left flex items-center gap-2 overflow-hidden"
         style={{
           ...blockStyle,
@@ -883,7 +893,7 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className="absolute overflow-hidden text-left"
       style={{
         ...blockStyle,
@@ -960,14 +970,56 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   )
 }
 
-// ─── Drawer détail créneau (SHARE-5) ────────────────────────────────────────
+// ─── Popover détail créneau (SHARE-5 / SHARE-10) ────────────────────────────
 //
-// Overlay side-panel droit (full-width mobile, 380px desktop) qui affiche
-// toutes les infos d'un créneau en read-only : titre + statut, heures+durée,
-// lane/multi, lieu, équipe complète (avatars + noms), description, notes.
-// Esc / X / click outside ferme.
+// Refonte du drawer plein-écran latéral en :
+//   - Desktop : popover ancré au bloc cliqué (à droite par défaut, basculé à
+//               gauche si overflow, clampé dans le viewport). Sans overlay
+//               sombre — le contexte de la timeline reste visible derrière.
+//   - Mobile  : bottom-sheet qui remonte du bas (max-height 80vh), avec
+//               overlay sombre tap-to-close.
+//
+// Rendu via React.createPortal sur document.body pour échapper au containing
+// block créé par les parents animés (`.share-fade-in` utilise transform). Sans
+// portal, position:fixed se comporte comme position:absolute relativement à
+// l'animation parent — c'est ce qui causait le bug "le drawer reste collé au
+// haut de la page quand on a scrollé".
+//
+// Fermeture : clic outside, Esc, bouton X, scroll window (desktop) pour
+// éviter que le popover dérive de son ancre.
 
-function CreneauDetailDrawer({ creneau: c, lane, totalLanes, membreById, showSensitive, onClose }) {
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(max-width: 639px)').matches
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mql = window.matchMedia('(max-width: 639px)')
+    const onChange = (e) => setIsMobile(e.matches)
+    if (mql.addEventListener) {
+      mql.addEventListener('change', onChange)
+      return () => mql.removeEventListener('change', onChange)
+    }
+    // Safari < 14
+    mql.addListener(onChange)
+    return () => mql.removeListener(onChange)
+  }, [])
+  return isMobile
+}
+
+const POPOVER_WIDTH = 340
+const POPOVER_MARGIN = 12
+
+function CreneauDetailPopover({
+  creneau: c,
+  anchorRect,
+  lane,
+  totalLanes,
+  membreById,
+  showSensitive,
+  onClose,
+}) {
   const color = effectiveCouleurCreneau(c)
   const dureeMin = creneauDureeMin(c)
   const dureeStr =
@@ -979,6 +1031,10 @@ function CreneauDetailDrawer({ creneau: c, lane, totalLanes, membreById, showSen
     ? `↔ Multi (${totalLanes})`
     : lane?.libelle || (lane ? defaultLaneLibelle(lane.sort_order) : '—')
 
+  const isMobile = useIsMobile()
+  const popoverRef = useRef(null)
+  const [position, setPosition] = useState(null) // { top, left } once measured
+
   // Esc to close
   useEffect(() => {
     function onKey(e) {
@@ -988,205 +1044,306 @@ function CreneauDetailDrawer({ creneau: c, lane, totalLanes, membreById, showSen
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      style={{ background: 'rgba(0,0,0,0.45)' }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
+  // Click outside to close. setTimeout(0) pour ne pas attraper l'event du
+  // click qui a ouvert le popover (même tick).
+  useEffect(() => {
+    function onPointer(e) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        onClose()
+      }
+    }
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', onPointer)
+      document.addEventListener('touchstart', onPointer, { passive: true })
+    }, 0)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('touchstart', onPointer)
+    }
+  }, [onClose])
+
+  // [Desktop] Calcul position après render. Préférence right-of-anchor,
+  // fallback left-of-anchor si overflow, sinon clamp horizontal au centre
+  // du viewport. Idem vertical (clamp top et bottom).
+  useLayoutEffect(() => {
+    if (isMobile) return
+    if (!popoverRef.current || !anchorRect) return
+    const popRect = popoverRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    let left = anchorRect.right + POPOVER_MARGIN
+    let top = anchorRect.top
+
+    if (left + popRect.width > vw - POPOVER_MARGIN) {
+      const leftAlt = anchorRect.left - popRect.width - POPOVER_MARGIN
+      if (leftAlt >= POPOVER_MARGIN) {
+        left = leftAlt
+      } else {
+        // Pas la place sur les côtés, centrer horizontalement.
+        left = Math.max(POPOVER_MARGIN, (vw - popRect.width) / 2)
+      }
+    }
+    if (top + popRect.height > vh - POPOVER_MARGIN) {
+      top = vh - popRect.height - POPOVER_MARGIN
+    }
+    if (top < POPOVER_MARGIN) top = POPOVER_MARGIN
+
+    setPosition({ top, left })
+  }, [isMobile, anchorRect])
+
+  // [Desktop] Fermer au scroll window — le popover est fixed donc reste à
+  // sa position viewport pendant que le bloc anchor se déplace, c'est laid.
+  useEffect(() => {
+    if (isMobile) return
+    function onScroll() {
+      onClose()
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [isMobile, onClose])
+
+  // Contenu interne (header + body) partagé entre desktop popover et mobile
+  // bottom-sheet. Identique au drawer précédent — c'est juste le contenant
+  // qui change.
+  const content = (
+    <>
+      <header
+        className="flex items-start gap-2 px-4 py-3 shrink-0"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <div className="flex-1 min-w-0">
+          <h3
+            className="text-base font-bold leading-tight"
+            style={{
+              color: 'var(--txt)',
+              textDecoration: c.statut === 'annule' ? 'line-through' : 'none',
+            }}
+          >
+            {c.titre || '(sans titre)'}
+          </h3>
+          <div className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span style={{ color }}>{labelForType(c.type || 'autre')}</span>
+            {c.statut === 'fait' && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
+              >
+                Fait
+              </span>
+            )}
+            {c.statut === 'en_cours' && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: `${color}22`, color }}
+              >
+                En cours
+              </span>
+            )}
+            {c.statut === 'annule' && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
+              >
+                Annulé
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded-md transition-colors"
+          style={{ color: 'var(--txt-3)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+          title="Fermer (Esc)"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+        <DetailRow
+          icon={<Clock className="w-3.5 h-3.5" style={{ color }} />}
+          label="Horaires"
+        >
+          <div className="font-semibold" style={{ color: 'var(--txt)' }}>
+            {formatMinHHMM(c.heure_debut_min)} – {formatMinHHMM(c.heure_fin_min)}
+          </div>
+          <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+            {dureeStr}
+          </div>
+        </DetailRow>
+
+        <DetailRow
+          icon={
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{ background: color }}
+            />
+          }
+          label="Lane"
+        >
+          <span
+            className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold"
+            style={{
+              background: c.multi_lane
+                ? 'rgba(136,135,128,0.2)'
+                : `${color}22`,
+              color: c.multi_lane ? 'var(--txt-2)' : color,
+            }}
+          >
+            {laneLibelle}
+          </span>
+        </DetailRow>
+
+        {c.lieu_text && (
+          <DetailRow
+            icon={<MapPin className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
+            label="Lieu"
+          >
+            <span style={{ color: 'var(--txt)' }}>{c.lieu_text}</span>
+          </DetailRow>
+        )}
+
+        {memberIds.length > 0 && (
+          <DetailRow
+            icon={<Users className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
+            label={`Équipe (${memberIds.length})`}
+          >
+            <div className="flex flex-col gap-1">
+              {memberIds.map((mid) => {
+                const m = membreById.get(mid)
+                if (!m) return null
+                return (
+                  <div key={mid} className="flex items-center gap-2">
+                    <div
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '50%',
+                        background: `${color}55`,
+                        color,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {m.ini}
+                    </div>
+                    <div className="text-xs min-w-0" style={{ color: 'var(--txt)' }}>
+                      <div className="truncate">{m.fullName}</div>
+                      {m.specialite && (
+                        <div
+                          className="text-[10px] truncate"
+                          style={{ color: 'var(--txt-3)' }}
+                        >
+                          {m.specialite}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </DetailRow>
+        )}
+
+        {c.description && (
+          <DetailRow label="Description">
+            <p
+              className="text-xs leading-relaxed whitespace-pre-wrap"
+              style={{ color: 'var(--txt-2)' }}
+            >
+              {c.description}
+            </p>
+          </DetailRow>
+        )}
+
+        {showSensitive && c.notes && (
+          <DetailRow label="Notes">
+            <p
+              className="text-xs leading-relaxed italic whitespace-pre-wrap"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              {c.notes}
+            </p>
+          </DetailRow>
+        )}
+      </div>
+    </>
+  )
+
+  // [Mobile] Bottom-sheet : overlay sombre + sheet qui remonte du bas.
+  if (isMobile) {
+    return createPortal(
       <div
-        className="h-full w-full sm:w-[380px] flex flex-col shadow-2xl share-fade-in"
-        style={{
-          background: 'var(--bg-surf)',
-          borderLeft: '1px solid var(--brd)',
-          borderTop: `4px solid ${color}`,
+        className="fixed inset-0 z-50 flex items-end share-fade-in"
+        style={{ background: 'rgba(0,0,0,0.45)' }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose()
         }}
       >
-        {/* Header */}
-        <header
-          className="flex items-start gap-2 px-4 py-3 shrink-0"
-          style={{ borderBottom: '1px solid var(--brd-sub)' }}
+        <div
+          ref={popoverRef}
+          className="w-full max-h-[80vh] flex flex-col rounded-t-2xl shadow-2xl"
+          style={{
+            background: 'var(--bg-surf)',
+            borderTop: `4px solid ${color}`,
+          }}
         >
-          <div className="flex-1 min-w-0">
-            <h3
-              className="text-base font-bold leading-tight"
+          {/* Petite poignée visuelle pour suggérer "tu peux fermer" */}
+          <div className="flex justify-center pt-2 pb-1 shrink-0">
+            <div
               style={{
-                color: 'var(--txt)',
-                textDecoration: c.statut === 'annule' ? 'line-through' : 'none',
+                width: 36,
+                height: 4,
+                borderRadius: 2,
+                background: 'var(--brd)',
               }}
-            >
-              {c.titre || '(sans titre)'}
-            </h3>
-            <div className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span style={{ color }}>{labelForType(c.type || 'autre')}</span>
-              {c.statut === 'fait' && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                  style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
-                >
-                  Fait
-                </span>
-              )}
-              {c.statut === 'en_cours' && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                  style={{ background: `${color}22`, color }}
-                >
-                  En cours
-                </span>
-              )}
-              {c.statut === 'annule' && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                  style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
-                >
-                  Annulé
-                </span>
-              )}
-            </div>
+            />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-md transition-colors"
-            style={{ color: 'var(--txt-3)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--bg-hov)'
-              e.currentTarget.style.color = 'var(--txt)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'var(--txt-3)'
-            }}
-            title="Fermer (Esc)"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </header>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {/* Heures + durée */}
-          <DetailRow
-            icon={<Clock className="w-3.5 h-3.5" style={{ color }} />}
-            label="Horaires"
-          >
-            <div className="font-semibold" style={{ color: 'var(--txt)' }}>
-              {formatMinHHMM(c.heure_debut_min)} – {formatMinHHMM(c.heure_fin_min)}
-            </div>
-            <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              {dureeStr}
-            </div>
-          </DetailRow>
-
-          {/* Lane */}
-          <DetailRow
-            icon={
-              <span
-                className="inline-block w-2 h-2 rounded-full"
-                style={{ background: color }}
-              />
-            }
-            label="Lane"
-          >
-            <span
-              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold"
-              style={{
-                background: c.multi_lane
-                  ? 'rgba(136,135,128,0.2)'
-                  : `${color}22`,
-                color: c.multi_lane ? 'var(--txt-2)' : color,
-              }}
-            >
-              {laneLibelle}
-            </span>
-          </DetailRow>
-
-          {/* Lieu */}
-          {c.lieu_text && (
-            <DetailRow
-              icon={<MapPin className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
-              label="Lieu"
-            >
-              <span style={{ color: 'var(--txt)' }}>{c.lieu_text}</span>
-            </DetailRow>
-          )}
-
-          {/* Équipe */}
-          {memberIds.length > 0 && (
-            <DetailRow
-              icon={<Users className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
-              label={`Équipe (${memberIds.length})`}
-            >
-              <div className="flex flex-col gap-1">
-                {memberIds.map((mid) => {
-                  const m = membreById.get(mid)
-                  if (!m) return null
-                  return (
-                    <div key={mid} className="flex items-center gap-2">
-                      <div
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: `${color}55`,
-                          color,
-                          fontSize: 10,
-                          fontWeight: 600,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {m.ini}
-                      </div>
-                      <div className="text-xs min-w-0" style={{ color: 'var(--txt)' }}>
-                        <div className="truncate">{m.fullName}</div>
-                        {m.specialite && (
-                          <div
-                            className="text-[10px] truncate"
-                            style={{ color: 'var(--txt-3)' }}
-                          >
-                            {m.specialite}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </DetailRow>
-          )}
-
-          {/* Description */}
-          {c.description && (
-            <DetailRow label="Description">
-              <p
-                className="text-xs leading-relaxed whitespace-pre-wrap"
-                style={{ color: 'var(--txt-2)' }}
-              >
-                {c.description}
-              </p>
-            </DetailRow>
-          )}
-
-          {/* Notes (si showSensitive) */}
-          {showSensitive && c.notes && (
-            <DetailRow label="Notes">
-              <p
-                className="text-xs leading-relaxed italic whitespace-pre-wrap"
-                style={{ color: 'var(--txt-3)' }}
-              >
-                {c.notes}
-              </p>
-            </DetailRow>
-          )}
+          {content}
         </div>
-      </div>
-    </div>
+      </div>,
+      document.body,
+    )
+  }
+
+  // [Desktop] Popover ancré, sans overlay. Rendu off-screen tant que la
+  // position n'est pas mesurée (opacity 0) pour éviter le flash.
+  return createPortal(
+    <div
+      ref={popoverRef}
+      className="share-fade-in flex flex-col rounded-lg shadow-2xl"
+      style={{
+        position: 'fixed',
+        top: position?.top ?? -9999,
+        left: position?.left ?? -9999,
+        width: POPOVER_WIDTH,
+        maxHeight: '80vh',
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        borderTop: `4px solid ${color}`,
+        opacity: position ? 1 : 0,
+        transition: 'opacity 80ms ease',
+        zIndex: 50,
+      }}
+    >
+      {content}
+    </div>,
+    document.body,
   )
 }
 
