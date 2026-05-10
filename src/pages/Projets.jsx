@@ -134,19 +134,20 @@ export default function Projets() {
     e.preventDefault()
     const validated = validate(form)
     if (!validated) return
-    const payload = {
-      title: form.title,
-      client_id: form.client_id || null,
-      status: form.status,
-      types_projet: form.types_projet.length > 0 ? form.types_projet : null,
-      org_id: org.id,
-      created_by: profile?.id,
-    }
-    const { data, error } = await supabase
-      .from('projects')
-      .insert(payload)
-      .select()
-      .single()
+    // Création via RPC SECURITY DEFINER (workaround RLS — cf. migration
+    // 20260508_create_project_rpc.sql). L'INSERT direct sur la table
+    // projects échouait en 403 pour les comptes utilisant les nouveaux
+    // JWT signing keys ES256 quand auth.uid() ne se résolvait plus.
+    // La RPC fait le check de rôle directement sur profiles et bypass les
+    // RLS via SECURITY DEFINER.
+    const { data, error } = await supabase.rpc('create_project_safe', {
+      p_title: form.title,
+      p_status: form.status || 'prospect',
+      p_client_id: form.client_id || null,
+      p_types_projet:
+        form.types_projet.length > 0 ? form.types_projet : null,
+      p_user_id: profile?.id || null,
+    })
     if (error) {
       console.error('[Projets] create:', error)
       notify.error('Impossible de créer le projet : ' + error.message)
