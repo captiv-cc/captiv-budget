@@ -26,7 +26,7 @@ const TOKEN_BYTES = 24 // 24 bytes → 32 chars base64url
 //   2. Créer la RPC share_projet_<page>_fetch côté SQL
 //   3. Ajouter le fetcher correspondant dans ce fichier
 //   4. Ajouter le hook + la page React + la carte du hub
-export const SHARE_PAGES = ['equipe', 'livrables', 'materiel', 'plans', 'deroule']
+export const SHARE_PAGES = ['equipe', 'livrables', 'materiel', 'plans', 'deroule', 'logistique_v0']
 
 // Configuration par défaut pour chaque page (utilisée à la création d'un
 // token si l'admin ne précise rien). Conventions miroir des share dédiés :
@@ -68,6 +68,10 @@ export const DEFAULT_PAGE_CONFIGS = {
   deroule: {
     show_sensitive: true,
   },
+  // Logistique V0 (outil provisoire) : pas de toggle pour l'instant — tout
+  // est visible (transport / hébergement / repas + docs). Si Hugo veut un
+  // mode "masquer notes" plus tard, on ajoutera ici.
+  logistique_v0: {},
 }
 
 /* ─── Génération token ──────────────────────────────────────────────────── */
@@ -419,6 +423,26 @@ export async function fetchDeroulePayload(token, password = null) {
   })
   if (error) {
     console.error('[projectShare] share_projet_deroule_fetch error', error)
+    throw error
+  }
+  if (!data) throw new Error('Token invalide ou page non activée')
+  return data
+}
+
+/**
+ * Fetch logistique V0 payload pour la sous-page du portail. Retourne entries
+ * (avec membre dénormalisé) + documents pour chaque entry. Le client génère
+ * ensuite les signed URLs pour ouvrir les documents (via la policy storage
+ * anon configurée dans la migration logistique_v0_schema).
+ */
+export async function fetchLogistiqueV0Payload(token, password = null) {
+  if (!token) throw new Error('fetchLogistiqueV0Payload : token requis')
+  const { data, error } = await supabase.rpc('share_projet_logistique_v0_fetch', {
+    p_token: token,
+    p_password: password || null,
+  })
+  if (error) {
+    console.error('[projectShare] share_projet_logistique_v0_fetch error', error)
     throw error
   }
   if (!data) throw new Error('Token invalide ou page non activée')

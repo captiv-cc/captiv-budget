@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  AlertCircle, Loader2, Users, CheckSquare, Package, Map as MapIcon, Clock, ChevronRight,
+  AlertCircle, Loader2, Users, CheckSquare, Package, Map as MapIcon, Clock, ChevronRight, Truck,
 } from 'lucide-react'
 import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -101,6 +101,24 @@ const PAGE_REGISTRY = {
       const jours = Number(t.jours || 0)
       const creneaux = Number(t.creneaux || 0)
       return `${jours} jour${jours > 1 ? 's' : ''} · ${creneaux} créneau${creneaux > 1 ? 'x' : ''}`
+    },
+  },
+  logistique_v0: {
+    label: 'Logistique',
+    description: 'Transport, hébergement, repas par personne',
+    Icon: Truck,
+    color: 'var(--orange)',
+    bgColor: 'var(--orange-bg)',
+    teaser: (hub) => {
+      const t = hub?.teasers?.logistique_v0
+      if (!t) return null
+      const personnes = Number(t.personnes || 0)
+      const documents = Number(t.documents || 0)
+      const parts = [`${personnes} personne${personnes > 1 ? 's' : ''}`]
+      if (documents > 0) {
+        parts.push(`${documents} document${documents > 1 ? 's' : ''}`)
+      }
+      return parts.join(' · ')
     },
   },
 }

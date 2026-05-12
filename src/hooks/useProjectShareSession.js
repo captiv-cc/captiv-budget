@@ -30,6 +30,7 @@ import {
   fetchMaterielPayload,
   fetchPlansPayload,
   fetchDeroulePayload,
+  fetchLogistiqueV0Payload,
   getStoredSharePassword,
   storeSharePassword,
   detectPasswordError,
@@ -191,4 +192,8 @@ export function useProjectSharePlans(token) {
 
 export function useProjectShareDeroule(token) {
   return useProjectSharePayload(token, fetchDeroulePayload)
+}
+
+export function useProjectShareLogistiqueV0(token) {
+  return useProjectSharePayload(token, fetchLogistiqueV0Payload)
 }
