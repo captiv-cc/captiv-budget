@@ -419,11 +419,16 @@ export function labelForKind(kind) {
 
 /**
  * Nom complet d'un membre (utilisé partout dans l'UI).
+ *
+ * IMPORTANT : projet_membres.prenom/nom sont des SURCHARGES, NULL par défaut
+ * si la personne vient de l'annuaire (contact_id rempli). Le vrai nom est
+ * alors sur membre.contact.prenom/nom. On fallback sur le contact comme dans
+ * computeInitials et le reste du codebase équipe.
  */
 export function membreFullName(membre) {
   if (!membre) return '—'
-  const prenom = membre.prenom || ''
-  const nom = membre.nom || ''
+  const prenom = membre.prenom || membre.contact?.prenom || ''
+  const nom = membre.nom || membre.contact?.nom || ''
   const full = `${prenom} ${nom}`.trim()
   return full || '—'
 }
