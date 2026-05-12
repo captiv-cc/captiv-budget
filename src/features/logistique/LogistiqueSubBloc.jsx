@@ -238,10 +238,20 @@ export default function LogistiqueSubBloc({
 
       {/* Documents :
            - Admin (editable) : liste compacte avec actions Preview / DL / Suppr
-           - Share  (readOnly) : grille de thumbnails visuels (PDF iframe / img) */}
+           - Share  (readOnly) : grille de thumbnails compacts (~110px). Garde
+             juste assez de signal visuel pour reconnaître le doc — le clic
+             agrandit en plein écran via le preview modal. Volontairement
+             plus petit que le bloc Global (180px) pour ne pas étirer la
+             page : chaque personne peut avoir 2-3 docs × 3 sous-blocs et
+             on a 5+ personnes — il faut rester compact. */}
       {documents.length > 0 && (
         readOnly ? (
-          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div
+            className="mt-2 grid gap-2"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+            }}
+          >
             {documents.map((doc) => (
               <DocumentThumbnail
                 key={doc.id}
@@ -473,11 +483,13 @@ function DocumentThumbnail({ doc, onClick }) {
       }}
       title={doc.filename}
     >
-      {/* Zone aperçu — ratio ~3/4 (format portrait, cohérent avec PDF/photo) */}
+      {/* Zone aperçu — ratio carré 1/1 pour rester compact (les sous-blocs
+          personne peuvent avoir N docs × 3 kinds, donc on tasse au max ;
+          le clic agrandit en plein écran de toute façon). */}
       <div
         className="relative w-full"
         style={{
-          aspectRatio: '3 / 4',
+          aspectRatio: '1 / 1',
           background: 'var(--bg-elev)',
           overflow: 'hidden',
         }}
@@ -524,15 +536,16 @@ function DocumentThumbnail({ doc, onClick }) {
           </div>
         )}
       </div>
-      {/* Filename + taille */}
-      <div className="px-2 py-1.5 flex flex-col gap-0">
+      {/* Filename + taille (compact pour rester proportionné au 110px) */}
+      <div className="px-1.5 py-1 flex flex-col gap-0">
         <div
-          className="text-[11px] font-medium truncate"
+          className="text-[10px] font-medium truncate leading-tight"
           style={{ color: 'var(--txt)' }}
+          title={doc.filename}
         >
           {doc.filename}
         </div>
-        <div className="text-[9px]" style={{ color: 'var(--txt-3)' }}>
+        <div className="text-[9px] leading-tight" style={{ color: 'var(--txt-3)' }}>
           {formatBytes(doc.size_bytes)}
         </div>
       </div>
