@@ -29,6 +29,7 @@ import {
   CheckSquare,
   ChevronDown,
   Clock,
+  Truck,
   Copy,
   ExternalLink,
   Eye,
@@ -104,6 +105,13 @@ const PAGE_DEFS = {
     Icon: Clock,
     color: 'var(--green)',
     bgColor: 'var(--green-bg)',
+  },
+  logistique_v0: {
+    label: 'Logistique',
+    description: 'Transport, hébergement, repas par personne (V0)',
+    Icon: Truck,
+    color: 'var(--orange)',
+    bgColor: 'var(--orange-bg)',
   },
 }
 
