@@ -26,6 +26,7 @@ import ProjectSharePasswordGate from '../components/share/ProjectSharePasswordGa
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import LogistiqueEntryCard from '../features/logistique/LogistiqueEntryCard'
+import LogistiqueGlobalCard from '../features/logistique/LogistiqueGlobalCard'
 
 const THEME_STORAGE_KEY = PROJECT_SHARE_THEME_KEY
 
@@ -104,6 +105,11 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
   const entries = useMemo(() => payload.entries || [], [payload.entries])
   const documents = useMemo(() => payload.documents || [], [payload.documents])
   const membres = useMemo(() => payload.membres || [], [payload.membres])
+  const globalRow = payload.global || null
+  const globalDocuments = useMemo(
+    () => payload.global_documents || [],
+    [payload.global_documents],
+  )
 
   // Map<membre_id, membre> pour lookup O(1)
   const membreById = useMemo(() => {
@@ -145,10 +151,20 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
 
-        {/* Liste des cards */}
-        {entries.length === 0 ? (
+        {/* Bloc Global (infos générales projet) — le composant se masque
+            tout seul en mode readOnly si le bloc est vide (text + 0 docs). */}
+        <div className="mt-5">
+          <LogistiqueGlobalCard
+            text={globalRow?.text}
+            documents={globalDocuments}
+            readOnly={true}
+          />
+        </div>
+
+        {/* Liste des cards personnes */}
+        {entries.length === 0 && !globalRow && globalDocuments.length === 0 ? (
           <EmptyState />
-        ) : (
+        ) : entries.length > 0 ? (
           <div className="mt-5 space-y-4">
             {entries.map((entry) => {
               const membre = membreById.get(entry.membre_id)
@@ -163,7 +179,7 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
               )
             })}
           </div>
-        )}
+        ) : null}
 
         <SharePageFooter />
       </div>

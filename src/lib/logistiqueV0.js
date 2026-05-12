@@ -215,6 +215,183 @@ export async function updateEntryText(entryId, kind, text) {
   return data
 }
 
+// ═══ Bloc Global (infos générales projet, 1 row par projet) ════════════════
+
+/**
+ * Récupère le bloc Global d'un projet (ou null s'il n'existe pas encore).
+ */
+export async function fetchGlobal(projectId) {
+  if (!projectId) throw new Error('fetchGlobal : projectId requis')
+  const { data, error } = await supabase
+    .from('projet_logistique_v0_global')
+    .select('id, project_id, text, created_at, updated_at, created_by')
+    .eq('project_id', projectId)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Upsert le texte du bloc Global. Crée le row s'il n'existait pas (avec
+ * created_by = current user), sinon update text. Retourne la row à jour.
+ *
+ * NOTE : Supabase upsert() avec onConflict='project_id' fonctionne grâce
+ * à la contrainte UNIQUE (project_id). Pas besoin de pré-vérifier
+ * l'existence du row.
+ */
+export async function upsertGlobalText(projectId, text) {
+  if (!projectId) throw new Error('upsertGlobalText : projectId requis')
+
+  const normalized = text == null || text === '' ? null : String(text)
+
+  // Try update first (row existe presque toujours après le 1er upload).
+  // Si rien à update → insert.
+  const { data: existing, error: fetchErr } = await supabase
+    .from('projet_logistique_v0_global')
+    .select('id')
+    .eq('project_id', projectId)
+    .maybeSingle()
+  if (fetchErr) throw fetchErr
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('projet_logistique_v0_global')
+      .update({ text: normalized })
+      .eq('id', existing.id)
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  }
+
+  // INSERT (1er texte sur ce projet)
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData?.user?.id || null
+  const { data, error } = await supabase
+    .from('projet_logistique_v0_global')
+    .insert([{ project_id: projectId, text: normalized, created_by: userId }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Liste les documents du bloc Global d'un projet. Si pas de row global,
+ * retourne []. Sinon retourne les docs triés par date de création.
+ */
+export async function listGlobalDocuments(globalId) {
+  if (!globalId) return []
+  const { data, error } = await supabase
+    .from('projet_logistique_v0_global_documents')
+    .select(
+      'id, global_id, storage_path, filename, mime_type, size_bytes, uploaded_by_name, created_at',
+    )
+    .eq('global_id', globalId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Upload un fichier dans le bloc Global. Crée le row global s'il n'existe
+ * pas encore (cas du tout 1er upload sans avoir saisi de texte).
+ *
+ * @param {object} opts
+ * @param {string} opts.projectId
+ * @param {File}   opts.file
+ * @param {string} [opts.uploadedByName]
+ */
+export async function uploadGlobalDocument({ projectId, file, uploadedByName = null }) {
+  if (!projectId) throw new Error('uploadGlobalDocument : projectId requis')
+  if (!file) throw new Error('uploadGlobalDocument : file requis')
+
+  // ─── Garde-fous côté client ─────────────────────────────────────────────
+  if (file.size > MAX_UPLOAD_BYTES) {
+    const mb = (file.size / 1024 / 1024).toFixed(1)
+    const maxMb = (MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(0)
+    throw new Error(`Fichier trop volumineux (${mb} Mo, max ${maxMb} Mo)`)
+  }
+  const ext = extractExtension(file.name)
+  if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+    throw new Error(
+      `Format .${ext || '?'} non autorisé. Formats acceptés : ${ACCEPTED_EXTENSIONS.join(', ')}`,
+    )
+  }
+
+  // ─── 1. Assure l'existence du row global ───────────────────────────────
+  let globalRow = await fetchGlobal(projectId)
+  if (!globalRow) {
+    globalRow = await upsertGlobalText(projectId, null)
+  }
+
+  // ─── 2. Upload Storage ──────────────────────────────────────────────────
+  const storagePath = buildStoragePath(globalRow.id, file.name)
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    })
+  if (uploadError) throw uploadError
+
+  // ─── 3. INSERT DB (rollback Storage si KO) ─────────────────────────────
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData?.user?.id || null
+
+  const { data, error: insertError } = await supabase
+    .from('projet_logistique_v0_global_documents')
+    .insert([
+      {
+        global_id: globalRow.id,
+        storage_path: storagePath,
+        filename: file.name,
+        mime_type: file.type || null,
+        size_bytes: file.size,
+        uploaded_by: userId,
+        uploaded_by_name: uploadedByName,
+      },
+    ])
+    .select()
+    .single()
+
+  if (insertError) {
+    await supabase.storage.from(BUCKET).remove([storagePath])
+    throw insertError
+  }
+
+  return data
+}
+
+/**
+ * Supprime un document du bloc Global (DB + Storage).
+ */
+export async function deleteGlobalDocument(documentId) {
+  if (!documentId) throw new Error('deleteGlobalDocument : documentId requis')
+
+  const { data: doc, error: fetchErr } = await supabase
+    .from('projet_logistique_v0_global_documents')
+    .select('id, storage_path')
+    .eq('id', documentId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  const { error: delErr } = await supabase
+    .from('projet_logistique_v0_global_documents')
+    .delete()
+    .eq('id', documentId)
+  if (delErr) throw delErr
+
+  if (doc?.storage_path) {
+    const { error: storageErr } = await supabase.storage
+      .from(BUCKET)
+      .remove([doc.storage_path])
+    if (storageErr) {
+      console.warn('[logistiqueV0] Cleanup Storage partiel après deleteGlobalDocument :', storageErr)
+    }
+  }
+}
+
 // ═══ Documents CRUD ══════════════════════════════════════════════════════════
 
 /**

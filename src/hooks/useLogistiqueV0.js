@@ -23,11 +23,20 @@ import {
   setEntryHiddenKinds as libSetEntryHiddenKinds,
   uploadDocument as libUploadDocument,
   deleteDocument as libDeleteDocument,
+  fetchGlobal as libFetchGlobal,
+  upsertGlobalText as libUpsertGlobalText,
+  listGlobalDocuments as libListGlobalDocuments,
+  uploadGlobalDocument as libUploadGlobalDocument,
+  deleteGlobalDocument as libDeleteGlobalDocument,
 } from '../lib/logistiqueV0'
 
 export function useLogistiqueV0(projectId) {
   const [entries, setEntries] = useState([])
   const [documents, setDocuments] = useState([])
+  // Bloc Global : null tant que pas créé en DB (1er upload ou 1er texte
+  // déclenchera l'INSERT).
+  const [globalRow, setGlobalRow] = useState(null)
+  const [globalDocuments, setGlobalDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -35,35 +44,45 @@ export function useLogistiqueV0(projectId) {
     if (!projectId) {
       setEntries([])
       setDocuments([])
+      setGlobalRow(null)
+      setGlobalDocuments([])
       setLoading(false)
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const ents = await libListEntries(projectId)
+      // Parallel fetch : entries + global row
+      const [ents, glob] = await Promise.all([
+        libListEntries(projectId),
+        libFetchGlobal(projectId),
+      ])
       setEntries(ents)
+      setGlobalRow(glob)
 
-      // Fetch all documents for these entries in one query. On utilise un
-      // IN sur entry_id plutôt qu'une jointure inverse pour ne pas alourdir
-      // la requête entries (qui peut être appelée seule ailleurs).
-      if (ents.length === 0) {
-        setDocuments([])
-      } else {
-        const entryIds = ents.map((e) => e.id)
-        const { data, error: docsError } = await supabase
-          .from('projet_logistique_v0_documents')
-          .select(
-            'id, entry_id, kind, storage_path, filename, mime_type, size_bytes, uploaded_by_name, created_at',
-          )
-          .in('entry_id', entryIds)
-          .order('created_at', { ascending: true })
-        if (docsError) throw docsError
-        setDocuments(data || [])
-      }
+      // Fetch all entry docs + global docs in parallel
+      const entryDocsP = ents.length === 0
+        ? Promise.resolve([])
+        : supabase
+            .from('projet_logistique_v0_documents')
+            .select(
+              'id, entry_id, kind, storage_path, filename, mime_type, size_bytes, uploaded_by_name, created_at',
+            )
+            .in(
+              'entry_id',
+              ents.map((e) => e.id),
+            )
+            .order('created_at', { ascending: true })
+            .then(({ data, error: e }) => {
+              if (e) throw e
+              return data || []
+            })
+      const globalDocsP = glob ? libListGlobalDocuments(glob.id) : Promise.resolve([])
+      const [entryDocs, globalDocs] = await Promise.all([entryDocsP, globalDocsP])
+      setDocuments(entryDocs)
+      setGlobalDocuments(globalDocs)
     } catch (err) {
       setError(err)
-       
       console.error('[useLogistiqueV0] reload error :', err)
     } finally {
       setLoading(false)
@@ -111,8 +130,36 @@ export function useLogistiqueV0(projectId) {
         await libDeleteDocument(documentId)
         setDocuments((prev) => prev.filter((d) => d.id !== documentId))
       },
+
+      // ─── Bloc Global ───────────────────────────────────────────────────
+      updateGlobalText: async (text) => {
+        const updated = await libUpsertGlobalText(projectId, text)
+        setGlobalRow(updated)
+        return updated
+      },
+
+      uploadGlobalDocument: async ({ file, uploadedByName }) => {
+        const newDoc = await libUploadGlobalDocument({
+          projectId,
+          file,
+          uploadedByName,
+        })
+        // L'upload peut créer le row global s'il n'existait pas. On reload
+        // le globalRow pour être sûr d'avoir l'id correct.
+        if (!globalRow) {
+          const fresh = await libFetchGlobal(projectId)
+          setGlobalRow(fresh)
+        }
+        setGlobalDocuments((prev) => [...prev, newDoc])
+        return newDoc
+      },
+
+      deleteGlobalDocument: async (documentId) => {
+        await libDeleteGlobalDocument(documentId)
+        setGlobalDocuments((prev) => prev.filter((d) => d.id !== documentId))
+      },
     }),
-    [projectId],
+    [projectId, globalRow],
   )
 
   // ─── Helpers de groupage (utilisés par l'UI) ───────────────────────────
@@ -136,6 +183,8 @@ export function useLogistiqueV0(projectId) {
     entries,
     documents,
     documentsByEntry,
+    global: globalRow,
+    globalDocuments,
     loading,
     error,
     reload,

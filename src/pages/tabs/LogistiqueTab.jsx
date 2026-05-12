@@ -22,6 +22,7 @@ import { useLogistiqueV0 } from '../../hooks/useLogistiqueV0'
 import { fetchProjectMembers } from '../../lib/crew'
 import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
 import LogistiqueAddPersonModal from '../../features/logistique/LogistiqueAddPersonModal'
+import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
 
 const OUTIL_KEY = 'logistique_v0'
 
@@ -34,6 +35,8 @@ export default function LogistiqueTab() {
   const {
     entries,
     documentsByEntry,
+    global: globalRow,
+    globalDocuments,
     loading,
     error,
     addEntry,
@@ -42,6 +45,9 @@ export default function LogistiqueTab() {
     setEntryHiddenKinds,
     uploadDocument,
     deleteDocument,
+    updateGlobalText,
+    uploadGlobalDocument,
+    deleteGlobalDocument,
   } = useLogistiqueV0(canRead ? projectId : null)
 
   // Charge la liste des membres du projet pour le picker d'ajout + le mapping
@@ -157,7 +163,19 @@ export default function LogistiqueTab() {
         )}
       </div>
 
-      {/* ─── Liste des cards ──────────────────────────────────────────── */}
+      {/* ─── Bloc Global (infos générales projet) ─────────────────────── */}
+      <div className="mb-4">
+        <LogistiqueGlobalCard
+          text={globalRow?.text}
+          documents={globalDocuments}
+          readOnly={!canEdit}
+          onUpdateText={updateGlobalText}
+          onUploadDocument={uploadGlobalDocument}
+          onDeleteDocument={deleteGlobalDocument}
+        />
+      </div>
+
+      {/* ─── Liste des cards personnes ───────────────────────────────── */}
       {entries.length === 0 ? (
         <EmptyState canEdit={canEdit} onAdd={() => setAddOpen(true)} />
       ) : (
