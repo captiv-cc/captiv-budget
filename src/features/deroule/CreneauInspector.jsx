@@ -433,7 +433,7 @@ export default function CreneauInspector({
                       }}
                     >
                       {m
-                        ? `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim()
+                        ? `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim()
                         : '?'}
                     </span>
                   )
@@ -701,7 +701,7 @@ function MembrePicker({ membres, selected, onChange }) {
     const lower = search.toLowerCase()
     const allFiltered = (membres || []).filter((m) => {
       if (!search) return true
-      const fn = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.toLowerCase()
+      const fn = `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.toLowerCase()
       return fn.includes(lower)
     })
     return {
@@ -873,7 +873,7 @@ function MembrePicker({ membres, selected, onChange }) {
 
 function MembreRow({ membre: m, checked, onToggle, isPresent }) {
   const fn =
-    `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
+    `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '—'
   return (
     <label
       className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer transition-colors"

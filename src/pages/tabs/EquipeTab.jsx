@@ -68,14 +68,18 @@ function getStep(key) {
 // (le canonique vit sur contacts). Sans cette cascade, l'OrphansBlock
 // affichait "—" pour tous les membres rattachés à un contact (cf. fix
 // 2026-05-07 — pareil pattern que SHARE-NAME-CASCADE côté RPC).
+// NAME-PRIORITY-FIX (2026-05-13) : contact lié prioritaire (live, à jour si la
+// BDD a été corrigée), fallback sur m.prenom pour les hors-annuaire. Pattern
+// aligné sur crew.js#fullNameFromPersona. Avant : la priorité inverse faisait
+// que les corrections sur le contact ne se propageaient pas en équipe.
 function fullName(m) {
-  const prenom = m?.prenom || m?.contact?.prenom || ''
-  const nom = m?.nom || m?.contact?.nom || ''
+  const prenom = m?.contact?.prenom || m?.prenom || ''
+  const nom = m?.contact?.nom || m?.nom || ''
   return `${prenom} ${nom}`.trim() || '—'
 }
 function initials(m) {
-  const prenom = m?.prenom || m?.contact?.prenom || ''
-  const nom = m?.nom || m?.contact?.nom || ''
+  const prenom = m?.contact?.prenom || m?.prenom || ''
+  const nom = m?.contact?.nom || m?.nom || ''
   return ((prenom[0] || '') + (nom[0] || '')).toUpperCase() || '?'
 }
 

@@ -71,8 +71,9 @@ export default function DerouleTimelineView({
   const membreInitiales = useMemo(() => {
     const map = new Map()
     for (const m of membres || []) {
-      const prenom = m.prenom || m.contact?.prenom || ''
-      const nom = m.nom || m.contact?.nom || ''
+      // Priorité contact lié (live) sur surcharge membre. Cf. crew.js#fullNameFromPersona.
+      const prenom = m.contact?.prenom || m.prenom || ''
+      const nom = m.contact?.nom || m.nom || ''
       const ini = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() || '?'
       map.set(m.id, { initiales: ini, fullName: `${prenom} ${nom}`.trim() || '—' })
     }
@@ -873,7 +874,7 @@ function CreneauBlock({
     const byMembre = new Map()
     for (const { creneau: other, membre } of conflicts) {
       if (!byMembre.has(membre.id)) {
-        const fn = `${membre.prenom || membre.contact?.prenom || ''} ${membre.nom || membre.contact?.nom || ''}`.trim() || '?'
+        const fn = `${membre.contact?.prenom || membre.prenom || ''} ${membre.contact?.nom || membre.nom || ''}`.trim() || '?'
         byMembre.set(membre.id, { fn, others: [] })
       }
       byMembre.get(membre.id).others.push(other)

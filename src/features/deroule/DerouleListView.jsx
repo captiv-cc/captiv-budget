@@ -32,8 +32,9 @@ export default function DerouleListView({
   const membreById = useMemo(() => {
     const m = new Map()
     for (const x of membres || []) {
-      const prenom = x.prenom || x.contact?.prenom || ''
-      const nom = x.nom || x.contact?.nom || ''
+      // Priorité contact lié (live) sur surcharge membre. Cf. crew.js#fullNameFromPersona.
+      const prenom = x.contact?.prenom || x.prenom || ''
+      const nom = x.contact?.nom || x.nom || ''
       const fullName = `${prenom} ${nom}`.trim() || '—'
       const ini = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() || '?'
       m.set(x.id, { fullName, ini })

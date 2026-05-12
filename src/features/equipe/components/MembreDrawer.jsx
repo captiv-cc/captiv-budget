@@ -158,8 +158,9 @@ export default function MembreDrawer({
       contact_id: r.contact_id || null,
       contact: r.contact || null,
       members: personaRows,
-      prenom: r.prenom || r.contact?.prenom || '',
-      nom: r.nom || r.contact?.nom || '',
+      // Priorité contact (live) sur surcharge membre. Cf. crew.js#fullNameFromPersona.
+      prenom: r.contact?.prenom || r.prenom || '',
+      nom: r.contact?.nom || r.nom || '',
       email: r.email || r.contact?.email || '',
       telephone: r.telephone || r.contact?.telephone || '',
       ville: r.contact?.ville || r.secteur || '',

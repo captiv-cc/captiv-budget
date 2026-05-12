@@ -181,8 +181,9 @@ function groupMembresByPerson(membres) {
       map[key] = {
         key,
         contact_id: m.contact_id,
-        nom: m.nom || m.contact?.nom || '',
-        prenom: m.prenom || m.contact?.prenom || '',
+        // Priorité contact (live) sur surcharge membre. Cf. crew.js#fullNameFromPersona.
+        nom: m.contact?.nom || m.nom || '',
+        prenom: m.contact?.prenom || m.prenom || '',
         email: m.email || m.contact?.email || '',
         user_id: m.contact?.user_id || null,
         postes: [],

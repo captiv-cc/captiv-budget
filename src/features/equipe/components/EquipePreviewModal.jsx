@@ -576,7 +576,7 @@ function Row({ m, zebra, showLotDot, presenceDays, lotInfoMap, lineLotMap, membe
   // Override > devis > contact : cohérent avec AttributionRow (le rename
   // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
   const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
-  const fullName = `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
+  const fullName = `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '—'
   const tel = formatPhone(m.contact?.telephone || m.telephone || '')
   const email = m.contact?.email || m.email || ''
   const secteur = m.secteur || m.contact?.ville || ''
@@ -747,7 +747,7 @@ function Card({ m, showLotDot, presenceDays, lotInfoMap, lineLotMap, memberSessi
   // côté Crew list — projet_membres.specialite — gagne sur la ligne devis).
   const poste = m.specialite || m.devis_line?.produit || m.contact?.specialite || '—'
   const fullName =
-    `${m.prenom || m.contact?.prenom || ''} ${m.nom || m.contact?.nom || ''}`.trim() || '—'
+    `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '—'
   const tel = formatPhone(m.contact?.telephone || m.telephone || '')
   const email = m.contact?.email || m.email || ''
   const secteur = m.secteur || m.contact?.ville || ''
