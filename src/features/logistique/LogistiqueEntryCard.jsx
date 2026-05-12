@@ -231,10 +231,10 @@ export default function LogistiqueEntryCard({
 
 function computeInitials(membre) {
   if (!membre) return '?'
-  // Préférence : champs surcharge sur projet_membres
-  // Fallback : champs contact joint
-  const prenom = membre.prenom || membre.contact?.prenom || ''
-  const nom = membre.nom || membre.contact?.nom || ''
+  // Priorité contact lié (live, à jour si la BDD a été corrigée), fallback
+  // sur membre.prenom/nom pour les hors-annuaire. Aligné sur crew.js.
+  const prenom = membre.contact?.prenom || membre.prenom || ''
+  const nom = membre.contact?.nom || membre.nom || ''
   const ini = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase()
   return ini || '?'
 }

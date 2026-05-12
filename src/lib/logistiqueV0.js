@@ -597,15 +597,21 @@ export function labelForKind(kind) {
 /**
  * Nom complet d'un membre (utilisé partout dans l'UI).
  *
- * IMPORTANT : projet_membres.prenom/nom sont des SURCHARGES, NULL par défaut
- * si la personne vient de l'annuaire (contact_id rempli). Le vrai nom est
- * alors sur membre.contact.prenom/nom. On fallback sur le contact comme dans
- * computeInitials et le reste du codebase équipe.
+ * IMPORTANT : priorité au contact lié (s'il existe), fallback sur le
+ * membre.prenom/nom. Pattern aligné sur crew.js#fullNameFromPersona :
+ *   - contact_id rempli → on lit `contact.prenom` (live, à jour si la BDD
+ *     a été corrigée)
+ *   - contact_id NULL (membre hors-annuaire) → on lit `membre.prenom`
+ *
+ * Avant : la priorité inverse (membre.prenom > contact.prenom) faisait
+ * que les corrections sur le contact dans la BDD ne se propageaient pas
+ * si projet_membres.prenom avait été rempli (cas typique : faute de
+ * frappe corrigée après attribution).
  */
 export function membreFullName(membre) {
   if (!membre) return '—'
-  const prenom = membre.prenom || membre.contact?.prenom || ''
-  const nom = membre.nom || membre.contact?.nom || ''
+  const prenom = membre.contact?.prenom || membre.prenom || ''
+  const nom = membre.contact?.nom || membre.nom || ''
   const full = `${prenom} ${nom}`.trim()
   return full || '—'
 }
