@@ -57,6 +57,11 @@ export const OUTILS = {
   // DÉROULÉ V1 (2026-05-08) — Tab planning tournage par journée (rundown).
   // Cf. CHANTIER_DEROULE.md + 20260508_deroule_v1_schema.sql.
   DEROULE: 'deroule',
+  // LOGISTIQUE V0 (2026-05-12) — Mini outil provisoire infos logistique par
+  // membre (transport / hébergement / repas + texte libre + docs PDF/PNG/JPG).
+  // Sera remplacé par LOGISTIQUE V1/V2/V3 (calendrier complet, hébergements
+  // partagés, transports avec tracking…). Cf. 20260512_logistique_v0_schema.sql.
+  LOGISTIQUE_V0: 'logistique_v0',
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────

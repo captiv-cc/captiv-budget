@@ -54,6 +54,7 @@ import {
   Shield,
   Menu,
   Share2,
+  Truck,
 } from 'lucide-react'
 import StatusBadgeMenu from '../features/projets/components/StatusBadgeMenu'
 import ProjectShareModal from '../features/projets/components/ProjectShareModal'
@@ -95,6 +96,14 @@ const ALL_TABS = [
     outil: 'devis',
   },
   { key: 'equipe', label: 'Équipe', icon: Users, path: 'equipe', finance: false, outil: 'equipe' },
+  {
+    key: 'logistique',
+    label: 'Logistique',
+    icon: Truck,
+    path: 'logistique',
+    finance: false,
+    outil: 'logistique_v0',
+  },
   {
     key: 'deroule',
     label: 'Déroulé',

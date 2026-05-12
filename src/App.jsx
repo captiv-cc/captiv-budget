@@ -48,6 +48,7 @@ import DashboardProjetTab from './pages/tabs/DashboardProjetTab'
 import EquipeTab from './pages/tabs/EquipeTab'
 import PlanningTab from './pages/tabs/PlanningTab'
 import DerouleTab from './pages/tabs/DerouleTab'
+import LogistiqueTab from './pages/tabs/LogistiqueTab'
 import ProductionTab from './pages/tabs/ProductionTab'
 import LivrablesTab from './pages/tabs/LivrablesTab'
 import MaterielTab from './pages/tabs/MaterielTab'
@@ -270,6 +271,7 @@ function AppRoutes() {
           <Route path="devis" element={<DevisTab />} />
           <Route path="devis/:devisId" element={<DevisTab />} />
           <Route path="equipe" element={<EquipeTab />} />
+          <Route path="logistique" element={<LogistiqueTab />} />
           <Route path="deroule" element={<DerouleTab />} />
           <Route path="planning" element={<PlanningTab />} />
           <Route path="production" element={<ProductionTab />} />
