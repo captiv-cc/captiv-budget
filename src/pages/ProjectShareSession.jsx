@@ -104,7 +104,7 @@ const PAGE_REGISTRY = {
     },
   },
   logistique_v0: {
-    label: 'Logistique',
+    label: 'Logistique & VHR',
     description: 'Transport, hébergement, repas par personne',
     Icon: Truck,
     color: 'var(--orange)',

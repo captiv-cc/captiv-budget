@@ -139,7 +139,7 @@ export default function LogistiqueTab() {
               className="text-lg font-semibold"
               style={{ color: 'var(--txt)' }}
             >
-              Logistique
+              Logistique & VHR
             </h1>
             <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
               Transport · Hébergement · Repas (V0 — outil provisoire)

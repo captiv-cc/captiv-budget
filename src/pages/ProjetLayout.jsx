@@ -98,7 +98,7 @@ const ALL_TABS = [
   { key: 'equipe', label: 'Équipe', icon: Users, path: 'equipe', finance: false, outil: 'equipe' },
   {
     key: 'logistique',
-    label: 'Logistique',
+    label: 'Logistique & VHR',
     icon: Truck,
     path: 'logistique',
     finance: false,
