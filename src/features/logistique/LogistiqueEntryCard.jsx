@@ -4,17 +4,31 @@
 //
 // Affiche pour une personne :
 //   - Header : avatar (initiales) + nom + spécialité + bouton supprimer
-//   - 3 sous-blocs : Transport / Hébergement / Repas (côte à côte sur
-//     desktop, empilés sur mobile)
+//   - Les sous-blocs Transport / Hébergement / Repas, SAUF ceux marqués
+//     dans entry.hidden_kinds (côté admin et côté share)
+//   - En bas (admin) : boutons "+ Transport / + Hébergement / + Repas" pour
+//     restaurer les sous-blocs masqués
 //
-// Mode read-only : pas de bouton supprimer, sous-blocs en lecture seule.
+// Mode read-only : pas de bouton supprimer, pas de bouton X par sous-bloc,
+// pas de boutons "+ Restaurer" — uniquement les sous-blocs visibles.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Trash2 } from 'lucide-react'
+import { Trash2, Plus, Plane, BedDouble, UtensilsCrossed } from 'lucide-react'
 import LogistiqueSubBloc from './LogistiqueSubBloc'
-import { LOGISTIQUE_KINDS, membreFullName } from '../../lib/logistiqueV0'
+import {
+  LOGISTIQUE_KINDS,
+  labelForKind,
+  membreFullName,
+} from '../../lib/logistiqueV0'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
+
+// Icônes pour les boutons "+ Restaurer X"
+const KIND_ICONS = {
+  transport: Plane,
+  hebergement: BedDouble,
+  repas: UtensilsCrossed,
+}
 
 export default function LogistiqueEntryCard({
   entry,
@@ -25,10 +39,17 @@ export default function LogistiqueEntryCard({
   onUploadDocument,
   onDeleteDocument,
   onRemoveEntry,
+  onSetHiddenKinds, // (entryId, hiddenKinds) — admin uniquement
 }) {
   const fullName = membreFullName(membre)
   const initials = computeInitials(membre)
   const specialite = membre?.specialite || membre?.contact?.specialite || ''
+
+  // Normalise hidden_kinds depuis l'entry (peut être undefined ou null en V0
+  // legacy avant la migration hidden_kinds — fallback []).
+  const hiddenKinds = Array.isArray(entry.hidden_kinds) ? entry.hidden_kinds : []
+  const visibleKinds = LOGISTIQUE_KINDS.filter((k) => !hiddenKinds.includes(k))
+  const hiddenKindsList = LOGISTIQUE_KINDS.filter((k) => hiddenKinds.includes(k))
 
   async function handleRemoveEntry() {
     const ok = await confirm({
@@ -47,10 +68,35 @@ export default function LogistiqueEntryCard({
     }
   }
 
+  async function handleHideKind(kind) {
+    const next = [...new Set([...hiddenKinds, kind])]
+    try {
+      await onSetHiddenKinds(entry.id, next)
+    } catch (err) {
+      notify.error(err.message || 'Erreur masquage')
+    }
+  }
+
+  async function handleRestoreKind(kind) {
+    const next = hiddenKinds.filter((k) => k !== kind)
+    try {
+      await onSetHiddenKinds(entry.id, next)
+    } catch (err) {
+      notify.error(err.message || 'Erreur restauration')
+    }
+  }
+
   // Wrap update text avec l'entry_id contextuel
   const handleUpdateText = (kind, text) => onUpdateText(entry.id, kind, text)
   const handleUploadDocument = ({ kind, file }) =>
     onUploadDocument({ entryId: entry.id, kind, file })
+
+  // Détecte si la personne a vraiment 0 sous-bloc visible (cas où tout est
+  // masqué). On affiche une note pour l'admin pour lui dire qu'il peut
+  // restaurer un sous-bloc. Côté share, on cache juste la card vide.
+  if (readOnly && visibleKinds.length === 0) {
+    return null
+  }
 
   return (
     <div
@@ -108,21 +154,75 @@ export default function LogistiqueEntryCard({
         )}
       </div>
 
-      {/* Sous-blocs (grille 3 col desktop, stack mobile) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {LOGISTIQUE_KINDS.map((kind) => (
-          <LogistiqueSubBloc
-            key={kind}
-            kind={kind}
-            text={entry[`${kind}_text`]}
-            documents={documentsByKind?.get(kind) || []}
-            readOnly={readOnly}
-            onUpdateText={handleUpdateText}
-            onUploadDocument={handleUploadDocument}
-            onDeleteDocument={onDeleteDocument}
-          />
-        ))}
-      </div>
+      {/* Sous-blocs visibles uniquement. La grille adapte le nombre de
+          colonnes : 3 si tout est visible, 2 si 1 masqué, 1 si 2 masqués. */}
+      {visibleKinds.length > 0 && (
+        <div
+          className="grid grid-cols-1 gap-3"
+          style={{
+            gridTemplateColumns:
+              visibleKinds.length === 3
+                ? 'repeat(auto-fit, minmax(0, 1fr))'
+                : visibleKinds.length === 2
+                  ? 'repeat(auto-fit, minmax(0, 1fr))'
+                  : '1fr',
+          }}
+        >
+          {visibleKinds.map((kind) => (
+            <LogistiqueSubBloc
+              key={kind}
+              kind={kind}
+              text={entry[`${kind}_text`]}
+              documents={documentsByKind?.get(kind) || []}
+              readOnly={readOnly}
+              onUpdateText={handleUpdateText}
+              onUploadDocument={handleUploadDocument}
+              onDeleteDocument={onDeleteDocument}
+              onHide={readOnly ? null : () => handleHideKind(kind)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Boutons "+ Restaurer X" pour les sous-blocs masqués (admin uniquement) */}
+      {!readOnly && hiddenKindsList.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span
+            className="text-[10px] uppercase tracking-wider mr-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Réactiver :
+          </span>
+          {hiddenKindsList.map((kind) => {
+            const KIcon = KIND_ICONS[kind] || Plus
+            return (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => handleRestoreKind(kind)}
+                className="text-[11px] inline-flex items-center gap-1 rounded-md px-2 py-1 transition-colors"
+                style={{
+                  background: 'var(--bg-elev)',
+                  border: '1px dashed var(--brd-sub)',
+                  color: 'var(--txt-2)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                  e.currentTarget.style.borderStyle = 'solid'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-elev)'
+                  e.currentTarget.style.borderStyle = 'dashed'
+                }}
+              >
+                <Plus className="w-3 h-3" />
+                <KIcon className="w-3 h-3" />
+                {labelForKind(kind)}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -89,7 +89,7 @@ export async function listEntries(projectId) {
   const { data, error } = await supabase
     .from('projet_logistique_v0_entries')
     .select(
-      'id, project_id, membre_id, transport_text, hebergement_text, repas_text, created_at, updated_at, created_by',
+      'id, project_id, membre_id, transport_text, hebergement_text, repas_text, hidden_kinds, created_at, updated_at, created_by',
     )
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
@@ -161,6 +161,28 @@ export async function removeEntry(entryId) {
       console.warn('[logistiqueV0] Cleanup Storage partiel après removeEntry :', storageErr)
     }
   }
+}
+
+/**
+ * Met à jour la liste des sous-blocs masqués pour une entry. Les kinds présents
+ * dans hidden_kinds sont absents de l'UI (admin + share). On peut les restaurer
+ * en les retirant de la liste.
+ *
+ * @param {string} entryId
+ * @param {Array<'transport'|'hebergement'|'repas'>} hiddenKinds
+ */
+export async function setEntryHiddenKinds(entryId, hiddenKinds) {
+  if (!entryId) throw new Error('setEntryHiddenKinds : entryId requis')
+  // Normalise + valide : on garde uniquement les kinds connus, on dédup.
+  const normalized = [...new Set((hiddenKinds || []).filter(isValidKind))]
+  const { data, error } = await supabase
+    .from('projet_logistique_v0_entries')
+    .update({ hidden_kinds: normalized })
+    .eq('id', entryId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
 }
 
 /**

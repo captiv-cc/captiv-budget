@@ -20,6 +20,7 @@ import {
   addEntry as libAddEntry,
   removeEntry as libRemoveEntry,
   updateEntryText as libUpdateEntryText,
+  setEntryHiddenKinds as libSetEntryHiddenKinds,
   uploadDocument as libUploadDocument,
   deleteDocument as libDeleteDocument,
 } from '../lib/logistiqueV0'
@@ -90,6 +91,12 @@ export function useLogistiqueV0(projectId) {
 
       updateEntryText: async (entryId, kind, text) => {
         const updated = await libUpdateEntryText(entryId, kind, text)
+        setEntries((prev) => prev.map((e) => (e.id === entryId ? updated : e)))
+        return updated
+      },
+
+      setEntryHiddenKinds: async (entryId, hiddenKinds) => {
+        const updated = await libSetEntryHiddenKinds(entryId, hiddenKinds)
         setEntries((prev) => prev.map((e) => (e.id === entryId ? updated : e)))
         return updated
       },

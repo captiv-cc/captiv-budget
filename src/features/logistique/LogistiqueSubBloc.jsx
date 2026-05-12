@@ -3,13 +3,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Affiche un sous-bloc d'une entry logistique :
-//   - Header (titre + icône + compteur docs)
+//   - Header (titre + icône + compteur docs + bouton X masquer en admin)
 //   - Textarea avec autosave debounced (500ms après dernier tap)
-//   - Liste des documents uploadés (avec preview / download / delete)
+//   - Liste des documents (clic Eye → ouvre LogistiqueDocumentPreviewModal)
 //   - Bouton "Ajouter un document" qui ouvre l'input file
 //
-// Mode read-only : pas de textarea éditable, pas d'uploader, pas de delete.
-// Utilisé tel quel dans la page share (en réinjectant readOnly=true).
+// Mode read-only :
+//   - pas de textarea éditable, pas d'uploader, pas de delete, pas de X
+//   - les docs sont affichés en **grille de thumbnails** (PDF iframe / image)
+//     pour un rendu visuel cohérent avec la page share Plans
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react'
@@ -25,6 +27,7 @@ import {
   Eye,
   Upload,
   Loader2,
+  X,
 } from 'lucide-react'
 import {
   ACCEPTED_EXTENSIONS,
@@ -38,6 +41,7 @@ import {
 } from '../../lib/logistiqueV0'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
+import LogistiqueDocumentPreviewModal from './LogistiqueDocumentPreviewModal'
 
 const ICONS_BY_KIND = {
   transport: Plane,
@@ -64,11 +68,15 @@ export default function LogistiqueSubBloc({
   onUpdateText,
   onUploadDocument,
   onDeleteDocument,
+  onHide, // callback admin pour masquer ce sous-bloc (toggle hidden_kinds DB)
 }) {
   const Icon = ICONS_BY_KIND[kind] || Paperclip
   const color = COLORS_BY_KIND[kind] || 'var(--txt-2)'
   const fileInputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
+
+  // Doc en cours de preview (modal) — null = fermé
+  const [previewDoc, setPreviewDoc] = useState(null)
 
   // ─── Textarea avec autosave debounced ─────────────────────────────────
   const [localText, setLocalText] = useState(text ?? '')
@@ -158,8 +166,8 @@ export default function LogistiqueSubBloc({
     >
       {/* Header sous-bloc */}
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-1.5">
-          <Icon className="w-4 h-4" style={{ color }} />
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <Icon className="w-4 h-4 shrink-0" style={{ color }} />
           <span
             className="text-xs font-semibold uppercase tracking-wider"
             style={{ color }}
@@ -180,6 +188,26 @@ export default function LogistiqueSubBloc({
           <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
             {saveState === 'saving' ? 'Enregistrement…' : 'Enregistré ✓'}
           </span>
+        )}
+        {/* Bouton X pour masquer le sous-bloc (admin uniquement) */}
+        {!readOnly && onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            className="p-1 rounded transition-colors shrink-0"
+            style={{ color: 'var(--txt-3)' }}
+            title={`Masquer ${labelForKind(kind).toLowerCase()} pour cette personne`}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         )}
       </div>
 
@@ -208,18 +236,41 @@ export default function LogistiqueSubBloc({
         />
       )}
 
-      {/* Liste des documents */}
+      {/* Documents :
+           - Admin (editable) : liste compacte avec actions Preview / DL / Suppr
+           - Share  (readOnly) : grille de thumbnails visuels (PDF iframe / img) */}
       {documents.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {documents.map((doc) => (
-            <DocumentRow
-              key={doc.id}
-              doc={doc}
-              readOnly={readOnly}
-              onDelete={() => handleDeleteDoc(doc)}
-            />
-          ))}
-        </ul>
+        readOnly ? (
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {documents.map((doc) => (
+              <DocumentThumbnail
+                key={doc.id}
+                doc={doc}
+                onClick={() => setPreviewDoc(doc)}
+              />
+            ))}
+          </div>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {documents.map((doc) => (
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                readOnly={readOnly}
+                onPreview={() => setPreviewDoc(doc)}
+                onDelete={() => handleDeleteDoc(doc)}
+              />
+            ))}
+          </ul>
+        )
+      )}
+
+      {/* Modal preview document (admin + share) */}
+      {previewDoc && (
+        <LogistiqueDocumentPreviewModal
+          doc={previewDoc}
+          onClose={() => setPreviewDoc(null)}
+        />
       )}
 
       {/* Bouton upload */}
@@ -268,23 +319,11 @@ export default function LogistiqueSubBloc({
   )
 }
 
-// ─── Document row ───────────────────────────────────────────────────────────
-function DocumentRow({ doc, readOnly, onDelete }) {
+// ─── Document row (mode admin, liste compacte) ─────────────────────────────
+function DocumentRow({ doc, readOnly, onPreview, onDelete }) {
   const kind = previewKind(doc)
   const Icon = kind === 'image' ? ImageIcon : FileText
   const [loadingUrl, setLoadingUrl] = useState(false)
-
-  async function handleView() {
-    setLoadingUrl(true)
-    try {
-      const url = await getDocumentSignedUrl(doc.storage_path)
-      if (url) window.open(url, '_blank', 'noopener,noreferrer')
-    } catch (err) {
-      notify.error(err.message || 'Impossible d\'ouvrir le document')
-    } finally {
-      setLoadingUrl(false)
-    }
-  }
 
   async function handleDownload() {
     setLoadingUrl(true)
@@ -329,11 +368,10 @@ function DocumentRow({ doc, readOnly, onDelete }) {
       </span>
       <button
         type="button"
-        onClick={handleView}
-        disabled={loadingUrl}
-        className="p-1 rounded transition-colors disabled:opacity-50"
+        onClick={onPreview}
+        className="p-1 rounded transition-colors"
         style={{ color: 'var(--txt-3)' }}
-        title="Ouvrir"
+        title="Aperçu"
         onMouseEnter={(e) => {
           e.currentTarget.style.background = 'var(--bg-hov)'
           e.currentTarget.style.color = 'var(--txt)'
@@ -383,5 +421,121 @@ function DocumentRow({ doc, readOnly, onDelete }) {
         </button>
       )}
     </li>
+  )
+}
+
+// ─── Document thumbnail (mode share, grille visuelle) ──────────────────────
+//
+// Charge la signed URL puis affiche :
+//   - Images : <img> miniature object-cover
+//   - PDFs   : iframe miniature (le browser rend la première page)
+//   - Autres : icône générique
+//
+// Click → ouvre le modal preview (callback onClick).
+//
+// Sandbox iframe : on n'autorise PAS d'interaction utilisateur sur le PDF
+// miniature (pointer-events: none + overlay cliquable transparent) — le PDF
+// est ouvert dans le modal de preview pour ça.
+
+function DocumentThumbnail({ doc, onClick }) {
+  const kind = previewKind(doc)
+  const [signedUrl, setSignedUrl] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(false)
+    getDocumentSignedUrl(doc.storage_path)
+      .then((url) => {
+        if (!cancelled) setSignedUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [doc.storage_path])
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex flex-col rounded-md overflow-hidden text-left transition-transform"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+      }}
+      title={doc.filename}
+    >
+      {/* Zone aperçu — ratio ~3/4 (format portrait, cohérent avec PDF/photo) */}
+      <div
+        className="relative w-full"
+        style={{
+          aspectRatio: '3 / 4',
+          background: 'var(--bg-elev)',
+          overflow: 'hidden',
+        }}
+      >
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Loader2
+              className="w-4 h-4 animate-spin"
+              style={{ color: 'var(--txt-3)' }}
+            />
+          </div>
+        )}
+        {!loading && error && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <FileText className="w-6 h-6" style={{ color: 'var(--txt-3)' }} />
+          </div>
+        )}
+        {!loading && !error && signedUrl && kind === 'image' && (
+          <img
+            src={signedUrl}
+            alt={doc.filename}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
+        {!loading && !error && signedUrl && kind === 'pdf' && (
+          <>
+            <iframe
+              src={`${signedUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+              title={doc.filename}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ background: '#fff', border: 'none' }}
+              tabIndex={-1}
+              aria-hidden="true"
+            />
+            {/* Overlay cliquable transparent par-dessus l'iframe pour
+                capter le clic (l'iframe avale les events sinon). */}
+            <span className="absolute inset-0" />
+          </>
+        )}
+        {!loading && !error && !kind && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <FileText className="w-6 h-6" style={{ color: 'var(--txt-3)' }} />
+          </div>
+        )}
+      </div>
+      {/* Filename + taille */}
+      <div className="px-2 py-1.5 flex flex-col gap-0">
+        <div
+          className="text-[11px] font-medium truncate"
+          style={{ color: 'var(--txt)' }}
+        >
+          {doc.filename}
+        </div>
+        <div className="text-[9px]" style={{ color: 'var(--txt-3)' }}>
+          {formatBytes(doc.size_bytes)}
+        </div>
+      </div>
+    </button>
   )
 }

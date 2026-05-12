@@ -39,6 +39,7 @@ export default function LogistiqueTab() {
     addEntry,
     removeEntry,
     updateEntryText,
+    setEntryHiddenKinds,
     uploadDocument,
     deleteDocument,
   } = useLogistiqueV0(canRead ? projectId : null)
@@ -174,6 +175,7 @@ export default function LogistiqueTab() {
                 onUploadDocument={uploadDocument}
                 onDeleteDocument={deleteDocument}
                 onRemoveEntry={removeEntry}
+                onSetHiddenKinds={setEntryHiddenKinds}
               />
             )
           })}
