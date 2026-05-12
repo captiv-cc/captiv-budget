@@ -270,6 +270,11 @@ export default function ProjectShareModal({
   const [passwordHint, setPasswordHint] = useState('')
   const [hadPasswordOnEntry, setHadPasswordOnEntry] = useState(false)
 
+  // HUB-NOTICE : texte libre markdown affiché en haut du hub portail.
+  // Note "à l'équipe" — ex : dress code, consignes story, contacts. Vide
+  // par défaut, optionnel.
+  const [hubNotice, setHubNotice] = useState('')
+
   // Pré-déplie le form si aucun token actif (UX au 1er coup d'œil) — mais
   // seulement en mode création (l'édition gère elle-même l'ouverture).
   useEffect(() => {
@@ -294,6 +299,7 @@ export default function ProjectShareModal({
       setPasswordValue('')
       setPasswordHint('')
       setHadPasswordOnEntry(false)
+      setHubNotice('')
     }
   }, [open])
 
@@ -368,6 +374,7 @@ export default function ProjectShareModal({
     setPasswordValue('') // le hash n'est jamais relu — placeholder "(inchangé)" géré côté UI
     setPasswordHint(t.password_hint || '')
     setHadPasswordOnEntry(protectedToken)
+    setHubNotice(t.hub_notice || '')
     setFormOpen(true)
   }
 
@@ -382,6 +389,7 @@ export default function ProjectShareModal({
     setPasswordValue('')
     setPasswordHint('')
     setHadPasswordOnEntry(false)
+    setHubNotice('')
   }
 
   // Calcule la clé `password` à transmettre à create/update :
@@ -427,6 +435,7 @@ export default function ProjectShareModal({
           enabledPages,
           pageConfigs: finalConfigs,
           passwordHint: hintPayload,
+          hubNotice,
         }
         if (passwordPayload !== undefined) patch.password = passwordPayload
         await update(editingTokenId, patch)
@@ -440,6 +449,7 @@ export default function ProjectShareModal({
         setPasswordValue('')
         setPasswordHint('')
         setHadPasswordOnEntry(false)
+        setHubNotice('')
         setFormOpen(false)
       } else {
         const newToken = await create({
@@ -449,6 +459,7 @@ export default function ProjectShareModal({
           expiresAt: expiresIso,
           password: passwordEnabled && passwordValue ? passwordValue : null,
           passwordHint: hintPayload,
+          hubNotice,
         })
         try {
           await navigator.clipboard.writeText(buildProjectShareUrl(newToken.token))
@@ -463,6 +474,7 @@ export default function ProjectShareModal({
         setPasswordEnabled(false)
         setPasswordValue('')
         setPasswordHint('')
+        setHubNotice('')
         setFormOpen(false)
       }
     } catch (err) {
@@ -609,6 +621,8 @@ export default function ProjectShareModal({
             passwordHint={passwordHint}
             setPasswordHint={setPasswordHint}
             hadPasswordOnEntry={hadPasswordOnEntry}
+            hubNotice={hubNotice}
+            setHubNotice={setHubNotice}
             submitting={submitting}
             canSubmit={canSubmit}
             onSubmit={handleSubmit}
@@ -717,6 +731,8 @@ function CreateFormSection({
   passwordHint,
   setPasswordHint,
   hadPasswordOnEntry = false,
+  hubNotice = '',
+  setHubNotice = () => {},
   submitting,
   canSubmit,
   onSubmit,
@@ -875,6 +891,9 @@ function CreateFormSection({
             hadPasswordOnEntry={hadPasswordOnEntry}
             isEditMode={isEditMode}
           />
+
+          {/* Note à l'équipe (HUB-NOTICE) */}
+          <HubNoticeSection value={hubNotice} setValue={setHubNotice} />
 
           {/* Bouton créer */}
           <div className="flex justify-end items-center gap-2 pt-1">
@@ -1148,6 +1167,61 @@ function PasswordSection({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Section "Note à l'équipe" (HUB-NOTICE) ────────────────────────────────
+//
+// Textarea libre, texte simple ou markdown léger (gras, italique, listes,
+// liens). Le rendu côté hub portail est géré par <HubShareNotice> qui parse
+// un sous-ensemble markdown. Si vide → aucun bloc affiché côté destinataire.
+//
+// Note : pas de toggle on/off comme PasswordSection — c'est juste une
+// textarea optionnelle. Si l'admin laisse vide, rien n'est affiché.
+
+function HubNoticeSection({ value, setValue }) {
+  return (
+    <div
+      className="rounded-md"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+      }}
+    >
+      <div className="px-3 py-2.5">
+        <label
+          className="block text-[11px] font-semibold mb-1"
+          style={{ color: 'var(--txt-2)' }}
+        >
+          Note à l&apos;équipe (optionnel)
+        </label>
+        <p
+          className="text-[10px] mb-2 leading-relaxed"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Affichée en haut du portail. Markdown léger supporté :{' '}
+          <code>**gras**</code>, <code>*italique*</code>,{' '}
+          <code>- liste</code>, <code>[texte](https://lien)</code>, ligne vide
+          pour un nouveau paragraphe.
+        </p>
+        <textarea
+          value={value || ''}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={
+            'Ex :\n**Dress code** : noir\n- Pas de story\n- Briefing 9h30\n\nContact urgence : Marie au 06 12 34 56 78'
+          }
+          rows={5}
+          className="w-full text-sm rounded-md px-2.5 py-2 resize-y"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd-sub)',
+            color: 'var(--txt)',
+            fontFamily: 'inherit',
+            minHeight: 96,
+          }}
+        />
+      </div>
     </div>
   )
 }

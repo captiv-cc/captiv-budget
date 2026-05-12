@@ -25,6 +25,7 @@ import { useProjectShareHub } from '../hooks/useProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import ProjectSharePasswordGate from '../components/share/ProjectSharePasswordGate'
+import HubShareNotice from '../components/share/HubShareNotice'
 
 // Clé localStorage commune au hub + sous-pages → toggle thème cohérent
 // quand l'utilisateur navigue d'une page à l'autre.
@@ -214,8 +215,15 @@ export default function ProjectShareSession() {
           onToggleTheme={onToggleTheme}
         />
 
+        {/* ── Note à l'équipe (HUB-NOTICE) ──────────────────────────────
+            Bloc pleine largeur affiché AVANT le grid des pages disponibles
+            (mais après le header). Se masque tout seul si la note est vide. */}
+        <div className="mt-6 sm:mt-8">
+          <HubShareNotice text={share.hub_notice} />
+        </div>
+
         {/* ── Cartes des sous-pages activées ───────────────────────────── */}
-        <main className="mt-6 sm:mt-8">
+        <main>
           <h2
             className="text-[11px] font-bold uppercase tracking-wider mb-3 sm:mb-4"
             style={{ color: 'var(--txt-3)' }}

@@ -118,7 +118,7 @@ export function buildProjectShareUrl(token) {
 const TOKEN_COLS =
   'id, project_id, token, label, enabled_pages, page_configs, ' +
   'created_by, created_at, revoked_at, expires_at, view_counts, last_accessed_at, ' +
-  'password_hash, password_hint'
+  'password_hash, password_hint, hub_notice'
 
 export async function listProjectShareTokens({ projectId, includeRevoked = true } = {}) {
   if (!projectId) throw new Error('listProjectShareTokens : projectId requis')
@@ -159,6 +159,7 @@ export async function createProjectShareToken({
   expiresAt = null,
   password = null,
   passwordHint = null,
+  hubNotice = null,
 } = {}) {
   if (!projectId) throw new Error('createProjectShareToken : projectId requis')
   if (!Array.isArray(enabledPages) || enabledPages.length === 0) {
@@ -190,6 +191,7 @@ export async function createProjectShareToken({
     page_configs: finalConfigs,
     expires_at: expiresIso,
     password_hint: hint,
+    hub_notice: hubNotice?.trim() || null,
   }
 
   const { data, error } = await supabase
@@ -269,6 +271,9 @@ export async function updateProjectShareToken(tokenId, fields = {}) {
   }
   if (fields.passwordHint !== undefined) {
     patch.password_hint = (fields.passwordHint || '').trim() || null
+  }
+  if (fields.hubNotice !== undefined) {
+    patch.hub_notice = (fields.hubNotice || '').trim() || null
   }
 
   // Patch principal (sans toucher au mdp). On envoie même si patch est vide
