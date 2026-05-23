@@ -524,12 +524,14 @@ export default function PresenceCalendarModal({
 
         {/* Sélecteur de session (Phase 0b) — visible si :
             - 2+ sessions (sélection multi)
-            - OU il y a des templates / un onCreateSession (zones d'ajout)
-            Permet à l'admin de choisir quelle session il édite, ou d'en
-            créer une nouvelle (vide ou clonée depuis une session existante
-            d'un autre membre du projet). */}
-        {(sortedSessions.length >= 2 ||
-          (onCreateSession && (sortedSessions.length >= 1 || projectSessionTemplates.length > 0))) && (
+            - OU on a un onCreateSession (contexte admin) — la barre expose
+              alors AU MINIMUM le bouton "+ Nouvelle", même sur un projet
+              totalement vierge (aucune session, aucun template).
+            Fix 2026-05-13 : avant, la barre était cachée quand
+            sortedSessions.length === 0 && projectSessionTemplates.length === 0,
+            ce qui rendait IMPOSSIBLE la création de la 1ère session sur un
+            projet nouveau (cas typique : ASCENSION 2026 sans session). */}
+        {(sortedSessions.length >= 2 || onCreateSession) && (
           <div
             className="flex items-center gap-2 px-5 py-3 border-b shrink-0 overflow-x-auto"
             style={{ borderColor: 'var(--brd-sub)' }}
