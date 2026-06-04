@@ -159,6 +159,129 @@ la timetable globale, sans quitter la vue.
 - Permet de croiser visuellement "ma mission Babylon Circus se cale bien
   sur le BABYLON dans le rail global"
 
+### Conventions visuelles (référence mockups validés)
+
+Validé avec Hugo le 2026-05-13 via mockups interactifs. **À respecter
+strictement pour ne pas dériver vers une UI surchargée.** Toutes les
+décisions de couleur / iconographie / hiérarchie ci-dessous tiennent
+compte de la contrainte minimaliste.
+
+**Code couleur sémantique** (3 catégories, pas plus) :
+
+- **Lane "lieu" (scène)** : ramp **violet** (`c-purple`). Bordure gauche
+  3px violet, fond très clair (#EEEDFE), texte foncé (#3C3489). Couleur
+  stable pour TOUTES les scènes — distingue uniquement le type de lane.
+- **Lane "personne" (cadreur)** : **couleur perso par cadreur**, choisie
+  parmi le set ramps `c-blue` / `c-coral` / `c-teal` / `c-pink` /
+  `c-amber` / `c-green` (jamais le ramp violet, réservé aux lieux ;
+  jamais le ramp red, réservé danger). Auto-assignée à la création du
+  membre dans le projet, override manuel possible. Ses créneaux
+  héritent. Ex : Hugo = bleu, Ruben = coral.
+- **Lane "global"** : ramp **gray** (`c-gray`). Brief, repas, rendu, etc.
+  Neutre par construction.
+
+**Iconographie**
+
+- Lieu : `ti-map-pin` (violet)
+- Cadreur : `ti-camera` (couleur perso)
+- Brief / Global : `ti-clipboard`
+- Repas : `ti-tools-kitchen-2`
+- Story / Video : `ti-video`
+- Rendu : `ti-cloud-upload` (rouge)
+- Setlist / pièce jointe : `ti-paperclip`
+- Lien créneau-créneau :
+  - `ti-arrow-up-right` → ancrage début (`source_anchor = 'start'`)
+  - `ti-arrow-down-right` → ancrage fin (`source_anchor = 'end'`)
+  - (pas d'icône pour `'free'` — c'est juste une note sémantique)
+- Golden hour / sunset : `ti-sun` / `ti-sun-low`
+- Indispo : `ti-tools-kitchen-2` pour repas, sinon icône au contexte
+
+**Hiérarchie dans un bloc créneau** (admin desktop) :
+
+1. **Titre** (font-size 11px, font-weight 500, couleur foncée de la
+   ramp) — ex: "Babylon Circus"
+2. **Sous-ligne** (font-size 10px, couleur médium) — horaires +
+   `sous_titre` court si présent : "19:00 — 19:30 · 1ères chansons"
+3. **Icône flèche lien** à côté du titre si lié (taille 10px, couleur
+   ramp 600)
+4. **Icône paperclip** à côté du titre si pièces jointes
+5. Pas d'avatars membres affichés directement dans le bloc admin (déjà
+   ailleurs : la lane "personne" porte le nom du cadreur)
+
+**Hiérarchie mobile (vue Cadreur)** :
+
+1. **Heure de début** à gauche (font 13px, weight 500), durée en
+   dessous (font 10px, gris)
+2. **Action / artiste** au centre (font 13px, weight 500), avec icône
+   contextuelle et flèche de lien si applicable
+3. **Lieu** en sous-titre avec `ti-map-pin` (font 11px)
+4. **Sous-titre court / brief** en ligne 3 (font 10px) — utilise les
+   notes héritées du parent
+5. **Badges discrets** (CRASH ONLY, pièces jointes) sur ligne 4 si
+   applicable
+6. **Multi-cadreurs** : mention "Avec Ruben sur le climax 21:30" si la
+   mission est partagée
+
+**Cards de contexte estompées (mobile)**
+
+Entre les missions du cadreur, on intercale des cards qui rappellent
+ce qui se joue ailleurs au même moment :
+
+- `opacity: 0.55`
+- `border: 0.5px DASHED var(--color-border-tertiary)` (dashed, pas
+  solid, pour bien distinguer du contenu actif)
+- Sans interaction (read-only contextuel)
+- Format : "17:30 Vitaline · Découverte · Ruben sur ce set · pas dans
+  ta journée"
+
+But : le cadreur garde le contexte global sans surcharge visuelle.
+
+**Bande golden hour**
+
+- Bande horizontale sur la timeline desktop, entre `golden_hour_start`
+  et `golden_hour_end`
+- Fond : `linear-gradient` très léger (rgba amber 5-12%)
+- Top + bottom : 0.5px dashed (opacité 50%) amber
+- Mini-label coin top-right : "Golden hour" avec icône `ti-sun`,
+  font-size 9px, padding 1-4px
+- Sur mobile : card horizontale dégradé subtil entre les missions du
+  cadreur, mention "Golden hour 20:36 — 21:16"
+
+**Bandeau d'indispo**
+
+- Pattern hachuré 45° (`repeating-linear-gradient`) léger (5% noir/blanc)
+- Bordure 0.5px **DASHED** (jamais solid)
+- Icône contexte (repas / brief / pause) à gauche, libellé court
+- Impossible de créer un créneau dans une plage indispo sauf override
+  explicite (warning modal)
+
+**Bandeau de toggles (header)**
+
+- Day chips à gauche : pill rectangulaire, fond bleu clair si actif,
+  bordure 0.5px sinon
+- Toggle Timeline / Liste : 2 pills inline
+- Toggle Vue : Global / Cadreur : pill avec `ti-eye` + chevron, ouvre
+  un menu déroulant (nom du cadreur)
+- Tout à droite, taille font 11px
+
+**Densité / rythme général**
+
+- Bordures internes : 0.5px solid `var(--color-border-tertiary)`
+- Pas de grosses bordures épaisses sauf accent gauche 3px sur blocs
+- Border-radius par défaut : `var(--border-radius-md)` (8px)
+- Card scènes / créneaux : `border-radius` côté gauche = 0 (parce que
+  le `border-left` 3px accent rend mal arrondi)
+- Pas de shadows nulle part
+- Pas de gradient sauf golden hour
+- Couleurs de texte sur fond coloré : toujours stop 800-900 de la même
+  ramp, jamais générique
+
+**Référence mockups**
+
+Les conventions ci-dessus sont la traduction écrite des mockups
+montrés à Hugo le 2026-05-13. Quand le code sera écrit, ce sont ces
+mockups qui font foi — pas une réinterprétation libre.
+
 ## Roadmap par sprints — décisions Hugo
 
 Toutes les sous-features ci-dessous ont été validées (ou refusées)
