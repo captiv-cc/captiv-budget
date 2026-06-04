@@ -30,6 +30,7 @@ import {
   Lock,
   AlertCircle,
   Share2,
+  Eye,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -45,6 +46,7 @@ import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
 import DerouleListView from '../../features/deroule/DerouleListView'
+import DerouleCadreurView from '../../features/deroule/DerouleCadreurView'
 import CreneauInspector from '../../features/deroule/CreneauInspector'
 import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 
@@ -61,18 +63,21 @@ export default function DerouleTab() {
 
   // Date sélectionnée (ISO YYYY-MM-DD). Default : aujourd'hui.
   const [selectedDate, setSelectedDate] = useState(() => isoDate(new Date()))
-  // Vue active
+  // Vue active : 'timeline' (desktop default) / 'liste' (mobile default) / 'cadreur' (festival)
   const [view, setView] = useState(isMobile ? 'liste' : 'timeline')
+  // FEST-3 : cadreur sélectionné en mode vue='cadreur'. Persisté localement
+  // entre changements de jour pour la même session.
+  const [selectedCadreurId, setSelectedCadreurId] = useState(null)
   // Inspecteur ouvert sur quel créneau (null = fermé)
   const [inspectedCreneau, setInspectedCreneau] = useState(null)
   const [creatingDraft, setCreatingDraft] = useState(null)
   // Modale de partage (Vague 2)
   const [shareOpen, setShareOpen] = useState(false)
 
-  // Bascule auto vers liste sur mobile
+  // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
   useEffect(() => {
-    if (isMobile) setView('liste')
-  }, [isMobile])
+    if (isMobile && view === 'timeline') setView('liste')
+  }, [isMobile, view])
 
   const {
     loading,
@@ -337,9 +342,10 @@ export default function DerouleTab() {
           canEdit={canEdit}
         />
         <div className="flex items-center gap-2">
-          {!isMobile && deroule && (
-            <ViewToggle view={view} onChange={setView} />
-          )}
+          {/* FEST-3 : toggle visible aussi sur mobile pour accéder à la vue
+              Cadreur. Sur mobile, les labels sont masqués (hidden sm:inline
+              dans ToggleBtn) pour ne garder que les icônes. */}
+          {deroule && <ViewToggle view={view} onChange={setView} />}
           {canEdit && (
             <button
               type="button"
@@ -403,6 +409,17 @@ export default function DerouleTab() {
           selectedDate={selectedDate}
           canEdit={canEdit}
           onCreate={handleCreateDeroule}
+        />
+      ) : view === 'cadreur' ? (
+        <DerouleCadreurView
+          deroule={deroule}
+          lanes={lanes}
+          creneaux={creneaux}
+          membres={membres}
+          conflictsByCreneau={conflictsByCreneau}
+          selectedMembreId={selectedCadreurId}
+          setSelectedMembreId={setSelectedCadreurId}
+          onSelectCreneau={handleSelectCreneau}
         />
       ) : view === 'timeline' && !isMobile ? (
         <DerouleTimelineView
@@ -562,39 +579,55 @@ function DaySelector({ selectedDate, onSelectDate, deroules, canEdit: _canEdit }
 // ─── ViewToggle ────────────────────────────────────────────────────────────
 
 function ViewToggle({ view, onChange }) {
+  // FEST-3 : ajout du mode "Cadreur" en plus de Timeline / Liste.
+  // Les 3 sont des modes mutuellement exclusifs. Mobile : tous accessibles
+  // via les mêmes pills (pas de masquage label sur mobile pour cette V1).
   return (
     <div
       className="flex rounded overflow-hidden"
       style={{ border: '1px solid var(--brd)' }}
     >
-      <button
-        type="button"
+      <ToggleBtn
+        active={view === 'timeline'}
         onClick={() => onChange('timeline')}
-        className="flex items-center gap-1 px-2 py-1 text-xs"
-        style={{
-          background: view === 'timeline' ? 'var(--bg-elev)' : 'transparent',
-          color: view === 'timeline' ? 'var(--txt)' : 'var(--txt-3)',
-          fontWeight: view === 'timeline' ? 500 : 400,
-        }}
-      >
-        <LayoutGrid className="w-3 h-3" />
-        Timeline
-      </button>
-      <button
-        type="button"
+        icon={LayoutGrid}
+        label="Timeline"
+      />
+      <ToggleBtn
+        active={view === 'liste'}
         onClick={() => onChange('liste')}
-        className="flex items-center gap-1 px-2 py-1 text-xs"
-        style={{
-          background: view === 'liste' ? 'var(--bg-elev)' : 'transparent',
-          color: view === 'liste' ? 'var(--txt)' : 'var(--txt-3)',
-          fontWeight: view === 'liste' ? 500 : 400,
-          borderLeft: '1px solid var(--brd)',
-        }}
-      >
-        <ListIcon className="w-3 h-3" />
-        Liste
-      </button>
+        icon={ListIcon}
+        label="Liste"
+        leftBorder
+      />
+      <ToggleBtn
+        active={view === 'cadreur'}
+        onClick={() => onChange('cadreur')}
+        icon={Eye}
+        label="Cadreur"
+        leftBorder
+      />
     </div>
+  )
+}
+
+function ToggleBtn({ active, onClick, icon: Icon, label, leftBorder }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 px-2 py-1 text-xs"
+      style={{
+        background: active ? 'var(--bg-elev)' : 'transparent',
+        color: active ? 'var(--txt)' : 'var(--txt-3)',
+        fontWeight: active ? 500 : 400,
+        borderLeft: leftBorder ? '1px solid var(--brd)' : 'none',
+        minHeight: 28,
+      }}
+    >
+      <Icon className="w-3 h-3" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   )
 }
 
