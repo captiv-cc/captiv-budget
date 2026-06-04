@@ -460,18 +460,32 @@ Workflow multi-documents :
 **Compressé pour deadline festival proche** : Sprints 1+2+3+4 = 17-21j
 pour avoir les essentiels (foundation + liens + saisie rapide + import IA).
 
-## Questions ouvertes
+## Décisions arrêtées (2026-05-13)
 
-- **Lieu projet pour golden hour** : où stocker lat/lng ? Existe-t-il
-  déjà un champ lieu sur `projects` ?
-- **Niveau d'intégration avec Équipe** : quand on ajoute un membre du
-  crew, est-ce qu'il devient automatiquement disponible comme lane
-  "personne" dans le déroulé, ou faut-il action manuelle ?
-- **Gestion du multi-jours festival** : 1 déroulé par jour comme
-  actuellement, ou un nouveau concept "événement multi-jours" qui
-  regroupe N déroulés ?
-- **Quand attaquer** : Hugo a-t-il un festival en vue à court terme qui
-  justifie de compresser le calendrier ? À demander avant de planifier.
+Toutes les questions ouvertes précédentes ont été tranchées avec Hugo
+au démarrage du chantier :
+
+- **Multi-jours festival** ✓ → **1 déroulé = 1 jour**. Modèle actuel
+  conservé. Le sélecteur de jour existant suffit. Aucune migration
+  liée. Une vue "multi-jours" globale pourrait être ajoutée plus tard
+  en pure UI sans changer le modèle.
+
+- **Lieu projet pour golden hour** ✓ → **Geocoding auto via Nominatim**
+  (gratuit, OpenStreetMap). L'admin tape une adresse libre dans un
+  champ "Lieu" sur le projet. Un service côté serveur appelle
+  Nominatim pour résoudre en lat/lng et stocke en cache. Fallback :
+  saisie manuelle lat/lng si Nominatim échoue ou rate-limit.
+
+- **Ajout cadreurs comme lanes "personne"** ✓ → **Bouton manuel
+  "+ Ajouter cadreur"** dans le header de la timeline → ouvre un
+  picker des membres du projet → click sur un membre → crée une lane
+  type='personne' avec son nom et sa couleur perso. Pas d'auto-création
+  de lanes pour tous les membres du projet (trop intrusif).
+
+- **Mode livraison** ✓ → **Compressé pour deadline festival proche**.
+  Sprints 1+2+3+4 (Foundation + Notes/Liens + Construction rapide +
+  Import IA) en priorité, ~17-21 jours. Sprints 5-7 (contextuel +
+  régie live + historique) à enchainer après.
 
 ## Historique des décisions
 

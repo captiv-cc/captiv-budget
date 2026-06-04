@@ -70,8 +70,59 @@ export const DEFAULT_LANE_LIBELLES = {
   4: 'Équipe D',
 }
 
-/** Max lanes (lane 0 + lanes 1..4). */
-export const MAX_LANES = 5
+/**
+ * Types de lanes (FEST-1, 2026-06-04).
+ *
+ * - `global`   : lane transverse (brief, repas, rendu) — neutre, gris
+ * - `equipe`   : lane équipe parallèle générique — default historique
+ * - `lieu`     : scène / salle / plateau (festival) — code couleur violet
+ * - `personne` : cadreur nominatif (festival) — code couleur perso liée
+ *                au membre via `membre_id`
+ *
+ * Cf. CHANTIER_DEROULE_FESTIVAL.md pour la sémantique complète. Migration
+ * SQL : 20260604_deroule_festival_lane_types.sql.
+ */
+export const LANE_TYPES = ['global', 'equipe', 'lieu', 'personne']
+
+/** Couleur par défaut par type de lane (hex sans #). Cf. conventions visuelles
+ *  CHANTIER_DEROULE_FESTIVAL.md. */
+export const LANE_TYPE_DEFAULT_COLORS = {
+  global: '5F5E5A',   // gray-600
+  equipe: '888780',   // gray-500 (neutre)
+  lieu: '7F77DD',     // purple-400 (scènes)
+  personne: '378ADD', // blue-400 (fallback si pas de couleur perso)
+}
+
+/** Icônes Tabler par type de lane (sans préfixe `ti-`). */
+export const LANE_TYPE_ICONS = {
+  global: 'clipboard',
+  equipe: 'users',
+  lieu: 'map-pin',
+  personne: 'camera',
+}
+
+/** Palette pour l'auto-assignation de couleur cadreur. Pioche dans l'ordre
+ *  pour les nouveaux cadreurs (couleur stable basée sur sort_order ou hash
+ *  du membre_id). Hex sans #. */
+export const CADREUR_COLOR_PALETTE = [
+  '378ADD', // blue
+  'D85A30', // coral
+  '1D9E75', // teal
+  'D4537E', // pink
+  'BA7517', // amber
+  '639922', // green
+  '7F77DD', // purple (dernier choix car réservé aux lieux)
+]
+
+/**
+ * Max lanes recommandé en mode live (cap historique). Pour le festival,
+ * pas de cap dur — le scroll horizontal gère N lanes (testé jusqu'à ~15).
+ * Cette constante reste exposée pour les vues simples qui veulent
+ * encourager une UI compacte.
+ */
+export const MAX_LANES_LIVE = 5
+/** @deprecated Utiliser MAX_LANES_LIVE. Conservé pour compat. */
+export const MAX_LANES = MAX_LANES_LIVE
 
 /**
  * Limite max V0.5 pour les heures (en minutes depuis 00:00 du jour J).
@@ -263,9 +314,61 @@ export function sortCreneauxByTime(creneaux) {
 
 /**
  * Détermine le label par défaut d'une lane à partir de son sort_order.
+ *
+ * Note : pour les lanes typées (lieu / personne), ce fallback est rarement
+ * utilisé — le libellé est saisi explicitement à la création (nom de scène,
+ * nom du cadreur). Conservé pour la compat avec les déroulés live legacy.
  */
 export function defaultLaneLibelle(sortOrder) {
   return DEFAULT_LANE_LIBELLES[sortOrder] ?? `Lane ${sortOrder + 1}`
+}
+
+/**
+ * Résout la couleur effective d'une lane (hex sans #, sans le caractère #).
+ *
+ * Priorité : couleur stockée sur la lane > couleur par défaut du type.
+ * Si type='personne' et qu'aucune couleur stockée, utilise la palette
+ * cadreur indexée par sort_order pour assurer la stabilité visuelle entre
+ * les cadreurs d'un même déroulé.
+ *
+ * @param {object} lane — { type, couleur, sort_order }
+ * @returns {string} hex sans #, ex: "378ADD"
+ */
+export function effectiveLaneColor(lane) {
+  if (!lane) return LANE_TYPE_DEFAULT_COLORS.equipe
+  const stored = (lane.couleur || '').replace('#', '').trim()
+  if (stored) return stored
+  if (lane.type === 'personne') {
+    // Couleur stable pour ce cadreur : pioche dans la palette via sort_order
+    const i = Math.max(0, (lane.sort_order ?? 0) - 1) % CADREUR_COLOR_PALETTE.length
+    return CADREUR_COLOR_PALETTE[i]
+  }
+  return LANE_TYPE_DEFAULT_COLORS[lane.type] || LANE_TYPE_DEFAULT_COLORS.equipe
+}
+
+/**
+ * Retourne le nom Tabler de l'icône à afficher pour une lane selon son type.
+ * Sans préfixe `ti-` — à utiliser comme `<i class="ti ti-{result}">`.
+ */
+export function laneTypeIcon(type) {
+  return LANE_TYPE_ICONS[type] || LANE_TYPE_ICONS.equipe
+}
+
+/**
+ * Tri canonique des lanes pour le rendu visuel.
+ * Ordre : global → equipe → lieu → personne, puis sort_order ASC.
+ * Permet d'afficher d'abord les transverses, puis les équipes, puis les
+ * scènes festival, puis les cadreurs nominatifs.
+ */
+const LANE_TYPE_ORDER = { global: 0, equipe: 1, lieu: 2, personne: 3 }
+export function sortLanesForDisplay(lanes) {
+  if (!Array.isArray(lanes)) return []
+  return [...lanes].sort((a, b) => {
+    const ta = LANE_TYPE_ORDER[a?.type] ?? 1
+    const tb = LANE_TYPE_ORDER[b?.type] ?? 1
+    if (ta !== tb) return ta - tb
+    return (a?.sort_order ?? 0) - (b?.sort_order ?? 0)
+  })
 }
 
 /**
@@ -415,13 +518,14 @@ export async function createDeroule(payload) {
     .single()
   if (e1) throw e1
 
-  // 2. Auto-create lane 0 "Global"
+  // 2. Auto-create lane 0 "Global" (type='global' — FEST-1)
   const { data: globalLane, error: e2 } = await supabase
     .from('projet_deroule_lanes')
     .insert({
       deroule_id: deroule.id,
       sort_order: 0,
       libelle: defaultLaneLibelle(0),
+      type: 'global',
     })
     .select('*')
     .single()
@@ -457,11 +561,38 @@ export async function deleteDeroule(derouleId) {
 
 /**
  * Ajoute une lane à un déroulé. Le sort_order est calculé côté client à
- * MAX(sort_order)+1 (avec garde MAX_LANES). Pas de retry — on peut accepter
- * une race rare ici (création de lane par 2 admins simultanément).
+ * MAX(sort_order)+1.
+ *
+ * FEST-1 (2026-06-04) : signature étendue pour supporter les types de lanes
+ * festival. Backward compat : ancien usage `addLane(derouleId, "Régie son")`
+ * crée une lane type='equipe' comme avant.
+ *
+ * @param {string} derouleId
+ * @param {object|string} options — string = libelle (legacy) ;
+ *   object = { libelle?, type?, membre_id?, couleur? }
+ *   - type   : 'global' | 'equipe' | 'lieu' | 'personne' (default 'equipe')
+ *   - membre_id : requis ssi type='personne' (FK projet_membres)
+ *   - couleur : hex sans # (optionnel, override la couleur dérivée du type)
+ *
+ * Note : plus de cap dur 5 lanes (FEST-1, migration). Le scroll horizontal
+ * côté UI gère N lanes. On garde un warning soft à 5+ pour les déroulés
+ * live qui ne sont pas censés en avoir besoin.
  */
-export async function addLane(derouleId, libelle = null) {
+export async function addLane(derouleId, options = null) {
   if (!derouleId) throw new Error('addLane: derouleId manquant')
+
+  // Compat ascendante : string = libelle
+  const opts = typeof options === 'string' ? { libelle: options } : (options || {})
+  const type = opts.type || 'equipe'
+  if (!LANE_TYPES.includes(type)) {
+    throw new Error(`addLane: type invalide "${type}"`)
+  }
+  if (type === 'personne' && !opts.membre_id) {
+    throw new Error('addLane: membre_id requis pour type=personne')
+  }
+  if (type !== 'personne' && opts.membre_id) {
+    throw new Error('addLane: membre_id interdit hors type=personne')
+  }
 
   const { data: existingLanes } = await supabase
     .from('projet_deroule_lanes')
@@ -471,19 +602,20 @@ export async function addLane(derouleId, libelle = null) {
     .limit(1)
 
   const nextSortOrder = ((existingLanes?.[0]?.sort_order) ?? -1) + 1
-  if (nextSortOrder >= MAX_LANES) {
-    throw new Error(`Maximum ${MAX_LANES} lanes atteint`)
-  }
+  const finalLibelle = opts.libelle?.trim() || defaultLaneLibelle(nextSortOrder)
 
-  const finalLibelle = libelle?.trim() || defaultLaneLibelle(nextSortOrder)
+  const payload = {
+    deroule_id: derouleId,
+    sort_order: nextSortOrder,
+    libelle: finalLibelle,
+    type,
+  }
+  if (opts.membre_id) payload.membre_id = opts.membre_id
+  if (opts.couleur) payload.couleur = String(opts.couleur).replace('#', '').trim()
 
   const { data, error } = await supabase
     .from('projet_deroule_lanes')
-    .insert({
-      deroule_id: derouleId,
-      sort_order: nextSortOrder,
-      libelle: finalLibelle,
-    })
+    .insert(payload)
     .select('*')
     .single()
   if (error) throw error
@@ -504,21 +636,25 @@ export async function updateLane(laneId, fields) {
 }
 
 /**
- * Supprime une lane. Refuse si sort_order = 0 (lane "Global" non
+ * Supprime une lane. Refuse si type='global' (lane transverse non
  * supprimable). Refuse aussi si la lane contient encore des créneaux
  * (l'admin doit d'abord les déplacer ou supprimer).
+ *
+ * FEST-1 : la règle "lane 0 = Global non supprimable" est remplacée par
+ * "type='global' non supprimable", plus précis depuis qu'on a le typage.
+ * Les déroulés legacy ont déjà été migrés (sort_order=0 → type='global').
  */
 export async function deleteLane(laneId) {
   if (!laneId) throw new Error('deleteLane: laneId manquant')
 
   const { data: lane, error: e1 } = await supabase
     .from('projet_deroule_lanes')
-    .select('sort_order')
+    .select('sort_order, type')
     .eq('id', laneId)
     .single()
   if (e1) throw e1
 
-  if (lane.sort_order === 0) {
+  if (lane.type === 'global') {
     throw new Error('La lane Global ne peut pas être supprimée')
   }
 
