@@ -18,15 +18,24 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, AlertTriangle } from 'lucide-react'
+import {
+  Plus,
+  AlertTriangle,
+  MapPin,
+  Camera,
+  Users,
+  Clipboard,
+  ChevronDown,
+} from 'lucide-react'
 import {
   formatMinHHMM,
   effectiveCouleurCreneau,
   defaultLaneLibelle,
   snapToStep,
   CRENEAU_TYPE_COLORS,
-  MAX_LANES,
+  MAX_LANES_LIVE,
   MAX_MIN,
+  effectiveLaneColor,
 } from '../../lib/deroule'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
@@ -412,15 +421,24 @@ export default function DerouleTimelineView({
     () => [...(lanes || [])].sort((a, b) => a.sort_order - b.sort_order),
     [lanes],
   )
-  const canAddLane = sortedLanes.length < MAX_LANES
+
+  // FEST-1 : plus de cap dur 5 lanes. Le scroll horizontal gère N lanes.
+  // On garde un hint visuel "live recommande max 5" au-delà de ce seuil.
+  const isOverLiveCap = sortedLanes.length > MAX_LANES_LIVE
+
+  // FEST-2 : menu d'ajout de lane (choix du type). Replié par défaut.
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
 
   return (
     <div
       ref={containerRef}
-      className="rounded-lg overflow-hidden"
+      className="rounded-lg overflow-x-auto"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
+        // FEST-2 : scroll horizontal natif quand le nb de lanes dépasse
+        // la largeur viewport. Pas de overflow-y ici — la timeline n'a
+        // pas son propre scroll vertical (c'est la page qui scroll).
       }}
     >
       {/* Header lanes */}
@@ -446,25 +464,48 @@ export default function DerouleTimelineView({
             canEdit={canEdit}
             onUpdate={onUpdateLane}
             onDelete={onDeleteLane}
+            membres={membres}
           />
         ))}
-        {canAddLane && canEdit && (
-          <button
-            type="button"
-            onClick={() => onAddLane?.()}
-            className="flex items-center justify-center text-xs gap-1 transition-colors"
-            style={{
-              width: 80,
-              minWidth: 80,
-              borderLeft: '1px dashed var(--brd-sub)',
-              color: 'var(--txt-3)',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--txt-3)')}
-          >
-            <Plus className="w-3 h-3" />
-            Lane
-          </button>
+        {canEdit && (
+          <div style={{ position: 'relative', minWidth: 96, width: 96 }}>
+            <button
+              type="button"
+              onClick={() => setAddMenuOpen((v) => !v)}
+              className="flex items-center justify-center text-xs gap-1 transition-colors w-full h-full"
+              style={{
+                borderLeft: '1px dashed var(--brd-sub)',
+                color: addMenuOpen ? 'var(--blue)' : 'var(--txt-3)',
+                background: addMenuOpen ? 'var(--bg-surf)' : 'transparent',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+              onMouseLeave={(e) => {
+                if (!addMenuOpen) e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+              title={
+                isOverLiveCap
+                  ? `${sortedLanes.length} lanes — mode festival`
+                  : 'Ajouter une lane'
+              }
+            >
+              <Plus className="w-3 h-3" />
+              <span>Lane</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            {addMenuOpen && (
+              <AddLaneMenu
+                membres={membres}
+                existingMembreIds={sortedLanes
+                  .filter((l) => l.type === 'personne' && l.membre_id)
+                  .map((l) => l.membre_id)}
+                onClose={() => setAddMenuOpen(false)}
+                onAdd={(payload) => {
+                  setAddMenuOpen(false)
+                  onAddLane?.(payload)
+                }}
+              />
+            )}
+          </div>
         )}
       </div>
 
@@ -634,14 +675,15 @@ export default function DerouleTimelineView({
           )
         })}
 
-        {/* Spacer 80px à droite pour matcher la colonne "+ Lane" du header.
-            Sans ce spacer, les lanes flex-1 du body s'étalent sur 80px de
-            plus que celles du header → décalage croissant vers la droite. */}
-        {canAddLane && canEdit && (
+        {/* Spacer 96px à droite pour matcher la colonne "+ Lane" du header.
+            Sans ce spacer, les lanes flex-1 du body s'étalent sur 96px de
+            plus que celles du header → décalage croissant vers la droite.
+            FEST-2 : bouton header passé à 96px (+ Lane ▾). */}
+        {canEdit && (
           <div
             style={{
-              width: 80,
-              minWidth: 80,
+              width: 96,
+              minWidth: 96,
               borderLeft: '1px dashed var(--brd-sub)',
               opacity: 0.4,
             }}
@@ -658,7 +700,7 @@ export default function DerouleTimelineView({
           style={{
             top: 0,
             left: TIME_COL_W,
-            right: canAddLane && canEdit ? 80 : 0,
+            right: canEdit ? 96 : 0,
             bottom: 0,
           }}
         >
@@ -762,10 +804,36 @@ function labelForType(type) {
 
 // ─── LaneHeader (titre éditable + bouton supprimer pour lanes 1+) ──────────
 
-function LaneHeader({ lane, canEdit, onUpdate, onDelete }) {
+function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(lane.libelle)
-  const isGlobal = lane.sort_order === 0
+
+  // FEST-1 : la lane "Global" est identifiée par type (plus précis que
+  // sort_order=0 qui était la convention historique). Backward compat
+  // pour les déroulés legacy : sort_order=0 et type vide → considérer global.
+  const type = lane.type || (lane.sort_order === 0 ? 'global' : 'equipe')
+  const isGlobal = type === 'global'
+
+  // Couleur effective de la lane (hérite du type, override possible).
+  const color = `#${effectiveLaneColor(lane)}`
+
+  // Icône selon le type
+  const IconForType = {
+    global: Clipboard,
+    equipe: Users,
+    lieu: MapPin,
+    personne: Camera,
+  }[type] || Users
+
+  // Si type='personne', on affiche le nom du membre (et désactive
+  // l'édition inline du libellé — il vient du membre).
+  const membreForLane =
+    type === 'personne' && lane.membre_id
+      ? membres.find((m) => m.id === lane.membre_id)
+      : null
+  const personneFullName = membreForLane
+    ? `${membreForLane.contact?.prenom || membreForLane.prenom || ''} ${membreForLane.contact?.nom || membreForLane.nom || ''}`.trim()
+    : null
 
   function commitEdit() {
     setEditing(false)
@@ -773,18 +841,31 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete }) {
     if (next !== lane.libelle) onUpdate?.(lane.id, { libelle: next })
   }
 
+  // Pour les lanes type='personne', le libellé n'est pas éditable inline
+  // (vient du membre). On pourrait permettre un nickname plus tard.
+  const isLibelleEditable = canEdit && type !== 'personne'
+
   return (
     <div
-      className="flex items-center justify-between gap-1 px-2 text-xs flex-1"
+      className="flex items-center gap-1.5 px-2 text-xs flex-1"
       style={{
         height: LANE_HEADER_H,
         borderRight: '1px solid var(--brd-sub)',
+        // Petit accent visuel sur le type via une bordure top colorée
+        // (1px, discret — cf. conventions visuelles du chantier).
+        borderTop: `2px solid ${color}`,
         fontWeight: 500,
         color: 'var(--txt-2)',
         minWidth: 120,
+        background: type !== 'equipe' && type !== 'global' ? `${color}0d` : 'transparent',
       }}
+      title={`Type : ${type}`}
     >
-      {editing && canEdit ? (
+      <IconForType
+        className="w-3.5 h-3.5 shrink-0"
+        style={{ color, opacity: 0.85 }}
+      />
+      {editing && isLibelleEditable ? (
         <input
           autoFocus
           value={draft}
@@ -809,16 +890,20 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete }) {
       ) : (
         <button
           type="button"
-          onClick={() => canEdit && setEditing(true)}
+          onClick={() => isLibelleEditable && setEditing(true)}
           className="truncate text-left flex-1"
           style={{
             background: 'transparent',
             color: 'var(--txt-2)',
-            cursor: canEdit ? 'text' : 'default',
+            cursor: isLibelleEditable ? 'text' : 'default',
           }}
-          title={canEdit ? 'Cliquer pour renommer' : lane.libelle}
+          title={
+            isLibelleEditable
+              ? 'Cliquer pour renommer'
+              : personneFullName || lane.libelle
+          }
         >
-          {lane.libelle}
+          {personneFullName || lane.libelle}
         </button>
       )}
       {canEdit && !isGlobal && !editing && (
@@ -842,6 +927,174 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete }) {
         </button>
       )}
     </div>
+  )
+}
+
+// ─── AddLaneMenu — choix de type lors de l'ajout d'une lane ────────────────
+//
+// FEST-2 : remplace le simple bouton "+ Lane" par un menu qui demande
+// le type. Pour 'personne', affiche un sub-picker des membres du projet
+// (filtrés : pas de doublon avec une lane perso existante).
+//
+// Esc pour fermer, click-outside aussi.
+
+function AddLaneMenu({ membres = [], existingMembreIds = [], onClose, onAdd }) {
+  const [picking, setPicking] = useState(false) // 'personne' sub-step
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose?.()
+    }
+    function onClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose?.()
+    }
+    window.addEventListener('keydown', onKey)
+    // Délai pour ne pas attraper le clic qui a ouvert le menu
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', onClickOutside)
+    }, 0)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      clearTimeout(t)
+      document.removeEventListener('mousedown', onClickOutside)
+    }
+  }, [onClose])
+
+  const existingSet = new Set(existingMembreIds)
+  const availableMembres = (membres || [])
+    .filter((m) => !existingSet.has(m.id))
+    .sort((a, b) => {
+      const an = (a.contact?.nom || a.nom || '').toLowerCase()
+      const bn = (b.contact?.nom || b.nom || '').toLowerCase()
+      return an.localeCompare(bn, 'fr')
+    })
+
+  function addOfType(type, libelle) {
+    onAdd?.({ type, libelle })
+  }
+
+  function addPersonne(membre) {
+    const fullName =
+      `${membre.contact?.prenom || membre.prenom || ''} ${membre.contact?.nom || membre.nom || ''}`.trim() ||
+      'Cadreur'
+    onAdd?.({ type: 'personne', membre_id: membre.id, libelle: fullName })
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      className="absolute right-0 top-full mt-1 rounded-md shadow-xl"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        width: 260,
+        zIndex: 50,
+        padding: 4,
+      }}
+    >
+      {!picking ? (
+        <>
+          <MenuItem
+            icon={MapPin}
+            colorHex="#7F77DD"
+            title="Lieu / Scène"
+            subtitle="Programmation par scène (festival)"
+            onClick={() => addOfType('lieu', 'Scène')}
+          />
+          <MenuItem
+            icon={Camera}
+            colorHex="#378ADD"
+            title="Cadreur"
+            subtitle={
+              availableMembres.length === 0
+                ? 'Tous les membres déjà ajoutés'
+                : `Choisir parmi ${availableMembres.length} membre${availableMembres.length > 1 ? 's' : ''}`
+            }
+            disabled={availableMembres.length === 0}
+            onClick={() => setPicking(true)}
+          />
+          <MenuItem
+            icon={Users}
+            colorHex="#888780"
+            title="Équipe"
+            subtitle="Lane générique (mode live)"
+            onClick={() => addOfType('equipe', null)}
+          />
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setPicking(false)}
+            className="w-full text-left text-[10px] uppercase tracking-widest font-semibold px-2 py-1 mb-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            ← Retour
+          </button>
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {availableMembres.map((m) => {
+              const prenom = m.contact?.prenom || m.prenom || ''
+              const nom = m.contact?.nom || m.nom || ''
+              const spec = m.specialite || m.contact?.specialite || ''
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => addPersonne(m)}
+                  className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded text-xs"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--txt)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <Camera className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                  <span className="flex-1 min-w-0 truncate">
+                    <span style={{ fontWeight: 500 }}>{`${prenom} ${nom}`.trim()}</span>
+                    {spec && (
+                      <span className="ml-1 opacity-70 text-[10px]">· {spec}</span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MenuItem({ icon: Icon, colorHex, title, subtitle, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className="w-full text-left flex items-start gap-2 px-2 py-2 rounded transition-colors disabled:opacity-40"
+      style={{
+        background: 'transparent',
+        color: 'var(--txt)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = 'var(--bg-hov)'
+      }}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      <div
+        className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center"
+        style={{ background: `${colorHex}1f` }}
+      >
+        <Icon className="w-3.5 h-3.5" style={{ color: colorHex }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--txt)' }}>{title}</div>
+        <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 1 }}>{subtitle}</div>
+      </div>
+    </button>
   )
 }
 

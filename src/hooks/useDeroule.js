@@ -229,9 +229,13 @@ export function useDeroule(projectId, selectedDateJour) {
   )
 
   const addLane = useCallback(
-    async (libelle) => {
+    async (options) => {
+      // FEST-2 : options peut être :
+      //   - null/undefined → lane générique type='equipe'
+      //   - string → libelle (backward compat)
+      //   - { type, libelle, membre_id, couleur } → festival
       if (!currentDeroule?.id) throw new Error('Aucun déroulé sélectionné')
-      const result = await D.addLane(currentDeroule.id, libelle)
+      const result = await D.addLane(currentDeroule.id, options)
       bumpReload()
       return result
     },

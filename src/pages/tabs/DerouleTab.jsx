@@ -251,9 +251,12 @@ export default function DerouleTab() {
     await setCreneauMembres(inspectedCreneau.id, membreIds)
   }
 
-  async function handleAddLane() {
+  async function handleAddLane(payload) {
+    // FEST-2 : le menu d'ajout passe désormais un payload typé
+    // { type, libelle?, membre_id? }. Sans payload = ancien comportement
+    // (lane générique type='equipe').
     try {
-      await addLane()
+      await addLane(payload || null)
     } catch (e) {
       notify.error('Erreur : ' + (e?.message || e))
     }
