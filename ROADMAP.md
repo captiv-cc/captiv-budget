@@ -40,6 +40,23 @@ Roadmap complète : [`CHANTIER_DEROULE.md`](./CHANTIER_DEROULE.md).
 
 ## 📋 Backlog
 
+### MOBILE — App PWA + push notifications
+**Ajouté le** : 2026-05-13 · **Priorité** : moyenne (à déclencher quand
+volume cadreurs / festival justifie) · **Effort estimé** : ~10-15j en
+2 phases (PWA puis polish), +15-20j si on wrap en Capacitor plus tard
+
+App mobile installable depuis le navigateur (Progressive Web App) avec
+notifications push pour les cadreurs : "Babylon Circus dans 30 min sur
+Découverte", annonces broadcast régie, rappels golden hour.
+
+Roadmap complète : [`CHANTIER_MOBILE_PWA.md`](./CHANTIER_MOBILE_PWA.md).
+
+**⚠ Règles à respecter dès MAINTENANT dans tous les chantiers** pour
+que la bascule PWA soit ~5-7 jours et pas une refonte : tap targets
+≥ 44px, pas de hover-only, safe-area-inset, pas de scroll horizontal
+involontaire, deep linking, etc. Tous les chantiers actuels doivent
+s'y conformer — voir section "Règles à respecter" du doc.
+
 ### CONDUITE / DÉROULÉ JOUR — Tab planning tournage heure par heure
 **Ajouté le** : 2026-05-08 · **Priorité** : haute (demandé par Hugo) · **Effort estimé** : ~12-13j sur 5 vagues · **V1 livrable en ~4-5j**
 

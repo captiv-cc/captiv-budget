@@ -30,7 +30,17 @@ sur artistes), il manque :
 Toutes les évolutions sont **additives** — un déroulé live continue à
 fonctionner exactement comme avant si on n'active rien des nouveautés.
 
-## Contrainte transversale : MINIMALISME
+## Contraintes transversales
+
+### Mobile-ready (référence : `CHANTIER_MOBILE_PWA.md`)
+
+Toutes les features de ce chantier — particulièrement la vue Cadreur —
+DOIVENT respecter les règles du chantier PWA mobile :
+tap targets ≥ 44px, pas de hover-only, safe-area-inset, pas de scroll
+horizontal involontaire, deep linking. Cf. `CHANTIER_MOBILE_PWA.md`
+section "Règles à respecter dès MAINTENANT".
+
+### Minimalisme
 
 Hugo : *"Je veux surtout que ce soit visuellement fluide et léger, pas de
 surplus, du minimalisme, il y aura beaucoup d'infos déjà."*
