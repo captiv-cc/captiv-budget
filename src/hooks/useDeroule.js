@@ -228,6 +228,17 @@ export function useDeroule(projectId, selectedDateJour) {
     [bumpReload],
   )
 
+  const swapLaneOrder = useCallback(
+    async (laneAId, laneBId) => {
+      // FEST-2-bis : réordonnancement lane gauche/droite. Cf. lib.swapLaneOrder
+      // pour la mécanique (étape intermédiaire sort_order temporaire pour
+      // contourner la contrainte UNIQUE).
+      await D.swapLaneOrder(laneAId, laneBId)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+
   const addLane = useCallback(
     async (options) => {
       // FEST-2 : options peut être :
@@ -329,6 +340,7 @@ export function useDeroule(projectId, selectedDateJour) {
     addLane,
     updateLane,
     deleteLane,
+    swapLaneOrder,
     createCreneau,
     updateCreneau,
     deleteCreneau,

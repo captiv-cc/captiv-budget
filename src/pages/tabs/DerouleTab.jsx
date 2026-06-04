@@ -89,6 +89,7 @@ export default function DerouleTab() {
     addLane,
     updateLane,
     deleteLane,
+    swapLaneOrder,
     createCreneau,
     updateCreneau,
     deleteCreneau,
@@ -262,6 +263,20 @@ export default function DerouleTab() {
     }
   }
 
+  async function handleReorderLane(laneId, direction) {
+    // FEST-2-bis : déplace une lane d'un cran à gauche ou à droite.
+    // Le composant timeline calcule le voisin et appelle ce handler.
+    // direction : 'left' ou 'right' — mais le calcul du voisin se fait
+    // côté DerouleTimelineView qui a accès aux sortedLanes. On reçoit
+    // donc directement le couple { laneId, neighborId }.
+    if (!laneId || !direction) return
+    try {
+      await swapLaneOrder(laneId, direction)
+    } catch (e) {
+      notify.error('Erreur : ' + (e?.message || e))
+    }
+  }
+
   async function handleDeleteLane(laneId) {
     if (!window.confirm('Supprimer cette lane ? Elle doit être vide.')) return
     try {
@@ -403,6 +418,7 @@ export default function DerouleTab() {
           onAddLane={handleAddLane}
           onUpdateLane={updateLane}
           onDeleteLane={handleDeleteLane}
+          onReorderLane={handleReorderLane}
           onMoveCreneau={updateCreneau}
         />
       ) : (

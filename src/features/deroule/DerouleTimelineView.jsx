@@ -26,6 +26,8 @@ import {
   Users,
   Clipboard,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import {
   formatMinHHMM,
@@ -71,6 +73,7 @@ export default function DerouleTimelineView({
   onAddLane,
   onUpdateLane,
   onDeleteLane,
+  onReorderLane, // (laneId, neighborLaneId) → swap sort_order
   onMoveCreneau,
 }) {
   const containerRef = useRef(null)
@@ -457,16 +460,27 @@ export default function DerouleTimelineView({
             borderRight: '1px solid var(--brd-sub)',
           }}
         />
-        {sortedLanes.map((lane) => (
-          <LaneHeader
-            key={lane.id}
-            lane={lane}
-            canEdit={canEdit}
-            onUpdate={onUpdateLane}
-            onDelete={onDeleteLane}
-            membres={membres}
-          />
-        ))}
+        {sortedLanes.map((lane, idx) => {
+          const leftNeighbor = idx > 0 ? sortedLanes[idx - 1] : null
+          const rightNeighbor =
+            idx < sortedLanes.length - 1 ? sortedLanes[idx + 1] : null
+          return (
+            <LaneHeader
+              key={lane.id}
+              lane={lane}
+              canEdit={canEdit}
+              onUpdate={onUpdateLane}
+              onDelete={onDeleteLane}
+              onMoveLeft={
+                leftNeighbor ? () => onReorderLane?.(lane.id, leftNeighbor.id) : null
+              }
+              onMoveRight={
+                rightNeighbor ? () => onReorderLane?.(lane.id, rightNeighbor.id) : null
+              }
+              membres={membres}
+            />
+          )
+        })}
         {canEdit && (
           <div style={{ position: 'relative', minWidth: 96, width: 96 }}>
             <button
@@ -555,7 +569,10 @@ export default function DerouleTimelineView({
               style={{
                 borderRight: '1px solid var(--brd-sub)',
                 cursor: canEdit ? 'crosshair' : 'default',
-                minWidth: 120,
+                // FEST-2-bis : largeur compactée à 100px (vs 120 historique)
+                // pour permettre 12-15 lanes sur un écran 1440px avec un
+                // scroll horizontal minimal.
+                minWidth: 100,
               }}
             >
               {/* Graduations de fond */}
@@ -804,7 +821,15 @@ function labelForType(type) {
 
 // ─── LaneHeader (titre éditable + bouton supprimer pour lanes 1+) ──────────
 
-function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
+function LaneHeader({
+  lane,
+  canEdit,
+  onUpdate,
+  onDelete,
+  onMoveLeft,
+  onMoveRight,
+  membres = [],
+}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(lane.libelle)
 
@@ -845,18 +870,20 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
   // (vient du membre). On pourrait permettre un nickname plus tard.
   const isLibelleEditable = canEdit && type !== 'personne'
 
+  // FEST-2-bis : largeur lane réduite (100px au lieu de 120) pour densité
+  // festival. Les boutons de réordonnancement (← →) et de suppression (×)
+  // n'apparaissent qu'au hover via la classe `group` pour éviter d'écraser
+  // le libellé en mode repos.
   return (
     <div
-      className="flex items-center gap-1.5 px-2 text-xs flex-1"
+      className="group flex items-center gap-1 px-1.5 text-xs flex-1"
       style={{
         height: LANE_HEADER_H,
         borderRight: '1px solid var(--brd-sub)',
-        // Petit accent visuel sur le type via une bordure top colorée
-        // (1px, discret — cf. conventions visuelles du chantier).
         borderTop: `2px solid ${color}`,
         fontWeight: 500,
         color: 'var(--txt-2)',
-        minWidth: 120,
+        minWidth: 100,
         background: type !== 'equipe' && type !== 'global' ? `${color}0d` : 'transparent',
       }}
       title={`Type : ${type}`}
@@ -885,6 +912,7 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
             border: '1px solid var(--blue)',
             borderRadius: 3,
             fontSize: 12,
+            minWidth: 0,
           }}
         />
       ) : (
@@ -896,6 +924,7 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
             background: 'transparent',
             color: 'var(--txt-2)',
             cursor: isLibelleEditable ? 'text' : 'default',
+            minWidth: 0,
           }}
           title={
             isLibelleEditable
@@ -906,25 +935,77 @@ function LaneHeader({ lane, canEdit, onUpdate, onDelete, membres = [] }) {
           {personneFullName || lane.libelle}
         </button>
       )}
-      {canEdit && !isGlobal && !editing && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete?.(lane.id)
-          }}
-          className="opacity-0 hover:opacity-100 transition-opacity"
-          style={{
-            color: 'var(--red)',
-            background: 'transparent',
-            fontSize: 14,
-            padding: '0 4px',
-            opacity: 0.5,
-          }}
-          title="Supprimer cette lane (doit être vide)"
-        >
-          ×
-        </button>
+      {/* Mini actions : ← → ×. Visibles uniquement au hover du header
+          pour ne pas surcharger en mode repos. */}
+      {canEdit && !editing && (
+        <div className="flex items-center gap-px opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {onMoveLeft && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onMoveLeft()
+              }}
+              className="p-0.5 rounded transition-colors"
+              style={{ color: 'var(--txt-3)', background: 'transparent' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hov)'
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+              title="Déplacer à gauche"
+            >
+              <ChevronLeft className="w-3 h-3" />
+            </button>
+          )}
+          {onMoveRight && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onMoveRight()
+              }}
+              className="p-0.5 rounded transition-colors"
+              style={{ color: 'var(--txt-3)', background: 'transparent' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--bg-hov)'
+                e.currentTarget.style.color = 'var(--txt)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+              title="Déplacer à droite"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          )}
+          {!isGlobal && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete?.(lane.id)
+              }}
+              className="p-0.5 rounded transition-colors"
+              style={{ color: 'var(--txt-3)', background: 'transparent' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--red-bg)'
+                e.currentTarget.style.color = 'var(--red)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.color = 'var(--txt-3)'
+              }}
+              title="Supprimer (doit être vide)"
+            >
+              <span style={{ fontSize: 13, lineHeight: 1 }}>×</span>
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

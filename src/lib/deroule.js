@@ -622,6 +622,72 @@ export async function addLane(derouleId, options = null) {
   return data
 }
 
+/**
+ * Échange le `sort_order` de 2 lanes (réordonnancement gauche/droite).
+ *
+ * Contrainte technique : UNIQUE (deroule_id, sort_order) empêche un swap
+ * direct A↔B (collision intermédiaire). On passe par un sort_order
+ * temporaire élevé pour A, puis on bascule B vers l'ancienne valeur de A,
+ * puis A vers l'ancienne valeur de B. 3 UPDATE, pas atomique mais idempotent
+ * en cas de retry (on relit l'état avant chaque update).
+ *
+ * @param {string} laneAId
+ * @param {string} laneBId
+ * @returns {Promise<void>}
+ */
+export async function swapLaneOrder(laneAId, laneBId) {
+  if (!laneAId || !laneBId) throw new Error('swapLaneOrder: 2 laneId requis')
+  if (laneAId === laneBId) return // no-op
+
+  // 1. Récupère les sort_order actuels des 2 lanes (et leur deroule_id pour
+  //    le calcul du tmp).
+  const { data: lanes, error: e1 } = await supabase
+    .from('projet_deroule_lanes')
+    .select('id, sort_order, deroule_id')
+    .in('id', [laneAId, laneBId])
+  if (e1) throw e1
+  if (!lanes || lanes.length !== 2) {
+    throw new Error('swapLaneOrder: lanes introuvables')
+  }
+  const a = lanes.find((l) => l.id === laneAId)
+  const b = lanes.find((l) => l.id === laneBId)
+  if (a.deroule_id !== b.deroule_id) {
+    throw new Error('swapLaneOrder: les 2 lanes doivent être du même déroulé')
+  }
+
+  // 2. Calcule un sort_order temporaire (max existant +100) pour éviter la
+  //    collision UNIQUE pendant le swap.
+  const { data: maxRow } = await supabase
+    .from('projet_deroule_lanes')
+    .select('sort_order')
+    .eq('deroule_id', a.deroule_id)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .single()
+  const tmpOrder = (maxRow?.sort_order ?? 0) + 100
+
+  // 3. A → tmp
+  const { error: e3 } = await supabase
+    .from('projet_deroule_lanes')
+    .update({ sort_order: tmpOrder })
+    .eq('id', laneAId)
+  if (e3) throw e3
+
+  // 4. B → a.sort_order
+  const { error: e4 } = await supabase
+    .from('projet_deroule_lanes')
+    .update({ sort_order: a.sort_order })
+    .eq('id', laneBId)
+  if (e4) throw e4
+
+  // 5. A → b.sort_order
+  const { error: e5 } = await supabase
+    .from('projet_deroule_lanes')
+    .update({ sort_order: b.sort_order })
+    .eq('id', laneAId)
+  if (e5) throw e5
+}
+
 /** Update partiel d'une lane (libelle uniquement en pratique). */
 export async function updateLane(laneId, fields) {
   if (!laneId) throw new Error('updateLane: laneId manquant')
