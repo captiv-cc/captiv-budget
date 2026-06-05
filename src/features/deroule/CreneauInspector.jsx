@@ -52,6 +52,14 @@ import {
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
 import { usePopoverPosition } from '../../hooks/usePopoverPosition'
+import {
+  ANCHOR_FIELDS,
+  ANCHOR_FIELD_LABELS,
+  proposeAnchorDefault,
+  getLinkedChildren,
+  getSourceCreneau,
+  validateLinkTarget,
+} from '../../lib/derouleSoftLinks'
 import './CreneauInspector.css'
 
 const TYPE_LABELS = {
@@ -96,6 +104,7 @@ export default function CreneauInspector({
   creneau,
   isCreate = false,
   lanes,
+  allCreneaux = [],
   membresPresents,
   canEdit,
   anchorRect = null,
@@ -115,6 +124,8 @@ export default function CreneauInspector({
   const [editingTitre, setEditingTitre] = useState(false)
   const [titreDraft, setTitreDraft] = useState(creneau?.titre || '')
   const titreInputRef = useRef(null)
+  // FEST-2.10 : modal de gestion du lien source/anchor
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
   useEffect(() => {
     if (editingTitre && titreInputRef.current) {
       titreInputRef.current.focus()
@@ -508,6 +519,7 @@ export default function CreneauInspector({
             creneau={creneau}
             draft={draft}
             lanes={lanes}
+            allCreneaux={allCreneaux}
             currentLane={currentLane}
             membreIds={memberIds}
             membresPresents={membresPresents}
@@ -520,6 +532,7 @@ export default function CreneauInspector({
             onAutoSaveNotes={debouncedSaveNotes}
             onSavePartial={onSavePartial}
             onOpenFullEdit={() => setEditing(true)}
+            onOpenLinkModal={() => setLinkModalOpen(true)}
           />
         ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -834,9 +847,13 @@ export default function CreneauInspector({
             <button
               type="button"
               disabled={!canEdit}
-              className="cp-action-btn"
-              title="Lier à un autre créneau (FEST-2.10)"
-              onClick={() => alert('Bientôt — voir FEST-2.10')}
+              className={`cp-action-btn${creneau?.source_creneau_id ? ' is-linked' : ''}`}
+              title={
+                creneau?.source_creneau_id
+                  ? 'Lié à un créneau source — cliquez pour gérer'
+                  : 'Lier à un créneau existant'
+              }
+              onClick={() => setLinkModalOpen(true)}
             >
               <LinkIcon size={14} />
             </button>
@@ -935,6 +952,19 @@ export default function CreneauInspector({
           </div>
         )}
       </div>
+
+      {/* FEST-2.10 : modal de gestion du lien source */}
+      {linkModalOpen && creneau && (
+        <LinkCreneauModal
+          creneau={creneau}
+          allCreneaux={allCreneaux}
+          onClose={() => setLinkModalOpen(false)}
+          onSave={({ source_creneau_id, source_anchor }) => {
+            onSavePartial?.({ source_creneau_id, source_anchor })
+            setLinkModalOpen(false)
+          }}
+        />
+      )}
     </>
   )
 }
@@ -1244,6 +1274,7 @@ function CompactView({
   creneau,
   draft,
   lanes,
+  allCreneaux,
   currentLane,
   membreIds,
   membresPresents,
@@ -1255,7 +1286,17 @@ function CompactView({
   onAutoSaveNotes,
   onSavePartial,
   onOpenFullEdit,
+  onOpenLinkModal,
 }) {
+  // FEST-2.10 : détecter le statut du lien source
+  const sourceCreneau = useMemo(
+    () => getSourceCreneau(allCreneaux, creneau),
+    [allCreneaux, creneau],
+  )
+  const linkedChildren = useMemo(
+    () => getLinkedChildren(allCreneaux, creneau?.id),
+    [allCreneaux, creneau?.id],
+  )
   // ─── Lieu : fusion avec la lane si lane.type='lieu' ────────────────────
   // Hugo : "pour les lanes type 'lieu' (Scène Médiator), le lieu = nom de
   // la lane, info doublon".
@@ -1389,6 +1430,36 @@ function CompactView({
         )}
         onSave={(v) => saveField('statut', v)}
       />
+
+      {/* FEST-2.10 : ligne Lien source (si lié OU si source d'autres) */}
+      {(sourceCreneau || linkedChildren.length > 0) && (
+        <div
+          className={`cp-line${canEdit ? ' is-clickable' : ''}`}
+          onClick={() => canEdit && onOpenLinkModal?.()}
+          role={canEdit ? 'button' : undefined}
+          title={canEdit ? 'Gérer le lien source' : ''}
+        >
+          <span className="cp-line-icon"><LinkIcon size={14} /></span>
+          {sourceCreneau ? (
+            <span className="cp-line-value">
+              Lié à{' '}
+              <strong style={{ color: 'var(--txt)' }}>
+                {sourceCreneau.titre || '(sans titre)'}
+              </strong>
+              <span className="cp-line-extra" style={{ marginLeft: 6 }}>
+                {formatMinHHMM(sourceCreneau.heure_debut_min)}
+              </span>
+            </span>
+          ) : (
+            <span className="cp-line-value">
+              Source de{' '}
+              <strong style={{ color: 'var(--txt)' }}>
+                {linkedChildren.length} créneau{linkedChildren.length > 1 ? 'x' : ''}
+              </strong>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Section Notes (toujours visible) */}
       <div className="cp-notes-section">
@@ -1680,6 +1751,394 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
       <span className="cp-line-extra">
         {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
       </span>
+    </div>
+  )
+}
+
+// ─── LinkCreneauModal (FEST-2.10) — création/édition d'un lien source ────
+// Modal centré (par-dessus le popover) qui permet :
+// - Si pas encore lié : choisir un créneau source + cocher les champs à
+//   synchroniser (anchor.fields). Pré-coche les champs déjà identiques
+//   via proposeAnchorDefault.
+// - Si déjà lié : afficher les infos du lien + bouton "Délier".
+//
+// Le save se fait via la prop onSave(payload) qui appelle
+// updateCreneau silencieusement.
+function LinkCreneauModal({ creneau, allCreneaux, onClose, onSave }) {
+  const alreadyLinked = Boolean(creneau?.source_creneau_id)
+  const currentSource = useMemo(
+    () => getSourceCreneau(allCreneaux, creneau),
+    [allCreneaux, creneau],
+  )
+
+  // Candidates : tous les créneaux SAUF soi-même et les enfants déjà liés
+  // à soi-même (pour éviter de devenir l'enfant d'un de ses enfants).
+  const candidates = useMemo(() => {
+    return (allCreneaux || []).filter((c) => {
+      if (!c || c.id === creneau?.id) return false
+      // Exclure les enfants directs de soi-même
+      if (c.source_creneau_id === creneau?.id) return false
+      return true
+    })
+  }, [allCreneaux, creneau?.id])
+
+  const [selectedSourceId, setSelectedSourceId] = useState(
+    creneau?.source_creneau_id || '',
+  )
+  const selectedSource = candidates.find((c) => c.id === selectedSourceId)
+
+  // Anchor fields : pré-cochage automatique au choix d'une source
+  const [anchorFields, setAnchorFields] = useState(() => {
+    if (creneau?.source_anchor?.fields) {
+      return new Set(creneau.source_anchor.fields)
+    }
+    return new Set()
+  })
+
+  // Quand on change de source, recalcule l'anchor proposé
+  useEffect(() => {
+    if (!selectedSource || alreadyLinked) return
+    const proposed = proposeAnchorDefault(creneau, selectedSource)
+    setAnchorFields(new Set(proposed.fields))
+  }, [selectedSource, creneau, alreadyLinked])
+
+  // Validation
+  const validationError = selectedSource
+    ? validateLinkTarget(creneau, selectedSource, allCreneaux)
+    : null
+
+  const canSave = Boolean(selectedSource) && !validationError && anchorFields.size > 0
+
+  const toggleField = (f) => {
+    setAnchorFields((prev) => {
+      const next = new Set(prev)
+      if (next.has(f)) next.delete(f)
+      else next.add(f)
+      return next
+    })
+  }
+
+  const handleSave = () => {
+    if (!canSave) return
+    onSave?.({
+      source_creneau_id: selectedSource.id,
+      source_anchor: { fields: [...anchorFields] },
+    })
+  }
+  const handleUnlink = () => {
+    onSave?.({ source_creneau_id: null, source_anchor: null })
+  }
+
+  return (
+    <div
+      className="link-modal-backdrop"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(480px, 100%)',
+          maxHeight: 'calc(100vh - 32px)',
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          borderRadius: 10,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--brd-sub)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <LinkIcon size={16} style={{ color: 'var(--txt-2)' }} />
+            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>
+              {alreadyLinked ? 'Lien source' : 'Lier à un créneau source'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: 4,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+              borderRadius: 4,
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
+          {alreadyLinked && currentSource ? (
+            <div>
+              <div
+                style={{
+                  padding: 12,
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd-sub)',
+                  borderRadius: 6,
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--txt-3)', marginBottom: 4 }}>
+                  Lié à
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>
+                  {currentSource.titre || '(sans titre)'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--txt-2)', marginTop: 2 }}>
+                  {formatMinHHMM(currentSource.heure_debut_min)} –{' '}
+                  {formatMinHHMM(currentSource.heure_fin_min)}
+                </div>
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--txt-3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.05,
+                  marginBottom: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Champs synchronisés
+              </div>
+              <AnchorFieldsList
+                anchorFields={anchorFields}
+                onToggle={toggleField}
+              />
+            </div>
+          ) : (
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--txt-3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.05,
+                  marginBottom: 6,
+                  fontWeight: 600,
+                }}
+              >
+                Créneau source
+              </div>
+              <select
+                value={selectedSourceId}
+                onChange={(e) => setSelectedSourceId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  background: 'var(--bg)',
+                  color: 'var(--txt)',
+                  border: '1px solid var(--brd)',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  outline: 'none',
+                  marginBottom: 12,
+                }}
+              >
+                <option value="">— Sélectionner —</option>
+                {candidates.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.titre || '(sans titre)'} ·{' '}
+                    {formatMinHHMM(c.heure_debut_min)} –{' '}
+                    {formatMinHHMM(c.heure_fin_min)}
+                  </option>
+                ))}
+              </select>
+
+              {validationError && (
+                <div
+                  style={{
+                    padding: 8,
+                    background: 'rgba(220, 38, 38, 0.1)',
+                    border: '1px solid rgba(220, 38, 38, 0.3)',
+                    borderRadius: 6,
+                    color: '#EF4444',
+                    fontSize: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  ⚠ {validationError}
+                </div>
+              )}
+
+              {selectedSource && !validationError && (
+                <>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--txt-3)',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.05,
+                      marginBottom: 8,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Champs à synchroniser depuis la source
+                  </div>
+                  <AnchorFieldsList
+                    anchorFields={anchorFields}
+                    onToggle={toggleField}
+                  />
+                  {anchorFields.size === 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--txt-3)', marginTop: 8 }}>
+                      Sélectionnez au moins 1 champ à synchroniser.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: alreadyLinked ? 'space-between' : 'flex-end',
+            gap: 8,
+            padding: '10px 16px',
+            borderTop: '1px solid var(--brd-sub)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          {alreadyLinked && (
+            <button
+              type="button"
+              onClick={handleUnlink}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                color: '#EF4444',
+                background: 'transparent',
+                border: '1px solid rgba(220, 38, 38, 0.3)',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              Délier
+            </button>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                color: 'var(--txt-2)',
+                background: 'transparent',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              {alreadyLinked ? 'Fermer' : 'Annuler'}
+            </button>
+            {alreadyLinked ? (
+              <button
+                type="button"
+                onClick={() => {
+                  // Mise à jour de l'anchor (champs cochés/décochés)
+                  onSave?.({
+                    source_creneau_id: currentSource.id,
+                    source_anchor: { fields: [...anchorFields] },
+                  })
+                }}
+                disabled={anchorFields.size === 0}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'white',
+                  background: anchorFields.size === 0 ? 'var(--brd)' : 'var(--blue, #3B82F6)',
+                  border: '1px solid transparent',
+                  borderRadius: 6,
+                  cursor: anchorFields.size === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Mettre à jour
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!canSave}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'white',
+                  background: canSave ? 'var(--blue, #3B82F6)' : 'var(--brd)',
+                  border: '1px solid transparent',
+                  borderRadius: 6,
+                  cursor: canSave ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Lier
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AnchorFieldsList({ anchorFields, onToggle }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {ANCHOR_FIELDS.map((f) => (
+        <label
+          key={f}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 10px',
+            background: anchorFields.has(f) ? 'var(--bg-elev)' : 'transparent',
+            border: '1px solid var(--brd-sub)',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontSize: 13,
+            color: 'var(--txt)',
+            transition: 'background 0.1s',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={anchorFields.has(f)}
+            onChange={() => onToggle(f)}
+            style={{ cursor: 'pointer' }}
+          />
+          <span>{ANCHOR_FIELD_LABELS[f] || f}</span>
+        </label>
+      ))}
     </div>
   )
 }

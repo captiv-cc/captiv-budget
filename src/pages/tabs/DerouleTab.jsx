@@ -550,6 +550,7 @@ export default function DerouleTab() {
           creneau={inspectedCreneau}
           anchorRect={inspectedAnchor}
           lanes={lanes}
+          allCreneaux={creneaux}
           membresPresents={membresAvecPresence}
           canEdit={canEdit}
           onClose={closeInspector}
