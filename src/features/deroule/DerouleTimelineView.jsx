@@ -28,6 +28,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Link as LinkIcon,
+  Check,
 } from 'lucide-react'
 import {
   formatMinHHMM,
@@ -39,6 +41,7 @@ import {
   MAX_MIN,
   effectiveLaneColor,
 } from '../../lib/deroule'
+import { colorFromUserId } from '../../hooks/useProjectPresence'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
 const LANE_HEADER_H = 36
@@ -686,6 +689,7 @@ export default function DerouleTimelineView({
                       onMouseDownDrag={handleBlockMouseDown}
                       isDragging={isThisDragging && dragState.hasMoved}
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
+                      isLinked={Boolean(c.source_creneau_id)}
                     />
                   )
                 })}
@@ -1287,10 +1291,13 @@ function CreneauBlock({
   onMouseDownDrag,
   isDragging,
   conflicts = [],
+  isLinked = false,
 }) {
   const color = effectiveCouleurCreneau(creneau)
   const minH = 24
   const HANDLE_PX = 6 // zone de resize en haut/bas du bloc
+  const isFait = creneau.statut === 'fait'
+  const isEnCours = creneau.statut === 'en_cours'
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
   // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
@@ -1352,20 +1359,30 @@ function CreneauBlock({
       onMouseMove={canEdit ? (e) => {
         e.currentTarget.style.cursor = getCursor(e)
       } : undefined}
-      className="absolute rounded-r"
+      className={isEnCours && !isDragging ? 'absolute creneau-block-pulse' : 'absolute'}
       style={{
         top,
         left: 4,
         right: 4,
         height: Math.max(minH, height - 2),
         background: hexToBgFill(color),
-        borderLeft: `2px solid ${color}`,
+        borderLeft: `3px solid ${color}`,
+        borderRadius: '0 6px 6px 0',
         padding: '4px 8px',
         cursor: canEdit ? 'grab' : 'pointer',
         overflow: 'hidden',
         pointerEvents: 'auto',
-        opacity: isDragging ? 0.55 : (creneau.statut === 'annule' ? 0.5 : 1),
+        // UX-2 : opacité réduite si annulé OU fait (mais reste lisible)
+        opacity: isDragging
+          ? 0.55
+          : creneau.statut === 'annule'
+          ? 0.4
+          : isFait
+          ? 0.7
+          : 1,
         textDecoration: creneau.statut === 'annule' ? 'line-through' : 'none',
+        // UX-2 : color pour la pulse animation (currentColor dans la keyframe)
+        color: '#3B82F6',
         // Phase D — bordure rouge si conflit (override le boxShadow hover)
         outline: isDragging
           ? `2px solid ${color}`
@@ -1375,7 +1392,9 @@ function CreneauBlock({
         outlineOffset: isDragging ? 1 : 0,
         zIndex: isDragging ? 5 : 'auto',
         userSelect: 'none',
-        transition: isDragging ? 'none' : 'box-shadow 0.15s',
+        transition: isDragging ? 'none' : 'box-shadow 0.15s, opacity 0.15s',
+        // UX-2 : shadow subtile pour profondeur
+        boxShadow: isDragging ? 'none' : '0 1px 3px rgba(0,0,0,0.12)',
       }}
       onMouseEnter={(e) => {
         if (!isDragging && !hasConflict) e.currentTarget.style.boxShadow = '0 0 0 1px ' + color
@@ -1389,15 +1408,68 @@ function CreneauBlock({
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >
+      {/* Top-right : badge durée + indicateur lié (UX-2) */}
+      {height >= 40 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            pointerEvents: 'none',
+            color: hexToTextColor(color),
+            opacity: 0.75,
+          }}
+        >
+          {isLinked && <LinkIcon size={10} />}
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 500,
+              padding: '1px 4px',
+              borderRadius: 3,
+              background: 'rgba(0,0,0,0.15)',
+            }}
+          >
+            {formatDureeShort(creneau.heure_fin_min - creneau.heure_debut_min)}
+          </span>
+        </div>
+      )}
+
+      {/* Bottom-right : check vert si Fait (UX-2) */}
+      {creneau.statut === 'fait' && height >= 40 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 4,
+            right: 6,
+            width: 14,
+            height: 14,
+            borderRadius: '50%',
+            background: '#22C55E',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <Check size={10} style={{ color: 'white' }} strokeWidth={3} />
+        </div>
+      )}
+
+      {/* Titre — gras + taille adaptative selon hauteur */}
       <div
         style={{
-          fontSize: 11,
-          fontWeight: 500,
+          fontSize: height >= 60 ? 12 : 11,
+          fontWeight: 600,
           color: hexToTextColor(color),
           lineHeight: 1.2,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          paddingRight: height >= 40 ? 50 : 0,
         }}
       >
         {isMultiLane && (
@@ -1417,66 +1489,95 @@ function CreneauBlock({
         )}
         {creneau.titre || '(sans titre)'}
       </div>
+
+      {/* Horaires + lieu (visible si height >= 36) */}
       {height >= 36 && (
         <div
           style={{
             fontSize: 10,
             color: hexToTextColor(color),
-            opacity: 0.75,
+            opacity: 0.65,
             marginTop: 1,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            paddingRight: height >= 40 ? 50 : 0,
           }}
         >
           {formatMinHHMM(creneau.heure_debut_min)} – {formatMinHHMM(creneau.heure_fin_min)}
           {creneau.lieu_text && <> · {creneau.lieu_text}</>}
         </div>
       )}
-      {height >= 56 && creneau.member_ids && creneau.member_ids.length > 0 && (
-        <div className="flex gap-0.5 mt-1.5" style={{ pointerEvents: 'none' }}>
-          {creneau.member_ids.slice(0, 3).map((mid) => {
+
+      {/* Avatars équipe (visible si height >= 60). Couleur déterministe par
+          membre (PRES-1 colorFromUserId) → identification visuelle stable. */}
+      {height >= 60 && creneau.member_ids && creneau.member_ids.length > 0 && (
+        <div className="flex gap-0 mt-1.5" style={{ pointerEvents: 'none' }}>
+          {creneau.member_ids.slice(0, 4).map((mid, idx) => {
             const m = membreInitiales.get(mid)
+            const avatarColor = colorFromUserId(mid)
             return (
               <div
                 key={mid}
+                aria-label={m?.fullName || ''}
                 style={{
-                  width: 18,
-                  height: 18,
+                  width: 20,
+                  height: 20,
                   borderRadius: '50%',
-                  background: hexToAvatarBg(color),
-                  color: hexToTextColor(color),
+                  background: avatarColor,
+                  color: 'white',
                   fontSize: 9,
-                  fontWeight: 500,
+                  fontWeight: 600,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  border: '1.5px solid ' + hexToBgFill(color),
+                  marginLeft: idx === 0 ? 0 : -5,
                 }}
-                title={m?.fullName || ''}
               >
                 {m?.initiales || '?'}
               </div>
             )
           })}
-          {creneau.member_ids.length > 3 && (
+          {creneau.member_ids.length > 4 && (
             <div
               style={{
-                width: 18,
-                height: 18,
+                width: 20,
+                height: 20,
                 borderRadius: '50%',
-                background: hexToAvatarBg(color),
-                color: hexToTextColor(color),
+                background: 'rgba(0,0,0,0.35)',
+                color: 'white',
                 fontSize: 9,
-                fontWeight: 500,
+                fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                border: '1.5px solid ' + hexToBgFill(color),
+                marginLeft: -5,
               }}
             >
-              +{creneau.member_ids.length - 3}
+              +{creneau.member_ids.length - 4}
             </div>
           )}
         </div>
       )}
     </div>
   )
+}
+
+// ─── Helpers UI ────────────────────────────────────────────────────────────
+
+// UX-2 : format court de durée pour le badge en haut-droite du bloc.
+//   < 60min → "30min" / "45min"
+//   exactement 60 → "1h"
+//   minutes en plus → "1h45" (pas d'espace)
+function formatDureeShort(min) {
+  if (typeof min !== 'number' || min <= 0) return ''
+  const h = Math.floor(min / 60)
+  const m = Math.floor(min % 60)
+  if (h === 0) return `${m}min`
+  if (m === 0) return `${h}h`
+  return `${h}h${String(m).padStart(2, '0')}`
 }
 
 // ─── Helpers couleur ────────────────────────────────────────────────────────
@@ -1496,11 +1597,6 @@ function hexToBgFill(hex) {
   // FIX V0 : 0.18 (au lieu de 0.12) pour mieux ressortir sur dark mode.
   // Sur fond très foncé, 0.12 était presque invisible.
   return `rgba(${r}, ${g}, ${b}, 0.18)`
-}
-
-function hexToAvatarBg(hex) {
-  const [r, g, b] = hexToRgb(hex)
-  return `rgba(${r}, ${g}, ${b}, 0.3)`
 }
 
 function hexToTextColor(hex) {
