@@ -17,7 +17,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   Loader2,
@@ -28,6 +28,7 @@ import {
   LayoutGrid,
   X,
   Users,
+  Camera,
 } from 'lucide-react'
 import { useDerouleShareSession } from '../hooks/useDerouleShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -39,7 +40,10 @@ import {
   defaultLaneLibelle,
   creneauDureeMin,
   CRENEAU_TYPE_COLORS,
+  enrichCreneauxWithImplicitMembers,
+  findMembreOverlaps,
 } from '../lib/deroule'
+import DerouleCadreurView from '../features/deroule/DerouleCadreurView'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -108,19 +112,41 @@ function ShareContent({ payload, theme, setTheme }) {
   const membres = useMemo(() => payload.membres || [], [payload.membres])
   const showSensitive = share.show_sensitive !== false
 
-  // Vue active : 'liste' (cards verticales) ou 'timeline' (grille lanes ×
-  // heures, blocs positionnés en absolute — calque visuel du back-office).
-  // Persistée par-tab dans localStorage. Default timeline sur desktop, liste
-  // sur mobile (le toggle est masqué en < sm — la timeline est trop dense
-  // pour mobile).
+  // FEST-5 : on lit `?cadreur=<membre_id>` dans l'URL pour permettre des
+  // liens directs vers la vue Cadreur d'un membre spécifique. Si le param
+  // est présent, on force view='cadreur' et selectedCadreurId.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlCadreurId = searchParams.get('cadreur') || null
+
+  // Vue active : 'timeline' / 'liste' / 'cadreur' (FEST-5).
+  // Persistée par-tab dans localStorage. Default timeline desktop, liste
+  // mobile. Si ?cadreur=<id> dans l'URL → force 'cadreur'.
   const [view, setView] = useState(() => {
+    if (urlCadreurId) return 'cadreur'
     if (typeof localStorage === 'undefined') return 'timeline'
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'liste' ? 'liste' : 'timeline'
+    const stored = localStorage.getItem(VIEW_STORAGE_KEY)
+    if (stored === 'liste' || stored === 'cadreur') return stored
+    return 'timeline'
   })
   useEffect(() => {
     if (typeof localStorage === 'undefined') return
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   }, [view])
+
+  // Cadreur sélectionné (synchronisé avec ?cadreur=<id> dans l'URL).
+  const [selectedCadreurId, setSelectedCadreurId] = useState(urlCadreurId)
+  useEffect(() => {
+    // Sync URL → state quand l'URL change (cas back/forward navigation)
+    setSelectedCadreurId(urlCadreurId)
+    if (urlCadreurId) setView('cadreur')
+  }, [urlCadreurId])
+  function handleSelectCadreur(membreId) {
+    setSelectedCadreurId(membreId)
+    const next = new URLSearchParams(searchParams)
+    if (membreId) next.set('cadreur', membreId)
+    else next.delete('cadreur')
+    setSearchParams(next, { replace: true })
+  }
 
   // Sélection du jour : par défaut le 1er déroulé (chronologique). Si on a
   // un déroulé "aujourd'hui", on le sélectionne en priorité.
@@ -164,6 +190,29 @@ function ShareContent({ payload, theme, setTheme }) {
     () => deroules.find((d) => d.id === selectedDeroleId) || null,
     [deroules, selectedDeroleId],
   )
+
+  // FEST-5 : conflits par créneau pour la vue Cadreur. On enrichit
+  // d'abord les créneaux avec les membres implicites (lane perso) puis
+  // on calcule les overlaps par membre. Même logique que côté admin
+  // (DerouleTab.jsx) mais en read-only.
+  const shareConflictsByCreneau = useMemo(() => {
+    const map = new Map()
+    if (!Array.isArray(creneaux) || creneaux.length === 0) return map
+    if (!Array.isArray(membres) || membres.length === 0) return map
+    const enriched = enrichCreneauxWithImplicitMembers(creneaux, lanes)
+    for (const m of membres) {
+      const pairs = findMembreOverlaps(m.id, enriched)
+      for (const [a, b] of pairs) {
+        const arrA = map.get(a.id) || []
+        arrA.push({ creneau: b, membre: m })
+        map.set(a.id, arrA)
+        const arrB = map.get(b.id) || []
+        arrB.push({ creneau: a, membre: m })
+        map.set(b.id, arrB)
+      }
+    }
+    return map
+  }, [creneaux, membres, lanes])
   const currentLanes = useMemo(() => {
     if (!currentDeroule) return []
     return lanes
@@ -239,10 +288,21 @@ function ShareContent({ payload, theme, setTheme }) {
               </div>
             )}
 
-            {/* ── Vue active (liste cards / timeline lanes×heures) ───────── */}
+            {/* ── Vue active : timeline / liste / cadreur (FEST-5) ───────── */}
             <div className="mt-4">
               {currentCreneaux.length === 0 ? (
                 <EmptyDayState />
+              ) : view === 'cadreur' ? (
+                <DerouleCadreurView
+                  deroule={currentDeroule}
+                  lanes={currentLanes}
+                  creneaux={currentCreneaux}
+                  membres={membres}
+                  conflictsByCreneau={shareConflictsByCreneau}
+                  selectedMembreId={selectedCadreurId}
+                  setSelectedMembreId={handleSelectCadreur}
+                  onSelectCreneau={null /* read-only sur le share */}
+                />
               ) : view === 'timeline' ? (
                 <CreneauxTimeline
                   deroule={currentDeroule}
@@ -373,6 +433,7 @@ function ViewToggle({ view, onChange }) {
   // [SHARE-11] Sur mobile (< sm), on cache le label texte et on garde
   // uniquement l'icône — sinon le toggle prend ~50% de la largeur écran
   // au détriment du day selector adjacent.
+  // FEST-5 : ajout du 3e mode 'cadreur' pour basculer en vue par membre.
   return (
     <div
       className="inline-flex items-center rounded-md p-0.5 shrink-0"
@@ -396,6 +457,14 @@ function ViewToggle({ view, onChange }) {
       >
         <ListIcon className="w-3.5 h-3.5" />
         <span className="hidden sm:inline">Liste</span>
+      </ToggleBtn>
+      <ToggleBtn
+        active={view === 'cadreur'}
+        onClick={() => onChange('cadreur')}
+        title="Vue par cadreur"
+      >
+        <Camera className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Cadreur</span>
       </ToggleBtn>
     </div>
   )
