@@ -30,6 +30,7 @@ import {
   AlertCircle,
   Share2,
   Eye,
+  Sparkles,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -49,6 +50,7 @@ import DerouleListView from '../../features/deroule/DerouleListView'
 import DerouleCadreurView from '../../features/deroule/DerouleCadreurView'
 import CreneauInspector from '../../features/deroule/CreneauInspector'
 import DerouleShareModal from '../../features/deroule/DerouleShareModal'
+import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
 import {
   getLinkedChildren,
   applySourceUpdate,
@@ -109,6 +111,8 @@ export default function DerouleTab() {
   }
   // Modale de partage (Vague 2)
   const [shareOpen, setShareOpen] = useState(false)
+  // FEST-4.2 : modal d'import IA (PDF/image → JSON via Claude Vision)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
   useEffect(() => {
@@ -644,6 +648,22 @@ export default function DerouleTab() {
               <span className="hidden sm:inline">Partager</span>
             </button>
           )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+              style={{
+                color: 'var(--txt-2)',
+                background: 'transparent',
+                border: '1px solid var(--brd)',
+              }}
+              title="Importe une programmation PDF/image via Claude Vision (FEST-4)"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span className="hidden sm:inline">Importer prog.</span>
+            </button>
+          )}
           {deroule && canEdit && (
             <button
               type="button"
@@ -796,6 +816,24 @@ export default function DerouleTab() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         projectId={projectId}
+      />
+
+      {/* FEST-4.2 : modal d'import IA (PDF/image → Claude Vision)
+          Pour l'instant, FEST-4.2 ferme la modal après extraction et logge
+          le résultat. FEST-4.3 ajoutera la preview + le commit en BDD. */}
+      <ImportDerouleModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onResult={(extracted) => {
+          // eslint-disable-next-line no-console
+          console.log('[import-deroule] résultat extrait', extracted)
+          notify.info(
+            `Extraction OK : ${extracted.shows.length} show(s)${
+              extracted.date ? ` · date ${extracted.date}` : ''
+            }. Preview à venir (FEST-4.3).`,
+          )
+          setImportOpen(false)
+        }}
       />
     </div>
   )
