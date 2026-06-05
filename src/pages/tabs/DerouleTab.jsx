@@ -77,23 +77,33 @@ export default function DerouleTab() {
   // ou directement un DOMRect (passé manuellement).
   function openInspector(creneau, eventOrRect) {
     let rect = null
-    if (!eventOrRect) {
-      rect = null
-    } else if (
-      typeof eventOrRect === 'object' &&
-      'top' in eventOrRect &&
-      'left' in eventOrRect &&
-      'width' in eventOrRect
-    ) {
-      // C'est déjà un DOMRect (ou un plain object qui ressemble à un)
-      rect = eventOrRect
-    } else if (eventOrRect?.currentTarget?.getBoundingClientRect) {
-      // C'est un événement React → on extrait le rect de currentTarget
-      rect = eventOrRect.currentTarget.getBoundingClientRect()
+    if (eventOrRect && typeof eventOrRect === 'object') {
+      // 1) DOMRect-like : top/left/width sont des nombres (DOMRect natif
+      //    OU plain object). Plus robuste que ('top' in) qui peut faillir
+      //    avec les getters de prototype dans certains envs.
+      if (
+        typeof eventOrRect.top === 'number' &&
+        typeof eventOrRect.left === 'number' &&
+        typeof eventOrRect.width === 'number'
+      ) {
+        rect = eventOrRect
+      } else if (eventOrRect.currentTarget?.getBoundingClientRect) {
+        // 2) Event React → on extrait le rect de currentTarget
+        rect = eventOrRect.currentTarget.getBoundingClientRect()
+      }
     }
     // Debug temporaire
     // eslint-disable-next-line no-console
-    console.log('[DerouleTab.openInspector] rect=', rect, 'creneau=', creneau?.titre)
+    console.log(
+      '[DerouleTab.openInspector] received=',
+      eventOrRect,
+      'typeof=',
+      typeof eventOrRect,
+      'extracted rect=',
+      rect,
+      'creneau=',
+      creneau?.titre,
+    )
     setInspectedAnchor(rect)
     setInspectedCreneau(creneau)
   }

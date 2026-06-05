@@ -194,6 +194,8 @@ export default function DerouleTimelineView({
     // FIX V0 : si on vient juste de finir un drag commité, on ignore le
     // click natif (sinon l'inspector s'ouvre tout seul après chaque drag).
     if (justDraggedRef.current) return
+    // eslint-disable-next-line no-console
+    console.log('[handleBlockClick] received event=', event, 'onSelectCreneau=', typeof onSelectCreneau)
     // POP-1 : propagation de l'événement pour ancrer le popover sur le bloc.
     onSelectCreneau?.(creneau, event)
   }
@@ -1249,10 +1251,15 @@ function CreneauBlock({
         // que le click ne tire — donc on n'ouvre pas l'inspector. OK.
         e.stopPropagation()
         if (isDragging) return
-        // POP-1 : extraire le DOMRect immédiatement (au plus près du DOM)
-        // pour éviter les surprises liées au pooling/release React des
-        // events. On passe le rect tel quel au parent.
+        // POP-1 : extraire le DOMRect immédiatement (au plus près du DOM).
         const rect = e.currentTarget.getBoundingClientRect()
+        // eslint-disable-next-line no-console
+        console.log('[CreneauBlock onClick] rect=', {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        }, 'onClick fn=', typeof onClick)
         onClick?.(creneau, rect)
       }}
       onMouseDown={handleMouseDown}
