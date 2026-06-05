@@ -174,6 +174,32 @@ export default function RichEditor({
     editor.setEditable(!readOnly)
   }, [readOnly, editor])
 
+  // ─── Bootstrap initial du Y.Doc (FEST-2.5) ─────────────────────────────
+  // En mode collab, le Y.Doc démarre vide. Trois cas :
+  //   1. On rejoint un Y.Doc déjà rempli par d'autres clients → sync-request
+  //      remplit le doc en ~150ms via Y.applyUpdate. On NE bootstrap PAS.
+  //   2. On est le 1er client et il existe un contenu en BDD (`initialContent`)
+  //      → on attend 600ms (laisse une marge au sync), puis on inject si
+  //      l'éditeur est toujours vide. Couvre 99% des cas.
+  //   3. On est le 1er client et pas de contenu BDD → éditeur reste vide,
+  //      le user commence à taper, ses caractères deviennent l'état initial.
+  //
+  // Race (rare) : 2 clients ouvrent EXACTEMENT en même temps un créneau qui
+  // n'a jamais été édité avec Tiptap → les 2 bootstrap → contenu doublé.
+  // V2 ajoutera un mutex via awareness pour éliminer ce cas.
+  useEffect(() => {
+    if (!editor || !collaboration?.doc) return undefined
+    const initial = collaboration.initialContent
+    if (!initial) return undefined
+    const timer = setTimeout(() => {
+      if (!editor || editor.isDestroyed) return
+      if (editor.isEmpty) {
+        editor.commands.setContent(initial, false)
+      }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [editor, collaboration?.doc, collaboration?.initialContent])
+
   if (!editor) return null
 
   const wrapperClass = [

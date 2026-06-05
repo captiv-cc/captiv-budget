@@ -33,6 +33,8 @@ import {
   formatMinTimeInput,
   formatMinHHMM,
 } from '../../lib/deroule'
+import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
+import { useYjsCollab } from '../../hooks/useYjsCollab'
 
 const TYPE_LABELS = {
   install: 'Installation',
@@ -88,6 +90,49 @@ export default function CreneauInspector({
     setEditing(isCreate || !creneau?.id)
   }, [creneau, isCreate])
 
+  // ─── Collab Y.js sur les notes (FEST-2.5) ────────────────────────────────
+  // Active la collab uniquement si on a un creneau.id (créneau persisté) ET
+  // qu'on est en mode édition. En mode view ou create, on lit/écrit creneau.notes
+  // directement sans channel Realtime (économise une connexion).
+  const collabEnabled = Boolean(creneau?.id) && editing && canEdit
+  const {
+    doc: yjsDoc,
+    awareness: yjsAwareness,
+    myUserMeta,
+    peers: editingPeers,
+  } = useYjsCollab({
+    docId: creneau?.id || null,
+    scope: 'deroule-creneau',
+    enabled: collabEnabled,
+  })
+
+  // Auto-save debounced des notes (3s d'inactivité). Distinct du Save
+  // explicite des autres champs — les notes collab ont leur propre cycle
+  // de vie temps réel.
+  const notesSaveTimerRef = useRef(null)
+  const lastSavedNotesRef = useRef(null)
+  const debouncedSaveNotes = (newNotesJson) => {
+    if (!creneau?.id || !canEdit) return
+    if (notesSaveTimerRef.current) clearTimeout(notesSaveTimerRef.current)
+    notesSaveTimerRef.current = setTimeout(async () => {
+      // Stocker NULL si doc vide pour économiser place + cohérence existant.
+      const toSave = isDocEmpty(newNotesJson) ? null : newNotesJson
+      if (docsEqual(toSave, lastSavedNotesRef.current)) return
+      lastSavedNotesRef.current = toSave
+      try {
+        await onSave?.({ notes: toSave })
+      } catch (e) {
+        console.warn('[CreneauInspector] notes save error', e)
+      }
+    }, 3000)
+  }
+  // Flush au démontage (changement de créneau, fermeture inspecteur).
+  useEffect(() => {
+    return () => {
+      if (notesSaveTimerRef.current) clearTimeout(notesSaveTimerRef.current)
+    }
+  }, [creneau?.id])
+
   // Couleur d'accent dérivée du type courant (impacte le header en temps réel)
   const accentColor = useMemo(
     () => effectiveCouleurCreneau({ ...creneau, ...draft }),
@@ -141,7 +186,12 @@ export default function CreneauInspector({
         }
         await onCreate?.(fields)
       } else {
-        await onSave?.(draft)
+        // En édition d'un créneau persisté, les notes ont leur propre cycle
+        // (auto-save collab debounced via debouncedSaveNotes). Les retirer
+        // ici évite d'écraser une modif Y.js récente non encore snapshotée.
+        const draftStructured = { ...draft }
+        delete draftStructured.notes
+        await onSave?.(draftStructured)
         // Persist member_ids séparément si modifié
         const currentSet = new Set(creneau?.member_ids || [])
         const newSet = new Set(memberIds)
@@ -492,25 +542,58 @@ export default function CreneauInspector({
             </Field>
           )}
 
-          {/* Notes */}
-          <Field label="Notes">
+          {/* Notes — RichEditor Tiptap (FEST-2.4) + collab Y.js si édition
+              sur créneau persisté (FEST-2.5). Auto-save debounced 3s. */}
+          <Field
+            label={
+              <span className="flex items-center gap-1.5">
+                <span>Notes</span>
+                {collabEnabled && editingPeers.length > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      color: 'var(--txt-2)',
+                      border: '1px solid var(--brd)',
+                    }}
+                    title={editingPeers.map((p) => p.name).join(', ')}
+                  >
+                    {editingPeers.length === 1
+                      ? `${editingPeers[0].name} édite aussi`
+                      : `${editingPeers.length} personnes éditent`}
+                  </span>
+                )}
+              </span>
+            }
+          >
             {editing ? (
-              <textarea
-                value={draft.notes || ''}
-                onChange={(e) => patch({ notes: e.target.value || null })}
-                rows={3}
-                placeholder="Briefing technique, contraintes..."
-                className="w-full px-2 py-1.5 text-sm rounded outline-none resize-y"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt)',
-                  border: '1px solid var(--brd)',
-                }}
-              />
+              collabEnabled && yjsDoc ? (
+                // Mode collab temps réel (créneau persisté + édition active)
+                <RichEditor
+                  collaboration={{
+                    doc: yjsDoc,
+                    awareness: yjsAwareness,
+                    user: myUserMeta,
+                    initialContent: creneau.notes,
+                  }}
+                  onChange={debouncedSaveNotes}
+                  placeholder="Briefing technique, contraintes…"
+                  minHeight={100}
+                />
+              ) : (
+                // Mode local (création ou pas encore connecté)
+                <RichEditor
+                  value={draft.notes}
+                  onChange={(json) =>
+                    patch({ notes: isDocEmpty(json) ? null : json })
+                  }
+                  placeholder="Briefing technique, contraintes…"
+                  minHeight={100}
+                />
+              )
             ) : (
-              <div className="text-sm whitespace-pre-wrap" style={{ color: 'var(--txt)' }}>
-                {draft.notes || '—'}
-              </div>
+              // Mode lecture : pas de collab, lecture seule du snapshot BDD
+              <RichEditor value={creneau?.notes} readOnly minHeight={20} />
             )}
           </Field>
         </div>
