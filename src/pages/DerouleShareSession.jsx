@@ -33,6 +33,7 @@ import {
 import { useDerouleShareSession } from '../hooks/useDerouleShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
+import RichEditor from '../components/rich-editor'
 import {
   effectiveCouleurCreneau,
   formatMinHHMM,
@@ -1373,12 +1374,9 @@ function CreneauDetailPopover({
 
         {showSensitive && c.notes && (
           <DetailRow label="Notes">
-            <p
-              className="text-xs leading-relaxed italic whitespace-pre-wrap"
-              style={{ color: 'var(--txt-3)' }}
-            >
-              {c.notes}
-            </p>
+            <div style={{ color: 'var(--txt-3)', fontSize: 12 }}>
+              <RichEditor value={c.notes} readOnly minHeight={0} />
+            </div>
           </DetailRow>
         )}
       </div>
@@ -1664,12 +1662,11 @@ function CreneauRow({
             </p>
           )}
           {showSensitive && c.notes && (
-            <p
-              className="text-[11px] mt-1 italic leading-relaxed"
-              style={{ color: 'var(--txt-3)' }}
+            <div
+              style={{ color: 'var(--txt-3)', fontSize: 11, marginTop: 4 }}
             >
-              {c.notes}
-            </p>
+              <RichEditor value={c.notes} readOnly minHeight={0} />
+            </div>
           )}
         </div>
       </div>

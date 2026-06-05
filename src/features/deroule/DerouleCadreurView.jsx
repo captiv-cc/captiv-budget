@@ -38,6 +38,7 @@ import {
   sortCreneauxByTime,
 } from '../../lib/deroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
+import { extractPlainText } from '../../components/rich-editor/utils'
 
 export default function DerouleCadreurView({
   // deroule passé pour future intégration (régie live, méta jour : golden
@@ -627,6 +628,18 @@ function MissionCard({ creneau: c, lane, conflicts = [], membreById, onClick }) 
             {c.description}
           </div>
         )}
+        {c.notes && (() => {
+          const notesText = extractPlainText(c.notes, { maxLen: 160 })
+          if (!notesText) return null
+          return (
+            <div
+              className="text-[10px] mt-1 line-clamp-2 italic"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              {notesText}
+            </div>
+          )
+        })()}
         {otherMembers.length > 1 && (
           <div
             className="text-[10px] mt-1.5 flex items-center gap-1"
