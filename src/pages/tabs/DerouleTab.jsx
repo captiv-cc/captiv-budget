@@ -371,8 +371,6 @@ export default function DerouleTab() {
   async function propagateToChildren(sourceCreneau, modifiedFields) {
     if (!sourceCreneau?.id || !modifiedFields) return
     const linkedChildren = getLinkedChildren(creneaux, sourceCreneau.id)
-    // eslint-disable-next-line no-console
-    console.log('[propagate] source=', sourceCreneau.id, 'titre=', sourceCreneau.titre, 'fields=', modifiedFields, 'children=', linkedChildren.length)
     if (linkedChildren.length === 0) return
     // Source enrichie des modifs (pour applySourceUpdate)
     const updatedSource = { ...sourceCreneau, ...modifiedFields }
@@ -381,14 +379,10 @@ export default function DerouleTab() {
       const fieldsToApply = (anchor.fields || []).filter((af) =>
         isAnchorFieldImpactedByPatch(af, modifiedFields),
       )
-      // eslint-disable-next-line no-console
-      console.log('[propagate] child=', child.id, 'titre=', child.titre, 'anchor=', anchor.fields, 'fieldsToApply=', fieldsToApply)
       if (fieldsToApply.length === 0) continue
       const patch = applySourceUpdate(updatedSource, child, {
         fields: fieldsToApply,
       })
-      // eslint-disable-next-line no-console
-      console.log('[propagate] patch=', patch)
       // Cas spécial member_ids (cadreurs) → appel séparé via
       // setCreneauMembres car pas une colonne directe.
       const { member_ids, ...structured } = patch
@@ -449,6 +443,17 @@ export default function DerouleTab() {
     await setCreneauMembres(inspectedCreneau.id, membreIds)
     // FEST-3.2 C : propagation auto si l'équipe est dans l'anchor des enfants
     await propagateToChildren(inspectedCreneau, { member_ids: membreIds })
+  }
+
+  // FEST-3.2 C : wrapper sur updateCreneau pour le drag-and-drop (le bloc
+  // est déplacé dans la timeline, pas via le popover). Sans ce wrapper, la
+  // propagation auto aux enfants liés ne se faisait pas (Hugo signalé).
+  async function handleMoveCreneau(creneauId, fields) {
+    await updateCreneau(creneauId, fields)
+    const source = creneaux.find((c) => c.id === creneauId)
+    if (source) {
+      await propagateToChildren(source, fields)
+    }
   }
 
   async function handleAddLane(payload) {
@@ -636,7 +641,7 @@ export default function DerouleTab() {
           onUpdateLane={updateLane}
           onDeleteLane={handleDeleteLane}
           onReorderLane={handleReorderLane}
-          onMoveCreneau={updateCreneau}
+          onMoveCreneau={handleMoveCreneau}
         />
       ) : (
         <DerouleListView
