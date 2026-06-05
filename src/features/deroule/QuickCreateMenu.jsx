@@ -240,9 +240,20 @@ export default function QuickCreateMenu({
                   draftOverride: {
                     type: 'prise',
                     titre: c.titre || '',
+                    // FEST-3.2 C : on hérite des horaires de la source
+                    // pour que le créneau créé démarre/finisse comme elle.
+                    heure_debut_min: c.heure_debut_min,
+                    heure_fin_min: c.heure_fin_min,
                     source_creneau_id: c.id,
                     source_anchor: {
-                      fields: ['titre', 'lieu_text', 'duree_min'],
+                      // heure_debut_min + duree_min ensemble = suivi total
+                      // des horaires (l'enfant suit la source à 100%).
+                      fields: [
+                        'titre',
+                        'lieu_text',
+                        'heure_debut_min',
+                        'duree_min',
+                      ],
                     },
                   },
                 })

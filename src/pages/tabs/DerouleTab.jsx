@@ -49,6 +49,10 @@ import DerouleListView from '../../features/deroule/DerouleListView'
 import DerouleCadreurView from '../../features/deroule/DerouleCadreurView'
 import CreneauInspector from '../../features/deroule/CreneauInspector'
 import DerouleShareModal from '../../features/deroule/DerouleShareModal'
+import {
+  getLinkedChildren,
+  applySourceUpdate,
+} from '../../lib/derouleSoftLinks'
 
 const OUTIL_KEY = 'deroule'
 
@@ -316,20 +320,82 @@ export default function DerouleTab() {
 
   async function handleSaveCreneau(fields) {
     await updateCreneau(inspectedCreneau.id, fields)
+    // FEST-3.2 C : propagation auto aux enfants liés
+    await propagateToChildren(inspectedCreneau, fields)
     closeInspector()
     notify.success('Créneau mis à jour')
+  }
+
+  // FEST-3.2 C : retourne true si un champ d'anchor doit être considéré
+  // comme impacté par un patch (où les clés sont les colonnes BDD réelles).
+  // Permet de skip la propagation si rien d'utile n'a changé.
+  function isAnchorFieldImpactedByPatch(anchorField, modifiedFields) {
+    if (!modifiedFields) return false
+    switch (anchorField) {
+      case 'duree_min':
+        return (
+          'heure_debut_min' in modifiedFields ||
+          'heure_fin_min' in modifiedFields
+        )
+      case 'heure_debut_min':
+        return 'heure_debut_min' in modifiedFields
+      case 'cadreurs':
+        return 'member_ids' in modifiedFields
+      default:
+        return anchorField in modifiedFields
+    }
   }
 
   // FEST-2.7 + POP-2.B : save silencieux générique. Ne ferme PAS le drawer
   // et n'émet PAS de toast — utilisé pour les notes (auto-save debounced)
   // ET les modifs inline hover-to-edit (titre, horaires, lane, lieu, statut).
   // Accepte n'importe quel sous-ensemble de champs du créneau.
+  // FEST-3.2 C : déclenche la propagation auto aux enfants liés.
   async function handleSavePartial(fields) {
     if (!inspectedCreneau?.id || !fields || typeof fields !== 'object') return
     try {
       await updateCreneau(inspectedCreneau.id, fields)
+      await propagateToChildren(inspectedCreneau, fields)
     } catch (e) {
       console.warn('[DerouleTab] partial save failed', e)
+    }
+  }
+
+  // FEST-3.2 C : propagation auto aux enfants liés. Quand un créneau source
+  // est modifié, on update tous les créneaux enfants (source_creneau_id ===
+  // sourceCreneau.id) pour les champs présents à la fois dans :
+  //   - le anchor.fields de chaque enfant
+  //   - les fields modifiés (intersection)
+  // Silencieux (pas de toast, pas de fermeture). Si un enfant a override
+  // un champ localement, il sera écrasé — c'est par design (FEST-3.2 C).
+  async function propagateToChildren(sourceCreneau, modifiedFields) {
+    if (!sourceCreneau?.id || !modifiedFields) return
+    const linkedChildren = getLinkedChildren(creneaux, sourceCreneau.id)
+    if (linkedChildren.length === 0) return
+    // Source enrichie des modifs (pour applySourceUpdate)
+    const updatedSource = { ...sourceCreneau, ...modifiedFields }
+    for (const child of linkedChildren) {
+      const anchor = child.source_anchor || { fields: [] }
+      const fieldsToApply = (anchor.fields || []).filter((af) =>
+        isAnchorFieldImpactedByPatch(af, modifiedFields),
+      )
+      if (fieldsToApply.length === 0) continue
+      const patch = applySourceUpdate(updatedSource, child, {
+        fields: fieldsToApply,
+      })
+      // Cas spécial member_ids (cadreurs) → appel séparé via
+      // setCreneauMembres car pas une colonne directe.
+      const { member_ids, ...structured } = patch
+      try {
+        if (Object.keys(structured).length > 0) {
+          await updateCreneau(child.id, structured)
+        }
+        if (member_ids) {
+          await setCreneauMembres(child.id, member_ids)
+        }
+      } catch (e) {
+        console.warn('[DerouleTab] propagate to child failed', child.id, e)
+      }
     }
   }
   // Alias historique (FEST-2.7) pour ne pas casser la prop existante.
@@ -375,6 +441,8 @@ export default function DerouleTab() {
 
   async function handleSetCreneauMembres(membreIds) {
     await setCreneauMembres(inspectedCreneau.id, membreIds)
+    // FEST-3.2 C : propagation auto si l'équipe est dans l'anchor des enfants
+    await propagateToChildren(inspectedCreneau, { member_ids: membreIds })
   }
 
   async function handleAddLane(payload) {

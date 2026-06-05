@@ -20,10 +20,11 @@
 
 // ─── Champs synchronisables ─────────────────────────────────────────────────
 // Liste exhaustive des champs qu'on peut synchroniser entre une source et
-// ses enfants. NOTE : `heure_debut_min` et `heure_fin_min` sont volontairement
-// ABSENTS — synchroniser les horaires entre 2 créneaux n'a aucun sens (sinon
-// ils seraient le même créneau). On synchronise une `duree_min` à la place
-// (les enfants gardent leur heure de début, mais alignent leur durée).
+// ses enfants. FEST-3.2 C : heure_debut_min ajouté pour permettre aux
+// missions cadreur de SUIVRE l'horaire de leur source (ex: tournage qui
+// suit un show). Si seulement duree_min est dans anchor, l'enfant garde
+// son heure de début et aligne sa durée (cas Q&A répété à 3 horaires
+// différents — case original).
 export const ANCHOR_FIELDS = [
   'titre',
   'description',
@@ -31,6 +32,7 @@ export const ANCHOR_FIELDS = [
   'couleur',
   'lieu_text',
   'notes',
+  'heure_debut_min',
   'duree_min',
   'cadreurs',
 ]
@@ -43,6 +45,7 @@ export const ANCHOR_FIELD_LABELS = {
   couleur: 'Couleur',
   lieu_text: 'Lieu',
   notes: 'Notes',
+  heure_debut_min: 'Heure de début',
   duree_min: 'Durée',
   cadreurs: 'Cadreurs',
 }
@@ -165,14 +168,36 @@ export function applySourceUpdate(source, child, anchor) {
   if (!source || !child || !anchor) return {}
   const fields = Array.isArray(anchor.fields) ? anchor.fields : []
   const patch = {}
+  const hasDureeInAnchor = fields.includes('duree_min')
+  const hasDebutInAnchor = fields.includes('heure_debut_min')
 
   for (const f of fields) {
     switch (f) {
+      case 'heure_debut_min': {
+        // FEST-3.2 C : l'enfant suit l'horaire de début de la source.
+        const newDebut = Number(source.heure_debut_min)
+        if (!Number.isNaN(newDebut)) {
+          patch.heure_debut_min = newDebut
+          // Si duree_min n'est PAS dans anchor → préserve la durée locale
+          // de l'enfant en recalculant heure_fin_min.
+          if (!hasDureeInAnchor) {
+            const childDuree = getDureeMin(child)
+            if (childDuree != null) {
+              patch.heure_fin_min = newDebut + childDuree
+            }
+          }
+        }
+        break
+      }
       case 'duree_min': {
         const newDuree = getDureeMin(source)
-        const childStart = Number(child.heure_debut_min)
-        if (newDuree != null && !Number.isNaN(childStart)) {
-          patch.heure_fin_min = childStart + newDuree
+        // Si heure_debut_min est aussi dans anchor → on utilise le NEW
+        // debut (de la source). Sinon → l'ancien debut de l'enfant.
+        const baseStart = hasDebutInAnchor
+          ? Number(source.heure_debut_min)
+          : Number(child.heure_debut_min)
+        if (newDuree != null && !Number.isNaN(baseStart)) {
+          patch.heure_fin_min = baseStart + newDuree
         }
         break
       }
@@ -212,6 +237,10 @@ export function computeDiffForPropagation(source, child, anchor) {
       case 'duree_min':
         from = getDureeMin(child)
         to = getDureeMin(source)
+        break
+      case 'heure_debut_min':
+        from = Number(child.heure_debut_min)
+        to = Number(source.heure_debut_min)
         break
       case 'cadreurs':
         from = Array.isArray(child.member_ids) ? [...child.member_ids] : []
