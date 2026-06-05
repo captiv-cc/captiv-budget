@@ -3039,5 +3039,11 @@ function initDraft(creneau) {
     lieu_text: creneau.lieu_text || null,
     statut: creneau.statut || 'planifie',
     notes: creneau.notes || null,
+    // FEST-3.2 C fix : préserver le lien soft (source_creneau_id + anchor)
+    // au passage par initDraft. Sans ça, en mode create depuis
+    // QuickCreateMenu "Lié à ce moment", le draft perdait le lien → l'enfant
+    // était créé sans source → propagation auto impossible.
+    source_creneau_id: creneau.source_creneau_id || null,
+    source_anchor: creneau.source_anchor || null,
   }
 }
