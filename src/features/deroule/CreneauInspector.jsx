@@ -25,10 +25,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   X,
   Trash2,
-  Save,
   Plus,
-  ChevronRight,
-  ChevronDown,
   Clock,
   Layers,
   MapPin,
@@ -43,7 +40,6 @@ import {
 } from 'lucide-react'
 import {
   CRENEAU_TYPES,
-  CRENEAU_TYPE_COLORS,
   CRENEAU_STATUTS,
   MAX_MIN,
   effectiveCouleurCreneau,
@@ -167,7 +163,12 @@ export default function CreneauInspector({
       const trimmed = newDraft.trim()
       if (trimmed && trimmed !== (titreLastSavedRef.current || '').trim()) {
         titreLastSavedRef.current = trimmed
-        onSavePartial?.({ titre: trimmed })
+        // UX-5 : en mode création, patch le draft local au lieu de l'updateCreneau BDD
+        if (isCreate) {
+          setDraft((d) => ({ ...d, titre: trimmed }))
+        } else {
+          onSavePartial?.({ titre: trimmed })
+        }
       }
     }, 500)
   }
@@ -327,6 +328,12 @@ export default function CreneauInspector({
     setDraft((d) => ({ ...d, ...fields }))
   }
 
+  // UX-5 : en mode création, les "save partials" inline ne touchent pas la BDD
+  // (rien n'existe encore) → on patch le draft local. Le handleSave (bouton
+  // "+ Créer") fera ensuite l'insert avec l'ensemble du draft.
+  const effectiveOnSavePartial = isCreate ? patch : onSavePartial
+  const effectiveOnSetMembres = isCreate ? undefined : onSetMembres
+
   async function handleSave() {
     if (!canEdit) return
     if (saving) return
@@ -478,8 +485,10 @@ export default function CreneauInspector({
         >
           <div className="min-w-0 flex-1 flex items-center gap-2">
             {/* UX-3 : en mode édition, le badge type devient un select
-                pour changer le type → impacte la couleur d'accent live. */}
-            {editing && !isCreate ? (
+                pour changer le type → impacte la couleur d'accent live.
+                UX-5 : actif aussi en mode création (le type fait partie
+                du draft local). */}
+            {editing ? (
               <CustomSelect
                 value={draft.type}
                 options={CRENEAU_TYPES.map((t) => ({
@@ -488,7 +497,7 @@ export default function CreneauInspector({
                 }))}
                 onChange={(v) => {
                   patch({ type: v })
-                  onSavePartial?.({ type: v })
+                  if (!isCreate) onSavePartial?.({ type: v })
                 }}
                 renderTrigger={(label) => (
                   <span
@@ -516,12 +525,16 @@ export default function CreneauInspector({
               </span>
             )}
             {/* POP-2.B + UX-3 : titre éditable au click (mode view) OU
-                directement actif en mode édition. */}
-            {(editingTitre || editing) && !isCreate ? (
+                directement actif en mode édition.
+                UX-5 : en mode création, on rend aussi un input éditable
+                (le titre fait partie du draft local). */}
+            {(editingTitre || editing) ? (
               <input
                 ref={titreInputRef}
                 type="text"
                 value={titreDraft}
+                placeholder={isCreate ? 'Titre du créneau…' : undefined}
+                autoFocus={isCreate}
                 onChange={(e) => {
                   setTitreDraft(e.target.value)
                   scheduleTitreSave(e.target.value)
@@ -535,8 +548,13 @@ export default function CreneauInspector({
                   const trimmed = titreDraft.trim()
                   if (trimmed && trimmed !== (titreLastSavedRef.current || '').trim()) {
                     titreLastSavedRef.current = trimmed
-                    onSavePartial?.({ titre: trimmed })
-                  } else if (!trimmed) {
+                    if (isCreate) {
+                      patch({ titre: trimmed })
+                    } else {
+                      onSavePartial?.({ titre: trimmed })
+                    }
+                  } else if (!trimmed && !isCreate) {
+                    // Reset si vidé (sauf en création — on peut commencer vide)
                     setTitreDraft(creneau?.titre || '')
                   }
                   // En mode édition global, on garde l'input visible (pas de
@@ -626,329 +644,34 @@ export default function CreneauInspector({
           </div>
         </div>
 
-        {/* Body — compact view (POP-2.A) ou formulaire (mode édition) */}
-        {!isCreate ? (
-          // UX-3 : un seul rendu (CompactView) pour view ET édition.
-          // Le mode édition active la collab notes + permet de modifier
-          // le type via un mini-sélecteur. Tout le reste est déjà inline-
-          // editable (POP-2.B).
-          <CompactView
-            creneau={creneau}
-            draft={draft}
-            lanes={lanes}
-            allCreneaux={allCreneaux}
-            currentLane={currentLane}
-            membreIds={memberIds}
-            setMemberIds={setMemberIds}
-            membresPresents={membresPresents}
-            canEdit={canEdit}
-            editMode={editing}
-            onClose={onClose}
-            collabEnabled={collabEnabled}
-            yjsDoc={yjsDoc}
-            yjsAwareness={yjsAwareness}
-            myUserMeta={myUserMeta}
-            onAutoSaveNotes={debouncedSaveNotes}
-            onSavePartial={onSavePartial}
-            onSetMembres={onSetMembres}
-            onOpenFullEdit={() => setEditing(true)}
-            onOpenLinkModal={() => setLinkModalOpen(true)}
-          />
-        ) : (
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {/* Titre — proéminent */}
-          <Field label="Titre">
-            {editing ? (
-              <input
-                type="text"
-                value={draft.titre}
-                onChange={(e) => patch({ titre: e.target.value })}
-                placeholder="Ex: Installation caméras"
-                autoFocus={isCreate}
-                className="w-full px-2 py-1.5 rounded outline-none"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt)',
-                  border: '1px solid var(--brd)',
-                  fontSize: 15,
-                  fontWeight: 500,
-                }}
-              />
-            ) : (
-              <div style={{ color: 'var(--txt)', fontSize: 15, fontWeight: 500 }}>
-                {draft.titre || '(sans titre)'}
-              </div>
-            )}
-          </Field>
-
-          {/* Type — chips colorés (ré-ordonné AVANT horaires car dicte la couleur) */}
-          <Field label="Type">
-            {editing ? (
-              <div className="flex flex-wrap gap-1">
-                {CRENEAU_TYPES.map((t) => {
-                  const c = CRENEAU_TYPE_COLORS[t]
-                  const active = draft.type === t
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => patch({ type: t })}
-                      className="px-2 py-1 text-[11px] rounded transition-colors"
-                      style={{
-                        background: active ? `${c}25` : 'var(--bg-elev)',
-                        color: active ? c : 'var(--txt-2)',
-                        border: `1px solid ${active ? c : 'var(--brd-sub)'}`,
-                        fontWeight: active ? 500 : 400,
-                      }}
-                    >
-                      {TYPE_LABELS[t]}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                {TYPE_LABELS[draft.type] || draft.type}
-              </div>
-            )}
-          </Field>
-
-          {/* Horaires + Lane (groupés — décisions structurantes proches) */}
-          <Field label="Horaires">
-            {editing ? (
-              <div className="space-y-2">
-                <div className="flex items-stretch gap-2">
-                  <TimeWithLendemain
-                    value={draft.heure_debut_min}
-                    onChange={(v) => patch({ heure_debut_min: v })}
-                    disabled={!canEdit}
-                  />
-                  <div className="flex items-center text-xs" style={{ color: 'var(--txt-3)' }}>
-                    →
-                  </div>
-                  <TimeWithLendemain
-                    value={draft.heure_fin_min}
-                    onChange={(v) => patch({ heure_fin_min: v })}
-                    disabled={!canEdit}
-                    invalid={horaireInvalide || horaireOver}
-                  />
-                </div>
-                <div
-                  className="text-[11px] flex items-center gap-2"
-                  style={{
-                    color: horaireInvalide || horaireOver
-                      ? 'var(--red)'
-                      : 'var(--txt-3)',
-                  }}
-                >
-                  {horaireInvalide ? (
-                    <span>L&apos;heure de fin doit être après le début.</span>
-                  ) : horaireOver ? (
-                    <span>La fin ne peut pas dépasser 04:00 du lendemain.</span>
-                  ) : (
-                    <span>Durée : {formatDuree(dureeMin)}</span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
-                <span style={{ color: 'var(--txt-3)', marginLeft: 6 }}>
-                  · {formatDuree(dureeMin)}
-                </span>
-              </div>
-            )}
-          </Field>
-
-          {/* Lane (intégré juste après les horaires car c'est la 2e décision
-              structurante) */}
-          <Field label="Lane">
-            {editing ? (
-              <div className="space-y-1">
-                {!draft.multi_lane && (
-                  <select
-                    value={draft.lane_id || ''}
-                    onChange={(e) => patch({ lane_id: e.target.value || null })}
-                    className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      color: 'var(--txt)',
-                      border: '1px solid var(--brd)',
-                    }}
-                  >
-                    {lanes.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.libelle}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--txt-2)' }}>
-                  <input
-                    type="checkbox"
-                    checked={draft.multi_lane}
-                    onChange={(e) =>
-                      patch({
-                        multi_lane: e.target.checked,
-                        lane_id: e.target.checked ? null : (lanes[0]?.id || null),
-                      })
-                    }
-                  />
-                  Bloc multi-lane (couvre toutes les lanes)
-                </label>
-              </div>
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                {draft.multi_lane ? '↔ Multi-lane' : (currentLane?.libelle || '—')}
-              </div>
-            )}
-          </Field>
-
-          {/* Équipe assignée */}
-          <Field
-            label={`Équipe assignée${memberIds.length ? ` (${memberIds.length})` : ''}`}
-          >
-            {editing ? (
-              <MembrePicker
-                membres={membresPresents}
-                selected={memberIds}
-                onChange={setMemberIds}
-              />
-            ) : (
-              <div className="flex flex-wrap gap-1">
-                {memberIds.length === 0 && (
-                  <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
-                    Personne
-                  </span>
-                )}
-                {memberIds.map((id) => {
-                  const m = membresPresents.find((x) => x.id === id)
-                  return (
-                    <span
-                      key={id}
-                      className="px-1.5 py-0.5 rounded text-[11px]"
-                      style={{
-                        background: 'var(--bg-elev)',
-                        color: 'var(--txt-2)',
-                        border: '1px solid var(--brd-sub)',
-                      }}
-                    >
-                      {m
-                        ? `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim()
-                        : '?'}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </Field>
-
-          {/* Lieu */}
-          <Field label="Lieu">
-            {editing ? (
-              <input
-                type="text"
-                value={draft.lieu_text || ''}
-                onChange={(e) => patch({ lieu_text: e.target.value || null })}
-                placeholder="Ex: Plateau, Régie 2..."
-                className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                style={{
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt)',
-                  border: '1px solid var(--brd)',
-                }}
-              />
-            ) : (
-              <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                {draft.lieu_text || '—'}
-              </div>
-            )}
-          </Field>
-
-          {/* Statut (V3 — éditable seulement en update, pas en create) */}
-          {!isCreate && (
-            <Field label="Statut">
-              {editing ? (
-                <select
-                  value={draft.statut}
-                  onChange={(e) => patch({ statut: e.target.value })}
-                  className="w-full px-2 py-1.5 text-sm rounded outline-none"
-                  style={{
-                    background: 'var(--bg-elev)',
-                    color: 'var(--txt)',
-                    border: '1px solid var(--brd)',
-                  }}
-                >
-                  {CRENEAU_STATUTS.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUT_LABELS[s] || s}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="text-sm" style={{ color: 'var(--txt)' }}>
-                  {STATUT_LABELS[draft.statut] || draft.statut}
-                </div>
-              )}
-            </Field>
-          )}
-
-          {/* Notes — RichEditor Tiptap (FEST-2.4) + collab Y.js si édition
-              sur créneau persisté (FEST-2.5). Auto-save debounced 3s. */}
-          <Field
-            label={
-              <span className="flex items-center gap-1.5">
-                <span>Notes</span>
-                {collabEnabled && editingPeers.length > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{
-                      background: 'var(--bg-elev)',
-                      color: 'var(--txt-2)',
-                      border: '1px solid var(--brd)',
-                    }}
-                    title={editingPeers.map((p) => p.name).join(', ')}
-                  >
-                    {editingPeers.length === 1
-                      ? `${editingPeers[0].name} édite aussi`
-                      : `${editingPeers.length} personnes éditent`}
-                  </span>
-                )}
-              </span>
-            }
-          >
-            {editing ? (
-              collabEnabled && yjsDoc ? (
-                // Mode collab temps réel (créneau persisté + édition active)
-                <RichEditor
-                  collaboration={{
-                    doc: yjsDoc,
-                    awareness: yjsAwareness,
-                    user: myUserMeta,
-                    initialContent: creneau.notes,
-                  }}
-                  onChange={debouncedSaveNotes}
-                  placeholder="Briefing technique, contraintes…"
-                  minHeight={100}
-                />
-              ) : (
-                // Mode local (création ou pas encore connecté)
-                <RichEditor
-                  value={draft.notes}
-                  onChange={(json) =>
-                    patch({ notes: isDocEmpty(json) ? null : json })
-                  }
-                  placeholder="Briefing technique, contraintes…"
-                  minHeight={100}
-                />
-              )
-            ) : (
-              // Mode lecture : pas de collab, lecture seule du snapshot BDD
-              <RichEditor value={creneau?.notes} readOnly minHeight={20} />
-            )}
-          </Field>
-        </div>
-        )}
+        {/* Body — compact view (POP-2.A) pour view, édition ET création (UX-5).
+            En création, les "save partials" inline patchent le draft local
+            (via effectiveOnSavePartial). Le bouton "+ Créer" en footer
+            committera l'ensemble du draft. */}
+        <CompactView
+          creneau={creneau}
+          draft={draft}
+          lanes={lanes}
+          allCreneaux={allCreneaux}
+          currentLane={currentLane}
+          membreIds={memberIds}
+          setMemberIds={setMemberIds}
+          membresPresents={membresPresents}
+          canEdit={canEdit}
+          editMode={editing}
+          isCreate={isCreate}
+          onClose={onClose}
+          collabEnabled={collabEnabled}
+          yjsDoc={yjsDoc}
+          yjsAwareness={yjsAwareness}
+          myUserMeta={myUserMeta}
+          onAutoSaveNotes={debouncedSaveNotes}
+          onSavePartial={effectiveOnSavePartial}
+          onSetMembres={effectiveOnSetMembres}
+          onPatchDraft={patch}
+          onOpenFullEdit={() => setEditing(true)}
+          onOpenLinkModal={() => setLinkModalOpen(true)}
+        />
 
         {/* Footer : quick action bar en mode view ET édition (UX-3). Le mode
             création garde son footer classique Annuler/Créer pour l'instant. */}
@@ -1027,78 +750,21 @@ export default function CreneauInspector({
             </Tooltip>
           </div>
         ) : (
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5"
-            style={{
-              borderTop: '1px solid var(--brd-sub)',
-              background: 'var(--bg-elev)',
-            }}
-          >
-            {!isCreate && canEdit && editing && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={saving}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs rounded transition-colors"
-                style={{
-                  color: 'var(--red)',
-                  background: 'transparent',
-                  border: '1px solid var(--brd-sub)',
-                }}
-              >
-                <Trash2 className="w-3 h-3" />
-                Supprimer
-              </button>
-            )}
-            <div className="flex-1" />
-            {editing && (
-              <>
-                {!isCreate && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraft(initDraft(creneau))
-                      setMemberIds(creneau?.member_ids || [])
-                      setEditing(false)
-                    }}
-                    disabled={saving}
-                    className="px-3 py-1.5 text-xs rounded transition-colors"
-                    style={{
-                      color: 'var(--txt-2)',
-                      background: 'transparent',
-                      border: '1px solid var(--brd-sub)',
-                    }}
-                  >
-                    Annuler
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving || horaireInvalide || horaireOver}
-                  title={isCreate ? 'Créer (Cmd/Ctrl+Entrée)' : 'Enregistrer (Cmd/Ctrl+Entrée)'}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors"
-                  style={{
-                    color: 'white',
-                    background: saving || horaireInvalide || horaireOver ? 'var(--brd)' : 'var(--blue)',
-                    border: '1px solid transparent',
-                    cursor: saving || horaireInvalide || horaireOver ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {isCreate ? (
-                    <>
-                      <Plus className="w-3 h-3" />
-                      Créer
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-3 h-3" />
-                      Enregistrer
-                    </>
-                  )}
-                </button>
-              </>
-            )}
+          // UX-5 : footer création aligné sur le style quick-actions du
+          // mode édition. Seul bouton "+ Créer" (pleine largeur via
+          // is-primary qui applique flex:1). La fermeture se fait via X
+          // dans le header ou Échap.
+          <div className="cp-quick-actions">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canEdit || saving || horaireInvalide || horaireOver}
+              title="Créer (Cmd/Ctrl+Entrée)"
+              className="cp-action-btn is-primary"
+            >
+              <Plus size={14} />
+              Créer
+            </button>
           </div>
         )}
       </div>
@@ -1156,292 +822,6 @@ export default function CreneauInspector({
   )
 }
 
-// ─── Field — wrapper label + content (densité réduite) ─────────────────────
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <div
-        className="text-[10px] uppercase tracking-wider font-bold mb-1"
-        style={{ color: 'var(--txt-3)' }}
-      >
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-// ─── TimeWithLendemain — input time compact + toggle "+1j" discret ─────────
-//
-// V0.5 supporte les heures > 23:59 (jusqu'à 04:00 J+1) pour les lives qui
-// passent minuit. L'input HTML <input type="time"> ne gère pas natif les
-// heures > 23:59 → on utilise un toggle "+1j" inline qui ajoute/retire 1440
-// au heure_min.
-
-function TimeWithLendemain({ value, onChange, disabled, invalid }) {
-  const isLendemain = value >= 1440
-  const inputValue = formatMinTimeInput(value)
-
-  function handleTimeChange(timeStr) {
-    const m = timeToMinutes(timeStr)
-    if (Number.isFinite(m)) {
-      onChange(m + (isLendemain ? 1440 : 0))
-    }
-  }
-
-  function toggleLendemain() {
-    if (disabled) return
-    const base = value % 1440
-    onChange(base + (isLendemain ? 0 : 1440))
-  }
-
-  return (
-    <div
-      className="flex items-stretch rounded overflow-hidden"
-      style={{
-        border: `1px solid ${invalid ? 'var(--red)' : 'var(--brd)'}`,
-        background: 'var(--bg-elev)',
-        flex: 1,
-      }}
-    >
-      <input
-        type="time"
-        step="300"
-        value={inputValue}
-        onChange={(e) => handleTimeChange(e.target.value)}
-        disabled={disabled}
-        className="px-2 py-1.5 text-sm outline-none flex-1 min-w-0"
-        style={{
-          background: 'transparent',
-          color: 'var(--txt)',
-          border: 'none',
-        }}
-      />
-      <button
-        type="button"
-        onClick={toggleLendemain}
-        disabled={disabled}
-        title={isLendemain ? 'Ce jour' : 'Lendemain (+1j)'}
-        className="px-1.5 text-[10px] font-bold transition-colors"
-        style={{
-          background: isLendemain ? 'var(--blue)' : 'transparent',
-          color: isLendemain ? 'white' : 'var(--txt-3)',
-          borderLeft: '1px solid var(--brd-sub)',
-          cursor: disabled ? 'default' : 'pointer',
-          minWidth: 28,
-        }}
-      >
-        +1j
-      </button>
-    </div>
-  )
-}
-
-// ─── MembrePicker — présents en haut, hors présence collapsible ────────────
-
-function MembrePicker({ membres, selected, onChange }) {
-  const [search, setSearch] = useState('')
-  const [showHorsPresence, setShowHorsPresence] = useState(false)
-
-  // Sépare présents / hors présence (filtrés par search)
-  const { presents, horsPresence } = useMemo(() => {
-    const lower = search.toLowerCase()
-    const allFiltered = (membres || []).filter((m) => {
-      if (!search) return true
-      const fn = `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.toLowerCase()
-      return fn.includes(lower)
-    })
-    return {
-      presents: allFiltered.filter((m) => m.present_ce_jour !== false),
-      horsPresence: allFiltered.filter((m) => m.present_ce_jour === false),
-    }
-  }, [membres, search])
-
-  // Quand l'utilisateur tape une recherche, on déplie automatiquement la
-  // section "Hors présence" pour qu'il voie les résultats matching dedans
-  // (sinon il devrait cliquer le chevron à chaque fois pour comprendre
-  // pourquoi sa recherche "ne donne rien").
-  const effectiveShowHorsPresence = showHorsPresence || search.trim().length > 0
-
-  function toggle(id) {
-    if (selected.includes(id)) onChange(selected.filter((x) => x !== id))
-    else onChange([...selected, id])
-  }
-
-  // Helpers de sélection rapide
-  const allIds = (membres || []).map((m) => m.id)
-  const presentsIds = (membres || [])
-    .filter((m) => m.present_ce_jour !== false)
-    .map((m) => m.id)
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id))
-  const allPresentsSelected =
-    presentsIds.length > 0 && presentsIds.every((id) => selected.includes(id))
-
-  function toggleAll() {
-    onChange(allSelected ? [] : allIds)
-  }
-  function selectAllPresents() {
-    if (allPresentsSelected) {
-      onChange(selected.filter((id) => !presentsIds.includes(id)))
-    } else {
-      const next = new Set(selected)
-      for (const id of presentsIds) next.add(id)
-      onChange([...next])
-    }
-  }
-
-  return (
-    <div
-      className="rounded"
-      style={{
-        background: 'var(--bg-elev)',
-        border: '1px solid var(--brd-sub)',
-        maxHeight: 260,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* Header : actions rapides + compteur */}
-      <div
-        className="flex items-center gap-1 px-2 py-1.5"
-        style={{ borderBottom: '1px solid var(--brd-sub)' }}
-      >
-        <button
-          type="button"
-          onClick={toggleAll}
-          disabled={allIds.length === 0}
-          className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
-          style={{
-            background: allSelected ? 'var(--blue)' : 'var(--bg-surf)',
-            color: allSelected ? 'white' : 'var(--txt-2)',
-            border: `1px solid ${allSelected ? 'var(--blue)' : 'var(--brd-sub)'}`,
-          }}
-        >
-          {allSelected ? 'Aucun' : 'Tous'}
-        </button>
-        <button
-          type="button"
-          onClick={selectAllPresents}
-          disabled={presentsIds.length === 0}
-          className="px-1.5 py-0.5 text-[10px] rounded transition-colors"
-          style={{
-            background: allPresentsSelected ? 'var(--blue)' : 'var(--bg-surf)',
-            color: allPresentsSelected ? 'white' : 'var(--txt-2)',
-            border: `1px solid ${allPresentsSelected ? 'var(--blue)' : 'var(--brd-sub)'}`,
-          }}
-          title="Sélectionne uniquement les membres présents ce jour selon la techlist"
-        >
-          Tous présents ({presentsIds.length})
-        </button>
-        <span className="ml-auto text-[10px]" style={{ color: 'var(--txt-3)' }}>
-          {selected.length}/{allIds.length}
-        </span>
-      </div>
-
-      {/* Search */}
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Rechercher..."
-        className="w-full px-2 py-1 text-xs outline-none"
-        style={{
-          background: 'transparent',
-          color: 'var(--txt)',
-          borderBottom: '1px solid var(--brd-sub)',
-        }}
-      />
-
-      <div className="overflow-y-auto" style={{ flex: 1, maxHeight: 200 }}>
-        {/* Présents — toujours visibles */}
-        {presents.length === 0 && horsPresence.length === 0 && (
-          <div className="px-2 py-2 text-xs" style={{ color: 'var(--txt-3)' }}>
-            Aucun membre dans le projet
-          </div>
-        )}
-        {presents.length === 0 && horsPresence.length > 0 && (
-          <div className="px-2 py-2 text-xs" style={{ color: 'var(--txt-3)' }}>
-            Aucun membre présent ce jour
-          </div>
-        )}
-        {presents.map((m) => (
-          <MembreRow
-            key={m.id}
-            membre={m}
-            checked={selected.includes(m.id)}
-            onToggle={() => toggle(m.id)}
-            isPresent
-          />
-        ))}
-
-        {/* Hors présence — section collapsible */}
-        {horsPresence.length > 0 && (
-          <>
-            <button
-              type="button"
-              onClick={() => setShowHorsPresence((v) => !v)}
-              className="w-full flex items-center gap-1 px-2 py-1 text-[10px] uppercase tracking-wider font-bold transition-colors"
-              style={{
-                background: 'var(--bg-surf)',
-                color: 'var(--txt-3)',
-                borderTop: '1px solid var(--brd-sub)',
-                borderBottom: effectiveShowHorsPresence ? '1px solid var(--brd-sub)' : 'none',
-              }}
-              title={
-                search.trim()
-                  ? 'Auto-déplié pendant la recherche'
-                  : 'Membres non présents ce jour selon la techlist'
-              }
-            >
-              {effectiveShowHorsPresence ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronRight className="w-3 h-3" />
-              )}
-              Hors présence ({horsPresence.length})
-            </button>
-            {effectiveShowHorsPresence &&
-              horsPresence.map((m) => (
-                <MembreRow
-                  key={m.id}
-                  membre={m}
-                  checked={selected.includes(m.id)}
-                  onToggle={() => toggle(m.id)}
-                  isPresent={false}
-                />
-              ))}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function MembreRow({ membre: m, checked, onToggle, isPresent }) {
-  const fn =
-    `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '—'
-  return (
-    <label
-      className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer transition-colors"
-      style={{
-        background: checked ? 'var(--bg-hov)' : 'transparent',
-        color: 'var(--txt)',
-        opacity: isPresent ? 1 : 0.7,
-      }}
-      title={isPresent ? '' : 'Non présent ce jour selon la techlist'}
-    >
-      <input type="checkbox" checked={checked} onChange={onToggle} />
-      <span className="truncate">{fn}</span>
-      {m.specialite && (
-        <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-          · {m.specialite}
-        </span>
-      )}
-    </label>
-  )
-}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1468,6 +848,7 @@ function CompactView({
   membresPresents,
   canEdit,
   editMode = false,
+  isCreate = false,
   collabEnabled,
   yjsDoc,
   yjsAwareness,
@@ -1475,6 +856,7 @@ function CompactView({
   onAutoSaveNotes,
   onSavePartial,
   onSetMembres,
+  onPatchDraft,
   onOpenLinkModal,
 }) {
   // UX-3 fix : popover équipe inline en mode édition
@@ -1654,22 +1036,27 @@ function CompactView({
         </div>
       )}
 
-      {/* Ligne Statut — select */}
-      <InlineSelect
-        icon={<Flag size={14} />}
-        value={draft.statut}
-        options={statutOptions}
-        canEdit={canEdit}
-        renderDisplay={() => (
-          <span className={`cp-status-badge is-${draft.statut}`}>
-            {STATUT_LABELS[draft.statut] || draft.statut}
-          </span>
-        )}
-        onSave={(v) => saveField('statut', v)}
-      />
+      {/* Ligne Statut — select (caché en création UX-5 : pas pertinent
+          avant insert, défaut 'planifie' au moment du create) */}
+      {!isCreate && (
+        <InlineSelect
+          icon={<Flag size={14} />}
+          value={draft.statut}
+          options={statutOptions}
+          canEdit={canEdit}
+          renderDisplay={() => (
+            <span className={`cp-status-badge is-${draft.statut}`}>
+              {STATUT_LABELS[draft.statut] || draft.statut}
+            </span>
+          )}
+          onSave={(v) => saveField('statut', v)}
+        />
+      )}
 
-      {/* FEST-2.10 : ligne Lien source (si lié OU si source d'autres) */}
-      {(sourceCreneau || linkedChildren.length > 0) && (
+      {/* FEST-2.10 : ligne Lien source (si lié OU si source d'autres)
+          UX-5 : pas affichée en création (créneau pas encore persisté → pas
+          de lien possible). */}
+      {!isCreate && (sourceCreneau || linkedChildren.length > 0) && (
         <div
           className={`cp-line${canEdit ? ' is-clickable' : ''}`}
           onClick={() => canEdit && onOpenLinkModal?.()}
@@ -1713,6 +1100,18 @@ function CompactView({
               initialContent: creneau.notes,
             }}
             onChange={onAutoSaveNotes}
+            placeholder="Briefing technique, contraintes…"
+            minHeight={40}
+          />
+        ) : isCreate ? (
+          // UX-5 : en création, éditeur local (pas encore de collab Y.js).
+          // Le contenu est patché dans le draft via onPatchDraft et committé
+          // au handleSave (bouton "+ Créer").
+          <RichEditor
+            value={draft.notes}
+            onChange={(json) =>
+              onPatchDraft?.({ notes: isDocEmpty(json) ? null : json })
+            }
             placeholder="Briefing technique, contraintes…"
             minHeight={40}
           />
