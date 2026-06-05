@@ -73,6 +73,23 @@ export default function DerouleTab() {
   const [creatingDraft, setCreatingDraft] = useState(null)
   const [creatingAnchor, setCreatingAnchor] = useState(null)
 
+  // FEST-2 fix : sync inspectedCreneau avec la version fraîche de creneaux
+  // quand realtime broadcast une mise à jour. Sans ça, le popover affiche
+  // toujours la valeur figée au moment du clic même si on vient de la
+  // modifier (real-time save) ou si un autre user l'a modifiée.
+  useEffect(() => {
+    if (!inspectedCreneau?.id) return
+    const fresh = creneaux.find((c) => c.id === inspectedCreneau.id)
+    if (fresh && fresh !== inspectedCreneau) {
+      setInspectedCreneau(fresh)
+    }
+    // Si le créneau a été supprimé (par soi-même ou un autre user), on ferme.
+    if (!fresh) {
+      setInspectedCreneau(null)
+      setInspectedAnchor(null)
+    }
+  }, [creneaux, inspectedCreneau])
+
   // Handler unifié pour ouvrir l'inspecteur depuis n'importe quelle vue.
   // L'event peut être un MouseEvent React (on extrait le rect de currentTarget)
   // ou directement un DOMRect (passé manuellement).
