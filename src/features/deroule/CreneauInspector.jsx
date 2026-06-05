@@ -53,6 +53,7 @@ import {
 } from '../../lib/deroule'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
+import CustomSelect from '../../components/CustomSelect'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
 import { usePopoverPosition } from '../../hooks/usePopoverPosition'
 import {
@@ -470,27 +471,30 @@ export default function CreneauInspector({
             {/* UX-3 : en mode édition, le badge type devient un select
                 pour changer le type → impacte la couleur d'accent live. */}
             {editing && !isCreate ? (
-              <select
+              <CustomSelect
                 value={draft.type}
-                onChange={(e) => {
-                  patch({ type: e.target.value })
-                  onSavePartial?.({ type: e.target.value })
+                options={CRENEAU_TYPES.map((t) => ({
+                  value: t,
+                  label: TYPE_LABELS[t] || t,
+                }))}
+                onChange={(v) => {
+                  patch({ type: v })
+                  onSavePartial?.({ type: v })
                 }}
-                className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
-                style={{
-                  background: `${accentColor}22`,
-                  color: accentColor,
-                  border: `1px solid ${accentColor}66`,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {CRENEAU_TYPES.map((t) => (
-                  <option key={t} value={t} style={{ color: 'var(--txt)', background: 'var(--bg-surf)' }}>
-                    {TYPE_LABELS[t] || t}
-                  </option>
-                ))}
-              </select>
+                renderTrigger={(label) => (
+                  <span
+                    className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                    style={{
+                      background: `${accentColor}22`,
+                      color: accentColor,
+                      border: `1px solid ${accentColor}66`,
+                    }}
+                  >
+                    {label}
+                  </span>
+                )}
+                minWidth={130}
+              />
             ) : (
               <span
                 className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
@@ -1830,11 +1834,11 @@ function InlineText({ icon, value, placeholder, canEdit, onSave }) {
   )
 }
 
-// ─── InlineSelect (POP-2.B + UX-3 fix) — select toujours actif ────────────
-// Hugo fix : le toggle "1er click éditer, 2e click ouvrir dropdown" cassait
-// l'UX (double-clic obligatoire). Désormais le <select> natif est toujours
-// présent en superpose invisible (opacity 0) sur le rendu display. Click
-// direct ouvre le menu OS. Pas de toggle.
+// ─── InlineSelect (POP-2.B + UX-3 fix) — dropdown custom DESK ─────────────
+// UX-3 fix Hugo : remplace le <select> natif OS (rendu moche, hors thème)
+// par un CustomSelect stylé. Triggered au click, popover stylé avec hover,
+// keyboard navigation, check indicator. Cohérent avec DayPicker et autres
+// popovers DESK.
 function InlineSelect({ icon, value, options, canEdit, renderDisplay, onSave }) {
   if (!canEdit) {
     return (
@@ -1845,41 +1849,20 @@ function InlineSelect({ icon, value, options, canEdit, renderDisplay, onSave }) 
     )
   }
   return (
-    <div
-      className="cp-line is-clickable"
-      style={{ position: 'relative' }}
-      title="Cliquer pour modifier"
-    >
+    <div className="cp-line is-clickable">
       <span className="cp-line-icon">{icon}</span>
-      <span className="cp-line-value">{renderDisplay()}</span>
-      <select
-        value={value || ''}
-        onChange={(e) => {
-          if (e.target.value !== value) onSave?.(e.target.value)
-        }}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          opacity: 0,
-          cursor: 'pointer',
-          border: 'none',
-          background: 'transparent',
-          appearance: 'none',
-          WebkitAppearance: 'none',
-        }}
-      >
-        {options.map((o) => (
-          <option
-            key={o.value}
-            value={o.value}
-            style={{ background: 'var(--bg-surf)', color: 'var(--txt)' }}
-          >
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <CustomSelect
+        value={value}
+        options={options}
+        onChange={(v) => onSave?.(v)}
+        renderTrigger={() => (
+          <span className="cp-line-value" style={{ display: 'inline-block' }}>
+            {renderDisplay()}
+          </span>
+        )}
+        triggerStyle={{ flex: 1 }}
+        minWidth={180}
+      />
     </div>
   )
 }
