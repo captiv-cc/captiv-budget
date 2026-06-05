@@ -59,6 +59,7 @@ import {
   getLinkedChildren,
   getSourceCreneau,
   validateLinkTarget,
+  applySourceUpdate,
 } from '../../lib/derouleSoftLinks'
 import './CreneauInspector.css'
 
@@ -960,8 +961,26 @@ export default function CreneauInspector({
           creneau={creneau}
           allCreneaux={allCreneaux}
           onClose={() => setLinkModalOpen(false)}
-          onSave={({ source_creneau_id, source_anchor }) => {
-            onSavePartial?.({ source_creneau_id, source_anchor })
+          onSave={({ source_creneau_id, source_anchor, applyCopy }) => {
+            // Si applyCopy=true (option par défaut au moment du lier),
+            // on calcule les valeurs à copier depuis la source pour les
+            // champs cochés dans l'anchor, et on les inclut dans le save.
+            let payload = { source_creneau_id, source_anchor }
+            if (applyCopy && source_creneau_id) {
+              const src = allCreneaux.find((c) => c.id === source_creneau_id)
+              if (src) {
+                const patch = applySourceUpdate(src, creneau, source_anchor)
+                // member_ids (cadreurs) demande un traitement séparé via
+                // onSetMembres — pas exposé ici. On l'ignore pour V1,
+                // l'utilisateur peut sync manuellement via le picker équipe.
+                const { member_ids, ...structured } = patch
+                if (member_ids) {
+                  onSetMembres?.(member_ids)
+                }
+                payload = { ...structured, ...payload }
+              }
+            }
+            onSavePartial?.(payload)
             setLinkModalOpen(false)
           }}
         />
@@ -1824,6 +1843,11 @@ function LinkCreneauModal({ creneau, allCreneaux, onClose, onSave }) {
     onSave?.({
       source_creneau_id: selectedSource.id,
       source_anchor: { fields: [...anchorFields] },
+      // FEST-2.10 : à la création du lien, on copie immédiatement les
+      // valeurs de la source vers ce créneau pour les champs cochés.
+      // Sinon le lien serait silencieux (rien ne change visuellement)
+      // jusqu'à la prochaine modif de la source (FEST-2.11).
+      applyCopy: true,
     })
   }
   const handleUnlink = () => {
@@ -2065,10 +2089,13 @@ function LinkCreneauModal({ creneau, allCreneaux, onClose, onSave }) {
               <button
                 type="button"
                 onClick={() => {
-                  // Mise à jour de l'anchor (champs cochés/décochés)
+                  // Mise à jour de l'anchor : on applique aussi les valeurs
+                  // de la source pour les nouveaux champs cochés (cohérence
+                  // immédiate, comme à la création).
                   onSave?.({
                     source_creneau_id: currentSource.id,
                     source_anchor: { fields: [...anchorFields] },
+                    applyCopy: true,
                   })
                 }}
                 disabled={anchorFields.size === 0}
