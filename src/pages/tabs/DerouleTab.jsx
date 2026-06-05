@@ -296,6 +296,10 @@ export default function DerouleTab() {
       heure_debut_min: draft.heure_debut_min ?? 540,
       heure_fin_min: draft.heure_fin_min ?? 570,
       multi_lane: draft.multi_lane ?? false,
+      // FEST-3.2 raffinements Hugo : lieu et notes hérités depuis le show
+      // source via QuickCreateMenu (_lieuInferred + show.notes).
+      lieu_text: draft.lieu_text ?? null,
+      notes: draft.notes ?? null,
       // Overrides FEST-3.2 (peuvent être undefined → champs ignorés au save)
       ...(draft.source_creneau_id ? { source_creneau_id: draft.source_creneau_id } : {}),
       ...(draft.source_anchor ? { source_anchor: draft.source_anchor } : {}),
