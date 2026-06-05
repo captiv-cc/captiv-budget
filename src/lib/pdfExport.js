@@ -328,13 +328,32 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   const halfW = IW / 2 - 4
   const rightX = M + halfW + 8
 
-  // Pré-calcul hauteur bloc client → fond gris avant de dessiner le texte
+  // Pré-calcul hauteur bloc client → fond gris avant de dessiner le texte.
+  // Bloc client enrichi (Hugo 2026-06) : raison sociale (gras) + nom commercial
+  // + adresse complète (ligne + cp/ville + pays si != France) + SIRET + contact + email
   doc.setFont('WS', 'normal')
   doc.setFontSize(6.5)
+  const hasRS = Boolean(client?.raison_sociale)
+  const hasNC = Boolean(client?.nom_commercial)
+  const ncDifferent =
+    hasNC && (!hasRS || client.nom_commercial !== client.raison_sociale)
+  const addressLines = client?.address
+    ? doc.splitTextToSize(client.address, halfW).length
+    : 0
+  const cpvLine = [client?.code_postal, client?.ville].filter(Boolean).join(' ')
+  const hasCpv = Boolean(cpvLine)
+  const hasPays =
+    Boolean(client?.pays) && client.pays.toLowerCase() !== 'france'
+  const hasSiret = Boolean(client?.siret)
   let clientBlockH = 0
-  if (client?.raison_sociale || client?.nom_commercial) clientBlockH += 3.8
+  if (hasRS) clientBlockH += 3.8 // raison sociale (gras)
+  if (ncDifferent) clientBlockH += 3.4 // nom commercial (gris)
+  if (!hasRS && hasNC) clientBlockH += 3.8 // fallback nom commercial en gras
   if (client?.contact_name) clientBlockH += 3.4
-  if (client?.address) clientBlockH += doc.splitTextToSize(client.address || '', halfW).length * 3.4
+  if (client?.address) clientBlockH += addressLines * 3.4
+  if (hasCpv) clientBlockH += 3.4
+  if (hasPays) clientBlockH += 3.4
+  if (hasSiret) clientBlockH += 3.4
   if (client?.email) clientBlockH += 3.4
   // +4mm de padding en haut du bloc client → "ligne vide" avant le nom
   if (clientBlockH > 0) fillRect(rightX - 4, y - 3, halfW + 4, clientBlockH + 10, C.light)
@@ -368,19 +387,52 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
 
   // Client (droite, sur fond gris déjà dessiné) — démarre 4mm plus bas (ligne vide en haut)
   let cy = y + 4
-  if (client?.raison_sociale || client?.nom_commercial) {
-    txt(client?.raison_sociale || client?.nom_commercial, rightX, cy, { size: 7.5, bold: true })
+  // 1. Raison sociale en gras (nom légal — c'est ce qui doit apparaître sur les
+  //    documents officiels). Fallback sur nom_commercial si pas de raison sociale.
+  if (hasRS) {
+    txt(client.raison_sociale, rightX, cy, { size: 7.5, bold: true })
+    cy += 3.8
+  } else if (hasNC) {
+    txt(client.nom_commercial, rightX, cy, { size: 7.5, bold: true })
     cy += 3.8
   }
-  if (client?.contact_name) {
-    txt(client.contact_name, rightX, cy, { size: 6.5, color: C.gray })
+  // 2. Nom commercial sous la raison sociale s'il diffère (ex: "V and B Fest'"
+  //    sous "Asso. l'OPUS SONORE")
+  if (ncDifferent) {
+    txt(client.nom_commercial, rightX, cy, { size: 6.5, color: C.gray })
     cy += 3.4
   }
+  // 3. Adresse ligne 1
   if (client?.address) {
     doc.splitTextToSize(client.address, halfW).forEach((l) => {
       txt(l, rightX, cy, { size: 6.5, color: C.gray })
       cy += 3.4
     })
+  }
+  // 4. Code postal + ville sur la même ligne
+  if (hasCpv) {
+    txt(cpvLine, rightX, cy, { size: 6.5, color: C.gray })
+    cy += 3.4
+  }
+  // 5. Pays uniquement si différent de France (cas international)
+  if (hasPays) {
+    txt(client.pays, rightX, cy, { size: 6.5, color: C.gray })
+    cy += 3.4
+  }
+  // 6. SIRET formaté "XXX XXX XXX XXXXX" (14 chiffres groupés 3-3-3-5)
+  if (hasSiret) {
+    const digits = String(client.siret).replace(/\D/g, '')
+    const formatted =
+      digits.length === 14
+        ? `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)} ${digits.slice(9)}`
+        : client.siret
+    txt(`SIRET ${formatted}`, rightX, cy, { size: 6.5, color: C.gray })
+    cy += 3.4
+  }
+  // 7. Contact + email en dernier (moins formels)
+  if (client?.contact_name) {
+    txt(client.contact_name, rightX, cy, { size: 6.5, color: C.gray })
+    cy += 3.4
   }
   if (client?.email) {
     txt(client.email, rightX, cy, { size: 6.5, color: C.gray })
@@ -413,7 +465,16 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   fillRect(M, y, colP, valH, C.light)
   fillRect(x2, y, colCl, valH, C.light)
   fillRect(x3, y, colR, valH, C.light)
-  txt(project?.title || '—', M + 3, y + 4.2, { size: 7.5, bold: true, maxW: colP - 6 })
+  // FIX Hugo 2026-06 : on affiche le NOM DU DEVIS (devis.title) dans la case
+  // PROJET, pas le nom du projet — un projet peut avoir plusieurs devis avec
+  // des périmètres distincts ("VNB FEST 26 — CAPTATION FINALE TREMPLIN" est
+  // plus parlant que juste "VNB FEST 26"). Fallback sur project.title si le
+  // devis n'a pas de titre.
+  txt(devis?.title || project?.title || '—', M + 3, y + 4.2, {
+    size: 7.5,
+    bold: true,
+    maxW: colP - 6,
+  })
   txt(client?.raison_sociale || client?.nom_commercial || '—', x2 + 3, y + 4.2, { size: 7, maxW: colCl - 6 })
   txt(project?.ref_projet || '—', x3 + 3, y + 4.2, { size: 7 })
   y += valH + 3
