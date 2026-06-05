@@ -62,7 +62,11 @@ const STATUT_LABELS = {
  *                                       present_ce_jour)
  * @param {boolean}     canEdit
  * @param {Function}    onClose
- * @param {Function}    onSave      (fields) => Promise — pour update
+ * @param {Function}    onSave      (fields) => Promise — pour update (save
+ *                                  explicite, FERME le drawer + toast)
+ * @param {Function}    onAutoSaveNotes (notes) => Promise — FEST-2.7 :
+ *                                  save SILENCIEUX et debounced pour les
+ *                                  notes collab. Ne ferme PAS le drawer.
  * @param {Function}    onCreate    (fields) => Promise — pour create
  * @param {Function}    onDelete    () => Promise
  * @param {Function}    onSetMembres (membreIds) => Promise
@@ -75,6 +79,7 @@ export default function CreneauInspector({
   canEdit,
   onClose,
   onSave,
+  onAutoSaveNotes,
   onCreate,
   onDelete,
   onSetMembres,
@@ -84,11 +89,16 @@ export default function CreneauInspector({
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(isCreate || !creneau?.id)
 
+  // Ne réinitialise le draft que si on change réellement de créneau
+  // (changement d'ID), pas à chaque update Realtime du même créneau —
+  // sinon l'auto-save notes déclenche un re-fetch → nouvelle référence
+  // d'objet → draft écrasé pendant qu'on saisit dans titre/horaires.
   useEffect(() => {
     setDraft(initDraft(creneau))
     setMemberIds(creneau?.member_ids || [])
     setEditing(isCreate || !creneau?.id)
-  }, [creneau, isCreate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creneau?.id, isCreate])
 
   // ─── Collab Y.js sur les notes (FEST-2.5) ────────────────────────────────
   // Active la collab uniquement si on a un creneau.id (créneau persisté) ET
@@ -120,7 +130,13 @@ export default function CreneauInspector({
       if (docsEqual(toSave, lastSavedNotesRef.current)) return
       lastSavedNotesRef.current = toSave
       try {
-        await onSave?.({ notes: toSave })
+        // Utilise onAutoSaveNotes (silencieux) si dispo, sinon fallback
+        // onSave (peut fermer le drawer — fallback pour compat).
+        if (typeof onAutoSaveNotes === 'function') {
+          await onAutoSaveNotes(toSave)
+        } else {
+          await onSave?.({ notes: toSave })
+        }
       } catch (e) {
         console.warn('[CreneauInspector] notes save error', e)
       }

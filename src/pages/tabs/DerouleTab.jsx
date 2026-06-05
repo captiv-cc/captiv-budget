@@ -241,6 +241,18 @@ export default function DerouleTab() {
     notify.success('Créneau mis à jour')
   }
 
+  // FEST-2.7 : save silencieux pour les notes collab (debounced 3s). Ne
+  // ferme PAS le drawer et n'émet PAS de toast — l'utilisateur est en train
+  // de taper en continu, on persiste discrètement en arrière-plan.
+  async function handleAutoSaveCreneauNotes(notes) {
+    if (!inspectedCreneau?.id) return
+    try {
+      await updateCreneau(inspectedCreneau.id, { notes })
+    } catch (e) {
+      console.warn('[DerouleTab] auto-save notes failed', e)
+    }
+  }
+
   async function handleCreateCreneauSubmit(fields) {
     const created = await createCreneau(fields)
     if (created && fields.member_ids?.length > 0) {
@@ -484,6 +496,7 @@ export default function DerouleTab() {
           canEdit={canEdit}
           onClose={() => setInspectedCreneau(null)}
           onSave={handleSaveCreneau}
+          onAutoSaveNotes={handleAutoSaveCreneauNotes}
           onDelete={handleDeleteCreneau}
           onSetMembres={handleSetCreneauMembres}
         />
