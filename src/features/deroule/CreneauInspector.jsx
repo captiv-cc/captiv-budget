@@ -39,6 +39,7 @@ import {
   Link as LinkIcon,
   Copy,
   Share2,
+  Check,
 } from 'lucide-react'
 import {
   CRENEAU_TYPES,
@@ -465,17 +466,44 @@ export default function CreneauInspector({
           }}
         >
           <div className="min-w-0 flex-1 flex items-center gap-2">
-            <span
-              className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
-              style={{
-                background: `${accentColor}22`,
-                color: accentColor,
-              }}
-            >
-              {TYPE_LABELS[draft.type] || draft.type}
-            </span>
-            {/* POP-2.B : titre éditable au click (hors mode create/full edit) */}
-            {editingTitre && !isCreate && !editing ? (
+            {/* UX-3 : en mode édition, le badge type devient un select
+                pour changer le type → impacte la couleur d'accent live. */}
+            {editing && !isCreate ? (
+              <select
+                value={draft.type}
+                onChange={(e) => {
+                  patch({ type: e.target.value })
+                  onSavePartial?.({ type: e.target.value })
+                }}
+                className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{
+                  background: `${accentColor}22`,
+                  color: accentColor,
+                  border: `1px solid ${accentColor}66`,
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {CRENEAU_TYPES.map((t) => (
+                  <option key={t} value={t} style={{ color: 'var(--txt)', background: 'var(--bg-surf)' }}>
+                    {TYPE_LABELS[t] || t}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span
+                className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{
+                  background: `${accentColor}22`,
+                  color: accentColor,
+                }}
+              >
+                {TYPE_LABELS[draft.type] || draft.type}
+              </span>
+            )}
+            {/* POP-2.B + UX-3 : titre éditable au click (mode view) OU
+                directement actif en mode édition. */}
+            {(editingTitre || editing) && !isCreate ? (
               <input
                 ref={titreInputRef}
                 type="text"
@@ -497,7 +525,10 @@ export default function CreneauInspector({
                   } else if (!trimmed) {
                     setTitreDraft(creneau?.titre || '')
                   }
-                  setEditingTitre(false)
+                  // En mode édition global, on garde l'input visible (pas de
+                  // bascule view). Seul le mode hover-to-edit (editingTitre
+                  // sans editing global) revient en display au blur.
+                  if (!editing) setEditingTitre(false)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -582,7 +613,11 @@ export default function CreneauInspector({
         </div>
 
         {/* Body — compact view (POP-2.A) ou formulaire (mode édition) */}
-        {!editing && !isCreate ? (
+        {!isCreate ? (
+          // UX-3 : un seul rendu (CompactView) pour view ET édition.
+          // Le mode édition active la collab notes + permet de modifier
+          // le type via un mini-sélecteur. Tout le reste est déjà inline-
+          // editable (POP-2.B).
           <CompactView
             creneau={creneau}
             draft={draft}
@@ -592,6 +627,7 @@ export default function CreneauInspector({
             membreIds={memberIds}
             membresPresents={membresPresents}
             canEdit={canEdit}
+            editMode={editing}
             onClose={onClose}
             collabEnabled={collabEnabled}
             yjsDoc={yjsDoc}
@@ -601,6 +637,7 @@ export default function CreneauInspector({
             onSavePartial={onSavePartial}
             onOpenFullEdit={() => setEditing(true)}
             onOpenLinkModal={() => setLinkModalOpen(true)}
+            onOpenEquipePicker={() => setEditing(true)}
           />
         ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -898,19 +935,29 @@ export default function CreneauInspector({
         </div>
         )}
 
-        {/* Footer : quick action bar en mode view, boutons classiques en édition */}
-        {!editing && !isCreate ? (
-          // POP-2.A : Quick actions bar (Modifier + Lier + Dupliquer + Supprimer)
-          // UX-1 : tooltips custom (au lieu de title HTML natif moche)
+        {/* Footer : quick action bar en mode view ET édition (UX-3). Le mode
+            création garde son footer classique Annuler/Créer pour l'instant. */}
+        {!isCreate ? (
+          // UX-3 : Quick actions bar pour view ET édition (Modifier/Terminer
+          // selon editing) + Lier + Propager + Dupliquer + Supprimer.
           <div className="cp-quick-actions">
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={() => setEditing(!editing)}
               disabled={!canEdit}
               className="cp-action-btn is-primary"
             >
-              <Edit3 size={14} />
-              Modifier
+              {editing ? (
+                <>
+                  <Check size={14} />
+                  Terminer
+                </>
+              ) : (
+                <>
+                  <Edit3 size={14} />
+                  Modifier
+                </>
+              )}
             </button>
             <Tooltip
               text={
