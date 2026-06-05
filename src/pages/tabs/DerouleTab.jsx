@@ -51,6 +51,8 @@ import DerouleCadreurView from '../../features/deroule/DerouleCadreurView'
 import CreneauInspector from '../../features/deroule/CreneauInspector'
 import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
+import ImportPreviewModal from '../../features/deroule/ImportPreviewModal'
+import * as DerouleLib from '../../lib/deroule'
 import {
   getLinkedChildren,
   applySourceUpdate,
@@ -113,6 +115,10 @@ export default function DerouleTab() {
   const [shareOpen, setShareOpen] = useState(false)
   // FEST-4.2 : modal d'import IA (PDF/image → JSON via Claude Vision)
   const [importOpen, setImportOpen] = useState(false)
+  // FEST-4.3 : résultat d'extraction Claude + preview modal + import en cours
+  const [importExtracted, setImportExtracted] = useState(null)
+  const [importPreviewOpen, setImportPreviewOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
   useEffect(() => {
@@ -140,6 +146,7 @@ export default function DerouleTab() {
     deleteCreneau,
     setCreneauMembres,
     importPresences,
+    reload,
   } = useDeroule(canRead ? projectId : null, selectedDate)
 
   // FEST-2 fix : sync inspectedCreneau avec la version fraîche de creneaux
@@ -469,6 +476,138 @@ export default function DerouleTab() {
     setCreatingDraft(null)
     setCreatingAnchor(null)
     notify.success('Créneau créé')
+  }
+
+  // FEST-4.3 : Import effectif depuis la preview modal.
+  // Reçoit la liste des shows cochés, la date cible et le mapping scènes
+  // → lanes (existing or to-create). Workflow :
+  //   1. Trouver / créer le déroulé pour targetDate
+  //   2. Créer les lanes scène manquantes (type='lieu')
+  //   3. Bulk-insert des créneaux
+  //   4. Switch sur la date importée + close modals + reload
+  async function handleImportConfirm(payload) {
+    const { targetDate, scenesMapping, shows } = payload
+    if (!targetDate || !Array.isArray(shows) || shows.length === 0) {
+      notify.error("Rien à importer")
+      return
+    }
+    setImporting(true)
+    try {
+      // 1. Résoudre le déroulé cible
+      //    a. Si targetDate === selectedDate et qu'un déroulé est chargé,
+      //       on le réutilise directement (BDD à jour côté useDeroule).
+      //    b. Sinon on cherche un déroulé existant pour cette date
+      //       (fetchProjectDeroules) ou on le crée.
+      let targetDerouleId = null
+      let targetLanes = []
+      let createdDeroule = false
+
+      if (targetDate === selectedDate && deroule?.id) {
+        targetDerouleId = deroule.id
+        targetLanes = lanes
+      } else {
+        const all = await DerouleLib.fetchProjectDeroules(projectId)
+        const existing = all.find((d) => d.date_jour === targetDate)
+        if (existing) {
+          const detail = await DerouleLib.fetchDerouleComplet(existing.id)
+          targetDerouleId = detail.deroule.id
+          targetLanes = detail.lanes || []
+        } else {
+          const created = await DerouleLib.createDeroule({
+            project_id: projectId,
+            date_jour: targetDate,
+            titre: 'Importé via IA',
+          })
+          targetDerouleId = created.deroule.id
+          targetLanes = created.lanes || []
+          createdDeroule = true
+        }
+      }
+
+      // 2. Pour chaque scène : trouver une lane existante OU en créer une.
+      //    On indexe par libellé lowercase pour la robustesse de matching.
+      const sceneKeyToLaneId = {}
+      for (const s of scenesMapping || []) {
+        const key = (s.scene || '').trim().toLowerCase()
+        if (!key) continue
+        // Re-check parmi les lanes fraîches (cas où targetLanes contient déjà
+        // la scène — important si on a switch de jour)
+        const existing = targetLanes.find(
+          (l) =>
+            l.type === 'lieu' &&
+            (l.libelle || '').trim().toLowerCase() === key,
+        )
+        if (existing) {
+          sceneKeyToLaneId[key] = existing.id
+          continue
+        }
+        try {
+          const newLane = await DerouleLib.addLane(targetDerouleId, {
+            type: 'lieu',
+            libelle: s.scene,
+          })
+          sceneKeyToLaneId[key] = newLane.id
+          targetLanes.push(newLane)
+        } catch (e) {
+          console.warn('[import] addLane error', s.scene, e)
+        }
+      }
+      const globalLane =
+        targetLanes.find((l) => l.type === 'global') || targetLanes[0]
+
+      // 3. Insert des créneaux. Best-effort : on log les erreurs, on continue
+      //    et on rapporte au final.
+      let okCount = 0
+      let errCount = 0
+      for (const s of shows) {
+        try {
+          const sceneKey = (s.scene || '').trim().toLowerCase()
+          const laneId = sceneKey
+            ? sceneKeyToLaneId[sceneKey]
+            : globalLane?.id
+          if (!laneId) {
+            console.warn('[import] pas de lane cible pour', s)
+            errCount += 1
+            continue
+          }
+          await DerouleLib.createCreneau({
+            deroule_id: targetDerouleId,
+            lane_id: laneId,
+            heure_debut_min: s.debut_min,
+            heure_fin_min: s.fin_min,
+            type: 'prise',
+            titre: s.titre,
+          })
+          okCount += 1
+        } catch (e) {
+          console.warn('[import] createCreneau error', s, e)
+          errCount += 1
+        }
+      }
+
+      // 4. Switch + close + reload
+      if (targetDate !== selectedDate) {
+        setSelectedDate(targetDate)
+      } else {
+        // Force reload du déroulé courant (sinon les nouveaux créneaux
+        // arrivent via Supabase Realtime mais le déroulé fraîchement créé
+        // n'est pas encore relié dans useDeroule).
+        reload()
+      }
+      setImportPreviewOpen(false)
+      setImportExtracted(null)
+
+      const parts = []
+      if (createdDeroule) parts.push('déroulé créé')
+      parts.push(`${okCount} créneau${okCount > 1 ? 'x' : ''} importé${okCount > 1 ? 's' : ''}`)
+      if (errCount > 0) parts.push(`${errCount} en erreur`)
+      notify.success(parts.join(' · '))
+    } catch (e) {
+      console.error('[import] global error', e)
+      notify.error('Erreur import : ' + (e?.message || e))
+    } finally {
+      setImporting(false)
+    }
   }
 
   async function handleDeleteCreneau() {
@@ -818,22 +957,33 @@ export default function DerouleTab() {
         projectId={projectId}
       />
 
-      {/* FEST-4.2 : modal d'import IA (PDF/image → Claude Vision)
-          Pour l'instant, FEST-4.2 ferme la modal après extraction et logge
-          le résultat. FEST-4.3 ajoutera la preview + le commit en BDD. */}
+      {/* FEST-4.2 : modal d'upload (PDF/image → Claude Vision) */}
       <ImportDerouleModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onResult={(extracted) => {
-          // eslint-disable-next-line no-console
-          console.log('[import-deroule] résultat extrait', extracted)
-          notify.info(
-            `Extraction OK : ${extracted.shows.length} show(s)${
-              extracted.date ? ` · date ${extracted.date}` : ''
-            }. Preview à venir (FEST-4.3).`,
-          )
+          // Stocker le résultat + fermer modal upload + ouvrir preview
+          setImportExtracted(extracted)
           setImportOpen(false)
+          setImportPreviewOpen(true)
         }}
+      />
+
+      {/* FEST-4.3 : modal de preview + import effectif */}
+      <ImportPreviewModal
+        open={importPreviewOpen}
+        extracted={importExtracted}
+        selectedDate={selectedDate}
+        existingLanes={lanes}
+        existingCreneaux={creneaux}
+        existingDeroule={deroule}
+        importing={importing}
+        onClose={() => {
+          if (importing) return
+          setImportPreviewOpen(false)
+          setImportExtracted(null)
+        }}
+        onConfirm={handleImportConfirm}
       />
     </div>
   )
