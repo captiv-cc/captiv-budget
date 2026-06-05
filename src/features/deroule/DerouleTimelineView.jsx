@@ -756,6 +756,42 @@ export default function DerouleTimelineView({
                   </div>
                 )}
 
+              {/* FEST-3.2 : placeholder visible tant que le QuickCreateMenu
+                  est ouvert. Hugo : "ajouter un mini preview de l'endroit
+                  cliqué pour voir où on est". Couleur bleue (action en
+                  cours) pour distinguer du placeholder de creatingDraft
+                  (gris, créneau déjà en BDD pas encore confirmé). */}
+              {quickMenu &&
+                !quickMenu.multiLane &&
+                quickMenu.laneId === lane.id && (
+                  <div
+                    className="absolute rounded pointer-events-none"
+                    style={{
+                      top: minToTop(quickMenu.heureCible),
+                      left: 4,
+                      right: 4,
+                      height:
+                        durationToHeight(
+                          quickMenu.heureFin - quickMenu.heureCible,
+                        ) - 2,
+                      background: 'rgba(59, 130, 246, 0.18)',
+                      border: '1.5px dashed var(--blue, #3B82F6)',
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: 'var(--blue, #3B82F6)',
+                      lineHeight: 1.2,
+                      overflow: 'hidden',
+                      zIndex: 4,
+                    }}
+                  >
+                    {formatMinHHMM(quickMenu.heureCible)} – {formatMinHHMM(quickMenu.heureFin)}
+                    <div style={{ fontSize: 10, opacity: 0.8, marginTop: 1 }}>
+                      Nouveau créneau ici
+                    </div>
+                  </div>
+                )}
+
               {/* POP-2 / Hugo : placeholder PERSISTANT tant que la modale
                   création est ouverte (creatingDraft set). Montre où le
                   bloc va être créé, avec ses heures choisies. */}
