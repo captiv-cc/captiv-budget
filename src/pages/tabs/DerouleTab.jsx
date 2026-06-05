@@ -371,6 +371,8 @@ export default function DerouleTab() {
   async function propagateToChildren(sourceCreneau, modifiedFields) {
     if (!sourceCreneau?.id || !modifiedFields) return
     const linkedChildren = getLinkedChildren(creneaux, sourceCreneau.id)
+    // eslint-disable-next-line no-console
+    console.log('[propagate] source=', sourceCreneau.id, 'titre=', sourceCreneau.titre, 'fields=', modifiedFields, 'children=', linkedChildren.length)
     if (linkedChildren.length === 0) return
     // Source enrichie des modifs (pour applySourceUpdate)
     const updatedSource = { ...sourceCreneau, ...modifiedFields }
@@ -379,10 +381,14 @@ export default function DerouleTab() {
       const fieldsToApply = (anchor.fields || []).filter((af) =>
         isAnchorFieldImpactedByPatch(af, modifiedFields),
       )
+      // eslint-disable-next-line no-console
+      console.log('[propagate] child=', child.id, 'titre=', child.titre, 'anchor=', anchor.fields, 'fieldsToApply=', fieldsToApply)
       if (fieldsToApply.length === 0) continue
       const patch = applySourceUpdate(updatedSource, child, {
         fields: fieldsToApply,
       })
+      // eslint-disable-next-line no-console
+      console.log('[propagate] patch=', patch)
       // Cas spécial member_ids (cadreurs) → appel séparé via
       // setCreneauMembres car pas une colonne directe.
       const { member_ids, ...structured } = patch
