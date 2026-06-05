@@ -92,7 +92,7 @@ export default function DerouleListView({
             return (
               <tr
                 key={c.id}
-                onClick={() => onSelectCreneau?.(c)}
+                onClick={(e) => onSelectCreneau?.(c, e)}
                 className="cursor-pointer transition-colors"
                 style={{
                   borderBottom: '1px solid var(--brd-sub)',

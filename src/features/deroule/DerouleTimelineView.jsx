@@ -190,11 +190,12 @@ export default function DerouleTimelineView({
   // est dispatché juste après `mouseup` dans la même tâche).
   const justDraggedRef = useRef(false)
 
-  function handleBlockClick(creneau) {
+  function handleBlockClick(creneau, event) {
     // FIX V0 : si on vient juste de finir un drag commité, on ignore le
     // click natif (sinon l'inspector s'ouvre tout seul après chaque drag).
     if (justDraggedRef.current) return
-    onSelectCreneau?.(creneau)
+    // POP-1 : propagation de l'événement pour ancrer le popover sur le bloc.
+    onSelectCreneau?.(creneau, event)
   }
 
   function handleBlockMouseDown(e, creneau, mode) {
@@ -620,7 +621,7 @@ export default function DerouleTimelineView({
                       top={minToTop(debut)}
                       height={durationToHeight(fin - debut)}
                       membreInitiales={membreInitiales}
-                      onClick={() => handleBlockClick(c)}
+                      onClick={(e) => handleBlockClick(c, e)}
                       canEdit={canEdit}
                       onMouseDownDrag={handleBlockMouseDown}
                       isDragging={isThisDragging && dragState.hasMoved}
@@ -732,7 +733,7 @@ export default function DerouleTimelineView({
                 top={minToTop(debut)}
                 height={durationToHeight(fin - debut)}
                 membreInitiales={membreInitiales}
-                onClick={() => handleBlockClick(c)}
+                onClick={(e) => handleBlockClick(c, e)}
                 isMultiLane
                 canEdit={canEdit}
                 onMouseDownDrag={handleBlockMouseDown}

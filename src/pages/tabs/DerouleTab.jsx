@@ -65,9 +65,34 @@ export default function DerouleTab() {
   // FEST-3 : cadreur sélectionné en mode vue='cadreur'. Persisté localement
   // entre changements de jour pour la même session.
   const [selectedCadreurId, setSelectedCadreurId] = useState(null)
-  // Inspecteur ouvert sur quel créneau (null = fermé)
+  // Inspecteur ouvert sur quel créneau (null = fermé). POP-1 : on stocke
+  // aussi le DOMRect du bloc cliqué pour le popover anchored.
   const [inspectedCreneau, setInspectedCreneau] = useState(null)
+  const [inspectedAnchor, setInspectedAnchor] = useState(null)
   const [creatingDraft, setCreatingDraft] = useState(null)
+  const [creatingAnchor, setCreatingAnchor] = useState(null)
+
+  // Handler unifié pour ouvrir l'inspecteur depuis n'importe quelle vue.
+  // L'event peut être un MouseEvent React (on extrait le rect de currentTarget)
+  // ou directement un DOMRect (passé manuellement).
+  function openInspector(creneau, eventOrRect) {
+    if (!eventOrRect) {
+      setInspectedAnchor(null)
+    } else if (typeof eventOrRect.getBoundingClientRect === 'function') {
+      // C'est un DOMRect direct
+      setInspectedAnchor(eventOrRect)
+    } else if (eventOrRect?.currentTarget?.getBoundingClientRect) {
+      // C'est un événement React → on extrait le rect de currentTarget
+      setInspectedAnchor(eventOrRect.currentTarget.getBoundingClientRect())
+    } else {
+      setInspectedAnchor(null)
+    }
+    setInspectedCreneau(creneau)
+  }
+  function closeInspector() {
+    setInspectedCreneau(null)
+    setInspectedAnchor(null)
+  }
   // Modale de partage (Vague 2)
   const [shareOpen, setShareOpen] = useState(false)
 
@@ -213,14 +238,18 @@ export default function DerouleTab() {
     }
   }
 
-  function handleSelectCreneau(creneau) {
+  // POP-1 : accept (creneau, event|rect) — l'event peut être un MouseEvent
+  // React dont currentTarget est l'élément bloc. Si seul `creneau` est passé,
+  // l'inspecteur s'ouvre centré (fallback ancien comportement).
+  function handleSelectCreneau(creneau, eventOrRect) {
     setCreatingDraft(null)
-    setInspectedCreneau(creneau)
+    setCreatingAnchor(null)
+    openInspector(creneau, eventOrRect)
   }
 
-  function handleCreateCreneauAt(draft) {
+  function handleCreateCreneauAt(draft, eventOrRect) {
     if (!canEdit) return
-    setInspectedCreneau(null)
+    closeInspector()
     // Force lane Global par défaut si rien
     const globalLane = lanes.find((l) => l.sort_order === 0)
     setCreatingDraft({
@@ -233,11 +262,20 @@ export default function DerouleTab() {
       heure_debut_min: draft.heure_debut_min ?? 540,
       heure_fin_min: draft.heure_fin_min ?? 570,
     })
+    // Stocke aussi le rect de l'élément cliqué pour ancrer le popover
+    // (sinon il sera centré).
+    if (eventOrRect?.currentTarget?.getBoundingClientRect) {
+      setCreatingAnchor(eventOrRect.currentTarget.getBoundingClientRect())
+    } else if (typeof eventOrRect?.getBoundingClientRect === 'function') {
+      setCreatingAnchor(eventOrRect)
+    } else {
+      setCreatingAnchor(null)
+    }
   }
 
   async function handleSaveCreneau(fields) {
     await updateCreneau(inspectedCreneau.id, fields)
-    setInspectedCreneau(null)
+    closeInspector()
     notify.success('Créneau mis à jour')
   }
 
@@ -260,12 +298,13 @@ export default function DerouleTab() {
       // pas de double-insert (createCreneau gère déjà)
     }
     setCreatingDraft(null)
+    setCreatingAnchor(null)
     notify.success('Créneau créé')
   }
 
   async function handleDeleteCreneau() {
     await deleteCreneau(inspectedCreneau.id)
-    setInspectedCreneau(null)
+    closeInspector()
     notify.success('Créneau supprimé', false)
   }
 
@@ -487,14 +526,15 @@ export default function DerouleTab() {
         </button>
       )}
 
-      {/* Inspecteur side-panel */}
+      {/* Inspecteur popover anchored (POP-1) */}
       {inspectedCreneau && (
         <CreneauInspector
           creneau={inspectedCreneau}
+          anchorRect={inspectedAnchor}
           lanes={lanes}
           membresPresents={membresAvecPresence}
           canEdit={canEdit}
-          onClose={() => setInspectedCreneau(null)}
+          onClose={closeInspector}
           onSave={handleSaveCreneau}
           onAutoSaveNotes={handleAutoSaveCreneauNotes}
           onDelete={handleDeleteCreneau}
@@ -504,11 +544,15 @@ export default function DerouleTab() {
       {creatingDraft && (
         <CreneauInspector
           creneau={creatingDraft}
+          anchorRect={creatingAnchor}
           isCreate
           lanes={lanes}
           membresPresents={membresAvecPresence}
           canEdit={canEdit}
-          onClose={() => setCreatingDraft(null)}
+          onClose={() => {
+            setCreatingDraft(null)
+            setCreatingAnchor(null)
+          }}
           onCreate={handleCreateCreneauSubmit}
         />
       )}

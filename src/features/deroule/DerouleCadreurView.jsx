@@ -417,7 +417,7 @@ function CadreurMobileLayout({
                 focusMembreId,
               )}
               membreById={membreById}
-              onClick={() => onSelectCreneau?.(c)}
+              onClick={(e) => onSelectCreneau?.(c, e)}
             />
           )
         }
@@ -496,7 +496,7 @@ function CadreurDesktopLayout({
                 focusMembreId,
               )}
               membreById={membreById}
-              onClick={() => onSelectCreneau?.(c)}
+              onClick={(e) => onSelectCreneau?.(c, e)}
             />
           ))}
         </div>

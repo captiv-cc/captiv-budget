@@ -35,6 +35,7 @@ import {
 } from '../../lib/deroule'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
+import { usePopoverPosition } from '../../hooks/usePopoverPosition'
 
 const TYPE_LABELS = {
   install: 'Installation',
@@ -61,6 +62,9 @@ const STATUT_LABELS = {
  * @param {Array}       membresPresents  TOUS les membres du projet (avec flag
  *                                       present_ce_jour)
  * @param {boolean}     canEdit
+ * @param {DOMRect|null} anchorRect rect du bloc/ligne cliqué (popover anchored).
+ *                                  Si null, le popover se centre à l'écran
+ *                                  (fallback). POP-1.
  * @param {Function}    onClose
  * @param {Function}    onSave      (fields) => Promise — pour update (save
  *                                  explicite, FERME le drawer + toast)
@@ -77,6 +81,7 @@ export default function CreneauInspector({
   lanes,
   membresPresents,
   canEdit,
+  anchorRect = null,
   onClose,
   onSave,
   onAutoSaveNotes,
@@ -182,6 +187,35 @@ export default function CreneauInspector({
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [creneau, editing])
 
+  // ─── POP-1 : Positionnement anchored auto-flip ───────────────────────────
+  // (Doit être déclaré AVANT l'early return `if (!creneau) return null` pour
+  // respecter rules-of-hooks — le hook se gardera lui-même de calculer si
+  // anchorRect est null.)
+  const isMobile =
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  const { popoverRef, position, ready } = usePopoverPosition({
+    anchorRect,
+    preferredSide: 'right',
+    gap: 14,
+  })
+
+  // Click-outside-to-close : écoute mousedown hors du popover.
+  useEffect(() => {
+    if (!creneau || isMobile) return undefined
+    function onDocMouseDown(e) {
+      if (popoverRef.current?.contains(e.target)) return
+      onClose?.()
+    }
+    // Délai pour ne pas se déclencher au mousedown initial qui a ouvert le panel
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', onDocMouseDown)
+    }, 50)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', onDocMouseDown)
+    }
+  }, [creneau, isMobile, onClose, popoverRef])
+
   if (!creneau) return null
 
   function patch(fields) {
@@ -242,26 +276,76 @@ export default function CreneauInspector({
 
   const currentLane = lanes.find((l) => l.id === draft.lane_id)
 
+  // Calcul du style position
+  // Mobile : bottom sheet style (full width, slide depuis le bas)
+  // Desktop avec anchorRect : popover anchored
+  // Desktop sans anchorRect : centré (fallback)
+  let panelStyle = {}
+  if (isMobile) {
+    panelStyle = {
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      maxHeight: '90vh',
+      borderRadius: '12px 12px 0 0',
+    }
+  } else if (anchorRect) {
+    panelStyle = {
+      position: 'fixed',
+      top: position.top,
+      left: position.left,
+      width: 420,
+      maxHeight: 'calc(100vh - 16px)',
+      borderRadius: 8,
+      opacity: ready ? 1 : 0,
+      transition: 'opacity 120ms ease',
+    }
+  } else {
+    panelStyle = {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      width: 420,
+      maxHeight: 'calc(100vh - 32px)',
+      borderRadius: 8,
+    }
+  }
+
   return (
     <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,0.35)' }}
-      />
+      {/* Mobile : backdrop léger pour fermeture au tap (uniquement mobile) */}
+      {isMobile && (
+        <div
+          onClick={onClose}
+          className="fixed inset-0 z-40"
+          style={{ background: 'rgba(0,0,0,0.35)' }}
+        />
+      )}
 
-      {/* Panel */}
+      {/* Panel anchored popover (desktop) ou bottom sheet (mobile) */}
       <div
-        className="fixed top-0 right-0 bottom-0 z-50 flex flex-col"
+        ref={popoverRef}
+        className="z-50 flex flex-col"
         style={{
-          width: 'min(420px, 100vw)',
+          ...panelStyle,
           background: 'var(--bg-surf)',
-          borderLeft: '1px solid var(--brd)',
+          border: '1px solid var(--brd)',
           borderTop: `3px solid ${accentColor}`,
-          boxShadow: '-8px 0 24px rgba(0,0,0,0.15)',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+          overflow: 'hidden',
         }}
       >
+        {/* Flèche pointant vers le bloc (desktop avec anchor uniquement) */}
+        {!isMobile && anchorRect && (
+          <PopoverArrow
+            side={position.side}
+            offset={position.arrowOffset}
+            accentColor={accentColor}
+          />
+        )}
+
         {/* Header compact (sans la barre verticale, l'accent est sur le top) */}
         <div
           className="flex items-center justify-between gap-2 px-4 py-2.5"
@@ -1003,6 +1087,67 @@ function formatDuree(min) {
   if (h === 0) return `${m} min`
   if (m === 0) return `${h}h`
   return `${h}h${String(m).padStart(2, '0')}`
+}
+
+// ─── PopoverArrow — Flèche pointant du popover vers le bloc ancré ──────────
+// (POP-1) Petite flèche CSS positionnée au bord du popover qui pointe vers
+// le centre du bloc cliqué. La couleur reprend l'accent du créneau pour
+// renforcer le lien visuel.
+function PopoverArrow({ side, offset, accentColor }) {
+  // Taille de la flèche (côté du carré rotaté à 45deg)
+  const SIZE = 10
+  const halfSize = SIZE / 2
+
+  // Position du carré (rotaté 45°) selon le côté
+  // Le carré dépasse le bord du popover de halfSize, le reste est masqué par
+  // un border-top color.
+  let pos = {}
+  if (side === 'right') {
+    pos = {
+      left: -halfSize,
+      top: offset - halfSize,
+      borderLeft: `1px solid var(--brd)`,
+      borderBottom: `1px solid var(--brd)`,
+    }
+  } else if (side === 'left') {
+    pos = {
+      right: -halfSize,
+      top: offset - halfSize,
+      borderRight: `1px solid var(--brd)`,
+      borderTop: `1px solid var(--brd)`,
+    }
+  } else if (side === 'bottom') {
+    pos = {
+      top: -halfSize,
+      left: offset - halfSize,
+      borderTop: `1px solid var(--brd)`,
+      borderLeft: `1px solid var(--brd)`,
+      background: accentColor, // côté top : la bande accent traverse
+    }
+  } else if (side === 'top') {
+    pos = {
+      bottom: -halfSize,
+      left: offset - halfSize,
+      borderRight: `1px solid var(--brd)`,
+      borderBottom: `1px solid var(--brd)`,
+    }
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        width: SIZE,
+        height: SIZE,
+        background: pos.background || 'var(--bg-surf)',
+        transform: 'rotate(45deg)',
+        pointerEvents: 'none',
+        zIndex: 1,
+        ...pos,
+      }}
+    />
+  )
 }
 
 // ─── initDraft — défauts pour création ou copie depuis creneau existant ────
