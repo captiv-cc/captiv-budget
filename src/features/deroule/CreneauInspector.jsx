@@ -171,24 +171,25 @@ export default function CreneauInspector({
 
   // Réinitialise complètement le draft à chaque changement de créneau (clic
   // sur un autre bloc). En cas de simple changement de valeur sur le même
-  // créneau (real-time save d'un champ par soi-même OU par un autre user),
-  // sync le draft AVEC LA NOUVELLE VALEUR — sauf si on est en mode édition
-  // form (un autre form a un draft local non sauvé qu'il ne faut pas écraser).
+  // créneau, sync le draft AVEC LA NOUVELLE VALEUR.
+  // UX-3 fix Hugo : on resync MÊME en mode édition. Avec real-time save sur
+  // les inline edits, il n'y a plus de "brouillon local non sauvé" à
+  // protéger. Les inputs en cours de saisie (titre, lieu, horaires) ont
+  // leurs propres lastSavedRef pour éviter les écrasements pendant la
+  // frappe (debounce 500ms).
   const lastCreneauIdRef = useRef(null)
   useEffect(() => {
     const idChanged = lastCreneauIdRef.current !== creneau?.id
     if (idChanged) {
-      // Nouveau créneau ouvert : reset complet + reset mode edit
       setDraft(initDraft(creneau))
       setMemberIds(creneau?.member_ids || [])
       setEditing(isCreate || !creneau?.id)
       lastCreneauIdRef.current = creneau?.id
-    } else if (!editing) {
-      // Même créneau, valeurs changées (real-time) : sync visuel
+    } else {
       setDraft(initDraft(creneau))
       setMemberIds(creneau?.member_ids || [])
     }
-  }, [creneau, isCreate, editing])
+  }, [creneau, isCreate])
 
   // ─── Collab Y.js sur les notes (FEST-2.5) ────────────────────────────────
   // Active la collab uniquement en mode édition (Hugo : "pour la vue 'view':
