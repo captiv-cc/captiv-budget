@@ -43,6 +43,7 @@ import {
 } from '../../lib/deroule'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
+import AssignCadreurMenu from './AssignCadreurMenu'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
 const LANE_HEADER_H = 36
@@ -215,6 +216,9 @@ export default function DerouleTimelineView({
   // FEST-3.2 : menu de création rapide au clic simple (sans drag).
   // shape : { anchorRect, lane, heureCible, heureFin, overlappingCreneaux }
   const [quickMenu, setQuickMenu] = useState(null)
+  // FEST-3.3 : menu d'attribution au right-click sur un bloc show.
+  // shape : { sourceCreneau (avec _mouseX/_mouseY), cadreurs }
+  const [assignMenu, setAssignMenu] = useState(null)
   const dragStateRef = useRef(null)
   dragStateRef.current = dragState
 
@@ -223,6 +227,55 @@ export default function DerouleTimelineView({
   // d'un drag réel, reset au prochain tick (suffisant car le `click` event
   // est dispatché juste après `mouseup` dans la même tâche).
   const justDraggedRef = useRef(false)
+
+  // FEST-3.3 : right-click sur un bloc d'une lane type 'lieu' → ouvre le
+  // menu d'attribution avec les cadreurs filtrés par dispo.
+  function handleBlockContextMenu(e, creneau) {
+    if (!canEdit) return
+    const lane = lanes.find((l) => l.id === creneau.lane_id)
+    // On n'active le right-click que sur les blocs de lanes 'lieu' (shows).
+    // Pour les autres types (global, equipe, personne), on laisse le menu
+    // contextuel browser natif.
+    if (lane?.type !== 'lieu') return
+    e.preventDefault()
+    e.stopPropagation()
+    // Compose la liste des cadreurs avec leur état :
+    //   - lane (la lane du cadreur)
+    //   - busyCreneau (s'il a un créneau qui chevauche)
+    //   - alreadyAssigned (s'il est déjà attribué à ce show via un enfant
+    //     existant dans sa lane lié à source_creneau_id=creneau.id)
+    const cadreurLanes = lanes.filter((l) => l.type === 'personne')
+    const cadreurs = cadreurLanes.map((lane) => {
+      const creneauxLane = creneauxByLane.get(lane.id) || []
+      // Déjà attribué : un créneau de cette lane a source_creneau_id pointant
+      // sur le show source.
+      const existing = creneauxLane.find(
+        (c) => c.source_creneau_id === creneau.id,
+      )
+      // Occupé : a un créneau qui chevauche les horaires du show (autre que
+      // celui déjà lié au show)
+      const busy = creneauxLane.find((c) => {
+        if (existing && c.id === existing.id) return false
+        return (
+          c.heure_debut_min < creneau.heure_fin_min &&
+          c.heure_fin_min > creneau.heure_debut_min
+        )
+      })
+      return {
+        lane,
+        busyCreneau: busy || null,
+        alreadyAssigned: Boolean(existing),
+      }
+    })
+    setAssignMenu({
+      sourceCreneau: {
+        ...creneau,
+        _mouseX: e.clientX,
+        _mouseY: e.clientY,
+      },
+      cadreurs,
+    })
+  }
 
   function handleBlockClick(creneau, eventOrRect) {
     // FIX V0 : si on vient juste de finir un drag commité, on ignore le
@@ -732,6 +785,7 @@ export default function DerouleTimelineView({
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
                       laneType={lane.type}
+                      onContextMenu={(e) => handleBlockContextMenu(e, c)}
                     />
                   )
                 })}
@@ -978,6 +1032,46 @@ export default function DerouleTimelineView({
           </span>
         ))}
       </div>
+
+      {/* FEST-3.3 : menu d'attribution au right-click sur bloc show */}
+      {assignMenu && (
+        <AssignCadreurMenu
+          sourceCreneau={assignMenu.sourceCreneau}
+          cadreurs={assignMenu.cadreurs}
+          onChoose={({ laneId, membreId }) => {
+            const src = assignMenu.sourceCreneau
+            const sourceLane = lanes.find((l) => l.id === src.lane_id)
+            const lieuInferred =
+              sourceLane?.type === 'lieu'
+                ? sourceLane.libelle
+                : src.lieu_text || null
+            // Crée le tournage lié dans la lane du cadreur. On passe par
+            // onCreateCreneauAt (DerouleTab) avec un draft pré-rempli
+            // incluant member_ids = [cadreur].
+            onCreateCreneauAt?.(
+              {
+                lane_id: laneId,
+                multi_lane: false,
+                heure_debut_min: src.heure_debut_min,
+                heure_fin_min: src.heure_fin_min,
+                type: 'prise',
+                titre: src.titre || '',
+                lieu_text: lieuInferred,
+                notes: src.notes || null,
+                source_creneau_id: src.id,
+                source_anchor: {
+                  fields: ['titre', 'lieu_text', 'heure_debut_min', 'notes'],
+                },
+                member_ids: membreId ? [membreId] : [],
+                _skipInspector: true, // FEST-3.3 : save direct sans ouvrir l'inspector
+              },
+              null,
+            )
+            setAssignMenu(null)
+          }}
+          onClose={() => setAssignMenu(null)}
+        />
+      )}
 
       {/* FEST-3.2 : menu de création rapide au clic simple */}
       {quickMenu && (
@@ -1387,6 +1481,7 @@ function CreneauBlock({
   height,
   membreInitiales,
   onClick,
+  onContextMenu,
   isMultiLane,
   canEdit,
   onMouseDownDrag,
@@ -1457,6 +1552,7 @@ function CreneauBlock({
         const rect = e.currentTarget.getBoundingClientRect()
         onClick?.(creneau, rect)
       }}
+      onContextMenu={onContextMenu}
       onMouseDown={handleMouseDown}
       onMouseMove={canEdit ? (e) => {
         e.currentTarget.style.cursor = getCursor(e)

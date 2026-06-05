@@ -281,6 +281,30 @@ export default function DerouleTab() {
   function handleCreateCreneauAt(draft, eventOrRect) {
     if (!canEdit) return
     closeInspector()
+    // FEST-3.3 : si _skipInspector=true, on crée directement en BDD sans
+    // ouvrir l'inspector (workflow "Attribuer à un cadreur" depuis le
+    // right-click sur un show). Le draft est déjà complet (titre, type,
+    // horaires, source_creneau_id, source_anchor, member_ids).
+    if (draft._skipInspector && deroule?.id) {
+      const payload = {
+        deroule_id: deroule.id,
+        lane_id: draft.lane_id || null,
+        multi_lane: draft.multi_lane === true,
+        heure_debut_min: draft.heure_debut_min,
+        heure_fin_min: draft.heure_fin_min,
+        type: draft.type ?? 'autre',
+        titre: draft.titre ?? '',
+        lieu_text: draft.lieu_text ?? null,
+        notes: draft.notes ?? null,
+        source_creneau_id: draft.source_creneau_id ?? null,
+        source_anchor: draft.source_anchor ?? null,
+        member_ids: Array.isArray(draft.member_ids) ? draft.member_ids : [],
+      }
+      createCreneau(payload)
+        .then(() => notify.success('Tournage créé et attribué'))
+        .catch((e) => notify.error('Erreur : ' + (e?.message || e)))
+      return
+    }
     // Force lane Global par défaut si rien
     const globalLane = lanes.find((l) => l.sort_order === 0)
     // FEST-3.2 : draft peut désormais inclure des overrides depuis
