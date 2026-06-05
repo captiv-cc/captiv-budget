@@ -169,26 +169,42 @@ export function isSourceOf(creneaux, creneauId) {
 // Cas spécial `cadreurs` : on retourne un patch `member_ids` (set des
 // cadreurs). Le caller devra appliquer ça via setCreneauMembres séparément
 // (pas une simple update de colonne).
-export function applySourceUpdate(source, child, anchor) {
+export function applySourceUpdate(source, child, anchor, options = {}) {
   if (!source || !child || !anchor) return {}
   const fields = Array.isArray(anchor.fields) ? anchor.fields : []
   const patch = {}
   const hasDureeInAnchor = fields.includes('duree_min')
   const hasDebutInAnchor = fields.includes('heure_debut_min')
+  // FEST-3.2 raffinement Hugo : `referenceSource` permet de connaître l'ancien
+  // snapshot de la source pour préserver l'OFFSET enfant-source au moment
+  // de la propagation. Use case : un cadreur doit arriver à H+30min du show.
+  // Quand le show est déplacé, l'enfant doit suivre AVEC SON OFFSET, pas se
+  // recoller au debut du show.
+  const referenceSource = options.referenceSource || null
 
   for (const f of fields) {
     switch (f) {
       case 'heure_debut_min': {
-        // FEST-3.2 C : l'enfant suit l'horaire de début de la source.
         const newDebut = Number(source.heure_debut_min)
         if (!Number.isNaN(newDebut)) {
-          patch.heure_debut_min = newDebut
+          // Offset enfant-source : si on a une référence (ancien debut de
+          // la source), on préserve l'écart. Sinon offset = 0 (cas création
+          // ou première propagation sans historique).
+          let offset = 0
+          if (referenceSource) {
+            const oldSourceDebut = Number(referenceSource.heure_debut_min)
+            const childDebut = Number(child.heure_debut_min)
+            if (!Number.isNaN(oldSourceDebut) && !Number.isNaN(childDebut)) {
+              offset = childDebut - oldSourceDebut
+            }
+          }
+          patch.heure_debut_min = newDebut + offset
           // Si duree_min n'est PAS dans anchor → préserve la durée locale
           // de l'enfant en recalculant heure_fin_min.
           if (!hasDureeInAnchor) {
             const childDuree = getDureeMin(child)
             if (childDuree != null) {
-              patch.heure_fin_min = newDebut + childDuree
+              patch.heure_fin_min = newDebut + offset + childDuree
             }
           }
         }
@@ -196,10 +212,11 @@ export function applySourceUpdate(source, child, anchor) {
       }
       case 'duree_min': {
         const newDuree = getDureeMin(source)
-        // Si heure_debut_min est aussi dans anchor → on utilise le NEW
-        // debut (de la source). Sinon → l'ancien debut de l'enfant.
+        // baseStart = le debut "résolu" de l'enfant après la propagation.
+        // Si heure_debut_min ∈ anchor → patch.heure_debut_min (déjà calculé
+        // avec offset). Sinon → debut original de l'enfant.
         const baseStart = hasDebutInAnchor
-          ? Number(source.heure_debut_min)
+          ? Number(patch.heure_debut_min ?? source.heure_debut_min)
           : Number(child.heure_debut_min)
         if (newDuree != null && !Number.isNaN(baseStart)) {
           patch.heure_fin_min = baseStart + newDuree

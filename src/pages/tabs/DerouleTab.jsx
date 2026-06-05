@@ -380,9 +380,15 @@ export default function DerouleTab() {
         isAnchorFieldImpactedByPatch(af, modifiedFields),
       )
       if (fieldsToApply.length === 0) continue
-      const patch = applySourceUpdate(updatedSource, child, {
-        fields: fieldsToApply,
-      })
+      const patch = applySourceUpdate(
+        updatedSource,
+        child,
+        { fields: fieldsToApply },
+        // FEST-3.2 raffinement Hugo : passe l'ancien snapshot de la
+        // source pour préserver l'offset enfant-source (ex: cadreur
+        // à H+30min du show garde son offset au déplacement du show).
+        { referenceSource: sourceCreneau },
+      )
       // Cas spécial member_ids (cadreurs) → appel séparé via
       // setCreneauMembres car pas une colonne directe.
       const { member_ids, ...structured } = patch

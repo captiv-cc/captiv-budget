@@ -240,21 +240,29 @@ export default function QuickCreateMenu({
                   draftOverride: {
                     type: 'prise',
                     titre: c.titre || '',
-                    // À la création, on copie les horaires de la source
-                    // (même debut + même fin). L'utilisateur pourra ensuite
-                    // raccourcir la durée si besoin (ex: cadreur filme
-                    // juste 30 min des 1h45 du show).
                     heure_debut_min: c.heure_debut_min,
                     heure_fin_min: c.heure_fin_min,
+                    // FEST-3.2 raffinement Hugo : lieu hérité de la lane
+                    // source (si type='lieu'). Ex: tournage lié à Macklemore
+                    // qui joue sur "Scène Médiator" → lieu_text =
+                    // "Scène Médiator" automatiquement.
+                    lieu_text: c._lieuInferred || c.lieu_text || null,
+                    // FEST-3.2 raffinement Hugo : copie aussi les notes du
+                    // show à la création (le briefing technique du show est
+                    // utile au cadreur).
+                    notes: c.notes || null,
                     source_creneau_id: c.id,
                     source_anchor: {
-                      // FEST-3.2 C (Hugo fix) : on inclut heure_debut_min
-                      // (l'enfant suit l'horaire de début si la source est
-                      // déplacée) mais PAS duree_min. La durée locale de
-                      // l'enfant est préservée → un cadreur qui a réduit son
-                      // tournage à 30 min garde ses 30 min même si le show
-                      // dure 1h45.
-                      fields: ['titre', 'lieu_text', 'heure_debut_min'],
+                      // FEST-3.2 raffinements :
+                      // - heure_debut_min : enfant suit l'heure (avec offset)
+                      // - notes ajoutées (le briefing show est cascadable)
+                      // - duree_min EXCLUE (durée locale préservée)
+                      fields: [
+                        'titre',
+                        'lieu_text',
+                        'heure_debut_min',
+                        'notes',
+                      ],
                     },
                   },
                 })

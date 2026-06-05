@@ -439,12 +439,24 @@ export default function DerouleTimelineView({
           // Click simple → ouvre QuickCreateMenu. Compose la liste des
           // créneaux qui chevauchent l'heure cliquée dans les AUTRES lanes
           // (proposés en "Lié à ce moment").
-          const overlapping = allCreneaux.filter((c) => {
-            if (c.lane_id === s.initialLaneId) return false
-            if (c.multi_lane) return false
-            const overlap = c.heure_debut_min < fin && c.heure_fin_min > debut
-            return overlap
-          })
+          const overlapping = allCreneaux
+            .filter((c) => {
+              if (c.lane_id === s.initialLaneId) return false
+              if (c.multi_lane) return false
+              const overlap = c.heure_debut_min < fin && c.heure_fin_min > debut
+              return overlap
+            })
+            // FEST-3.2 raffinement Hugo : enrichir avec un lieu inféré
+            // depuis la lane source (si la lane est de type 'lieu', son
+            // libelle EST le lieu — ex: "Scène Médiator").
+            .map((c) => {
+              const sourceLane = lanes.find((l) => l.id === c.lane_id)
+              const lieuInferred =
+                sourceLane?.type === 'lieu'
+                  ? sourceLane.libelle
+                  : c.lieu_text || ''
+              return { ...c, _lieuInferred: lieuInferred }
+            })
           // Tri par heure de début pour scan visuel
           overlapping.sort((a, b) => a.heure_debut_min - b.heure_debut_min)
           setQuickMenu({
@@ -719,6 +731,7 @@ export default function DerouleTimelineView({
                       isDragging={isThisDragging && dragState.hasMoved}
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
+                      laneType={lane.type}
                     />
                   )
                 })}
@@ -1380,6 +1393,7 @@ function CreneauBlock({
   isDragging,
   conflicts = [],
   isLinked = false,
+  laneType = null,
 }) {
   const color = effectiveCouleurCreneau(creneau)
   const minH = 24
@@ -1598,8 +1612,15 @@ function CreneauBlock({
       )}
 
       {/* Avatars équipe (visible si height >= 60). Couleur déterministe par
-          membre (PRES-1 colorFromUserId) → identification visuelle stable. */}
-      {height >= 60 && creneau.member_ids && creneau.member_ids.length > 0 && (
+          membre (PRES-1 colorFromUserId) → identification visuelle stable.
+          FEST-3.2 raffinement Hugo : ne PAS afficher les avatars sur les
+          blocs des lanes de type 'personne' (cadreur) → l'info est
+          redondante (le bloc est déjà dans la lane du cadreur, on sait
+          qu'il est attitré). */}
+      {height >= 60 &&
+        creneau.member_ids &&
+        creneau.member_ids.length > 0 &&
+        laneType !== 'personne' && (
         <div className="flex gap-0 mt-1.5" style={{ pointerEvents: 'none' }}>
           {creneau.member_ids.slice(0, 4).map((mid, idx) => {
             const m = membreInitiales.get(mid)
