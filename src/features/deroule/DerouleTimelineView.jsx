@@ -124,6 +124,31 @@ export default function DerouleTimelineView({
   const totalHeight = (totalMin / 60) * PX_PER_HOUR
   const stepMin = deroule?.display_step_min || 15
 
+  // Hugo : auto-scroll au mount vers 1h avant le premier événement de la
+  // journée, pour éviter d'arriver à 00:00 et de devoir descendre à la main.
+  // Ne se déclenche qu'au premier render avec des créneaux (puis on mémorise
+  // l'ID du deroule pour reset si l'utilisateur change de jour).
+  const firstEventMin = useMemo(() => {
+    let min = Infinity
+    for (const c of allCreneaux) {
+      if (typeof c.heure_debut_min === 'number' && c.heure_debut_min < min) {
+        min = c.heure_debut_min
+      }
+    }
+    return Number.isFinite(min) ? min : null
+  }, [allCreneaux])
+  const lastAutoScrolledRef = useRef(null)
+  useEffect(() => {
+    if (!containerRef.current) return
+    if (firstEventMin === null) return
+    // Re-scroll seulement si on a changé de déroulé (autre jour)
+    if (lastAutoScrolledRef.current === deroule?.id) return
+    lastAutoScrolledRef.current = deroule?.id
+    const target = Math.max(0, ((firstEventMin - 60 - heureDebutMin) / 60) * PX_PER_HOUR)
+    // Pas de behavior smooth : instantané pour ne pas voir l'effet de "swoop"
+    containerRef.current.scrollTo({ top: target, left: 0, behavior: 'auto' })
+  }, [deroule?.id, firstEventMin, heureDebutMin])
+
   // Génère les graduations heures (chaque heure pleine est labelée).
   // V0.5 : formatMinHHMM gère le suffixe "+1j" pour les heures > 24h.
   const graduations = useMemo(() => {
@@ -469,13 +494,15 @@ export default function DerouleTimelineView({
   return (
     <div
       ref={containerRef}
-      className="rounded-lg overflow-x-auto"
+      className="rounded-lg overflow-x-auto overflow-y-auto"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
         // FEST-2 : scroll horizontal natif quand le nb de lanes dépasse
-        // la largeur viewport. Pas de overflow-y ici — la timeline n'a
-        // pas son propre scroll vertical (c'est la page qui scroll).
+        // la largeur viewport. Hugo : scroll VERTICAL interne au container
+        // pour que le header lanes reste sticky en haut, et permettre un
+        // auto-scroll initial vers le premier événement.
+        maxHeight: 'calc(100vh - 220px)',
       }}
     >
       {/* Header lanes */}
