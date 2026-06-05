@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import ProjectPresenceBadge from '../../components/ProjectPresenceBadge'
 import { useDeroule } from '../../hooks/useDeroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
 // FIX V0 : on n'utilise plus membresPresentsJour pour filtrer le picker —
@@ -410,6 +411,10 @@ export default function DerouleTab() {
           canEdit={canEdit}
         />
         <div className="flex items-center gap-2">
+          {/* FEST-2.8 : avatars des autres admins sur la page Déroulé
+              (via useProjectPresence générique PRES-1). N'affiche rien si
+              on est seul. */}
+          <ProjectPresenceBadge outilKey="deroule" projectId={projectId} />
           {/* FEST-3 : toggle visible aussi sur mobile pour accéder à la vue
               Cadreur. Sur mobile, les labels sont masqués (hidden sm:inline
               dans ToggleBtn) pour ne garder que les icônes. */}
