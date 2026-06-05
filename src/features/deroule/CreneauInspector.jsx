@@ -733,7 +733,7 @@ export default function CreneauInspector({
                   }}
                 >
                   {horaireInvalide ? (
-                    <span>L'heure de fin doit être après le début.</span>
+                    <span>L&apos;heure de fin doit être après le début.</span>
                   ) : horaireOver ? (
                     <span>La fin ne peut pas dépasser 04:00 du lendemain.</span>
                   ) : (
