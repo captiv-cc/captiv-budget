@@ -497,7 +497,8 @@ export default function DerouleTimelineView({
   return (
     <div
       ref={containerRef}
-      className="rounded-lg overflow-x-auto overflow-y-auto"
+      key={deroule?.id || 'empty'}
+      className="rounded-lg overflow-x-auto overflow-y-auto deroule-day-fade"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',

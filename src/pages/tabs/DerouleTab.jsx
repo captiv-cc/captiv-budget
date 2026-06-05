@@ -34,6 +34,7 @@ import {
 import { supabase } from '../../lib/supabase'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import ProjectPresenceBadge from '../../components/ProjectPresenceBadge'
+import DayPicker from '../../components/DayPicker'
 import { useDeroule } from '../../hooks/useDeroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
 // FIX V0 : on n'utilise plus membresPresentsJour pour filtrer le picker —
@@ -655,16 +656,10 @@ function DaySelector({ selectedDate, onSelectDate, deroules, canEdit: _canEdit }
       >
         <ChevronLeft className="w-4 h-4" />
       </button>
-      <input
-        type="date"
+      <DayPicker
         value={selectedDate}
-        onChange={(e) => onSelectDate(e.target.value)}
-        className="px-2 py-1 text-sm rounded outline-none"
-        style={{
-          background: 'var(--bg-elev)',
-          color: 'var(--txt)',
-          border: '1px solid var(--brd)',
-        }}
+        onChange={onSelectDate}
+        markedDates={deroules.map((d) => d.date_jour)}
       />
       <button
         type="button"
