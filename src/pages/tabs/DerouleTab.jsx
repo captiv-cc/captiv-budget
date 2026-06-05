@@ -279,15 +279,22 @@ export default function DerouleTab() {
     closeInspector()
     // Force lane Global par défaut si rien
     const globalLane = lanes.find((l) => l.sort_order === 0)
+    // FEST-3.2 : draft peut désormais inclure des overrides depuis
+    // QuickCreateMenu : type, titre, source_creneau_id, source_anchor.
+    // On les conserve ; les défauts ('' / 'autre') ne s'appliquent que
+    // si absents dans le draft fourni.
     setCreatingDraft({
-      ...draft,
       lane_id: draft.lane_id || globalLane?.id || null,
-      titre: '',
-      type: 'autre',
+      titre: draft.titre ?? '',
+      type: draft.type ?? 'autre',
       // V0.5 : si appelé depuis le bouton flottant mobile sans heures,
       // défauts 09:00 → 09:30 (540 → 570 minutes).
       heure_debut_min: draft.heure_debut_min ?? 540,
       heure_fin_min: draft.heure_fin_min ?? 570,
+      multi_lane: draft.multi_lane ?? false,
+      // Overrides FEST-3.2 (peuvent être undefined → champs ignorés au save)
+      ...(draft.source_creneau_id ? { source_creneau_id: draft.source_creneau_id } : {}),
+      ...(draft.source_anchor ? { source_anchor: draft.source_anchor } : {}),
     })
     // Stocke aussi le rect du futur bloc (calculé par DerouleTimelineView
     // depuis les coords de la lane + heures) pour ancrer le popover.

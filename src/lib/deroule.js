@@ -810,7 +810,9 @@ export async function createCreneau(payload) {
     ? payload.member_ids.filter(Boolean)
     : []
 
-  // 1. Insert créneau (sort_order auto via trigger)
+  // 1. Insert créneau (sort_order auto via trigger). FEST-3.2 : on accepte
+  // source_creneau_id + source_anchor pour permettre la création directe
+  // d'un créneau lié depuis QuickCreateMenu (workflow "Lié à ce moment").
   const { data: creneau, error: e1 } = await supabase
     .from('projet_deroule_creneaux')
     .insert({
@@ -827,6 +829,8 @@ export async function createCreneau(payload) {
       lieu_id: payload.lieu_id ?? null,
       statut: 'planifie',
       notes: payload.notes ?? null,
+      source_creneau_id: payload.source_creneau_id ?? null,
+      source_anchor: payload.source_anchor ?? null,
     })
     .select('*')
     .single()

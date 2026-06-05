@@ -42,6 +42,7 @@ import {
   effectiveLaneColor,
 } from '../../lib/deroule'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
+import QuickCreateMenu from './QuickCreateMenu'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
 const LANE_HEADER_H = 36
@@ -211,6 +212,9 @@ export default function DerouleTimelineView({
   //
   // Snap : 15 min par défaut, 5 min si Alt enfoncé pendant le drag.
   const [dragState, setDragState] = useState(null)
+  // FEST-3.2 : menu de création rapide au clic simple (sans drag).
+  // shape : { anchorRect, lane, heureCible, heureFin, overlappingCreneaux }
+  const [quickMenu, setQuickMenu] = useState(null)
   const dragStateRef = useRef(null)
   dragStateRef.current = dragState
 
@@ -388,9 +392,10 @@ export default function DerouleTimelineView({
       setDragState(null)
       if (!s) return
 
-      // Mode 'create' (click-and-drag depuis zone vide) : ouvre l'inspector
-      // en mode création avec les heures déterminées par le drag. Si l'user
-      // n'a quasi pas bougé (clic simple), on retombe sur 30 min par défaut.
+      // Mode 'create' (click-and-drag depuis zone vide).
+      // FEST-3.2 : si DRAG (hasMoved) → création direct comme avant.
+      // Si CLICK simple → ouvre le menu rapide QuickCreateMenu pour proposer
+      // des actions pré-remplies + créneaux à lier.
       if (s.mode === 'create') {
         // Marque pour éviter qu'un click handler parasite ne tire derrière
         justDraggedRef.current = true
@@ -399,10 +404,9 @@ export default function DerouleTimelineView({
         }, 0)
         const debut = s.hasMoved ? s.currentDebutMin : s.initialDebutMin
         const fin = Math.min(MAX_MIN, s.hasMoved ? s.currentFinMin : s.initialDebutMin + 30)
-        // Hugo : calcule le rect du FUTUR bloc dans le viewport (basé sur
-        // les coords de la lane + heures choisies) pour ancrer le popover
-        // correctement. Sinon le popover s'ancrait au point cliqué, puis se
-        // décalait au prochain frame quand usePopoverPosition recalculait.
+        // Calcule le rect du futur bloc dans le viewport pour ancrer le
+        // popover correctement (cf. fix Hugo : sinon le popover s'ancrait
+        // au point cliqué et se décalait au recalcul usePopoverPosition).
         let anchorRect = null
         if (s.laneRect) {
           const laneRect = s.laneRect
@@ -412,22 +416,46 @@ export default function DerouleTimelineView({
           const blockHeight = (durMin / 60) * PX_PER_HOUR
           anchorRect = {
             top: blockTop,
-            left: laneRect.left + 4, // padding horizontal des blocs
+            left: laneRect.left + 4,
             right: laneRect.right - 4,
             bottom: blockTop + blockHeight,
             width: laneRect.width - 8,
             height: blockHeight,
           }
         }
-        onCreateCreneauAt?.(
-          {
-            lane_id: s.multiLane ? null : s.initialLaneId,
-            multi_lane: s.multiLane,
-            heure_debut_min: debut,
-            heure_fin_min: fin,
-          },
-          anchorRect,
-        )
+
+        if (s.hasMoved) {
+          // Drag → création directe avec horaires choisis (créneau libre)
+          onCreateCreneauAt?.(
+            {
+              lane_id: s.multiLane ? null : s.initialLaneId,
+              multi_lane: s.multiLane,
+              heure_debut_min: debut,
+              heure_fin_min: fin,
+            },
+            anchorRect,
+          )
+        } else {
+          // Click simple → ouvre QuickCreateMenu. Compose la liste des
+          // créneaux qui chevauchent l'heure cliquée dans les AUTRES lanes
+          // (proposés en "Lié à ce moment").
+          const overlapping = allCreneaux.filter((c) => {
+            if (c.lane_id === s.initialLaneId) return false
+            if (c.multi_lane) return false
+            const overlap = c.heure_debut_min < fin && c.heure_fin_min > debut
+            return overlap
+          })
+          // Tri par heure de début pour scan visuel
+          overlapping.sort((a, b) => a.heure_debut_min - b.heure_debut_min)
+          setQuickMenu({
+            anchorRect,
+            laneId: s.initialLaneId,
+            multiLane: s.multiLane,
+            heureCible: debut,
+            heureFin: fin,
+            overlappingCreneaux: overlapping,
+          })
+        }
         return
       }
 
@@ -901,6 +929,29 @@ export default function DerouleTimelineView({
           </span>
         ))}
       </div>
+
+      {/* FEST-3.2 : menu de création rapide au clic simple */}
+      {quickMenu && (
+        <QuickCreateMenu
+          anchorRect={quickMenu.anchorRect}
+          heureCible={quickMenu.heureCible}
+          heureFin={quickMenu.heureFin}
+          overlappingCreneaux={quickMenu.overlappingCreneaux}
+          onChoose={({ draftOverride }) => {
+            // Compose le draft final : horaires + lane + overrides du menu
+            const finalDraft = {
+              lane_id: quickMenu.multiLane ? null : quickMenu.laneId,
+              multi_lane: quickMenu.multiLane,
+              heure_debut_min: quickMenu.heureCible,
+              heure_fin_min: quickMenu.heureFin,
+              ...(draftOverride || {}),
+            }
+            onCreateCreneauAt?.(finalDraft, quickMenu.anchorRect)
+            setQuickMenu(null)
+          }}
+          onClose={() => setQuickMenu(null)}
+        />
+      )}
     </div>
   )
 }
