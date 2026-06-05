@@ -231,8 +231,11 @@ export default function CreneauInspector({
   })
 
   // Click-outside-to-close : écoute mousedown hors du popover.
+  // POP-2.C : désactivé en mode édition pour éviter de perdre des modifs
+  // par un clic accidentel. L'utilisateur doit explicitement Annuler /
+  // Enregistrer / X pour fermer en mode édition.
   useEffect(() => {
-    if (!creneau || isMobile) return undefined
+    if (!creneau || isMobile || editing) return undefined
     function onDocMouseDown(e) {
       if (popoverRef.current?.contains(e.target)) return
       onClose?.()
@@ -245,7 +248,7 @@ export default function CreneauInspector({
       clearTimeout(timer)
       document.removeEventListener('mousedown', onDocMouseDown)
     }
-  }, [creneau, isMobile, onClose, popoverRef])
+  }, [creneau, isMobile, editing, onClose, popoverRef])
 
   if (!creneau) return null
 
@@ -307,6 +310,13 @@ export default function CreneauInspector({
 
   const currentLane = lanes.find((l) => l.id === draft.lane_id)
 
+  // POP-2.C : largeur dynamique
+  // - 420px en mode view (compact, lecture rapide)
+  // - 560px en mode édition (formulaire long → plus d'air)
+  // Transition CSS sur width pour expansion fluide. usePopoverPosition
+  // recompute via ResizeObserver donc le flip auto reste cohérent.
+  const popoverWidth = editing || isCreate ? 560 : 420
+
   // Calcul du style position
   // Mobile : bottom sheet style (full width, slide depuis le bas)
   // Desktop avec anchorRect : popover anchored
@@ -326,11 +336,11 @@ export default function CreneauInspector({
       position: 'fixed',
       top: position.top,
       left: position.left,
-      width: 420,
+      width: popoverWidth,
       maxHeight: 'calc(100vh - 16px)',
       borderRadius: 8,
       opacity: ready ? 1 : 0,
-      transition: 'opacity 120ms ease',
+      transition: 'opacity 120ms ease, width 200ms cubic-bezier(0.16, 1, 0.3, 1)',
     }
   } else {
     panelStyle = {
@@ -338,9 +348,10 @@ export default function CreneauInspector({
       top: '50%',
       left: '50%',
       transform: 'translate(-50%, -50%)',
-      width: 420,
+      width: popoverWidth,
       maxHeight: 'calc(100vh - 32px)',
       borderRadius: 8,
+      transition: 'width 200ms cubic-bezier(0.16, 1, 0.3, 1)',
     }
   }
 
