@@ -54,6 +54,7 @@ import {
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
 import CustomSelect from '../../components/CustomSelect'
+import { confirm } from '../../lib/confirm'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
 import { usePopoverPosition } from '../../hooks/usePopoverPosition'
 import {
@@ -366,7 +367,14 @@ export default function CreneauInspector({
 
   async function handleDelete() {
     if (!canEdit) return
-    if (!window.confirm('Supprimer ce créneau ?')) return
+    const ok = await confirm({
+      title: 'Supprimer ce créneau ?',
+      message: 'Cette action est irréversible.',
+      confirmLabel: 'Supprimer',
+      cancelLabel: 'Annuler',
+      danger: true,
+    })
+    if (!ok) return
     setSaving(true)
     try {
       await onDelete?.()

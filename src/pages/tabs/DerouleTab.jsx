@@ -492,7 +492,14 @@ export default function DerouleTab() {
   }
 
   async function handleDeleteLane(laneId) {
-    if (!window.confirm('Supprimer cette lane ? Elle doit être vide.')) return
+    const ok = await confirm({
+      title: 'Supprimer cette lane ?',
+      message: 'La lane doit être vide pour pouvoir être supprimée.',
+      confirmLabel: 'Supprimer',
+      cancelLabel: 'Annuler',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await deleteLane(laneId)
     } catch (e) {

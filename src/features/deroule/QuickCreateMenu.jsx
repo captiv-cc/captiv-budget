@@ -23,7 +23,7 @@
 //   - onClose
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useLayoutEffect, useState } from 'react'
 import {
   Plus,
   Video,
@@ -123,7 +123,9 @@ export default function QuickCreateMenu({
   }, [onClose])
 
   // Positionnement : à droite du point cliqué, ou à gauche si pas la place.
-  // Auto-flip basique.
+  // Auto-flip vertical : si le menu dépasse en bas, on l'ancre au top du
+  // bloc (flip up). Mesure de la vraie hauteur via useLayoutEffect pour
+  // éviter le flash visuel.
   const MENU_WIDTH = 260
   const PADDING = 8
   const left = (() => {
@@ -134,13 +136,29 @@ export default function QuickCreateMenu({
     }
     return Math.max(PADDING, anchorRect.left - MENU_WIDTH - 4)
   })()
-  const top = (() => {
-    if (!anchorRect) return PADDING
-    return Math.min(
-      Math.max(PADDING, anchorRect.top),
-      window.innerHeight - 200, // estimation menu height
+  const [top, setTop] = useState(() =>
+    anchorRect ? Math.max(PADDING, anchorRect.top) : PADDING,
+  )
+  const [ready, setReady] = useState(false)
+  useLayoutEffect(() => {
+    if (!menuRef.current || !anchorRect) {
+      setReady(true)
+      return
+    }
+    const menuHeight = menuRef.current.offsetHeight
+    const vh = window.innerHeight
+    let proposedTop = anchorRect.top
+    if (proposedTop + menuHeight > vh - PADDING) {
+      // flip au-dessus : le menu finit pile au top du bloc cliqué
+      proposedTop = anchorRect.bottom - menuHeight
+    }
+    proposedTop = Math.max(
+      PADDING,
+      Math.min(proposedTop, vh - menuHeight - PADDING),
     )
-  })()
+    setTop(proposedTop)
+    setReady(true)
+  }, [anchorRect])
 
   const topAction = RAPID_ACTIONS.find((a) => a.section === 'top')
   const mainActions = RAPID_ACTIONS.filter((a) => a.section === 'main')
@@ -160,7 +178,9 @@ export default function QuickCreateMenu({
         borderRadius: 8,
         boxShadow: '0 12px 32px rgba(0,0,0,0.28)',
         padding: 6,
-        animation: 'quick-create-menu-fade-in 100ms ease-out',
+        opacity: ready ? 1 : 0,
+        transition: 'opacity 80ms ease',
+        animation: ready ? 'quick-create-menu-fade-in 100ms ease-out' : undefined,
       }}
     >
       {/* Header : heure cliquée */}
