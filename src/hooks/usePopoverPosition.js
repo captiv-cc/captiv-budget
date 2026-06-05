@@ -44,6 +44,11 @@ export function usePopoverPosition({
   anchorRect,
   preferredSide = 'right',
   gap = DEFAULT_GAP,
+  // expandedWidth : largeur MAX que le popover peut atteindre (ex: en
+  // mode édition expand). Utilisée pour décider du flip dès le mount, pour
+  // éviter que le popover saute de côté au moment de l'expand.
+  expandedWidth = 0,
+  expandedHeight = 0,
 }) {
   const popoverRef = useRef(null)
   const [position, setPosition] = useState({
@@ -73,6 +78,11 @@ export function usePopoverPosition({
         requestAnimationFrame(recompute)
         return
       }
+      // Pour les calculs de flip, on utilise la dimension MAX prévue
+      // (current ou expandedWidth/Height). Évite que le popover saute
+      // de côté quand il s'agrandit (ex: passage view → edit).
+      const flipWidth = Math.max(popSize.width, expandedWidth || 0)
+      const flipHeight = Math.max(popSize.height, expandedHeight || 0)
       const vw = window.innerWidth
       const vh = window.innerHeight
       const pad = DEFAULT_VIEWPORT_PAD
@@ -83,25 +93,27 @@ export function usePopoverPosition({
       const spaceTop = anchorRect.top - gap
       const spaceBottom = vh - anchorRect.bottom - gap
 
-      // Choix du côté : préféré si assez de place, sinon flip vers le côté
-      // qui a le plus d'espace.
+      // Choix du côté : préféré si assez de place pour la largeur MAX
+      // attendue (current ou expanded), sinon flip vers le côté qui a le
+      // plus d'espace. On utilise flipWidth/flipHeight au lieu de popSize
+      // pour anticiper l'expand.
       let side = preferredSide
       const needsHorizontal = side === 'left' || side === 'right'
       if (needsHorizontal) {
-        if (side === 'right' && popSize.width > spaceRight && spaceLeft > spaceRight) {
+        if (side === 'right' && flipWidth > spaceRight && spaceLeft > spaceRight) {
           side = 'left'
-        } else if (side === 'left' && popSize.width > spaceLeft && spaceRight > spaceLeft) {
+        } else if (side === 'left' && flipWidth > spaceLeft && spaceRight > spaceLeft) {
           side = 'right'
         }
         // Si ni gauche ni droite n'ont assez de place, on essaie en bas/haut
-        if (popSize.width > Math.max(spaceLeft, spaceRight)) {
-          if (spaceBottom > popSize.height) side = 'bottom'
-          else if (spaceTop > popSize.height) side = 'top'
+        if (flipWidth > Math.max(spaceLeft, spaceRight)) {
+          if (spaceBottom > flipHeight) side = 'bottom'
+          else if (spaceTop > flipHeight) side = 'top'
         }
       } else {
-        if (side === 'bottom' && popSize.height > spaceBottom && spaceTop > spaceBottom) {
+        if (side === 'bottom' && flipHeight > spaceBottom && spaceTop > spaceBottom) {
           side = 'top'
-        } else if (side === 'top' && popSize.height > spaceTop && spaceBottom > spaceTop) {
+        } else if (side === 'top' && flipHeight > spaceTop && spaceBottom > spaceTop) {
           side = 'bottom'
         }
       }
@@ -185,6 +197,8 @@ export function usePopoverPosition({
     anchorRect?.height,
     preferredSide,
     gap,
+    expandedWidth,
+    expandedHeight,
   ])
 
   return { popoverRef, position, ready }

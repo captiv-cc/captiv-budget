@@ -159,10 +159,12 @@ export default function CreneauInspector({
   }, [creneau?.id, isCreate])
 
   // ─── Collab Y.js sur les notes (FEST-2.5) ────────────────────────────────
-  // Active la collab uniquement si on a un creneau.id (créneau persisté) ET
-  // qu'on est en mode édition. En mode view ou create, on lit/écrit creneau.notes
-  // directement sans channel Realtime (économise une connexion).
-  const collabEnabled = Boolean(creneau?.id) && editing && canEdit
+  // Active la collab dès qu'on a un creneau persisté + droits d'édition.
+  // POP-2.B / Hugo : en mode compact view, les notes doivent rester
+  // éditables directement (workflow Notion-like, pas besoin de cliquer
+  // Modifier juste pour taper une note). Donc on retire la condition
+  // editing — la collab tourne tant que l'inspecteur est ouvert.
+  const collabEnabled = Boolean(creneau?.id) && canEdit
   const {
     doc: yjsDoc,
     awareness: yjsAwareness,
@@ -250,6 +252,9 @@ export default function CreneauInspector({
     anchorRect,
     preferredSide: 'right',
     gap: 14,
+    // POP-2.C : on calcule le flip pour la largeur MAX (mode édition)
+    // pour éviter que le popover saute de côté quand on clique Modifier.
+    expandedWidth: 560,
   })
 
   // Click-outside-to-close : écoute mousedown hors du popover.
@@ -1705,6 +1710,7 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
   const [draftDebut, setDraftDebut] = useState(heureDebut)
   const [draftFin, setDraftFin] = useState(heureFin)
   const debutRef = useRef(null)
+  const containerRef = useRef(null)
 
   useEffect(() => {
     if (editing && debutRef.current) {
@@ -1735,11 +1741,23 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
     setEditing(false)
   }
 
+  // Hugo : on perdait l'édition au passage debut → fin (blur déclenchait
+  // commit). Fix : on ne commit que si le focus quitte VRAIMENT le
+  // container (relatedTarget pas dans containerRef).
+  const handleBlur = (e) => {
+    const nextFocus = e.relatedTarget
+    if (containerRef.current && containerRef.current.contains(nextFocus)) {
+      return // on tabule juste à l'autre input
+    }
+    commit()
+  }
+
   if (editing) {
     return (
       <div className="cp-line" style={{ background: 'var(--bg-elev)' }}>
         <span className="cp-line-icon"><Clock size={14} /></span>
         <div
+          ref={containerRef}
           style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -1763,7 +1781,7 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
                 setDraftDebut(m + offset)
               }
             }}
-            onBlur={commit}
+            onBlur={handleBlur}
             style={{
               background: 'transparent',
               border: 'none',
@@ -1786,7 +1804,7 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
                 setDraftFin(m + offset)
               }
             }}
-            onBlur={commit}
+            onBlur={handleBlur}
             style={{
               background: 'transparent',
               border: 'none',
