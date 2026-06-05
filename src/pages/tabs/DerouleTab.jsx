@@ -18,7 +18,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  Calendar,
   Plus,
   ChevronLeft,
   ChevronRight,
@@ -33,7 +32,6 @@ import {
   Eye,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useDeroule } from '../../hooks/useDeroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
@@ -54,7 +52,6 @@ const OUTIL_KEY = 'deroule'
 
 export default function DerouleTab() {
   const { id: projectId } = useParams()
-  const { profile } = useAuth()
   const { can } = useProjectPermissions(projectId)
   const canRead = can(OUTIL_KEY, 'read')
   const canEdit = can(OUTIL_KEY, 'edit')
@@ -89,7 +86,7 @@ export default function DerouleTab() {
     creneauxByLane,
     creneauxMultiLane,
     createDeroule,
-    updateDeroule,
+    // updateDeroule, // exposé par le hook, sera utilisé en Sprint 2 (notes session)
     deleteDeroule,
     addLane,
     updateLane,
@@ -118,6 +115,9 @@ export default function DerouleTab() {
         if (cancelled) return
         setMembres(data || [])
       })
+    return () => {
+      cancelled = true
+    }
   }, [canRead, projectId])
 
   // ─── Phase D — Détection des conflits d'assignation ─────────────────────
@@ -301,7 +301,7 @@ export default function DerouleTab() {
       <div className="p-8 text-center">
         <Lock className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--txt-3)' }} />
         <p className="text-sm font-medium" style={{ color: 'var(--txt-2)' }}>
-          Vous n'avez pas accès au déroulé de ce projet.
+          Vous n&apos;avez pas accès au déroulé de ce projet.
         </p>
       </div>
     )
