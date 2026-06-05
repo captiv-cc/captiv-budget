@@ -1248,7 +1248,9 @@ function CreneauBlock({
         // Pendant un drag avec hasMoved, le mouseup reset dragState avant
         // que le click ne tire — donc on n'ouvre pas l'inspector. OK.
         e.stopPropagation()
-        if (!isDragging) onClick?.(creneau)
+        // POP-1 : propage l'event au handler parent pour qu'il puisse
+        // récupérer le DOMRect du bloc et ancrer le popover dessus.
+        if (!isDragging) onClick?.(creneau, e)
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={canEdit ? (e) => {

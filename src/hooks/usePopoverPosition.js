@@ -100,17 +100,20 @@ export function usePopoverPosition({
         }
       }
 
-      // Calcul position selon le côté final
+      // Calcul position selon le côté final.
+      // Pour right/left : on aligne le top du popover sur le top du bloc
+      // (plus naturel et stable quand le popover est plus grand que le bloc).
+      // Pour top/bottom : on centre horizontalement sur le bloc.
       let top = 0
       let left = 0
       switch (side) {
         case 'right':
           left = anchorRect.right + gap
-          top = anchorRect.top + anchorRect.height / 2 - popSize.height / 2
+          top = anchorRect.top
           break
         case 'left':
           left = anchorRect.left - gap - popSize.width
-          top = anchorRect.top + anchorRect.height / 2 - popSize.height / 2
+          top = anchorRect.top
           break
         case 'bottom':
           left = anchorRect.left + anchorRect.width / 2 - popSize.width / 2
