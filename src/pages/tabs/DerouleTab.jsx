@@ -41,7 +41,7 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // décision Hugo "pas de contrainte dure". Le picker liste TOUS les membres
 // du projet, avec un indicateur visuel sur ceux non présents ce jour.
 // import { membresPresentsJour } from '../../lib/deroule'
-import { findMembreOverlaps, enrichCreneauxWithImplicitMembers } from '../../lib/deroule'
+import { findMembreOverlaps, enrichCreneauxWithImplicitMembers, MAX_MIN } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
@@ -479,6 +479,44 @@ export default function DerouleTab() {
     await propagateToChildren(inspectedCreneau, { member_ids: membreIds })
   }
 
+  // FEST-3.4 : duplique un créneau juste après lui-même (H+durée) dans la
+  // même lane. Clone titre/type/lieu/équipe/notes, statut réinitialisé à
+  // 'planifie'. PAS de lien soft (vraie duplication, pas un alias).
+  async function handleDuplicateCreneau() {
+    if (!inspectedCreneau?.id || !deroule?.id) return
+    const src = inspectedCreneau
+    const duree = (src.heure_fin_min ?? 0) - (src.heure_debut_min ?? 0)
+    if (duree <= 0) {
+      notify.error('Impossible de dupliquer : créneau invalide')
+      return
+    }
+    const newDebut = src.heure_fin_min
+    const newFin = Math.min(newDebut + duree, MAX_MIN)
+    if (newFin <= newDebut) {
+      notify.error('Pas de place après ce créneau (dépasse le viewport)')
+      return
+    }
+    try {
+      await createCreneau({
+        deroule_id: deroule.id,
+        lane_id: src.lane_id,
+        multi_lane: src.multi_lane === true,
+        heure_debut_min: newDebut,
+        heure_fin_min: newFin,
+        type: src.type ?? 'autre',
+        titre: src.titre ?? '',
+        description: src.description ?? null,
+        lieu_text: src.lieu_text ?? null,
+        notes: src.notes ?? null,
+        member_ids: Array.isArray(src.member_ids) ? src.member_ids : [],
+        // Pas de source_creneau_id/source_anchor : duplication ≠ lien.
+      })
+      notify.success('Créneau dupliqué')
+    } catch (e) {
+      notify.error('Erreur : ' + (e?.message || e))
+    }
+  }
+
   // FEST-3.2 C : wrapper sur updateCreneau pour le drag-and-drop (le bloc
   // est déplacé dans la timeline, pas via le popover). Sans ce wrapper, la
   // propagation auto aux enfants liés ne se faisait pas (Hugo signalé).
@@ -733,6 +771,7 @@ export default function DerouleTab() {
           onSavePartialForCreneau={handleSavePartialForCreneau}
           onSetMembresForCreneau={handleSetMembresForCreneau}
           onDelete={handleDeleteCreneau}
+          onDuplicate={handleDuplicateCreneau}
           onSetMembres={handleSetCreneauMembres}
         />
       )}

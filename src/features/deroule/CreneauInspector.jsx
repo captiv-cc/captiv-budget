@@ -122,6 +122,7 @@ export default function CreneauInspector({
   onSetMembresForCreneau,
   onCreate,
   onDelete,
+  onDuplicate,
   onSetMembres,
 }) {
   const [draft, setDraft] = useState(() => initDraft(creneau))
@@ -1009,7 +1010,7 @@ export default function CreneauInspector({
                 type="button"
                 disabled={!canEdit}
                 className="cp-action-btn"
-                onClick={() => alert('Bientôt')}
+                onClick={() => onDuplicate?.()}
               >
                 <Copy size={14} />
               </button>
