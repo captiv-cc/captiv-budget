@@ -533,6 +533,50 @@ export default function DerouleTimelineView({
       setTimeout(() => {
         justDraggedRef.current = false
       }, 0)
+
+      // FEST-3.1 : drag d'un bloc d'une lane LIEU vers une lane PERSONNE
+      // → on CRÉE un tournage lié au lieu de DÉPLACER le show.
+      if (
+        s.mode === 'move' &&
+        !s.multiLane &&
+        s.currentLaneId !== s.initialLaneId
+      ) {
+        const movedCreneau = allCreneaux.find((c) => c.id === s.creneauId)
+        const sourceLane = lanes.find((l) => l.id === s.initialLaneId)
+        const destLane = lanes.find((l) => l.id === s.currentLaneId)
+        if (
+          sourceLane?.type === 'lieu' &&
+          destLane?.type === 'personne' &&
+          movedCreneau
+        ) {
+          // Cross-lane-assign : créer un tournage lié dans la lane cadreur,
+          // sans bouger le show source. Mêmes horaires que le drop (peut
+          // être décalé si l'utilisateur a déplacé le bloc dans le temps
+          // pendant le drag).
+          const lieuInferred = sourceLane.libelle || movedCreneau.lieu_text || null
+          onCreateCreneauAt?.(
+            {
+              lane_id: destLane.id,
+              multi_lane: false,
+              heure_debut_min: s.currentDebutMin,
+              heure_fin_min: s.currentFinMin,
+              type: 'prise',
+              titre: movedCreneau.titre || '',
+              lieu_text: lieuInferred,
+              notes: movedCreneau.notes || null,
+              source_creneau_id: movedCreneau.id,
+              source_anchor: {
+                fields: ['titre', 'lieu_text', 'heure_debut_min', 'notes'],
+              },
+              member_ids: destLane.membre_id ? [destLane.membre_id] : [],
+              _skipInspector: true,
+            },
+            null,
+          )
+          return
+        }
+      }
+
       const fields = {
         heure_debut_min: s.currentDebutMin,
         heure_fin_min: s.currentFinMin,
@@ -894,7 +938,11 @@ export default function DerouleTimelineView({
                 )}
 
               {/* Créneau "fantôme" affiché dans la lane DESTINATION pendant
-                  un drag horizontal. Il représente où le créneau atterrira. */}
+                  un drag horizontal. Il représente où le créneau atterrira.
+                  FEST-3.1 : si on drag d'une lane lieu vers une lane personne,
+                  le ghost devient "Créer mission ici" (bleu) au lieu de
+                  l'apparence move classique — l'utilisateur voit que c'est
+                  une CRÉATION, pas un déplacement. */}
               {dragState &&
                 dragState.mode === 'move' &&
                 !dragState.multiLane &&
@@ -904,6 +952,41 @@ export default function DerouleTimelineView({
                   const draggedCreneau =
                     [...creneauxByLane.values()].flat().find((c) => c.id === dragState.creneauId)
                   if (!draggedCreneau) return null
+                  const sourceLane = lanes.find((l) => l.id === dragState.initialLaneId)
+                  const isCrossLaneAssign =
+                    sourceLane?.type === 'lieu' && lane.type === 'personne'
+                  if (isCrossLaneAssign) {
+                    return (
+                      <div
+                        key={`ghost-assign-${dragState.creneauId}`}
+                        className="absolute rounded pointer-events-none"
+                        style={{
+                          top: minToTop(dragState.currentDebutMin),
+                          left: 4,
+                          right: 4,
+                          height:
+                            durationToHeight(
+                              dragState.currentFinMin - dragState.currentDebutMin,
+                            ) - 2,
+                          background: 'rgba(59, 130, 246, 0.2)',
+                          border: '2px dashed var(--blue, #3B82F6)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: 'var(--blue, #3B82F6)',
+                          lineHeight: 1.2,
+                          overflow: 'hidden',
+                          zIndex: 5,
+                        }}
+                      >
+                        🎬 Mission : {draggedCreneau.titre || '(sans titre)'}
+                        <div style={{ fontSize: 10, opacity: 0.85, marginTop: 1, fontWeight: 500 }}>
+                          {formatMinHHMM(dragState.currentDebutMin)} – {formatMinHHMM(dragState.currentFinMin)}
+                        </div>
+                      </div>
+                    )
+                  }
                   return (
                     <CreneauBlock
                       key={`ghost-${dragState.creneauId}`}
