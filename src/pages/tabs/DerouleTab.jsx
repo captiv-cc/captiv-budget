@@ -76,17 +76,25 @@ export default function DerouleTab() {
   // L'event peut être un MouseEvent React (on extrait le rect de currentTarget)
   // ou directement un DOMRect (passé manuellement).
   function openInspector(creneau, eventOrRect) {
+    let rect = null
     if (!eventOrRect) {
-      setInspectedAnchor(null)
-    } else if (typeof eventOrRect.getBoundingClientRect === 'function') {
-      // C'est un DOMRect direct
-      setInspectedAnchor(eventOrRect)
+      rect = null
+    } else if (
+      typeof eventOrRect === 'object' &&
+      'top' in eventOrRect &&
+      'left' in eventOrRect &&
+      'width' in eventOrRect
+    ) {
+      // C'est déjà un DOMRect (ou un plain object qui ressemble à un)
+      rect = eventOrRect
     } else if (eventOrRect?.currentTarget?.getBoundingClientRect) {
       // C'est un événement React → on extrait le rect de currentTarget
-      setInspectedAnchor(eventOrRect.currentTarget.getBoundingClientRect())
-    } else {
-      setInspectedAnchor(null)
+      rect = eventOrRect.currentTarget.getBoundingClientRect()
     }
+    // Debug temporaire
+    // eslint-disable-next-line no-console
+    console.log('[DerouleTab.openInspector] rect=', rect, 'creneau=', creneau?.titre)
+    setInspectedAnchor(rect)
     setInspectedCreneau(creneau)
   }
   function closeInspector() {
