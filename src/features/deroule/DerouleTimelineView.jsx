@@ -190,14 +190,13 @@ export default function DerouleTimelineView({
   // est dispatché juste après `mouseup` dans la même tâche).
   const justDraggedRef = useRef(false)
 
-  function handleBlockClick(creneau, event) {
+  function handleBlockClick(creneau, eventOrRect) {
     // FIX V0 : si on vient juste de finir un drag commité, on ignore le
     // click natif (sinon l'inspector s'ouvre tout seul après chaque drag).
     if (justDraggedRef.current) return
-    // eslint-disable-next-line no-console
-    console.log('[handleBlockClick] received event=', event, 'onSelectCreneau=', typeof onSelectCreneau)
-    // POP-1 : propagation de l'événement pour ancrer le popover sur le bloc.
-    onSelectCreneau?.(creneau, event)
+    // POP-1 : propagation du rect/event au handler parent pour ancrer
+    // le popover sur le bloc cliqué.
+    onSelectCreneau?.(creneau, eventOrRect)
   }
 
   function handleBlockMouseDown(e, creneau, mode) {
@@ -623,7 +622,7 @@ export default function DerouleTimelineView({
                       top={minToTop(debut)}
                       height={durationToHeight(fin - debut)}
                       membreInitiales={membreInitiales}
-                      onClick={(e) => handleBlockClick(c, e)}
+                      onClick={(_c, rect) => handleBlockClick(c, rect)}
                       canEdit={canEdit}
                       onMouseDownDrag={handleBlockMouseDown}
                       isDragging={isThisDragging && dragState.hasMoved}
@@ -735,7 +734,7 @@ export default function DerouleTimelineView({
                 top={minToTop(debut)}
                 height={durationToHeight(fin - debut)}
                 membreInitiales={membreInitiales}
-                onClick={(e) => handleBlockClick(c, e)}
+                onClick={(_c, rect) => handleBlockClick(c, rect)}
                 isMultiLane
                 canEdit={canEdit}
                 onMouseDownDrag={handleBlockMouseDown}
@@ -1251,15 +1250,9 @@ function CreneauBlock({
         // que le click ne tire — donc on n'ouvre pas l'inspector. OK.
         e.stopPropagation()
         if (isDragging) return
-        // POP-1 : extraire le DOMRect immédiatement (au plus près du DOM).
+        // POP-1 : extraire le DOMRect immédiatement et le passer au parent
+        // (au plus près du DOM, avant tout pooling/release React event).
         const rect = e.currentTarget.getBoundingClientRect()
-        // eslint-disable-next-line no-console
-        console.log('[CreneauBlock onClick] rect=', {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height,
-        }, 'onClick fn=', typeof onClick)
         onClick?.(creneau, rect)
       }}
       onMouseDown={handleMouseDown}

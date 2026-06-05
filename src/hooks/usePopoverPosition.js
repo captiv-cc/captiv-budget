@@ -73,16 +73,6 @@ export function usePopoverPosition({
         requestAnimationFrame(recompute)
         return
       }
-      // Debug temporaire — à supprimer une fois le bug résolu
-      // eslint-disable-next-line no-console
-      console.log('[usePopoverPosition] anchor', {
-        top: anchorRect.top,
-        left: anchorRect.left,
-        right: anchorRect.right,
-        bottom: anchorRect.bottom,
-        width: anchorRect.width,
-        height: anchorRect.height,
-      }, 'popSize', popSize)
       const vw = window.innerWidth
       const vh = window.innerHeight
       const pad = DEFAULT_VIEWPORT_PAD
@@ -164,9 +154,6 @@ export function usePopoverPosition({
         Math.min(popSizeAlong - MIN_ARROW_INSET, rawOffset),
       )
 
-      // Debug temporaire — à supprimer une fois le bug résolu
-      // eslint-disable-next-line no-console
-      console.log('[usePopoverPosition] final', { top: clampedTop, left: clampedLeft, side })
       setPosition({ top: clampedTop, left: clampedLeft, side, arrowOffset })
       setReady(true)
     }

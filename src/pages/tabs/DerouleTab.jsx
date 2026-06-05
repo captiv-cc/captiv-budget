@@ -76,11 +76,14 @@ export default function DerouleTab() {
   // L'event peut être un MouseEvent React (on extrait le rect de currentTarget)
   // ou directement un DOMRect (passé manuellement).
   function openInspector(creneau, eventOrRect) {
+    // POP-1 : accepte un DOMRect direct (passé par CreneauBlock après
+    // extraction immédiate au click) OU un événement React (pour les
+    // vues List/Cadreur qui passent l'event tel quel). On vérifie par
+    // typeof des propriétés top/left/width plutôt que ('top' in) qui
+    // peut faillir avec les getters de prototype DOMRect dans certains
+    // environnements.
     let rect = null
     if (eventOrRect && typeof eventOrRect === 'object') {
-      // 1) DOMRect-like : top/left/width sont des nombres (DOMRect natif
-      //    OU plain object). Plus robuste que ('top' in) qui peut faillir
-      //    avec les getters de prototype dans certains envs.
       if (
         typeof eventOrRect.top === 'number' &&
         typeof eventOrRect.left === 'number' &&
@@ -88,22 +91,9 @@ export default function DerouleTab() {
       ) {
         rect = eventOrRect
       } else if (eventOrRect.currentTarget?.getBoundingClientRect) {
-        // 2) Event React → on extrait le rect de currentTarget
         rect = eventOrRect.currentTarget.getBoundingClientRect()
       }
     }
-    // Debug temporaire
-    // eslint-disable-next-line no-console
-    console.log(
-      '[DerouleTab.openInspector] received=',
-      eventOrRect,
-      'typeof=',
-      typeof eventOrRect,
-      'extracted rect=',
-      rect,
-      'creneau=',
-      creneau?.titre,
-    )
     setInspectedAnchor(rect)
     setInspectedCreneau(creneau)
   }
