@@ -22,7 +22,23 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Trash2, Save, Plus, ChevronRight, ChevronDown } from 'lucide-react'
+import {
+  X,
+  Trash2,
+  Save,
+  Plus,
+  ChevronRight,
+  ChevronDown,
+  Clock,
+  Layers,
+  MapPin,
+  Users,
+  Flag,
+  FileText,
+  Edit3,
+  Link as LinkIcon,
+  Copy,
+} from 'lucide-react'
 import {
   CRENEAU_TYPES,
   CRENEAU_TYPE_COLORS,
@@ -36,6 +52,7 @@ import {
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
 import { usePopoverPosition } from '../../hooks/usePopoverPosition'
+import './CreneauInspector.css'
 
 const TYPE_LABELS = {
   install: 'Installation',
@@ -324,16 +341,18 @@ export default function CreneauInspector({
         />
       )}
 
-      {/* Panel anchored popover (desktop) ou bottom sheet (mobile) */}
+      {/* Panel anchored popover (desktop) ou bottom sheet (mobile)
+          POP-2.A : bande verticale colorée à gauche (au lieu d'une bordure
+          top), animation d'entrée scale+opacity, shadow plus subtile. */}
       <div
         ref={popoverRef}
-        className="z-50 flex flex-col"
+        className="z-50 flex flex-col creneau-popover-enter"
         style={{
           ...panelStyle,
           background: 'var(--bg-surf)',
           border: '1px solid var(--brd)',
-          borderTop: `3px solid ${accentColor}`,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+          borderLeft: `3px solid ${accentColor}`,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.18)',
           overflow: 'hidden',
         }}
       >
@@ -346,64 +365,87 @@ export default function CreneauInspector({
           />
         )}
 
-        {/* Header compact (sans la barre verticale, l'accent est sur le top) */}
+        {/* Header dense (POP-2.A) : badge type + titre + avatars peers + X */}
         <div
-          className="flex items-center justify-between gap-2 px-4 py-2.5"
+          className="flex items-center justify-between gap-2 px-3 py-2"
           style={{
             borderBottom: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
           }}
         >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span
-                className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
-                style={{
-                  background: `${accentColor}22`,
-                  color: accentColor,
-                }}
-              >
-                {TYPE_LABELS[draft.type] || draft.type}
-              </span>
-              {!isCreate && draft.statut !== 'planifie' && (
-                <span
-                  className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded"
-                  style={{
-                    background: 'var(--bg-surf)',
-                    color: 'var(--txt-2)',
-                    border: '1px solid var(--brd-sub)',
-                  }}
-                >
-                  {STATUT_LABELS[draft.statut]}
-                </span>
-              )}
-            </div>
-            <div className="text-sm font-semibold truncate mt-0.5" style={{ color: 'var(--txt)' }}>
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <span
+              className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+              style={{
+                background: `${accentColor}22`,
+                color: accentColor,
+              }}
+            >
+              {TYPE_LABELS[draft.type] || draft.type}
+            </span>
+            <span
+              className="text-sm font-semibold truncate"
+              style={{ color: 'var(--txt)' }}
+            >
               {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
-            </div>
-            <div className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
-              {dureeMin > 0 && (
-                <span style={{ marginLeft: 6, color: 'var(--txt-3)' }}>
-                  · {formatDuree(dureeMin)}
-                </span>
-              )}
-            </div>
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded transition-colors"
-            style={{ color: 'var(--txt-3)', background: 'transparent' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            title="Fermer (Échap)"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* Avatars présence collab (peers actuellement sur ce créneau) */}
+            {editingPeers.length > 0 && (
+              <span
+                className="cp-peers-stack"
+                title={editingPeers.map((p) => p.name).join(', ') + ' éditent aussi'}
+              >
+                {editingPeers.slice(0, 3).map((p) => (
+                  <span
+                    key={p.clientId}
+                    className="cp-peer-avatar"
+                    style={{ background: p.color }}
+                  >
+                    {(p.name || '?').charAt(0).toUpperCase()}
+                  </span>
+                ))}
+                {editingPeers.length > 3 && (
+                  <span
+                    className="cp-peer-avatar"
+                    style={{ background: 'var(--txt-3)' }}
+                  >
+                    +{editingPeers.length - 3}
+                  </span>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded transition-colors"
+              style={{ color: 'var(--txt-3)', background: 'transparent' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              title="Fermer (Échap)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Body — formulaire */}
+        {/* Body — compact view (POP-2.A) ou formulaire (mode édition) */}
+        {!editing && !isCreate ? (
+          <CompactView
+            creneau={creneau}
+            draft={draft}
+            currentLane={currentLane}
+            membreIds={memberIds}
+            membresPresents={membresPresents}
+            onClose={onClose}
+            collabEnabled={collabEnabled}
+            yjsDoc={yjsDoc}
+            yjsAwareness={yjsAwareness}
+            myUserMeta={myUserMeta}
+            onAutoSaveNotes={debouncedSaveNotes}
+          />
+        ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
           {/* Titre — proéminent */}
           <Field label="Titre">
@@ -697,95 +739,125 @@ export default function CreneauInspector({
             )}
           </Field>
         </div>
+        )}
 
-        {/* Footer */}
-        <div
-          className="flex items-center justify-between gap-2 px-4 py-2.5"
-          style={{
-            borderTop: '1px solid var(--brd-sub)',
-            background: 'var(--bg-elev)',
-          }}
-        >
-          {!isCreate && canEdit && editing && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={saving}
-              className="flex items-center gap-1 px-2 py-1.5 text-xs rounded transition-colors"
-              style={{
-                color: 'var(--red)',
-                background: 'transparent',
-                border: '1px solid var(--brd-sub)',
-              }}
-            >
-              <Trash2 className="w-3 h-3" />
-              Supprimer
-            </button>
-          )}
-          <div className="flex-1" />
-          {!isCreate && !editing && canEdit && (
+        {/* Footer : quick action bar en mode view, boutons classiques en édition */}
+        {!editing && !isCreate ? (
+          // POP-2.A : Quick actions bar (Modifier + Lier + Dupliquer + Supprimer)
+          <div className="cp-quick-actions">
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="px-3 py-1.5 text-xs rounded transition-colors"
-              style={{
-                color: 'var(--txt)',
-                background: 'transparent',
-                border: '1px solid var(--brd)',
-              }}
+              disabled={!canEdit}
+              className="cp-action-btn is-primary"
+              title="Modifier ce créneau"
             >
+              <Edit3 size={14} />
               Modifier
             </button>
-          )}
-          {editing && (
-            <>
-              {!isCreate && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraft(initDraft(creneau))
-                    setMemberIds(creneau?.member_ids || [])
-                    setEditing(false)
-                  }}
-                  disabled={saving}
-                  className="px-3 py-1.5 text-xs rounded transition-colors"
-                  style={{
-                    color: 'var(--txt-2)',
-                    background: 'transparent',
-                    border: '1px solid var(--brd-sub)',
-                  }}
-                >
-                  Annuler
-                </button>
-              )}
+            <button
+              type="button"
+              disabled={!canEdit}
+              className="cp-action-btn"
+              title="Lier à un autre créneau (FEST-2.10)"
+              onClick={() => alert('Bientôt — voir FEST-2.10')}
+            >
+              <LinkIcon size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={!canEdit}
+              className="cp-action-btn"
+              title="Dupliquer ce créneau"
+              onClick={() => alert('Bientôt')}
+            >
+              <Copy size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={!canEdit || saving}
+              className="cp-action-btn is-danger"
+              title="Supprimer"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ) : (
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5"
+            style={{
+              borderTop: '1px solid var(--brd-sub)',
+              background: 'var(--bg-elev)',
+            }}
+          >
+            {!isCreate && canEdit && editing && (
               <button
                 type="button"
-                onClick={handleSave}
-                disabled={saving || horaireInvalide || horaireOver}
-                title={isCreate ? 'Créer (Cmd/Ctrl+Entrée)' : 'Enregistrer (Cmd/Ctrl+Entrée)'}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors"
+                onClick={handleDelete}
+                disabled={saving}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs rounded transition-colors"
                 style={{
-                  color: 'white',
-                  background: saving || horaireInvalide || horaireOver ? 'var(--brd)' : 'var(--blue)',
-                  border: '1px solid transparent',
-                  cursor: saving || horaireInvalide || horaireOver ? 'not-allowed' : 'pointer',
+                  color: 'var(--red)',
+                  background: 'transparent',
+                  border: '1px solid var(--brd-sub)',
                 }}
               >
-                {isCreate ? (
-                  <>
-                    <Plus className="w-3 h-3" />
-                    Créer
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-3 h-3" />
-                    Enregistrer
-                  </>
-                )}
+                <Trash2 className="w-3 h-3" />
+                Supprimer
               </button>
-            </>
-          )}
-        </div>
+            )}
+            <div className="flex-1" />
+            {editing && (
+              <>
+                {!isCreate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(initDraft(creneau))
+                      setMemberIds(creneau?.member_ids || [])
+                      setEditing(false)
+                    }}
+                    disabled={saving}
+                    className="px-3 py-1.5 text-xs rounded transition-colors"
+                    style={{
+                      color: 'var(--txt-2)',
+                      background: 'transparent',
+                      border: '1px solid var(--brd-sub)',
+                    }}
+                  >
+                    Annuler
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || horaireInvalide || horaireOver}
+                  title={isCreate ? 'Créer (Cmd/Ctrl+Entrée)' : 'Enregistrer (Cmd/Ctrl+Entrée)'}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs rounded transition-colors"
+                  style={{
+                    color: 'white',
+                    background: saving || horaireInvalide || horaireOver ? 'var(--brd)' : 'var(--blue)',
+                    border: '1px solid transparent',
+                    cursor: saving || horaireInvalide || horaireOver ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {isCreate ? (
+                    <>
+                      <Plus className="w-3 h-3" />
+                      Créer
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3 h-3" />
+                      Enregistrer
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </>
   )
@@ -1087,6 +1159,136 @@ function formatDuree(min) {
   if (h === 0) return `${m} min`
   if (m === 0) return `${h}h`
   return `${h}h${String(m).padStart(2, '0')}`
+}
+
+// ─── CompactView (POP-2.A) — vue lecture compacte façon Notion/Linear ────
+function CompactView({
+  creneau,
+  draft,
+  currentLane,
+  membreIds,
+  membresPresents,
+  collabEnabled,
+  yjsDoc,
+  yjsAwareness,
+  myUserMeta,
+  onAutoSaveNotes,
+}) {
+  // ─── Lieu : fusion avec la lane si lane.type='lieu' ────────────────────
+  // Hugo : "pour les lanes type 'lieu' (Scène Médiator), le lieu = nom de
+  // la lane, info doublon". Donc :
+  //   - lane.type='lieu' : on affiche le nom de la lane comme LIEU (icône
+  //     MapPin). Pas de ligne séparée "Lane".
+  //   - sinon : 2 lignes — Lane (icône Layers) + Lieu (icône MapPin si
+  //     lieu_text existe, sinon placeholder gris "Ajouter un lieu").
+  const laneIsLieu = currentLane?.type === 'lieu'
+  const lieuValue = laneIsLieu
+    ? (currentLane?.libelle || '—')
+    : (draft.lieu_text || '')
+
+  // ─── Équipe : liste compacte de noms ───────────────────────────────────
+  const teamLabels = useMemo(() => {
+    if (!Array.isArray(membreIds) || membreIds.length === 0) return []
+    return membreIds
+      .map((id) => {
+        const m = membresPresents?.find((x) => x.id === id)
+        if (!m) return null
+        const prenom = m.contact?.prenom || m.prenom || ''
+        const nom = m.contact?.nom || m.nom || ''
+        return (prenom || nom)
+          ? `${prenom}${nom ? ' ' + nom : ''}`.trim()
+          : null
+      })
+      .filter(Boolean)
+  }, [membreIds, membresPresents])
+
+  // ─── Notes : lecture seule (RichEditor avec collab si dispo) ───────────
+  // Si on a collab active, on affiche le doc Y.js (toujours frais).
+  // Sinon on retombe sur creneau.notes (snapshot BDD).
+
+  return (
+    <div
+      className="flex-1 overflow-y-auto"
+      style={{ padding: '10px 14px' }}
+    >
+      {/* Ligne Horaires */}
+      <div className="cp-line">
+        <span className="cp-line-icon"><Clock size={14} /></span>
+        <span className="cp-line-value">
+          {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
+        </span>
+        <span className="cp-line-extra">
+          {formatDuree((draft.heure_fin_min ?? 0) - (draft.heure_debut_min ?? 0))}
+        </span>
+      </div>
+
+      {/* Ligne Lane (si != type lieu) */}
+      {!laneIsLieu && currentLane && (
+        <div className="cp-line">
+          <span className="cp-line-icon"><Layers size={14} /></span>
+          <span className="cp-line-value">{currentLane.libelle || '—'}</span>
+        </div>
+      )}
+
+      {/* Ligne Lieu — si lane est de type lieu, le nom de la lane EST le lieu */}
+      <div className="cp-line">
+        <span className="cp-line-icon"><MapPin size={14} /></span>
+        {lieuValue ? (
+          <span className="cp-line-value">{lieuValue}</span>
+        ) : (
+          <span className="cp-line-value is-placeholder">Ajouter un lieu</span>
+        )}
+      </div>
+
+      {/* Ligne Équipe */}
+      <div className="cp-line">
+        <span className="cp-line-icon"><Users size={14} /></span>
+        {teamLabels.length > 0 ? (
+          <span className="cp-team-chips">
+            {teamLabels.slice(0, 4).map((label, i) => (
+              <span key={i} className="cp-team-chip">{label}</span>
+            ))}
+            {teamLabels.length > 4 && (
+              <span className="cp-team-chip">+{teamLabels.length - 4}</span>
+            )}
+          </span>
+        ) : (
+          <span className="cp-line-value is-placeholder">Aucun cadreur assigné</span>
+        )}
+      </div>
+
+      {/* Ligne Statut */}
+      <div className="cp-line">
+        <span className="cp-line-icon"><Flag size={14} /></span>
+        <span className={`cp-status-badge is-${draft.statut}`}>
+          {STATUT_LABELS[draft.statut] || draft.statut}
+        </span>
+      </div>
+
+      {/* Section Notes (toujours visible) */}
+      <div className="cp-notes-section">
+        <div className="cp-notes-header">
+          <FileText size={11} />
+          Notes
+        </div>
+        {collabEnabled && yjsDoc ? (
+          <RichEditor
+            collaboration={{
+              doc: yjsDoc,
+              awareness: yjsAwareness,
+              user: myUserMeta,
+              initialContent: creneau.notes,
+            }}
+            onChange={onAutoSaveNotes}
+            placeholder="Briefing technique, contraintes…"
+            minHeight={40}
+          />
+        ) : (
+          <RichEditor value={creneau?.notes} readOnly minHeight={20} />
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─── PopoverArrow — Flèche pointant du popover vers le bloc ancré ──────────
