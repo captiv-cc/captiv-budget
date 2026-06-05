@@ -183,6 +183,85 @@
   margin: 1em 0;
 }
 
+/* ─── Popover lien (LinkPopover) ───────────────────────────────────────── */
+.rich-editor-link-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.rich-editor-link-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-surf, var(--bg-elev));
+  border: 1px solid var(--brd);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  min-width: 280px;
+}
+
+.rich-editor-link-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--txt);
+  border: 1px solid var(--brd);
+  border-radius: 4px;
+  outline: none;
+}
+.rich-editor-link-input:focus {
+  border-color: var(--brand, #3B82F6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.rich-editor-link-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.rich-editor-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--txt-2);
+  border: 1px solid var(--brd);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+.rich-editor-link-btn:hover {
+  background: var(--bg);
+  color: var(--txt);
+}
+.rich-editor-link-btn.is-primary {
+  background: var(--brand, #3B82F6);
+  color: white;
+  border-color: var(--brand, #3B82F6);
+}
+.rich-editor-link-btn.is-primary:hover {
+  filter: brightness(1.05);
+}
+.rich-editor-link-btn.is-danger {
+  color: var(--danger, #DC2626);
+  border-color: transparent;
+}
+.rich-editor-link-btn.is-danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
 /* ─── Curseurs collaboratifs (FEST-2.6, prêt à servir) ─────────────────── */
 .rich-editor-content .collaboration-cursor__caret {
   position: relative;

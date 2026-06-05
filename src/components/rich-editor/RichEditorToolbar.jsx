@@ -10,10 +10,11 @@
 // Boutons :
 //   B  I  S | H1 H2 H3 | • 1. > <> ↪ | ⌫⏎
 //
-// Le bouton lien utilise window.prompt() pour la V1 — simple et efficace.
-// V2 (CHANTIER_NOTES_DOCS) : popover inline avec preview + bouton retirer.
+// Le bouton lien ouvre un mini-popover inline (LinkPopover ci-dessous) qui
+// remplace l'ancien window.prompt natif. Style cohérent avec le thème DESK.
 // ════════════════════════════════════════════════════════════════════════════
 
+import { useState, useRef, useEffect } from 'react'
 import {
   Bold,
   Italic,
@@ -28,12 +29,15 @@ import {
   Link as LinkIcon,
   Undo,
   Redo,
+  Check,
+  X,
 } from 'lucide-react'
 
-function Btn({ active, disabled, onClick, title, children }) {
+function Btn({ active, disabled, onClick, title, children, btnRef }) {
   return (
     <button
       type="button"
+      ref={btnRef}
       className={`rich-editor-toolbar-button${active ? ' is-active' : ''}`}
       onClick={onClick}
       disabled={disabled}
@@ -50,28 +54,123 @@ function Sep() {
   return <span className="rich-editor-toolbar-sep" />
 }
 
+// ─── LinkPopover — Popover inline pour ajouter/éditer/retirer un lien ────
+function LinkPopover({ initialUrl, onApply, onRemove, onCancel }) {
+  const [url, setUrl] = useState(initialUrl || '')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    // Focus + sélection au mount pour une saisie immédiate
+    if (inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [])
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const trimmed = url.trim()
+      if (!trimmed) onRemove()
+      else onApply(trimmed)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    }
+  }
+
+  // Bloque la propagation des clics dans le popover pour ne pas déclencher
+  // le close au mousedown qui écoute en dehors.
+  const stop = (e) => e.stopPropagation()
+
+  return (
+    <div
+      className="rich-editor-link-popover"
+      onMouseDown={stop}
+      onClick={stop}
+      role="dialog"
+      aria-label="Insérer un lien"
+    >
+      <input
+        ref={inputRef}
+        type="url"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        onKeyDown={handleKey}
+        placeholder="https://…"
+        className="rich-editor-link-input"
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <div className="rich-editor-link-actions">
+        {initialUrl && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rich-editor-link-btn is-danger"
+            title="Retirer le lien"
+          >
+            Retirer
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rich-editor-link-btn"
+          title="Annuler (Esc)"
+        >
+          <X size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const trimmed = url.trim()
+            if (!trimmed) onRemove()
+            else onApply(trimmed)
+          }}
+          className="rich-editor-link-btn is-primary"
+          title="Appliquer (Entrée)"
+        >
+          <Check size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function RichEditorToolbar({ editor }) {
+  const [linkOpen, setLinkOpen] = useState(false)
+  const linkBtnRef = useRef(null)
+  const popoverWrapRef = useRef(null)
+
+  // Ferme le popover si clic ailleurs (hors du popover + hors du bouton lien).
+  useEffect(() => {
+    if (!linkOpen) return undefined
+    function onDocMouseDown(e) {
+      if (popoverWrapRef.current?.contains(e.target)) return
+      if (linkBtnRef.current?.contains(e.target)) return
+      setLinkOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [linkOpen])
+
   if (!editor) return null
 
-  // Action "lien" : si on a déjà un lien actif, on précharge l'URL pour
-  // édition ; sinon on demande une URL fraîche. URL vide → retire le lien.
-  const promptLink = () => {
-    const previousUrl = editor.getAttributes('link').href
-    const url = window.prompt(
-      'URL du lien (laisser vide pour retirer)',
-      previousUrl || 'https://',
-    )
-    if (url === null) return // annulé
-    if (url === '' || url === 'https://') {
-      editor.chain().focus().extendMarkRange('link').unsetLink().run()
-      return
-    }
+  const currentLinkUrl = editor.getAttributes('link').href || ''
+
+  const applyLink = (url) => {
     editor
       .chain()
       .focus()
       .extendMarkRange('link')
       .setLink({ href: url })
       .run()
+    setLinkOpen(false)
+  }
+  const removeLink = () => {
+    editor.chain().focus().extendMarkRange('link').unsetLink().run()
+    setLinkOpen(false)
   }
 
   return (
@@ -152,13 +251,26 @@ export default function RichEditorToolbar({ editor }) {
       >
         <Code size={14} />
       </Btn>
-      <Btn
-        active={editor.isActive('link')}
-        onClick={promptLink}
-        title="Lien (URL)"
-      >
-        <LinkIcon size={14} />
-      </Btn>
+
+      {/* Lien avec popover inline */}
+      <div className="rich-editor-link-wrap" ref={popoverWrapRef}>
+        <Btn
+          btnRef={linkBtnRef}
+          active={editor.isActive('link') || linkOpen}
+          onClick={() => setLinkOpen((v) => !v)}
+          title="Lien (URL)"
+        >
+          <LinkIcon size={14} />
+        </Btn>
+        {linkOpen && (
+          <LinkPopover
+            initialUrl={currentLinkUrl}
+            onApply={applyLink}
+            onRemove={removeLink}
+            onCancel={() => setLinkOpen(false)}
+          />
+        )}
+      </div>
 
       <Sep />
 
