@@ -69,6 +69,7 @@ export default function DerouleTimelineView({
   conflictsByCreneau,
   canEdit,
   hasOpenInspector = false,
+  creatingDraft = null,
   onSelectCreneau,
   onCreateCreneauAt,
   onAddLane,
@@ -256,6 +257,9 @@ export default function DerouleTimelineView({
       currentLaneId: isMultiLaneZone ? null : laneId,
       hasMoved: false,
       altKey: e.altKey,
+      // Hugo : rect de la lane cliquée → utilisé au mouseup pour calculer
+      // le rect du futur bloc et l'ancrer correctement au popover.
+      laneRect: rect,
     })
   }
 
@@ -366,13 +370,36 @@ export default function DerouleTimelineView({
           justDraggedRef.current = false
         }, 0)
         const debut = s.hasMoved ? s.currentDebutMin : s.initialDebutMin
-        const fin = s.hasMoved ? s.currentFinMin : s.initialDebutMin + 30
-        onCreateCreneauAt?.({
-          lane_id: s.multiLane ? null : s.initialLaneId,
-          multi_lane: s.multiLane,
-          heure_debut_min: debut,
-          heure_fin_min: Math.min(MAX_MIN, fin),
-        })
+        const fin = Math.min(MAX_MIN, s.hasMoved ? s.currentFinMin : s.initialDebutMin + 30)
+        // Hugo : calcule le rect du FUTUR bloc dans le viewport (basé sur
+        // les coords de la lane + heures choisies) pour ancrer le popover
+        // correctement. Sinon le popover s'ancrait au point cliqué, puis se
+        // décalait au prochain frame quand usePopoverPosition recalculait.
+        let anchorRect = null
+        if (s.laneRect) {
+          const laneRect = s.laneRect
+          const offsetTopMin = debut - heureDebutMin
+          const durMin = fin - debut
+          const blockTop = laneRect.top + (offsetTopMin / 60) * PX_PER_HOUR
+          const blockHeight = (durMin / 60) * PX_PER_HOUR
+          anchorRect = {
+            top: blockTop,
+            left: laneRect.left + 4, // padding horizontal des blocs
+            right: laneRect.right - 4,
+            bottom: blockTop + blockHeight,
+            width: laneRect.width - 8,
+            height: blockHeight,
+          }
+        }
+        onCreateCreneauAt?.(
+          {
+            lane_id: s.multiLane ? null : s.initialLaneId,
+            multi_lane: s.multiLane,
+            heure_debut_min: debut,
+            heure_fin_min: fin,
+          },
+          anchorRect,
+        )
         return
       }
 
@@ -665,6 +692,40 @@ export default function DerouleTimelineView({
                     {formatMinHHMM(dragState.currentDebutMin)} – {formatMinHHMM(dragState.currentFinMin)}
                     <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>
                       Nouveau créneau
+                    </div>
+                  </div>
+                )}
+
+              {/* POP-2 / Hugo : placeholder PERSISTANT tant que la modale
+                  création est ouverte (creatingDraft set). Montre où le
+                  bloc va être créé, avec ses heures choisies. */}
+              {creatingDraft &&
+                !creatingDraft.multi_lane &&
+                creatingDraft.lane_id === lane.id && (
+                  <div
+                    className="absolute rounded pointer-events-none"
+                    style={{
+                      top: minToTop(creatingDraft.heure_debut_min),
+                      left: 4,
+                      right: 4,
+                      height:
+                        durationToHeight(
+                          creatingDraft.heure_fin_min - creatingDraft.heure_debut_min,
+                        ) - 2,
+                      background: 'rgba(120, 120, 120, 0.15)',
+                      border: '1.5px dashed var(--brd)',
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: 'var(--txt-3)',
+                      lineHeight: 1.2,
+                      overflow: 'hidden',
+                      zIndex: 3,
+                    }}
+                  >
+                    {formatMinHHMM(creatingDraft.heure_debut_min)} – {formatMinHHMM(creatingDraft.heure_fin_min)}
+                    <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1, fontStyle: 'italic' }}>
+                      En cours de création…
                     </div>
                   </div>
                 )}

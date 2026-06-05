@@ -288,15 +288,22 @@ export default function DerouleTab() {
       heure_debut_min: draft.heure_debut_min ?? 540,
       heure_fin_min: draft.heure_fin_min ?? 570,
     })
-    // Stocke aussi le rect de l'élément cliqué pour ancrer le popover
-    // (sinon il sera centré).
-    if (eventOrRect?.currentTarget?.getBoundingClientRect) {
-      setCreatingAnchor(eventOrRect.currentTarget.getBoundingClientRect())
-    } else if (typeof eventOrRect?.getBoundingClientRect === 'function') {
-      setCreatingAnchor(eventOrRect)
-    } else {
-      setCreatingAnchor(null)
+    // Stocke aussi le rect du futur bloc (calculé par DerouleTimelineView
+    // depuis les coords de la lane + heures) pour ancrer le popover.
+    // Détection robuste : DOMRect natif OU plain rect avec top/left/width.
+    let rect = null
+    if (eventOrRect && typeof eventOrRect === 'object') {
+      if (
+        typeof eventOrRect.top === 'number' &&
+        typeof eventOrRect.left === 'number' &&
+        typeof eventOrRect.width === 'number'
+      ) {
+        rect = eventOrRect
+      } else if (eventOrRect.currentTarget?.getBoundingClientRect) {
+        rect = eventOrRect.currentTarget.getBoundingClientRect()
+      }
     }
+    setCreatingAnchor(rect)
   }
 
   async function handleSaveCreneau(fields) {
@@ -540,6 +547,7 @@ export default function DerouleTab() {
           conflictsByCreneau={conflictsByCreneau}
           canEdit={canEdit}
           hasOpenInspector={Boolean(inspectedCreneau || creatingDraft)}
+          creatingDraft={creatingDraft}
           onSelectCreneau={handleSelectCreneau}
           onCreateCreneauAt={handleCreateCreneauAt}
           onAddLane={handleAddLane}
