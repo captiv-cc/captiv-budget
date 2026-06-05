@@ -10,25 +10,40 @@
 // collab temps réel future).
 //
 // Props :
-//   - value          : doc ProseMirror (objet JSON) — ou null/undefined
-//   - onChange(json) : appelé à chaque modif (caller peut debounce si besoin)
+//   - value          : doc ProseMirror (objet JSON) — ou null/undefined.
+//                       IGNORÉ si collaboration est fourni (Y.Doc est la source
+//                       de vérité dans ce cas).
+//   - onChange(json) : appelé à chaque modif (caller peut debounce si besoin).
+//                       En mode collab, appelé aussi pour les updates remote
+//                       arrivés via Y.js → permet au caller de snapshoter en BDD.
 //   - placeholder    : texte affiché si vide (défaut : "Notes…")
 //   - readOnly       : true → mode lecture seule (pas de toolbar)
 //   - autoFocus      : focus à la fin du contenu au mount
 //   - minHeight      : hauteur min en px de la zone d'édition (défaut 80)
 //   - className      : classes additionnelles sur le wrapper
-//   - collaboration  : (FEST-2.6) { provider, doc, user } pour activer Y.js
-//                       — quand fourni, désactive l'history StarterKit (Y.js
-//                       gère l'undo/redo) et injecte les extensions Collab.
-//                       Pour l'instant accepté mais non utilisé : juste la
-//                       prop est en place pour câbler FEST-2.5/2.6 sans
-//                       breaking change.
+//   - collaboration  : { doc, awareness, user } pour activer Y.js (FEST-2.5).
+//                       - doc        : instance Y.Doc partagée (from useYjsCollab)
+//                       - awareness  : instance Y.Awareness (curseurs colorés)
+//                       - user       : { name, color, user_id } meta locale
+//                       Quand fourni :
+//                       - StarterKit.history est désactivé (Y.js gère undo)
+//                       - Extension Collaboration branchée sur le Y.Doc
+//                       - Extension CollaborationCursor branchée sur awareness
+//                       - La prop `value` est ignorée (le caller doit pré-remplir
+//                         le Y.Doc avec son contenu initial si besoin)
 //
 // Usage minimal :
 //   <RichEditor value={notes} onChange={setNotes} placeholder="Notes du créneau…" />
 //
 // Usage lecture seule (vue cadreur, share) :
 //   <RichEditor value={notes} readOnly />
+//
+// Usage avec collab Y.js (FEST-2.5) :
+//   const { doc, awareness, myUserMeta } = useYjsCollab({ docId, scope: 'deroule-creneau' })
+//   <RichEditor
+//     collaboration={{ doc, awareness, user: myUserMeta }}
+//     onChange={(json) => debouncedSaveNotes(json)}
+//   />
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react'
@@ -36,6 +51,8 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
 import RichEditorToolbar from './RichEditorToolbar'
 import { EMPTY_DOC, docsEqual } from './utils'
 import './RichEditor.css'
@@ -55,6 +72,22 @@ export default function RichEditor({
   // re-set le content quand value re-arrive identique depuis le parent (qui
   // refait un re-render après l'onChange).
   const lastEmittedRef = useRef(null)
+
+  // Extensions Y.js conditionnelles (FEST-2.5). Si `collaboration` est
+  // fourni, on les ajoute APRÈS le StarterKit (qui aura history désactivé).
+  const collabExtensions = collaboration?.doc
+    ? [
+        Collaboration.configure({ document: collaboration.doc }),
+        ...(collaboration.awareness
+          ? [
+              CollaborationCursor.configure({
+                provider: { awareness: collaboration.awareness },
+                user: collaboration.user || { name: 'Inconnu', color: '#666' },
+              }),
+            ]
+          : []),
+      ]
+    : []
 
   const editor = useEditor(
     {
@@ -77,11 +110,13 @@ export default function RichEditor({
             target: '_blank',
           },
         }),
-        // ▶︎ FEST-2.6 : @tiptap/extension-collaboration et
-        //               @tiptap/extension-collaboration-cursor seront
-        //               injectés ici si `collaboration` est fourni.
+        ...collabExtensions,
       ],
-      content: value || EMPTY_DOC,
+      // En mode collab, on ne fournit PAS de `content` initial : c'est le
+      // Y.Doc (déjà rempli par le caller au mount) qui détermine le contenu.
+      // Fournir un content ici écraserait potentiellement les modifs des
+      // autres clients déjà reçus via sync-request.
+      content: collaboration ? undefined : value || EMPTY_DOC,
       editable: !readOnly,
       autofocus: autoFocus ? 'end' : false,
       onUpdate: ({ editor: ed }) => {
@@ -101,7 +136,17 @@ export default function RichEditor({
     // Dépendances de re-création de l'éditeur. On NE met PAS `value` ici
     // pour éviter un re-mount à chaque saisie (qui flush le curseur). Le
     // sync de value est fait via useEffect ci-dessous (commands.setContent).
-    [readOnly, placeholder, minHeight, collaboration],
+    // Pour `collaboration`, on dépend uniquement de l'identité du Y.Doc et
+    // de l'awareness (objets stables tant que useYjsCollab ne re-mount pas),
+    // pas du wrapper `collaboration` lui-même qui peut être recréé à chaque
+    // render du parent.
+    [
+      readOnly,
+      placeholder,
+      minHeight,
+      collaboration?.doc,
+      collaboration?.awareness,
+    ],
   )
 
   // ─── Sync externe : value (parent) → editor ───────────────────────────
