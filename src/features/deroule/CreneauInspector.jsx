@@ -124,10 +124,12 @@ export default function CreneauInspector({
   const [memberIds, setMemberIds] = useState(() => creneau?.member_ids || [])
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(isCreate || !creneau?.id)
-  // POP-2.B : édition inline du titre dans le header
+  // POP-2.B : édition inline du titre dans le header + real-time save
   const [editingTitre, setEditingTitre] = useState(false)
   const [titreDraft, setTitreDraft] = useState(creneau?.titre || '')
   const titreInputRef = useRef(null)
+  const titreDebounceRef = useRef(null)
+  const titreLastSavedRef = useRef(creneau?.titre || '')
   // FEST-2.10 : modal de gestion du lien source/anchor
   const [linkModalOpen, setLinkModalOpen] = useState(false)
   // FEST-2.11 : modal de propagation aux enfants liés
@@ -144,8 +146,26 @@ export default function CreneauInspector({
     }
   }, [editingTitre])
   useEffect(() => {
-    if (!editingTitre) setTitreDraft(creneau?.titre || '')
+    if (!editingTitre) {
+      setTitreDraft(creneau?.titre || '')
+      titreLastSavedRef.current = creneau?.titre || ''
+    }
   }, [creneau?.titre, editingTitre])
+  useEffect(() => {
+    return () => {
+      if (titreDebounceRef.current) clearTimeout(titreDebounceRef.current)
+    }
+  }, [])
+  const scheduleTitreSave = (newDraft) => {
+    if (titreDebounceRef.current) clearTimeout(titreDebounceRef.current)
+    titreDebounceRef.current = setTimeout(() => {
+      const trimmed = newDraft.trim()
+      if (trimmed && trimmed !== (titreLastSavedRef.current || '').trim()) {
+        titreLastSavedRef.current = trimmed
+        onSavePartial?.({ titre: trimmed })
+      }
+    }, 500)
+  }
 
   // Ne réinitialise le draft que si on change réellement de créneau
   // (changement d'ID), pas à chaque update Realtime du même créneau —
@@ -159,12 +179,12 @@ export default function CreneauInspector({
   }, [creneau?.id, isCreate])
 
   // ─── Collab Y.js sur les notes (FEST-2.5) ────────────────────────────────
-  // Active la collab dès qu'on a un creneau persisté + droits d'édition.
-  // POP-2.B / Hugo : en mode compact view, les notes doivent rester
-  // éditables directement (workflow Notion-like, pas besoin de cliquer
-  // Modifier juste pour taper une note). Donc on retire la condition
-  // editing — la collab tourne tant que l'inspecteur est ouvert.
-  const collabEnabled = Boolean(creneau?.id) && canEdit
+  // Active la collab uniquement en mode édition (Hugo : "pour la vue 'view':
+  // ne pas montrer le bloc modification des notes > seulement le texte
+  // figé"). En mode compact, RichEditor en readOnly (texte rendu sans
+  // toolbar). Le bouton "Modifier" passe en mode édition complet pour
+  // activer Tiptap + collab Y.js sur les notes.
+  const collabEnabled = Boolean(creneau?.id) && editing && canEdit
   const {
     doc: yjsDoc,
     awareness: yjsAwareness,
@@ -449,12 +469,21 @@ export default function CreneauInspector({
                 ref={titreInputRef}
                 type="text"
                 value={titreDraft}
-                onChange={(e) => setTitreDraft(e.target.value)}
+                onChange={(e) => {
+                  setTitreDraft(e.target.value)
+                  scheduleTitreSave(e.target.value)
+                }}
                 onBlur={() => {
+                  // Force le flush du debounce avant de quitter
+                  if (titreDebounceRef.current) {
+                    clearTimeout(titreDebounceRef.current)
+                    titreDebounceRef.current = null
+                  }
                   const trimmed = titreDraft.trim()
-                  if (trimmed && trimmed !== (creneau?.titre || '').trim()) {
+                  if (trimmed && trimmed !== (titreLastSavedRef.current || '').trim()) {
+                    titreLastSavedRef.current = trimmed
                     onSavePartial?.({ titre: trimmed })
-                  } else {
+                  } else if (!trimmed) {
                     setTitreDraft(creneau?.titre || '')
                   }
                   setEditingTitre(false)
@@ -465,6 +494,10 @@ export default function CreneauInspector({
                     e.currentTarget.blur()
                   } else if (e.key === 'Escape') {
                     e.preventDefault()
+                    if (titreDebounceRef.current) {
+                      clearTimeout(titreDebounceRef.current)
+                      titreDebounceRef.current = null
+                    }
                     setTitreDraft(creneau?.titre || '')
                     setEditingTitre(false)
                   }
@@ -1561,10 +1594,14 @@ function CompactView({
 }
 
 // ─── InlineText (POP-2.B) — texte éditable au click ───────────────────────
+// Hugo : real-time save debounced (500ms). Si on clique ailleurs avant
+// le commit final, le save est déjà parti en arrière-plan.
 function InlineText({ icon, value, placeholder, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value || '')
   const inputRef = useRef(null)
+  const debounceTimerRef = useRef(null)
+  const lastSavedRef = useRef(value || '')
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -1575,15 +1612,48 @@ function InlineText({ icon, value, placeholder, canEdit, onSave }) {
 
   // Sync si value change depuis l'extérieur pendant qu'on n'édite pas
   useEffect(() => {
-    if (!editing) setDraft(value || '')
+    if (!editing) {
+      setDraft(value || '')
+      lastSavedRef.current = value || ''
+    }
   }, [value, editing])
 
+  // Cleanup du timer au unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [])
+
+  // Debounced save à chaque keystroke (500ms après dernière frappe)
+  const scheduleAutoSave = (newDraft) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      const trimmed = newDraft.trim()
+      if (trimmed !== (lastSavedRef.current || '').trim()) {
+        lastSavedRef.current = trimmed
+        onSave?.(trimmed)
+      }
+    }, 500)
+  }
+
   const commit = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
     const trimmed = draft.trim()
-    if (trimmed !== (value || '').trim()) onSave?.(trimmed)
+    if (trimmed !== (lastSavedRef.current || '').trim()) {
+      lastSavedRef.current = trimmed
+      onSave?.(trimmed)
+    }
     setEditing(false)
   }
   const cancel = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
     setDraft(value || '')
     setEditing(false)
   }
@@ -1596,7 +1666,10 @@ function InlineText({ icon, value, placeholder, canEdit, onSave }) {
           ref={inputRef}
           type="text"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            scheduleAutoSave(e.target.value)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -1705,12 +1778,16 @@ function InlineSelect({ icon, value, options, canEdit, renderDisplay, onSave }) 
 }
 
 // ─── InlineHoraires (POP-2.B) — 2 inputs time inline ──────────────────────
+// Hugo : real-time save debounced 500ms après chaque changement (typage
+// dans le segment heure/minute du time input).
 function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [draftDebut, setDraftDebut] = useState(heureDebut)
   const [draftFin, setDraftFin] = useState(heureFin)
   const debutRef = useRef(null)
   const containerRef = useRef(null)
+  const debounceTimerRef = useRef(null)
+  const lastSavedRef = useRef({ debut: heureDebut, fin: heureFin })
 
   useEffect(() => {
     if (editing && debutRef.current) {
@@ -1722,15 +1799,40 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
     if (!editing) {
       setDraftDebut(heureDebut)
       setDraftFin(heureFin)
+      lastSavedRef.current = { debut: heureDebut, fin: heureFin }
     }
   }, [heureDebut, heureFin, editing])
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [])
 
   const dureeMinDraft = (draftFin ?? 0) - (draftDebut ?? 0)
   const invalid = dureeMinDraft <= 0
 
+  const scheduleAutoSave = (newDebut, newFin) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      if (newFin - newDebut <= 0) return // ne pas sauver des horaires invalides
+      const last = lastSavedRef.current
+      if (newDebut !== last.debut || newFin !== last.fin) {
+        lastSavedRef.current = { debut: newDebut, fin: newFin }
+        onSave?.(newDebut, newFin)
+      }
+    }, 500)
+  }
+
   const commit = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
     if (invalid) return
-    if (draftDebut !== heureDebut || draftFin !== heureFin) {
+    const last = lastSavedRef.current
+    if (draftDebut !== last.debut || draftFin !== last.fin) {
+      lastSavedRef.current = { debut: draftDebut, fin: draftFin }
       onSave?.(draftDebut, draftFin)
     }
     setEditing(false)
@@ -1778,7 +1880,9 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
               const m = timeToMinutes(e.target.value)
               if (Number.isFinite(m)) {
                 const offset = draftDebut >= 1440 ? 1440 : 0
-                setDraftDebut(m + offset)
+                const newDebut = m + offset
+                setDraftDebut(newDebut)
+                scheduleAutoSave(newDebut, draftFin)
               }
             }}
             onBlur={handleBlur}
@@ -1801,7 +1905,9 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
               const m = timeToMinutes(e.target.value)
               if (Number.isFinite(m)) {
                 const offset = draftFin >= 1440 ? 1440 : 0
-                setDraftFin(m + offset)
+                const newFin = m + offset
+                setDraftFin(newFin)
+                scheduleAutoSave(draftDebut, newFin)
               }
             }}
             onBlur={handleBlur}
