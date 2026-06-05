@@ -68,6 +68,7 @@ export default function DerouleTimelineView({
   membres,
   conflictsByCreneau,
   canEdit,
+  hasOpenInspector = false,
   onSelectCreneau,
   onCreateCreneauAt,
   onAddLane,
@@ -232,6 +233,10 @@ export default function DerouleTimelineView({
     if (!canEdit) return
     if (e.button !== 0) return
     if (e.target !== e.currentTarget) return // ne pas déclencher si on clique sur un bloc enfant
+    // Hugo : si une modale est ouverte, click sur zone vide = juste fermer
+    // la modale (Google Calendar style). Le click-outside du popover s'en
+    // occupera ; ici on bloque juste la création parasite.
+    if (hasOpenInspector) return
     const rect = e.currentTarget.getBoundingClientRect()
     const y = e.clientY - rect.top
     const minutesFromTop = (y / PX_PER_HOUR) * 60

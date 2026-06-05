@@ -539,6 +539,7 @@ export default function DerouleTab() {
           membres={membres}
           conflictsByCreneau={conflictsByCreneau}
           canEdit={canEdit}
+          hasOpenInspector={Boolean(inspectedCreneau || creatingDraft)}
           onSelectCreneau={handleSelectCreneau}
           onCreateCreneauAt={handleCreateCreneauAt}
           onAddLane={handleAddLane}
