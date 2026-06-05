@@ -1608,23 +1608,36 @@ function CompactView({
       </div>
 
       {/* Ligne Multi-lane (visible seulement en editMode) */}
+      {/* Contrainte BDD : multi_lane=true ↔ lane_id=NULL. On gère l'inversion
+          côté UI : si on coche, on nullifie lane_id ; si on décoche, on
+          assigne par défaut la 1ère lane disponible (Global priorisée). */}
       {editMode && canEdit && (
-        <label
+        <div
           className="cp-line is-clickable"
           style={{ cursor: 'pointer' }}
           title="Couvre toutes les lanes (bloc transversal)"
+          onClick={() => {
+            const next = !draft.multi_lane
+            if (next) {
+              onSavePartial?.({ multi_lane: true, lane_id: null })
+            } else {
+              const defaultLane =
+                lanes.find((l) => l.type === 'global') || lanes[0]
+              if (defaultLane) {
+                onSavePartial?.({ multi_lane: false, lane_id: defaultLane.id })
+              }
+            }
+          }}
         >
           <span className="cp-line-icon" style={{ fontSize: 13 }}>↔</span>
-          <span className="cp-line-value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={Boolean(draft.multi_lane)}
-              onChange={(e) => saveField('multi_lane', e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            Bloc multi-lane (couvre toutes les lanes)
+          <span
+            className="cp-line-value"
+            style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+          >
+            <CustomCheckbox checked={Boolean(draft.multi_lane)} />
+            <span>Bloc multi-lane (couvre toutes les lanes)</span>
           </span>
-        </label>
+        </div>
       )}
 
       {/* Ligne Statut — select */}
@@ -2037,6 +2050,35 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
         {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
       </span>
     </div>
+  )
+}
+
+// ─── CustomCheckbox — Checkbox stylée DESK (cohérent thème, plus joli) ────
+function CustomCheckbox({ checked }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 16,
+        height: 16,
+        borderRadius: 4,
+        background: checked ? 'var(--blue, #3B82F6)' : 'transparent',
+        border: `1.5px solid ${checked ? 'var(--blue, #3B82F6)' : 'var(--brd)'}`,
+        transition: 'background 0.12s, border-color 0.12s',
+        flexShrink: 0,
+      }}
+    >
+      {checked && (
+        <Check
+          size={11}
+          strokeWidth={3}
+          style={{ color: 'white' }}
+        />
+      )}
+    </span>
   )
 }
 
