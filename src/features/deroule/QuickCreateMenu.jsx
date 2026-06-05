@@ -240,20 +240,21 @@ export default function QuickCreateMenu({
                   draftOverride: {
                     type: 'prise',
                     titre: c.titre || '',
-                    // FEST-3.2 C : on hérite des horaires de la source
-                    // pour que le créneau créé démarre/finisse comme elle.
+                    // À la création, on copie les horaires de la source
+                    // (même debut + même fin). L'utilisateur pourra ensuite
+                    // raccourcir la durée si besoin (ex: cadreur filme
+                    // juste 30 min des 1h45 du show).
                     heure_debut_min: c.heure_debut_min,
                     heure_fin_min: c.heure_fin_min,
                     source_creneau_id: c.id,
                     source_anchor: {
-                      // heure_debut_min + duree_min ensemble = suivi total
-                      // des horaires (l'enfant suit la source à 100%).
-                      fields: [
-                        'titre',
-                        'lieu_text',
-                        'heure_debut_min',
-                        'duree_min',
-                      ],
+                      // FEST-3.2 C (Hugo fix) : on inclut heure_debut_min
+                      // (l'enfant suit l'horaire de début si la source est
+                      // déplacée) mais PAS duree_min. La durée locale de
+                      // l'enfant est préservée → un cadreur qui a réduit son
+                      // tournage à 30 min garde ses 30 min même si le show
+                      // dure 1h45.
+                      fields: ['titre', 'lieu_text', 'heure_debut_min'],
                     },
                   },
                 })

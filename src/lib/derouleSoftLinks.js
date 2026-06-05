@@ -38,6 +38,11 @@ export const ANCHOR_FIELDS = [
 ]
 
 // Labels FR pour l'UI (modal de création de lien + modal de propagation).
+// Heure de début + Durée sont distincts ET indépendants : selon le use case
+// festival, on peut vouloir que l'enfant suive l'horaire de début mais
+// préserve sa durée locale (ex: cadreur qui filme 30 min d'un show qui dure
+// 1h45 — si le show est déplacé, le cadreur arrive à la nouvelle heure mais
+// filme toujours 30 min).
 export const ANCHOR_FIELD_LABELS = {
   titre: 'Titre',
   description: 'Description',
@@ -45,8 +50,8 @@ export const ANCHOR_FIELD_LABELS = {
   couleur: 'Couleur',
   lieu_text: 'Lieu',
   notes: 'Notes',
-  heure_debut_min: 'Heure de début',
-  duree_min: 'Durée',
+  heure_debut_min: 'Suivre l’heure de début',
+  duree_min: 'Suivre la durée',
   cadreurs: 'Cadreurs',
 }
 
