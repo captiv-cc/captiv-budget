@@ -38,6 +38,7 @@ import {
   Edit3,
   Link as LinkIcon,
   Copy,
+  Share2,
 } from 'lucide-react'
 import {
   CRENEAU_TYPES,
@@ -113,6 +114,8 @@ export default function CreneauInspector({
   onSave,
   onAutoSaveNotes,
   onSavePartial,
+  onSavePartialForCreneau,
+  onSetMembresForCreneau,
   onCreate,
   onDelete,
   onSetMembres,
@@ -127,6 +130,13 @@ export default function CreneauInspector({
   const titreInputRef = useRef(null)
   // FEST-2.10 : modal de gestion du lien source/anchor
   const [linkModalOpen, setLinkModalOpen] = useState(false)
+  // FEST-2.11 : modal de propagation aux enfants liés
+  const [propagationModalOpen, setPropagationModalOpen] = useState(false)
+  // Détecter les enfants liés à ce créneau (pour afficher le bouton propager)
+  const linkedChildren = useMemo(
+    () => getLinkedChildren(allCreneaux, creneau?.id),
+    [allCreneaux, creneau?.id],
+  )
   useEffect(() => {
     if (editingTitre && titreInputRef.current) {
       titreInputRef.current.focus()
@@ -248,7 +258,14 @@ export default function CreneauInspector({
   // (sinon clic sur le select natif ferme tout, la modal étant rendue
   // sibling du popover et non à l'intérieur).
   useEffect(() => {
-    if (!creneau || isMobile || editing || linkModalOpen) return undefined
+    if (
+      !creneau ||
+      isMobile ||
+      editing ||
+      linkModalOpen ||
+      propagationModalOpen
+    )
+      return undefined
     function onDocMouseDown(e) {
       if (popoverRef.current?.contains(e.target)) return
       onClose?.()
@@ -261,7 +278,7 @@ export default function CreneauInspector({
       clearTimeout(timer)
       document.removeEventListener('mousedown', onDocMouseDown)
     }
-  }, [creneau, isMobile, editing, linkModalOpen, onClose, popoverRef])
+  }, [creneau, isMobile, editing, linkModalOpen, propagationModalOpen, onClose, popoverRef])
 
   if (!creneau) return null
 
@@ -859,6 +876,18 @@ export default function CreneauInspector({
             >
               <LinkIcon size={14} />
             </button>
+            {/* FEST-2.11 : Propager — visible seulement si source d'autres */}
+            {linkedChildren.length > 0 && (
+              <button
+                type="button"
+                disabled={!canEdit}
+                className="cp-action-btn"
+                title={`Propager les modifications aux ${linkedChildren.length} créneau${linkedChildren.length > 1 ? 'x' : ''} lié${linkedChildren.length > 1 ? 's' : ''}`}
+                onClick={() => setPropagationModalOpen(true)}
+              >
+                <Share2 size={14} />
+              </button>
+            )}
             <button
               type="button"
               disabled={!canEdit}
@@ -954,6 +983,25 @@ export default function CreneauInspector({
           </div>
         )}
       </div>
+
+      {/* FEST-2.11 : modal de propagation aux enfants */}
+      {propagationModalOpen && creneau && linkedChildren.length > 0 && (
+        <PropagationModal
+          source={creneau}
+          linkedChildren={linkedChildren}
+          onClose={() => setPropagationModalOpen(false)}
+          onApply={(childPatches, childMembers) => {
+            // Applique chaque patch via le handler dédié (un par enfant).
+            for (const { childId, patch } of childPatches) {
+              onSavePartialForCreneau?.(childId, patch)
+            }
+            for (const { childId, member_ids } of childMembers) {
+              onSetMembresForCreneau?.(childId, member_ids)
+            }
+            setPropagationModalOpen(false)
+          }}
+        />
+      )}
 
       {/* FEST-2.10 : modal de gestion du lien source */}
       {linkModalOpen && creneau && (
@@ -1771,6 +1819,303 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
       <span className="cp-line-extra">
         {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
       </span>
+    </div>
+  )
+}
+
+// ─── PropagationModal (FEST-2.11) — propager les modifs aux enfants liés ──
+// Affichée quand l'utilisateur clique le bouton "Propager" de la quick
+// action bar (visible si le créneau est source d'au moins 1 enfant).
+//
+// V1 simple : une checkbox par enfant (tout-ou-rien). Si l'enfant est
+// coché, on applique TOUS les champs de son anchor.fields. Granularité
+// par champ (V2) viendra si Hugo le demande.
+//
+// Pour chaque enfant coché :
+//   patch = applySourceUpdate(source, enfant, enfant.source_anchor)
+//   → onApply([{ childId, patch }, ...])
+function PropagationModal({
+  source,
+  linkedChildren,
+  onClose,
+  onApply,
+}) {
+  // Tous cochés par défaut
+  const [selected, setSelected] = useState(() => {
+    const s = new Set()
+    for (const c of linkedChildren) s.add(c.id)
+    return s
+  })
+
+  const toggleChild = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selected.size === linkedChildren.length) setSelected(new Set())
+    else setSelected(new Set(linkedChildren.map((c) => c.id)))
+  }
+
+  const handleApply = () => {
+    if (selected.size === 0) {
+      onClose?.()
+      return
+    }
+    const childPatches = []
+    const childMembers = []
+    for (const child of linkedChildren) {
+      if (!selected.has(child.id)) continue
+      const anchor = child.source_anchor || { fields: [] }
+      const patch = applySourceUpdate(source, child, anchor)
+      // Extraire member_ids (cas spécial — appel séparé)
+      const { member_ids, ...structured } = patch
+      if (Object.keys(structured).length > 0) {
+        childPatches.push({ childId: child.id, patch: structured })
+      }
+      if (member_ids) {
+        childMembers.push({ childId: child.id, member_ids })
+      }
+    }
+    onApply?.(childPatches, childMembers)
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(520px, 100%)',
+          maxHeight: 'calc(100vh - 32px)',
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          borderRadius: 10,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--brd-sub)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Share2 size={16} style={{ color: 'var(--txt-2)' }} />
+            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--txt)' }}>
+              Propager aux {linkedChildren.length} créneau
+              {linkedChildren.length > 1 ? 'x' : ''} lié
+              {linkedChildren.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: 4,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+              borderRadius: 4,
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--txt-2)',
+              marginBottom: 12,
+              padding: '8px 10px',
+              background: 'var(--bg-elev)',
+              borderRadius: 6,
+              border: '1px solid var(--brd-sub)',
+            }}
+          >
+            Les valeurs actuelles de{' '}
+            <strong style={{ color: 'var(--txt)' }}>
+              {source.titre || '(sans titre)'}
+            </strong>{' '}
+            seront appliquées aux créneaux liés cochés, selon les champs
+            définis dans leur lien.
+          </div>
+
+          {/* Bouton tout cocher/décocher */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              marginBottom: 8,
+            }}
+          >
+            <button
+              type="button"
+              onClick={toggleAll}
+              style={{
+                fontSize: 11,
+                color: 'var(--txt-2)',
+                background: 'transparent',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                cursor: 'pointer',
+              }}
+            >
+              {selected.size === linkedChildren.length
+                ? 'Tout décocher'
+                : 'Tout cocher'}
+            </button>
+          </div>
+
+          {/* Liste des enfants */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {linkedChildren.map((child) => {
+              const isSelected = selected.has(child.id)
+              const anchorFields = child.source_anchor?.fields || []
+              return (
+                <label
+                  key={child.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    padding: 10,
+                    background: isSelected
+                      ? 'var(--bg-elev)'
+                      : 'transparent',
+                    border: '1px solid var(--brd-sub)',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleChild(child.id)}
+                    style={{ cursor: 'pointer', marginTop: 2 }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: 'var(--txt)',
+                      }}
+                    >
+                      {child.titre || '(sans titre)'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-3)' }}>
+                      {formatMinHHMM(child.heure_debut_min)} –{' '}
+                      {formatMinHHMM(child.heure_fin_min)}
+                    </div>
+                    {anchorFields.length > 0 ? (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: 11,
+                          color: 'var(--txt-2)',
+                        }}
+                      >
+                        Champs synchronisés :{' '}
+                        <span style={{ color: 'var(--txt)' }}>
+                          {anchorFields
+                            .map((f) => ANCHOR_FIELD_LABELS[f] || f)
+                            .join(', ')}
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: 11,
+                          color: 'var(--txt-3)',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        Aucun champ configuré dans le lien
+                      </div>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            padding: '10px 16px',
+            borderTop: '1px solid var(--brd-sub)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              color: 'var(--txt-2)',
+              background: 'transparent',
+              border: '1px solid var(--brd-sub)',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={selected.size === 0}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 500,
+              color: 'white',
+              background:
+                selected.size === 0 ? 'var(--brd)' : 'var(--blue, #3B82F6)',
+              border: '1px solid transparent',
+              borderRadius: 6,
+              cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Appliquer aux {selected.size}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

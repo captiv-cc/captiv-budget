@@ -305,6 +305,25 @@ export default function DerouleTab() {
     await handleSavePartial({ notes })
   }
 
+  // FEST-2.11 : save silencieux d'un AUTRE créneau (utilisé pour la
+  // propagation source → enfants depuis la modal de propagation).
+  async function handleSavePartialForCreneau(creneauId, fields) {
+    if (!creneauId || !fields || typeof fields !== 'object') return
+    try {
+      await updateCreneau(creneauId, fields)
+    } catch (e) {
+      console.warn('[DerouleTab] propagation save failed', e)
+    }
+  }
+  async function handleSetMembresForCreneau(creneauId, membreIds) {
+    if (!creneauId) return
+    try {
+      await setCreneauMembres(creneauId, membreIds)
+    } catch (e) {
+      console.warn('[DerouleTab] propagation membres failed', e)
+    }
+  }
+
   async function handleCreateCreneauSubmit(fields) {
     const created = await createCreneau(fields)
     if (created && fields.member_ids?.length > 0) {
@@ -557,6 +576,8 @@ export default function DerouleTab() {
           onSave={handleSaveCreneau}
           onAutoSaveNotes={handleAutoSaveCreneauNotes}
           onSavePartial={handleSavePartial}
+          onSavePartialForCreneau={handleSavePartialForCreneau}
+          onSetMembresForCreneau={handleSetMembresForCreneau}
           onDelete={handleDeleteCreneau}
           onSetMembres={handleSetCreneauMembres}
         />
