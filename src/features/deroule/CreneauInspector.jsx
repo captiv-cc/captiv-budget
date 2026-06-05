@@ -625,6 +625,7 @@ export default function CreneauInspector({
             allCreneaux={allCreneaux}
             currentLane={currentLane}
             membreIds={memberIds}
+            setMemberIds={setMemberIds}
             membresPresents={membresPresents}
             canEdit={canEdit}
             editMode={editing}
@@ -635,9 +636,9 @@ export default function CreneauInspector({
             myUserMeta={myUserMeta}
             onAutoSaveNotes={debouncedSaveNotes}
             onSavePartial={onSavePartial}
+            onSetMembres={onSetMembres}
             onOpenFullEdit={() => setEditing(true)}
             onOpenLinkModal={() => setLinkModalOpen(true)}
-            onOpenEquipePicker={() => setEditing(true)}
           />
         ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -1449,17 +1450,21 @@ function CompactView({
   allCreneaux,
   currentLane,
   membreIds,
+  setMemberIds,
   membresPresents,
   canEdit,
+  editMode = false,
   collabEnabled,
   yjsDoc,
   yjsAwareness,
   myUserMeta,
   onAutoSaveNotes,
   onSavePartial,
-  onOpenFullEdit,
+  onSetMembres,
   onOpenLinkModal,
 }) {
+  // UX-3 fix : popover équipe inline en mode édition
+  const [equipePickerOpen, setEquipePickerOpen] = useState(false)
   // FEST-2.10 : détecter le statut du lien source
   const sourceCreneau = useMemo(
     () => getSourceCreneau(allCreneaux, creneau),
@@ -1566,28 +1571,61 @@ function CompactView({
         />
       )}
 
-      {/* Ligne Équipe — clic ouvre l'édition complète (V1 : pas de picker
-          inline car trop complexe à reproduire ici) */}
-      <div
-        className={`cp-line${canEdit ? ' is-clickable' : ''}`}
-        onClick={() => canEdit && onOpenFullEdit?.()}
-        title={canEdit ? "Modifier l'équipe assignée" : ''}
-        role={canEdit ? 'button' : undefined}
-      >
-        <span className="cp-line-icon"><Users size={14} /></span>
-        {teamLabels.length > 0 ? (
-          <span className="cp-team-chips">
-            {teamLabels.slice(0, 4).map((label, i) => (
-              <span key={i} className="cp-team-chip">{label}</span>
-            ))}
-            {teamLabels.length > 4 && (
-              <span className="cp-team-chip">+{teamLabels.length - 4}</span>
-            )}
-          </span>
-        ) : (
-          <span className="cp-line-value is-placeholder">Aucun cadreur assigné</span>
+      {/* Ligne Équipe : en editMode → ouvre picker inline (UX-3 fix).
+          En view : juste affichage. */}
+      <div style={{ position: 'relative' }}>
+        <div
+          className={`cp-line${editMode && canEdit ? ' is-clickable' : ''}`}
+          onClick={() => editMode && canEdit && setEquipePickerOpen(true)}
+          title={editMode && canEdit ? "Modifier l'équipe assignée" : ''}
+          role={editMode && canEdit ? 'button' : undefined}
+        >
+          <span className="cp-line-icon"><Users size={14} /></span>
+          {teamLabels.length > 0 ? (
+            <span className="cp-team-chips">
+              {teamLabels.slice(0, 4).map((label, i) => (
+                <span key={i} className="cp-team-chip">{label}</span>
+              ))}
+              {teamLabels.length > 4 && (
+                <span className="cp-team-chip">+{teamLabels.length - 4}</span>
+              )}
+            </span>
+          ) : (
+            <span className="cp-line-value is-placeholder">Aucun cadreur assigné</span>
+          )}
+        </div>
+        {equipePickerOpen && (
+          <EquipePickerPopover
+            membresPresents={membresPresents}
+            selectedIds={membreIds}
+            onChange={(newIds) => {
+              setMemberIds?.(newIds)
+              onSetMembres?.(newIds)
+            }}
+            onClose={() => setEquipePickerOpen(false)}
+          />
         )}
       </div>
+
+      {/* Ligne Multi-lane (visible seulement en editMode) */}
+      {editMode && canEdit && (
+        <label
+          className="cp-line is-clickable"
+          style={{ cursor: 'pointer' }}
+          title="Couvre toutes les lanes (bloc transversal)"
+        >
+          <span className="cp-line-icon" style={{ fontSize: 13 }}>↔</span>
+          <span className="cp-line-value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.multi_lane)}
+              onChange={(e) => saveField('multi_lane', e.target.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            Bloc multi-lane (couvre toutes les lanes)
+          </span>
+        </label>
+      )}
 
       {/* Ligne Statut — select */}
       <InlineSelect
@@ -1778,67 +1816,56 @@ function InlineText({ icon, value, placeholder, canEdit, onSave }) {
   )
 }
 
-// ─── InlineSelect (POP-2.B) — select éditable au click ────────────────────
+// ─── InlineSelect (POP-2.B + UX-3 fix) — select toujours actif ────────────
+// Hugo fix : le toggle "1er click éditer, 2e click ouvrir dropdown" cassait
+// l'UX (double-clic obligatoire). Désormais le <select> natif est toujours
+// présent en superpose invisible (opacity 0) sur le rendu display. Click
+// direct ouvre le menu OS. Pas de toggle.
 function InlineSelect({ icon, value, options, canEdit, renderDisplay, onSave }) {
-  const [editing, setEditing] = useState(false)
-  const selectRef = useRef(null)
-
-  useEffect(() => {
-    if (editing && selectRef.current) {
-      selectRef.current.focus()
-    }
-  }, [editing])
-
-  const commit = (v) => {
-    if (v !== value) onSave?.(v)
-    setEditing(false)
-  }
-
-  if (editing) {
+  if (!canEdit) {
     return (
-      <div className="cp-line" style={{ background: 'var(--bg-elev)' }}>
+      <div className="cp-line">
         <span className="cp-line-icon">{icon}</span>
-        <select
-          ref={selectRef}
-          value={value || ''}
-          onChange={(e) => commit(e.target.value)}
-          onBlur={() => setEditing(false)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault()
-              setEditing(false)
-            }
-          }}
-          className="cp-line-value"
-          style={{
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--txt)',
-            font: 'inherit',
-            padding: 0,
-            cursor: 'pointer',
-          }}
-        >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <span className="cp-line-value">{renderDisplay()}</span>
       </div>
     )
   }
-
   return (
     <div
-      className={`cp-line${canEdit ? ' is-clickable' : ''}`}
-      onClick={() => canEdit && setEditing(true)}
-      role={canEdit ? 'button' : undefined}
-      title={canEdit ? 'Cliquer pour modifier' : ''}
+      className="cp-line is-clickable"
+      style={{ position: 'relative' }}
+      title="Cliquer pour modifier"
     >
       <span className="cp-line-icon">{icon}</span>
       <span className="cp-line-value">{renderDisplay()}</span>
+      <select
+        value={value || ''}
+        onChange={(e) => {
+          if (e.target.value !== value) onSave?.(e.target.value)
+        }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0,
+          cursor: 'pointer',
+          border: 'none',
+          background: 'transparent',
+          appearance: 'none',
+          WebkitAppearance: 'none',
+        }}
+      >
+        {options.map((o) => (
+          <option
+            key={o.value}
+            value={o.value}
+            style={{ background: 'var(--bg-surf)', color: 'var(--txt)' }}
+          >
+            {o.label}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
@@ -2010,6 +2037,207 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
         {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
       </span>
     </div>
+  )
+}
+
+// ─── EquipePickerPopover (UX-3 fix) — picker équipe inline en editMode ────
+// Sub-popover affiché sous la ligne Équipe au click. Permet de gérer les
+// cadreurs assignés sans avoir à passer par l'ancien form long. Réutilise
+// la logique présents/hors présence + recherche du MembrePicker original.
+function EquipePickerPopover({ membresPresents, selectedIds, onChange, onClose }) {
+  const [search, setSearch] = useState('')
+  const [showHors, setShowHors] = useState(false)
+  const wrapperRef = useRef(null)
+
+  useEffect(() => {
+    function onDocMouseDown(e) {
+      if (wrapperRef.current?.contains(e.target)) return
+      onClose?.()
+    }
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', onDocMouseDown)
+    }, 50)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', onDocMouseDown)
+    }
+  }, [onClose])
+
+  const { presents, horsPresence } = useMemo(() => {
+    const lower = search.toLowerCase()
+    const all = (membresPresents || []).filter((m) => {
+      if (!search) return true
+      const fn = `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.toLowerCase()
+      return fn.includes(lower)
+    })
+    return {
+      presents: all.filter((m) => m.present_ce_jour !== false),
+      horsPresence: all.filter((m) => m.present_ce_jour === false),
+    }
+  }, [membresPresents, search])
+
+  const effectiveShowHors = showHors || search.trim().length > 0
+  const selSet = new Set(selectedIds || [])
+
+  const toggle = (id) => {
+    const next = new Set(selSet)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange?.([...next])
+  }
+
+  const presentsIds = presents.map((m) => m.id)
+  const allPresentsSelected =
+    presentsIds.length > 0 && presentsIds.every((id) => selSet.has(id))
+  const selectAllPresents = () => {
+    if (allPresentsSelected) {
+      onChange?.([...selSet].filter((id) => !presentsIds.includes(id)))
+    } else {
+      const next = new Set(selSet)
+      for (const id of presentsIds) next.add(id)
+      onChange?.([...next])
+    }
+  }
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{
+        position: 'absolute',
+        top: 'calc(100% + 4px)',
+        left: 0,
+        right: 0,
+        zIndex: 20,
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        borderRadius: 6,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+        padding: 8,
+        maxHeight: 320,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher…"
+          style={{
+            flex: 1,
+            padding: '4px 8px',
+            fontSize: 12,
+            background: 'var(--bg-elev)',
+            color: 'var(--txt)',
+            border: '1px solid var(--brd-sub)',
+            borderRadius: 4,
+            outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          onClick={selectAllPresents}
+          disabled={presentsIds.length === 0}
+          style={{
+            fontSize: 11,
+            padding: '4px 8px',
+            background: allPresentsSelected ? 'var(--blue, #3B82F6)' : 'transparent',
+            color: allPresentsSelected ? 'white' : 'var(--txt-2)',
+            border: '1px solid var(--brd-sub)',
+            borderRadius: 4,
+            cursor: presentsIds.length === 0 ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Tous présents
+        </button>
+      </div>
+
+      <div style={{ overflowY: 'auto', flex: 1 }}>
+        {presents.length === 0 && horsPresence.length === 0 && (
+          <div style={{ padding: 8, fontSize: 11, color: 'var(--txt-3)' }}>
+            Aucun membre
+          </div>
+        )}
+        {presents.length === 0 && horsPresence.length > 0 && (
+          <div style={{ padding: 6, fontSize: 11, color: 'var(--txt-3)' }}>
+            Aucun membre présent ce jour
+          </div>
+        )}
+        {presents.map((m) => (
+          <PickerRow
+            key={m.id}
+            membre={m}
+            selected={selSet.has(m.id)}
+            onToggle={() => toggle(m.id)}
+          />
+        ))}
+        {horsPresence.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowHors((v) => !v)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                width: '100%',
+                padding: '4px 6px',
+                marginTop: 4,
+                fontSize: 10,
+                fontWeight: 600,
+                color: 'var(--txt-3)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                letterSpacing: 0.05,
+              }}
+            >
+              <span>{effectiveShowHors ? '▾' : '▸'}</span>
+              Hors présence ({horsPresence.length})
+            </button>
+            {effectiveShowHors &&
+              horsPresence.map((m) => (
+                <PickerRow
+                  key={m.id}
+                  membre={m}
+                  selected={selSet.has(m.id)}
+                  onToggle={() => toggle(m.id)}
+                  dimmed
+                />
+              ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PickerRow({ membre, selected, onToggle, dimmed = false }) {
+  const fn = `${membre.contact?.prenom || membre.prenom || ''} ${membre.contact?.nom || membre.nom || ''}`.trim() || '?'
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '4px 6px',
+        borderRadius: 4,
+        cursor: 'pointer',
+        opacity: dimmed ? 0.6 : 1,
+        background: selected ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        style={{ cursor: 'pointer' }}
+      />
+      <span style={{ fontSize: 12, color: 'var(--txt)' }}>{fn}</span>
+    </label>
   )
 }
 

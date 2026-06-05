@@ -191,12 +191,16 @@ export default function RichEditor({
     if (!editor || !collaboration?.doc) return undefined
     const initial = collaboration.initialContent
     if (!initial) return undefined
+    // UX-3 fix : réduit de 600ms à 100ms. Si on a déjà du contenu en BDD
+    // (initialContent), il faut le montrer rapidement. La race condition
+    // "2 clients ouvrent simultanément le même créneau jamais édité" est
+    // suffisamment rare pour ne pas pénaliser le 99% de cas normal.
     const timer = setTimeout(() => {
       if (!editor || editor.isDestroyed) return
       if (editor.isEmpty) {
         editor.commands.setContent(initial, false)
       }
-    }, 600)
+    }, 100)
     return () => clearTimeout(timer)
   }, [editor, collaboration?.doc, collaboration?.initialContent])
 
