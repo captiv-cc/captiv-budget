@@ -289,6 +289,44 @@ export function findMembreOverlaps(membreId, creneaux) {
 }
 
 /**
+ * Enrichit les créneaux avec les membres IMPLICITES déduits de leur lane :
+ * si un créneau est dans une lane type='personne' avec `lane.membre_id`,
+ * alors ce membre est implicitement assigné au créneau (sans avoir besoin
+ * d'être dans `member_ids` explicite).
+ *
+ * Sert au calcul de conflits cadreur (FEST-4) : un cadreur a 2 créneaux
+ * qui chevauchent même si la 2e n'est qu'une "mission lane perso" sans
+ * member_ids explicite.
+ *
+ * Retourne une COPIE des créneaux avec `member_ids` enrichi (set unique).
+ * Les créneaux d'entrée ne sont pas mutés.
+ *
+ * @param {Array} creneaux
+ * @param {Array} lanes
+ * @returns {Array} créneaux avec member_ids étendus
+ */
+export function enrichCreneauxWithImplicitMembers(creneaux, lanes) {
+  if (!Array.isArray(creneaux) || !Array.isArray(lanes)) {
+    return Array.isArray(creneaux) ? [...creneaux] : []
+  }
+  // Index : lane_id → membre implicite si lane.type='personne'
+  const implicitByLaneId = new Map()
+  for (const l of lanes) {
+    if (l?.type === 'personne' && l.membre_id) {
+      implicitByLaneId.set(l.id, l.membre_id)
+    }
+  }
+  return creneaux.map((c) => {
+    const explicit = Array.isArray(c.member_ids) ? c.member_ids : []
+    const implicit = c.lane_id ? implicitByLaneId.get(c.lane_id) : null
+    if (implicit && !explicit.includes(implicit)) {
+      return { ...c, member_ids: [...explicit, implicit] }
+    }
+    return c
+  })
+}
+
+/**
  * Renvoie la couleur effective d'un créneau : `couleur` override si présent,
  * sinon mapping CRENEAU_TYPE_COLORS sur le type, sinon fallback gray.
  */

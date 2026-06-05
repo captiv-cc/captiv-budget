@@ -40,6 +40,9 @@ import {
 import useBreakpoint from '../../hooks/useBreakpoint'
 
 export default function DerouleCadreurView({
+  // deroule passé pour future intégration (régie live, méta jour : golden
+  // hour / sunset) — pas utilisé en V1.
+  // eslint-disable-next-line no-unused-vars
   deroule,
   lanes = [],
   creneaux = [],
@@ -129,6 +132,21 @@ export default function DerouleCadreurView({
     [cadreurMissions],
   )
 
+  // FEST-4 : compteur de conflits sur les missions du cadreur. Une mission
+  // est en conflit si une ou plusieurs missions du MÊME cadreur la chevauchent.
+  const conflictCount = useMemo(() => {
+    if (!conflictsByCreneau || !effectiveMembreId) return 0
+    let count = 0
+    for (const c of cadreurMissions) {
+      const list = conflictsByCreneau.get?.(c.id) || []
+      const hasSelfConflict = list.some(
+        ({ membre }) => membre?.id === effectiveMembreId,
+      )
+      if (hasSelfConflict) count++
+    }
+    return count
+  }, [cadreurMissions, conflictsByCreneau, effectiveMembreId])
+
   // ─── Empty states ─────────────────────────────────────────────────────
   if (candidateMembres.length === 0) {
     return (
@@ -149,6 +167,7 @@ export default function DerouleCadreurView({
         onSelect={setSelectedMembreId}
         missionsCount={cadreurMissions.length}
         totalActiveMin={totalActiveMin}
+        conflictCount={conflictCount}
         accentColor={
           selectedMembreLane
             ? `#${effectiveLaneColor(selectedMembreLane)}`
@@ -167,24 +186,22 @@ export default function DerouleCadreurView({
         <CadreurMobileLayout
           missions={cadreurMissions}
           allCreneaux={creneaux}
-          membreId={effectiveMembreId}
+          focusMembreId={effectiveMembreId}
           laneById={laneById}
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={onSelectCreneau}
-          deroule={deroule}
         />
       ) : (
         <CadreurDesktopLayout
           missions={cadreurMissions}
           allCreneaux={creneaux}
           allLanes={lanes}
-          membreId={effectiveMembreId}
+          focusMembreId={effectiveMembreId}
           laneById={laneById}
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={onSelectCreneau}
-          deroule={deroule}
           accentColor={
             selectedMembreLane
               ? `#${effectiveLaneColor(selectedMembreLane)}`
@@ -207,6 +224,7 @@ function CadreurHeader({
   onSelect,
   missionsCount,
   totalActiveMin,
+  conflictCount = 0,
   accentColor,
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -262,7 +280,22 @@ function CadreurHeader({
           }}
         >
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold truncate">{fullName}</div>
+            <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+              <span className="truncate">{fullName}</span>
+              {conflictCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                  style={{
+                    background: 'var(--red-bg)',
+                    color: 'var(--red)',
+                  }}
+                  title={`${conflictCount} mission${conflictCount > 1 ? 's' : ''} en conflit horaire`}
+                >
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  {conflictCount}
+                </span>
+              )}
+            </div>
             <div
               className="text-[11px] truncate"
               style={{ color: 'var(--txt-3)' }}
@@ -358,8 +391,7 @@ function CadreurHeader({
 function CadreurMobileLayout({
   missions,
   allCreneaux,
-  // _membreId / _deroule transmis par le parent pour future intégration
-  // (mode régie live), pas utilisés ici car missions sont déjà filtrées.
+  focusMembreId,
   laneById,
   membreById,
   conflictsByCreneau,
@@ -380,7 +412,10 @@ function CadreurMobileLayout({
               key={c.id}
               creneau={c}
               lane={laneById.get(c.lane_id)}
-              conflicts={conflictsByCreneau?.get?.(c.id) || []}
+              conflicts={filterSelfConflicts(
+                conflictsByCreneau?.get?.(c.id) || [],
+                focusMembreId,
+              )}
               membreById={membreById}
               onClick={() => onSelectCreneau?.(c)}
             />
@@ -398,19 +433,27 @@ function CadreurMobileLayout({
   )
 }
 
+// Filtre les conflits pour ne garder que ceux qui concernent un membre
+// spécifique (le cadreur dans la vue courante). Évite de griser un bloc à
+// cause d'un overlap d'un AUTRE membre — la vue Cadreur ne montre que
+// les conflits "self" du membre sélectionné.
+function filterSelfConflicts(conflicts, focusMembreId) {
+  if (!focusMembreId || !Array.isArray(conflicts)) return []
+  return conflicts.filter(({ membre }) => membre?.id === focusMembreId)
+}
+
 // ─── Desktop layout : split sa journée + rail global ──────────────────────
 
 function CadreurDesktopLayout({
   missions,
   allCreneaux,
   allLanes,
+  focusMembreId,
   laneById,
   membreById,
   conflictsByCreneau,
   onSelectCreneau,
   accentColor,
-  // membreId / deroule sont passés par le parent mais pas nécessaires ici
-  // (les missions sont déjà filtrées en amont) — préfixés _ par convention.
 }) {
   const sortedAll = useMemo(
     () => sortCreneauxByTime(allCreneaux || []),
@@ -448,7 +491,10 @@ function CadreurDesktopLayout({
               key={c.id}
               creneau={c}
               lane={laneById.get(c.lane_id)}
-              conflicts={conflictsByCreneau?.get?.(c.id) || []}
+              conflicts={filterSelfConflicts(
+                conflictsByCreneau?.get?.(c.id) || [],
+                focusMembreId,
+              )}
               membreById={membreById}
               onClick={() => onSelectCreneau?.(c)}
             />
@@ -540,11 +586,25 @@ function MissionCard({ creneau: c, lane, conflicts = [], membreById, onClick }) 
             {c.titre || '(sans titre)'}
           </span>
           {hasConflict && (
-            <AlertTriangle
-              className="w-3 h-3 shrink-0"
-              style={{ color: 'var(--red)' }}
-              title={`Conflit : ${conflicts.length} chevauchement(s)`}
-            />
+            <span
+              className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1 rounded shrink-0"
+              style={{
+                background: 'var(--red-bg)',
+                color: 'var(--red)',
+              }}
+              title={
+                'Conflit horaire avec :\n' +
+                conflicts
+                  .map(({ creneau: other }) => {
+                    const t = other.titre || '(sans titre)'
+                    return `• ${formatMinHHMM(other.heure_debut_min)}–${formatMinHHMM(other.heure_fin_min)} ${t}`
+                  })
+                  .join('\n')
+              }
+            >
+              <AlertTriangle className="w-2.5 h-2.5" />
+              Conflit
+            </span>
           )}
         </div>
         {(laneLabel || c.lieu_text) && (

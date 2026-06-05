@@ -41,7 +41,7 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // décision Hugo "pas de contrainte dure". Le picker liste TOUS les membres
 // du projet, avec un indicateur visuel sur ceux non présents ce jour.
 // import { membresPresentsJour } from '../../lib/deroule'
-import { findMembreOverlaps } from '../../lib/deroule'
+import { findMembreOverlaps, enrichCreneauxWithImplicitMembers } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
@@ -129,8 +129,12 @@ export default function DerouleTab() {
     const map = new Map()
     if (!Array.isArray(creneaux) || creneaux.length === 0) return map
     if (!Array.isArray(membres) || membres.length === 0) return map
+    // FEST-4 : enrichit les créneaux avec les membres implicites des lanes
+    // type='personne'. Sans ça, un cadreur ayant 2 missions dans sa lane
+    // perso qui se chevauchent ne serait pas détecté comme en conflit.
+    const enriched = enrichCreneauxWithImplicitMembers(creneaux, lanes)
     for (const m of membres) {
-      const pairs = findMembreOverlaps(m.id, creneaux)
+      const pairs = findMembreOverlaps(m.id, enriched)
       for (const [a, b] of pairs) {
         const arrA = map.get(a.id) || []
         arrA.push({ creneau: b, membre: m })
@@ -141,7 +145,7 @@ export default function DerouleTab() {
       }
     }
     return map
-  }, [creneaux, membres])
+  }, [creneaux, membres, lanes])
 
   // ─── Tous les membres du projet, annotés "présent ce jour" ou non ────────
   // FIX V0 : on liste TOUS les membres (décision Hugo : pas de contrainte
