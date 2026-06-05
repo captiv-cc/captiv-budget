@@ -287,16 +287,21 @@ export default function DerouleTab() {
     notify.success('Créneau mis à jour')
   }
 
-  // FEST-2.7 : save silencieux pour les notes collab (debounced 3s). Ne
-  // ferme PAS le drawer et n'émet PAS de toast — l'utilisateur est en train
-  // de taper en continu, on persiste discrètement en arrière-plan.
-  async function handleAutoSaveCreneauNotes(notes) {
-    if (!inspectedCreneau?.id) return
+  // FEST-2.7 + POP-2.B : save silencieux générique. Ne ferme PAS le drawer
+  // et n'émet PAS de toast — utilisé pour les notes (auto-save debounced)
+  // ET les modifs inline hover-to-edit (titre, horaires, lane, lieu, statut).
+  // Accepte n'importe quel sous-ensemble de champs du créneau.
+  async function handleSavePartial(fields) {
+    if (!inspectedCreneau?.id || !fields || typeof fields !== 'object') return
     try {
-      await updateCreneau(inspectedCreneau.id, { notes })
+      await updateCreneau(inspectedCreneau.id, fields)
     } catch (e) {
-      console.warn('[DerouleTab] auto-save notes failed', e)
+      console.warn('[DerouleTab] partial save failed', e)
     }
+  }
+  // Alias historique (FEST-2.7) pour ne pas casser la prop existante.
+  async function handleAutoSaveCreneauNotes(notes) {
+    await handleSavePartial({ notes })
   }
 
   async function handleCreateCreneauSubmit(fields) {
@@ -545,6 +550,7 @@ export default function DerouleTab() {
           onClose={closeInspector}
           onSave={handleSaveCreneau}
           onAutoSaveNotes={handleAutoSaveCreneauNotes}
+          onSavePartial={handleSavePartial}
           onDelete={handleDeleteCreneau}
           onSetMembres={handleSetCreneauMembres}
         />

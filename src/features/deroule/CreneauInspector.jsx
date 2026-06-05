@@ -102,6 +102,7 @@ export default function CreneauInspector({
   onClose,
   onSave,
   onAutoSaveNotes,
+  onSavePartial,
   onCreate,
   onDelete,
   onSetMembres,
@@ -110,6 +111,19 @@ export default function CreneauInspector({
   const [memberIds, setMemberIds] = useState(() => creneau?.member_ids || [])
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(isCreate || !creneau?.id)
+  // POP-2.B : édition inline du titre dans le header
+  const [editingTitre, setEditingTitre] = useState(false)
+  const [titreDraft, setTitreDraft] = useState(creneau?.titre || '')
+  const titreInputRef = useRef(null)
+  useEffect(() => {
+    if (editingTitre && titreInputRef.current) {
+      titreInputRef.current.focus()
+      titreInputRef.current.select()
+    }
+  }, [editingTitre])
+  useEffect(() => {
+    if (!editingTitre) setTitreDraft(creneau?.titre || '')
+  }, [creneau?.titre, editingTitre])
 
   // Ne réinitialise le draft que si on change réellement de créneau
   // (changement d'ID), pas à chaque update Realtime du même créneau —
@@ -383,12 +397,59 @@ export default function CreneauInspector({
             >
               {TYPE_LABELS[draft.type] || draft.type}
             </span>
-            <span
-              className="text-sm font-semibold truncate"
-              style={{ color: 'var(--txt)' }}
-            >
-              {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
-            </span>
+            {/* POP-2.B : titre éditable au click (hors mode create/full edit) */}
+            {editingTitre && !isCreate && !editing ? (
+              <input
+                ref={titreInputRef}
+                type="text"
+                value={titreDraft}
+                onChange={(e) => setTitreDraft(e.target.value)}
+                onBlur={() => {
+                  const trimmed = titreDraft.trim()
+                  if (trimmed && trimmed !== (creneau?.titre || '').trim()) {
+                    onSavePartial?.({ titre: trimmed })
+                  } else {
+                    setTitreDraft(creneau?.titre || '')
+                  }
+                  setEditingTitre(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.currentTarget.blur()
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setTitreDraft(creneau?.titre || '')
+                    setEditingTitre(false)
+                  }
+                }}
+                className="text-sm font-semibold truncate min-w-0 flex-1"
+                style={{
+                  background: 'var(--bg)',
+                  color: 'var(--txt)',
+                  border: '1px solid var(--brd)',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  outline: 'none',
+                }}
+              />
+            ) : (
+              <span
+                className="text-sm font-semibold truncate"
+                style={{
+                  color: 'var(--txt)',
+                  cursor: !isCreate && !editing && canEdit ? 'pointer' : 'default',
+                  borderRadius: 3,
+                  padding: '0 2px',
+                }}
+                onClick={() => {
+                  if (!isCreate && !editing && canEdit) setEditingTitre(true)
+                }}
+                title={!isCreate && !editing && canEdit ? 'Cliquer pour modifier' : ''}
+              >
+                {isCreate ? 'Nouveau créneau' : (draft.titre || creneau.titre || '(sans titre)')}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* Avatars présence collab (peers actuellement sur ce créneau) */}
@@ -435,15 +496,19 @@ export default function CreneauInspector({
           <CompactView
             creneau={creneau}
             draft={draft}
+            lanes={lanes}
             currentLane={currentLane}
             membreIds={memberIds}
             membresPresents={membresPresents}
+            canEdit={canEdit}
             onClose={onClose}
             collabEnabled={collabEnabled}
             yjsDoc={yjsDoc}
             yjsAwareness={yjsAwareness}
             myUserMeta={myUserMeta}
             onAutoSaveNotes={debouncedSaveNotes}
+            onSavePartial={onSavePartial}
+            onOpenFullEdit={() => setEditing(true)}
           />
         ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -1161,26 +1226,28 @@ function formatDuree(min) {
   return `${h}h${String(m).padStart(2, '0')}`
 }
 
-// ─── CompactView (POP-2.A) — vue lecture compacte façon Notion/Linear ────
+// ─── CompactView (POP-2.A + 2.B) — vue lecture compacte hover-to-edit ────
+// POP-2.B : chaque ligne est éditable au click. onSavePartial(fields)
+// persiste silencieusement (pas de toast, pas de fermeture du popover).
 function CompactView({
   creneau,
   draft,
+  lanes,
   currentLane,
   membreIds,
   membresPresents,
+  canEdit,
   collabEnabled,
   yjsDoc,
   yjsAwareness,
   myUserMeta,
   onAutoSaveNotes,
+  onSavePartial,
+  onOpenFullEdit,
 }) {
   // ─── Lieu : fusion avec la lane si lane.type='lieu' ────────────────────
   // Hugo : "pour les lanes type 'lieu' (Scène Médiator), le lieu = nom de
-  // la lane, info doublon". Donc :
-  //   - lane.type='lieu' : on affiche le nom de la lane comme LIEU (icône
-  //     MapPin). Pas de ligne séparée "Lane".
-  //   - sinon : 2 lignes — Lane (icône Layers) + Lieu (icône MapPin si
-  //     lieu_text existe, sinon placeholder gris "Ajouter un lieu").
+  // la lane, info doublon".
   const laneIsLieu = currentLane?.type === 'lieu'
   const lieuValue = laneIsLieu
     ? (currentLane?.libelle || '—')
@@ -1202,46 +1269,87 @@ function CompactView({
       .filter(Boolean)
   }, [membreIds, membresPresents])
 
-  // ─── Notes : lecture seule (RichEditor avec collab si dispo) ───────────
-  // Si on a collab active, on affiche le doc Y.js (toujours frais).
-  // Sinon on retombe sur creneau.notes (snapshot BDD).
+  // ─── Options pour les selects ───────────────────────────────────────────
+  const laneOptions = useMemo(
+    () =>
+      (lanes || []).map((l) => ({
+        value: l.id,
+        label: l.libelle || '—',
+      })),
+    [lanes],
+  )
+  const statutOptions = useMemo(
+    () =>
+      CRENEAU_STATUTS.map((s) => ({
+        value: s,
+        label: STATUT_LABELS[s] || s,
+      })),
+    [],
+  )
+
+  // ─── Save handlers ─────────────────────────────────────────────────────
+  // Tous appellent onSavePartial qui appelle updateCreneau sans fermer
+  // ni notifier (silencieux). En cas d'échec, le hover-to-edit reste
+  // utilisable (l'utilisateur peut réessayer).
+  const saveField = (field, value) => onSavePartial?.({ [field]: value })
 
   return (
     <div
       className="flex-1 overflow-y-auto"
       style={{ padding: '10px 14px' }}
     >
-      {/* Ligne Horaires */}
-      <div className="cp-line">
-        <span className="cp-line-icon"><Clock size={14} /></span>
-        <span className="cp-line-value">
-          {formatMinHHMM(draft.heure_debut_min)} – {formatMinHHMM(draft.heure_fin_min)}
-        </span>
-        <span className="cp-line-extra">
-          {formatDuree((draft.heure_fin_min ?? 0) - (draft.heure_debut_min ?? 0))}
-        </span>
-      </div>
+      {/* Ligne Horaires (2 inputs heure inline) */}
+      <InlineHoraires
+        heureDebut={draft.heure_debut_min}
+        heureFin={draft.heure_fin_min}
+        canEdit={canEdit}
+        onSave={(start, end) =>
+          onSavePartial?.({ heure_debut_min: start, heure_fin_min: end })
+        }
+      />
 
-      {/* Ligne Lane (si != type lieu) */}
+      {/* Ligne Lane (si != type lieu) — select */}
       {!laneIsLieu && currentLane && (
-        <div className="cp-line">
-          <span className="cp-line-icon"><Layers size={14} /></span>
-          <span className="cp-line-value">{currentLane.libelle || '—'}</span>
-        </div>
+        <InlineSelect
+          icon={<Layers size={14} />}
+          value={draft.lane_id}
+          options={laneOptions}
+          canEdit={canEdit}
+          renderDisplay={() => currentLane.libelle || '—'}
+          onSave={(v) => saveField('lane_id', v)}
+        />
       )}
 
       {/* Ligne Lieu — si lane est de type lieu, le nom de la lane EST le lieu */}
-      <div className="cp-line">
-        <span className="cp-line-icon"><MapPin size={14} /></span>
-        {lieuValue ? (
-          <span className="cp-line-value">{lieuValue}</span>
-        ) : (
-          <span className="cp-line-value is-placeholder">Ajouter un lieu</span>
-        )}
-      </div>
+      {laneIsLieu ? (
+        // Lieu = nom de la lane (fusion). On peut éditer la LANE (qui change
+        // le lieu implicite).
+        <InlineSelect
+          icon={<MapPin size={14} />}
+          value={draft.lane_id}
+          options={laneOptions}
+          canEdit={canEdit}
+          renderDisplay={() => lieuValue}
+          onSave={(v) => saveField('lane_id', v)}
+        />
+      ) : (
+        <InlineText
+          icon={<MapPin size={14} />}
+          value={draft.lieu_text || ''}
+          placeholder="Ajouter un lieu"
+          canEdit={canEdit}
+          onSave={(v) => saveField('lieu_text', v || null)}
+        />
+      )}
 
-      {/* Ligne Équipe */}
-      <div className="cp-line">
+      {/* Ligne Équipe — clic ouvre l'édition complète (V1 : pas de picker
+          inline car trop complexe à reproduire ici) */}
+      <div
+        className={`cp-line${canEdit ? ' is-clickable' : ''}`}
+        onClick={() => canEdit && onOpenFullEdit?.()}
+        title={canEdit ? "Modifier l'équipe assignée" : ''}
+        role={canEdit ? 'button' : undefined}
+      >
         <span className="cp-line-icon"><Users size={14} /></span>
         {teamLabels.length > 0 ? (
           <span className="cp-team-chips">
@@ -1257,13 +1365,19 @@ function CompactView({
         )}
       </div>
 
-      {/* Ligne Statut */}
-      <div className="cp-line">
-        <span className="cp-line-icon"><Flag size={14} /></span>
-        <span className={`cp-status-badge is-${draft.statut}`}>
-          {STATUT_LABELS[draft.statut] || draft.statut}
-        </span>
-      </div>
+      {/* Ligne Statut — select */}
+      <InlineSelect
+        icon={<Flag size={14} />}
+        value={draft.statut}
+        options={statutOptions}
+        canEdit={canEdit}
+        renderDisplay={() => (
+          <span className={`cp-status-badge is-${draft.statut}`}>
+            {STATUT_LABELS[draft.statut] || draft.statut}
+          </span>
+        )}
+        onSave={(v) => saveField('statut', v)}
+      />
 
       {/* Section Notes (toujours visible) */}
       <div className="cp-notes-section">
@@ -1287,6 +1401,274 @@ function CompactView({
           <RichEditor value={creneau?.notes} readOnly minHeight={20} />
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── InlineText (POP-2.B) — texte éditable au click ───────────────────────
+function InlineText({ icon, value, placeholder, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value || '')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  // Sync si value change depuis l'extérieur pendant qu'on n'édite pas
+  useEffect(() => {
+    if (!editing) setDraft(value || '')
+  }, [value, editing])
+
+  const commit = () => {
+    const trimmed = draft.trim()
+    if (trimmed !== (value || '').trim()) onSave?.(trimmed)
+    setEditing(false)
+  }
+  const cancel = () => {
+    setDraft(value || '')
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="cp-line" style={{ background: 'var(--bg-elev)' }}>
+        <span className="cp-line-icon">{icon}</span>
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              cancel()
+            }
+          }}
+          placeholder={placeholder}
+          className="cp-line-value"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--txt)',
+            font: 'inherit',
+            padding: 0,
+          }}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={`cp-line${canEdit ? ' is-clickable' : ''}`}
+      onClick={() => canEdit && setEditing(true)}
+      role={canEdit ? 'button' : undefined}
+      title={canEdit ? 'Cliquer pour modifier' : ''}
+    >
+      <span className="cp-line-icon">{icon}</span>
+      {value ? (
+        <span className="cp-line-value">{value}</span>
+      ) : (
+        <span className="cp-line-value is-placeholder">{placeholder}</span>
+      )}
+    </div>
+  )
+}
+
+// ─── InlineSelect (POP-2.B) — select éditable au click ────────────────────
+function InlineSelect({ icon, value, options, canEdit, renderDisplay, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const selectRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && selectRef.current) {
+      selectRef.current.focus()
+    }
+  }, [editing])
+
+  const commit = (v) => {
+    if (v !== value) onSave?.(v)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="cp-line" style={{ background: 'var(--bg-elev)' }}>
+        <span className="cp-line-icon">{icon}</span>
+        <select
+          ref={selectRef}
+          value={value || ''}
+          onChange={(e) => commit(e.target.value)}
+          onBlur={() => setEditing(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setEditing(false)
+            }
+          }}
+          className="cp-line-value"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--txt)',
+            font: 'inherit',
+            padding: 0,
+            cursor: 'pointer',
+          }}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={`cp-line${canEdit ? ' is-clickable' : ''}`}
+      onClick={() => canEdit && setEditing(true)}
+      role={canEdit ? 'button' : undefined}
+      title={canEdit ? 'Cliquer pour modifier' : ''}
+    >
+      <span className="cp-line-icon">{icon}</span>
+      <span className="cp-line-value">{renderDisplay()}</span>
+    </div>
+  )
+}
+
+// ─── InlineHoraires (POP-2.B) — 2 inputs time inline ──────────────────────
+function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draftDebut, setDraftDebut] = useState(heureDebut)
+  const [draftFin, setDraftFin] = useState(heureFin)
+  const debutRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && debutRef.current) {
+      debutRef.current.focus()
+    }
+  }, [editing])
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftDebut(heureDebut)
+      setDraftFin(heureFin)
+    }
+  }, [heureDebut, heureFin, editing])
+
+  const dureeMinDraft = (draftFin ?? 0) - (draftDebut ?? 0)
+  const invalid = dureeMinDraft <= 0
+
+  const commit = () => {
+    if (invalid) return
+    if (draftDebut !== heureDebut || draftFin !== heureFin) {
+      onSave?.(draftDebut, draftFin)
+    }
+    setEditing(false)
+  }
+  const cancel = () => {
+    setDraftDebut(heureDebut)
+    setDraftFin(heureFin)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="cp-line" style={{ background: 'var(--bg-elev)' }}>
+        <span className="cp-line-icon"><Clock size={14} /></span>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              cancel()
+            }
+          }}
+        >
+          <input
+            ref={debutRef}
+            type="time"
+            step={300}
+            value={formatMinTimeInput(draftDebut % 1440)}
+            onChange={(e) => {
+              const m = timeToMinutes(e.target.value)
+              if (Number.isFinite(m)) {
+                const offset = draftDebut >= 1440 ? 1440 : 0
+                setDraftDebut(m + offset)
+              }
+            }}
+            onBlur={commit}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: invalid ? 'var(--red)' : 'var(--txt)',
+              font: 'inherit',
+              padding: 0,
+              minWidth: 65,
+            }}
+          />
+          <span style={{ color: 'var(--txt-3)' }}>–</span>
+          <input
+            type="time"
+            step={300}
+            value={formatMinTimeInput(draftFin % 1440)}
+            onChange={(e) => {
+              const m = timeToMinutes(e.target.value)
+              if (Number.isFinite(m)) {
+                const offset = draftFin >= 1440 ? 1440 : 0
+                setDraftFin(m + offset)
+              }
+            }}
+            onBlur={commit}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: invalid ? 'var(--red)' : 'var(--txt)',
+              font: 'inherit',
+              padding: 0,
+              minWidth: 65,
+            }}
+          />
+        </div>
+        {!invalid && (
+          <span className="cp-line-extra">{formatDuree(dureeMinDraft)}</span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={`cp-line${canEdit ? ' is-clickable' : ''}`}
+      onClick={() => canEdit && setEditing(true)}
+      role={canEdit ? 'button' : undefined}
+      title={canEdit ? 'Cliquer pour modifier' : ''}
+    >
+      <span className="cp-line-icon"><Clock size={14} /></span>
+      <span className="cp-line-value">
+        {formatMinHHMM(heureDebut)} – {formatMinHHMM(heureFin)}
+      </span>
+      <span className="cp-line-extra">
+        {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
+      </span>
     </div>
   )
 }
