@@ -1383,9 +1383,9 @@ function CreneauBlock({
       onMouseLeave={(e) => {
         e.currentTarget.style.boxShadow = 'none'
       }}
-      title={
+      aria-label={
         hasConflict
-          ? `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}\n\n${conflictTooltip}`
+          ? `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)} — ${conflictTooltip}`
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >

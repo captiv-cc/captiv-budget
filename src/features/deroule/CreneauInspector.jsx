@@ -51,6 +51,7 @@ import {
   formatMinHHMM,
 } from '../../lib/deroule'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
+import Tooltip from '../../components/Tooltip'
 import { useYjsCollab } from '../../hooks/useYjsCollab'
 import { usePopoverPosition } from '../../hooks/usePopoverPosition'
 import {
@@ -900,60 +901,68 @@ export default function CreneauInspector({
         {/* Footer : quick action bar en mode view, boutons classiques en édition */}
         {!editing && !isCreate ? (
           // POP-2.A : Quick actions bar (Modifier + Lier + Dupliquer + Supprimer)
+          // UX-1 : tooltips custom (au lieu de title HTML natif moche)
           <div className="cp-quick-actions">
             <button
               type="button"
               onClick={() => setEditing(true)}
               disabled={!canEdit}
               className="cp-action-btn is-primary"
-              title="Modifier ce créneau"
             >
               <Edit3 size={14} />
               Modifier
             </button>
-            <button
-              type="button"
-              disabled={!canEdit}
-              className={`cp-action-btn${creneau?.source_creneau_id ? ' is-linked' : ''}`}
-              title={
+            <Tooltip
+              text={
                 creneau?.source_creneau_id
                   ? 'Lié à un créneau source — cliquez pour gérer'
                   : 'Lier à un créneau existant'
               }
-              onClick={() => setLinkModalOpen(true)}
             >
-              <LinkIcon size={14} />
-            </button>
+              <button
+                type="button"
+                disabled={!canEdit}
+                className={`cp-action-btn${creneau?.source_creneau_id ? ' is-linked' : ''}`}
+                onClick={() => setLinkModalOpen(true)}
+              >
+                <LinkIcon size={14} />
+              </button>
+            </Tooltip>
             {/* FEST-2.11 : Propager — visible seulement si source d'autres */}
             {linkedChildren.length > 0 && (
+              <Tooltip
+                text={`Propager aux ${linkedChildren.length} créneau${linkedChildren.length > 1 ? 'x' : ''} lié${linkedChildren.length > 1 ? 's' : ''}`}
+              >
+                <button
+                  type="button"
+                  disabled={!canEdit}
+                  className="cp-action-btn"
+                  onClick={() => setPropagationModalOpen(true)}
+                >
+                  <Share2 size={14} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip text="Dupliquer ce créneau">
               <button
                 type="button"
                 disabled={!canEdit}
                 className="cp-action-btn"
-                title={`Propager les modifications aux ${linkedChildren.length} créneau${linkedChildren.length > 1 ? 'x' : ''} lié${linkedChildren.length > 1 ? 's' : ''}`}
-                onClick={() => setPropagationModalOpen(true)}
+                onClick={() => alert('Bientôt')}
               >
-                <Share2 size={14} />
+                <Copy size={14} />
               </button>
-            )}
-            <button
-              type="button"
-              disabled={!canEdit}
-              className="cp-action-btn"
-              title="Dupliquer ce créneau"
-              onClick={() => alert('Bientôt')}
-            >
-              <Copy size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={!canEdit || saving}
-              className="cp-action-btn is-danger"
-              title="Supprimer"
-            >
-              <Trash2 size={14} />
-            </button>
+            </Tooltip>
+            <Tooltip text="Supprimer">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={!canEdit || saving}
+                className="cp-action-btn is-danger"
+              >
+                <Trash2 size={14} />
+              </button>
+            </Tooltip>
           </div>
         ) : (
           <div
