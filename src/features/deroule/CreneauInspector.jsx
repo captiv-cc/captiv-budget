@@ -242,11 +242,12 @@ export default function CreneauInspector({
   })
 
   // Click-outside-to-close : écoute mousedown hors du popover.
-  // POP-2.C : désactivé en mode édition pour éviter de perdre des modifs
-  // par un clic accidentel. L'utilisateur doit explicitement Annuler /
-  // Enregistrer / X pour fermer en mode édition.
+  // POP-2.C : désactivé en mode édition pour éviter de perdre des modifs.
+  // FEST-2.10 : désactivé aussi quand la modal de lien est ouverte
+  // (sinon clic sur le select natif ferme tout, la modal étant rendue
+  // sibling du popover et non à l'intérieur).
   useEffect(() => {
-    if (!creneau || isMobile || editing) return undefined
+    if (!creneau || isMobile || editing || linkModalOpen) return undefined
     function onDocMouseDown(e) {
       if (popoverRef.current?.contains(e.target)) return
       onClose?.()
@@ -259,7 +260,7 @@ export default function CreneauInspector({
       clearTimeout(timer)
       document.removeEventListener('mousedown', onDocMouseDown)
     }
-  }, [creneau, isMobile, editing, onClose, popoverRef])
+  }, [creneau, isMobile, editing, linkModalOpen, onClose, popoverRef])
 
   if (!creneau) return null
 
