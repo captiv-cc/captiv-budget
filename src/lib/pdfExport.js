@@ -585,10 +585,15 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   txt(fmtEurPdf(synth.sousTotal), PW - M - 2, y + 3.5, { size: 7, bold: true, align: 'right' })
   y += ST_ROW_H
 
-  // Remise globale (en premier)
+  // Remise globale (en premier). Fix Hugo 2026-06 : la colonne "%" n'est
+  // affichée QUE si la remise est en pourcentage. Si elle est en montant
+  // fixe (remise_globale_pct=0/null), on laisse la colonne vide — sinon
+  // un "%" tout seul s'affiche pour rien.
   if (synth.montantRemiseGlobale > 0) {
     txt('Remise globale', M + 2, y + 3.5, { size: 6.5 })
-    txt(`${globalAdj.remise_globale_pct || ''}%`, pctX, y + 3.5, { size: 6.5, align: 'right' })
+    if (globalAdj.remise_globale_pct > 0) {
+      txt(`${globalAdj.remise_globale_pct}%`, pctX, y + 3.5, { size: 6.5, align: 'right' })
+    }
     txt(`- ${fmtEurPdf(synth.montantRemiseGlobale)}`, PW - M - 2, y + 3.5, {
       size: 6.5,
       align: 'right',
