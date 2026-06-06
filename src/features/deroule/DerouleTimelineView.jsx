@@ -1826,35 +1826,41 @@ function CreneauBlock({
   const alerteIsImportant = creneau.alerte_niveau === 'important'
 
   // FEST-5.5.5 : rendu adaptatif selon la largeur de la lane.
-  // Hugo : "Le plus important est : Titre + Horaires. Il faut les voir presque
-  // absolument et en entier si pas trop long. Les avatars peuvent disparaître
-  // si trop court/fin."
+  // Hugo (itération 2) : "Je veux VRAIMENT la priorité sur le texte +
+  // horaires. La durée et les avatars sont moins utiles en vue étroite."
+  //
+  // Priorité descendante stricte :
+  //   1. Titre (wrap multi-ligne si nécessaire)
+  //   2. Horaires (jamais tronquées — passent en vertical si étroit)
+  //   3. Lieu (sacrifiable dès narrow)
+  //   4. Alerte (icône seule en very narrow)
+  //   5. Badge durée + link icon (sacrifiables dès narrow)
+  //   6. Avatars (sacrifiables dès narrow)
   //
   // 3 paliers de largeur :
-  //  - WIDE   (>= 130px ou multi-lane)  : layout complet (1 ligne titre + horaires
-  //                                       + lieu + avatars)
-  //  - NARROW (90-130px)                : titre wrap 2 lignes si height >= 60,
-  //                                       horaires compactes (16:50–18:35),
-  //                                       lieu caché, avatars ≤ 2, police 11
-  //  - V_NARROW (< 90px)                : titre wrap 3 lignes si height >= 80,
-  //                                       horaires VERTICALES (16:50 / 18:35),
-  //                                       alerte icône seule, avatars "+N",
-  //                                       badge durée + link icon cachés
+  //  - WIDE   (>= 140px ou multi-lane) : layout complet (titre 1 ligne +
+  //                                       horaires + lieu + badge + avatars)
+  //  - NARROW (100-140px)               : titre wrap 2 lignes, horaires
+  //                                       compactes "16:50–18:35", PAS de
+  //                                       badge, PAS d'avatars, lieu caché
+  //  - V_NARROW (< 100px)               : titre wrap jusqu'à 2 lignes,
+  //                                       horaires VERTICALES (16:50/18:35),
+  //                                       tout le reste caché (compteur "+N"
+  //                                       pour les avatars)
   const isMulti = Boolean(isMultiLane)
   const effectiveWidth = isMulti
     ? 9999 // multi-lane couvre tout, comme wide
     : Number.isFinite(laneWidth)
     ? laneWidth
     : 130
-  const isWide = effectiveWidth >= 130
-  const isVeryNarrow = effectiveWidth < 90
+  const isWide = effectiveWidth >= 140
+  const isVeryNarrow = effectiveWidth < 100
   const isNarrow = !isVeryNarrow && !isWide
 
-  // Combien de lignes max pour le titre (calculé selon height dispo)
-  // FEST-5.5.5 fix Hugo : on plafonne à 2 lignes en very-narrow (3 lignes
-  // sur un seul mot comme "Macklemore" → "M/a/c..." illisible). Et si la
-  // lane est ULTRA-étroite (< 70px), on force 1 ligne + ellipsis (plus
-  // lisible qu'un wrap caractère par caractère).
+  // Combien de lignes max pour le titre (calculé selon height dispo).
+  // En very-narrow (< 100), plafonne à 2 lignes même si height permet plus
+  // (3+ lignes sur un seul mot = illisible). Si lane ULTRA-étroite (< 70px)
+  // → 1 ligne + ellipsis (compromis lisible).
   const titleMaxLines = isWide
     ? 1
     : isVeryNarrow
@@ -1867,16 +1873,19 @@ function CreneauBlock({
     ? 2
     : 1
 
-  // Hide badges (durée, link icon) sous 80px
-  const hideBadges = effectiveWidth < 80
-  // Cacher le lieu en mode narrow et plus
+  // FEST-5.5.5 v2 : la durée et le link icon disparaissent dès NARROW.
+  // Le badge prenait ~50px sur la droite et faisait tronquer les horaires.
+  const hideBadges = !isWide
+  // Cacher le lieu dès narrow.
   const hideLieu = !isWide
-  // Avatars limités
-  const maxAvatars = isVeryNarrow ? 0 : isNarrow ? 2 : 4
-  // Réduire la police titre sous 110px
+  // Avatars : 0 en very-narrow et narrow (Hugo : "moins utiles en vue
+  // étroite"). 4 en wide.
+  const maxAvatars = isWide ? 4 : 0
+  // Police titre réduite sous 110px.
   const titleFontSize = effectiveWidth >= 110 ? (height >= 60 ? 12 : 11) : 11
   const horairesFontSize = effectiveWidth >= 110 ? 10 : 9
-  // Horaires sur 2 lignes verticales si very narrow
+  // Horaires verticales (sur 2 lignes) dès qu'on est en very-narrow.
+  // Garantit la lisibilité totale.
   const horairesVertical = isVeryNarrow
 
   // Logique alerte (FEST-5.4) ajustée pour le mode étroit : si very narrow,
