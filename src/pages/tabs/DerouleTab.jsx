@@ -53,6 +53,7 @@ import CreneauInspector from '../../features/deroule/CreneauInspector'
 import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
 import ImportPreviewModal from '../../features/deroule/ImportPreviewModal'
+import ExportDerouleModal from '../../features/deroule/ExportDerouleModal'
 import * as DerouleLib from '../../lib/deroule'
 import useGoldenHour from '../../hooks/useGoldenHour'
 import {
@@ -120,6 +121,8 @@ export default function DerouleTab() {
   }
   // Modale de partage (Vague 2)
   const [shareOpen, setShareOpen] = useState(false)
+  // FEST-6 : modal d'export (PNG cadreur + PDF complet)
+  const [exportOpen, setExportOpen] = useState(false)
   // FEST-4.2 : modal d'import IA (PDF/image → JSON via Claude Vision)
   const [importOpen, setImportOpen] = useState(false)
   // FEST-4.3 : résultat d'extraction Claude + preview modal + import en cours
@@ -895,6 +898,23 @@ export default function DerouleTab() {
               <span className="hidden sm:inline">Partager</span>
             </button>
           )}
+          {/* FEST-6 : bouton Exporter (PNG cadreur + PDF complet) */}
+          {deroule && (
+            <button
+              type="button"
+              onClick={() => setExportOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+              style={{
+                color: 'var(--txt-2)',
+                background: 'transparent',
+                border: '1px solid var(--brd)',
+              }}
+              title="Exporter le déroulé en PDF ou PNG fond d'écran cadreur"
+            >
+              <Download className="w-3 h-3" />
+              <span className="hidden sm:inline">Exporter</span>
+            </button>
+          )}
           {canEdit && (
             <button
               type="button"
@@ -1090,6 +1110,17 @@ export default function DerouleTab() {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         projectId={projectId}
+      />
+
+      {/* FEST-6 : Modale d'export (PDF complet + PNG cadreur) */}
+      <ExportDerouleModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        project={project}
+        projectId={projectId}
+        deroules={deroules}
+        currentDerouleId={deroule?.id || null}
+        membres={membres}
       />
 
       {/* FEST-4.2 : modal d'upload (PDF/image → Claude Vision) */}
