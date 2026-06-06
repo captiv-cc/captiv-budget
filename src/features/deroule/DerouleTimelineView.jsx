@@ -1774,19 +1774,15 @@ function LaneHeader({
         <div
           className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-px"
           style={{
-            // FEST-5.5.5 v7 : pastille discrète au lieu d'un plateau pleine
-            // hauteur — plus propre visuellement et ne masque pas le titre
-            // derrière (la pastille a juste la hauteur des boutons).
+            // v11 : PAS de pastille / backdrop — créait une zone sombre qui
+            // splittait visuellement la lane en deux couleurs sur hover.
+            // Les boutons individuels ont leur propre background au hover
+            // (cf. onMouseEnter sur chaque <button>) → lisibilité OK sans
+            // assombrir toute la zone.
             position: 'absolute',
             top: '50%',
             right: 3,
             transform: 'translateY(-50%)',
-            padding: '2px 3px',
-            background: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(3px)',
-            WebkitBackdropFilter: 'blur(3px)',
-            borderRadius: 5,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
             zIndex: 4,
           }}
         >
