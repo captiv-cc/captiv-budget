@@ -29,6 +29,8 @@ import {
   X,
   Users,
   Camera,
+  ChevronRight,
+  ChevronLeft,
 } from 'lucide-react'
 import { useDerouleShareSession } from '../hooks/useDerouleShareSession'
 import { shareSetCreneauStatut } from '../lib/derouleShare'
@@ -318,12 +320,19 @@ function ShareContent({
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
 
-        {/* ── Sélecteur de jour + toggle vue ─────────────────────────────── */}
+        {/* ── Sélecteur de jour + toggle vue — STICKY au scroll ──────────── */}
         {deroules.length === 0 ? (
           <EmptyDeroulesState />
         ) : (
           <>
-            <div className="mt-5 flex items-start justify-between gap-3 flex-wrap">
+            <div
+              className="sticky z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-2.5 mt-5 flex items-start justify-between gap-3 flex-wrap share-sticky-bar"
+              style={{
+                top: 0,
+                background: 'var(--bg)',
+                borderBottom: '1px solid var(--brd-sub)',
+              }}
+            >
               <DaySelector
                 deroules={deroules}
                 selectedId={selectedDeroleId}
@@ -496,10 +505,11 @@ function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
 // attendu : le destinataire scroll latéralement pour explorer les lanes).
 
 function ViewToggle({ view, onChange }) {
-  // [SHARE-11] Sur mobile (< sm), on cache le label texte et on garde
-  // uniquement l'icône — sinon le toggle prend ~50% de la largeur écran
-  // au détriment du day selector adjacent.
   // FEST-5 : ajout du 3e mode 'cadreur' pour basculer en vue par membre.
+  // Sprint mobile (P-mobile) : on affiche le label texte SUR MOBILE aussi
+  // (auparavant masqué via `hidden sm:inline`). 3 icônes seules étaient
+  // ambiguës (Camera = "cadreur" peu évident). On garde le label compact
+  // pour préserver la place avec le day selector adjacent.
   return (
     <div
       className="inline-flex items-center rounded-md p-0.5 shrink-0"
@@ -514,7 +524,7 @@ function ViewToggle({ view, onChange }) {
         title="Vue timeline (lanes × heures)"
       >
         <LayoutGrid className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Timeline</span>
+        <span>Timeline</span>
       </ToggleBtn>
       <ToggleBtn
         active={view === 'liste'}
@@ -522,7 +532,7 @@ function ViewToggle({ view, onChange }) {
         title="Vue liste"
       >
         <ListIcon className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Liste</span>
+        <span>Liste</span>
       </ToggleBtn>
       <ToggleBtn
         active={view === 'cadreur'}
@@ -530,7 +540,7 @@ function ViewToggle({ view, onChange }) {
         title="Vue par cadreur"
       >
         <Camera className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Cadreur</span>
+        <span>Cadreur</span>
       </ToggleBtn>
     </div>
   )
@@ -731,6 +741,49 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
   // du bouton bloc au moment du clic. Sert d'ancre pour positionner le popover.
   const [selected, setSelected] = useState(null)
 
+  // ─── Sprint mobile : indicateur de scroll horizontal ────────────────────
+  // Sur mobile, 6 lanes sur 360px = ~60px/lane et la moitié est cachée à
+  // droite sans aucun indice visuel. On ajoute :
+  //   - fade gradient à gauche/droite quand des lanes sont hors viewport
+  //   - chevron tappable qui scroll d'environ 1 lane (~150px)
+  // Le wrapperRef sert aussi de scrollable (overflow-x-auto), donc on tracke
+  // sa position via scroll listener + ResizeObserver (re-evalue au resize).
+  const [scrollState, setScrollState] = useState({ left: false, right: false })
+  const updateScrollState = () => {
+    const el = wrapperRef.current
+    if (!el) return
+    const left = el.scrollLeft > 5
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 5
+    setScrollState((prev) =>
+      prev.left === left && prev.right === right ? prev : { left, right },
+    )
+  }
+  useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    updateScrollState()
+    el.addEventListener('scroll', updateScrollState, { passive: true })
+    let ro
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(updateScrollState)
+      ro.observe(el)
+    }
+    return () => {
+      el.removeEventListener('scroll', updateScrollState)
+      ro?.disconnect()
+    }
+    // sortedLanes change => scrollWidth change => relistener; on inclut sa
+    // longueur pour update au cas où.
+  }, [sortedLanes.length])
+  const scrollByOne = (direction) => {
+    const el = wrapperRef.current
+    if (!el) return
+    // ~1 lane à la fois. Lane min-width est 120 ; scroll de 150 → couvre
+    // un peu de marge confortable.
+    const delta = direction === 'right' ? 150 : -150
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }
+
   // Helper pour rendre un bloc dans une lane (mono ou multi). Utilise
   // minToDisplayY pour gérer le repliage.
   function renderBlock(c, isMultiLane = false) {
@@ -751,6 +804,92 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
 
   return (
     <>
+      {/* Container relatif pour overlays fade + chevrons.
+          Fade : full-height absolute à gauche/droite quand des lanes hors viewport.
+          Chevrons : sticky-positionnés au niveau du lane header (top:104) pour
+          rester visibles pendant qu'on scrolle verticalement. */}
+      <div className="relative">
+        {scrollState.left && (
+          <div
+            aria-hidden="true"
+            className="absolute pointer-events-none z-20"
+            style={{
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: 28,
+              background:
+                'linear-gradient(to right, var(--bg-surf) 0%, transparent 100%)',
+              borderTopLeftRadius: 8,
+              borderBottomLeftRadius: 8,
+            }}
+          />
+        )}
+        {scrollState.right && (
+          <div
+            aria-hidden="true"
+            className="absolute pointer-events-none z-20"
+            style={{
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: 28,
+              background:
+                'linear-gradient(to left, var(--bg-surf) 0%, transparent 100%)',
+              borderTopRightRadius: 8,
+              borderBottomRightRadius: 8,
+            }}
+          />
+        )}
+        {/* Chevrons sticky : container 0-height pour ne pas pousser de
+            layout, sticky au top de viewport (sous le sticky bar + lane
+            header). pointer-events:none sur le container, auto sur les
+            boutons eux-mêmes. */}
+        <div
+          className="sticky pointer-events-none"
+          style={{ top: 104, height: 0, zIndex: 25 }}
+        >
+          {scrollState.left && (
+            <button
+              type="button"
+              onClick={() => scrollByOne('left')}
+              aria-label="Voir les lanes précédentes"
+              className="pointer-events-auto flex items-center justify-center rounded-full shadow-md"
+              style={{
+                position: 'absolute',
+                top: 4,
+                left: 6,
+                width: 32,
+                height: 32,
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt-2)',
+              }}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
+          {scrollState.right && (
+            <button
+              type="button"
+              onClick={() => scrollByOne('right')}
+              aria-label="Voir plus de lanes"
+              className="pointer-events-auto flex items-center justify-center rounded-full shadow-md"
+              style={{
+                position: 'absolute',
+                top: 4,
+                right: 6,
+                width: 32,
+                height: 32,
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd)',
+                color: 'var(--txt-2)',
+              }}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       <div
         ref={wrapperRef}
         className="rounded-lg overflow-x-auto"
@@ -759,13 +898,19 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
           border: '1px solid var(--brd)',
         }}
       >
-        {/* Header lanes */}
+        {/* Header lanes — STICKY au scroll vertical de la page. Le top
+            offset correspond à la hauteur approx du sticky bar
+            (day-selector+view-toggle) au-dessus. Sur mobile cette barre
+            mesure ~96px (chips 3-lignes + paddings). */}
         <div
           className="flex"
           style={{
             background: 'var(--bg-elev)',
             borderBottom: '1px solid var(--brd)',
             minWidth: 'fit-content',
+            position: 'sticky',
+            top: 96,
+            zIndex: 10,
           }}
         >
           <div
@@ -943,6 +1088,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
           </div>
         )}
       </div>
+      </div>{/* /relative — fade & chevron overlays */}
 
       {/* [SHARE-5 / SHARE-10] Popover détail créneau, render via Portal.
           Desktop : popover ancré à droite (ou gauche si overflow) du bloc.
