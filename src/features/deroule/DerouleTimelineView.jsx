@@ -1371,10 +1371,10 @@ export default function DerouleTimelineView({
               position: 'absolute',
               top: 1,
               left: 1,
-              width: 50,
+              width: 60,
               bottom: 1,
               background:
-                'linear-gradient(to right, var(--bg-surf), transparent)',
+                'linear-gradient(to right, var(--bg-surf) 30%, transparent)',
               pointerEvents: 'none',
               zIndex: 25,
               borderRadius: '8px 0 0 8px',
@@ -1422,10 +1422,10 @@ export default function DerouleTimelineView({
               position: 'absolute',
               top: 1,
               right: 1,
-              width: 50,
+              width: 60,
               bottom: 1,
               background:
-                'linear-gradient(to left, var(--bg-surf), transparent)',
+                'linear-gradient(to left, var(--bg-surf) 30%, transparent)',
               pointerEvents: 'none',
               zIndex: 25,
               borderRadius: '0 8px 8px 0',
@@ -1746,16 +1746,19 @@ function LaneHeader({
         <div
           className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-px"
           style={{
+            // FEST-5.5.5 v7 : pastille discrète au lieu d'un plateau pleine
+            // hauteur — plus propre visuellement et ne masque pas le titre
+            // derrière (la pastille a juste la hauteur des boutons).
             position: 'absolute',
-            top: 0,
-            right: 4,
-            bottom: 0,
-            paddingLeft: 14,
-            // Dégradé transparent → bg-surf : sur hover, les boutons
-            // apparaissent dans un "plateau" qui masque le bout droit du
-            // titre derrière (pour rester lisibles).
-            background:
-              'linear-gradient(to right, transparent 0%, var(--bg-surf) 40%)',
+            top: '50%',
+            right: 3,
+            transform: 'translateY(-50%)',
+            padding: '2px 3px',
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(3px)',
+            WebkitBackdropFilter: 'blur(3px)',
+            borderRadius: 5,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
             zIndex: 4,
           }}
         >

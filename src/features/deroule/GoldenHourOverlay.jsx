@@ -142,6 +142,8 @@ function SubtleBand({ start, end, minToTop, timeColWidth, direction }) {
 /**
  * Ligne horizontale 1px pleine au moment exact du lever ou coucher
  * + petit label texte sans fond. zIndex 0 pour passer sous les blocs.
+ * v7 : label déplacé à GAUCHE (au-dessus de la colonne heures) — toujours
+ * visible même si la timeline déborde / scroll, et collé au temps affiché.
  */
 function ExactLine({ min, minToTop, timeColWidth, label }) {
   const top = minToTop(min)
@@ -160,10 +162,10 @@ function ExactLine({ min, minToTop, timeColWidth, label }) {
       <span
         style={{
           position: 'absolute',
-          right: 6,
+          // À GAUCHE (collé à la colonne des heures) au lieu de la droite.
+          // Sticky à gauche : reste visible même si on scroll horizontalement.
+          left: 4,
           top: -2,
-          // translateY(-100%) place le bas du texte exactement au top:-2,
-          // donc 2px AU-DESSUS de la ligne — quelle que soit la fontSize.
           transform: 'translateY(-100%)',
           fontSize: 9,
           lineHeight: 1,
