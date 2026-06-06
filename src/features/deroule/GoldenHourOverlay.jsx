@@ -2,13 +2,20 @@
 // GoldenHourOverlay (FEST-5.1d) — Bandes sunrise/sunset/golden sur la timeline
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Rend 2 bandes horizontales semi-transparentes superposées à la grille de la
+// Rend 2 bandes horizontales TRÈS DISCRÈTES superposées à la grille de la
 // timeline déroulé, correspondant aux périodes golden hour du matin et du soir
 // (calculées via SunCalc à partir du lat/lon du projet et de la date du jour).
 //
-// Visuel :
-//   - Dégradé orangé/doré (top → bottom = montée puis descente d'opacité)
-//   - Label flottant "🌅 lever 06:32" / "🌇 coucher 21:18" à droite
+// Définition golden hour (SunCalc, standard photo) :
+//   - Golden hour matin = sunrise → sunriseEnd (mais on étend jusqu'à
+//     goldenHourEnd ≈ 1h après le lever pour la "magic hour" complète)
+//   - Golden hour soir = goldenHour ≈ 1h avant coucher → sunset
+//   ⇒ Durée typique ~1h chaque, variable selon la latitude et la saison.
+//
+// Visuel (Hugo, Sprint 5 : "bien plus discret") :
+//   - Dégradé orangé ultra-subtil (opacité max 0.08)
+//   - Une fine ligne pleine au moment EXACT du lever/coucher
+//   - Label minuscule sans fond, juste un texte coloré près de la ligne
 //   - Z-index sous les blocs (1, non cliquable)
 //
 // Props :
@@ -17,15 +24,11 @@
 //   - minToTop(min) : helper de conversion px depuis le parent
 //   - timeColWidth : largeur de la colonne horaires (offset à gauche)
 //   - visible : bool (toggle utilisateur)
-//
-// Si une période golden hour tombe hors de la fenêtre visible (ex: lever à 05h
-// alors que la timeline commence à 08h), on clipe à la borne de la timeline.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { formatMinAsHHMM } from '../../lib/sunTimes'
 
-const GOLDEN_COLOR_TOP = 'rgba(245, 158, 11, 0.06)'
-const GOLDEN_COLOR_MID = 'rgba(245, 158, 11, 0.18)'
+const GOLDEN_HUE = '245, 158, 11' // orange/ambre tailwind
 
 export default function GoldenHourOverlay({
   sunTimes,
@@ -37,8 +40,6 @@ export default function GoldenHourOverlay({
 }) {
   if (!visible || !sunTimes || !minToTop) return null
 
-  // Clipping helper : clamp un intervalle [start, end] dans [heureDebutMin, heureFinMin].
-  // Renvoie null si l'intervalle est entièrement hors fenêtre.
   function clamp(start, end) {
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null
     const s = Math.max(start, heureDebutMin)
@@ -63,42 +64,49 @@ export default function GoldenHourOverlay({
 
   return (
     <>
-      {/* Bande golden hour matin */}
       {morning && (
-        <Band
+        <SubtleBand
           start={morning.start}
           end={morning.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
-          label={
-            sunriseInWindow
-              ? `🌅 lever ${formatMinAsHHMM(sunTimes.sunriseMin)}`
-              : `🌅 golden matin`
-          }
         />
       )}
-      {/* Bande golden hour soir */}
       {evening && (
-        <Band
+        <SubtleBand
           start={evening.start}
           end={evening.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
-          label={
-            sunsetInWindow
-              ? `🌇 coucher ${formatMinAsHHMM(sunTimes.sunsetMin)}`
-              : `🌇 golden soir`
-          }
+        />
+      )}
+      {sunriseInWindow && (
+        <ExactLine
+          min={sunTimes.sunriseMin}
+          minToTop={minToTop}
+          timeColWidth={timeColWidth}
+          label={`lever ${formatMinAsHHMM(sunTimes.sunriseMin)}`}
+        />
+      )}
+      {sunsetInWindow && (
+        <ExactLine
+          min={sunTimes.sunsetMin}
+          minToTop={minToTop}
+          timeColWidth={timeColWidth}
+          label={`coucher ${formatMinAsHHMM(sunTimes.sunsetMin)}`}
         />
       )}
     </>
   )
 }
 
-function Band({ start, end, minToTop, timeColWidth, label }) {
+/**
+ * Bande dégradée très subtile sur toute la durée du golden hour.
+ * Opacité max 0.06 — on doit deviner plus que voir.
+ */
+function SubtleBand({ start, end, minToTop, timeColWidth }) {
   const top = minToTop(start)
-  const bottom = minToTop(end)
-  const height = Math.max(2, bottom - top)
+  const height = Math.max(2, minToTop(end) - top)
   return (
     <div
       className="absolute pointer-events-none"
@@ -108,27 +116,43 @@ function Band({ start, end, minToTop, timeColWidth, label }) {
         right: 0,
         height,
         zIndex: 1,
-        background: `linear-gradient(180deg, ${GOLDEN_COLOR_TOP} 0%, ${GOLDEN_COLOR_MID} 50%, ${GOLDEN_COLOR_TOP} 100%)`,
-        borderTop: '1px dashed rgba(245, 158, 11, 0.35)',
-        borderBottom: '1px dashed rgba(245, 158, 11, 0.35)',
+        background: `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0) 0%, rgba(${GOLDEN_HUE}, 0.06) 50%, rgba(${GOLDEN_HUE}, 0) 100%)`,
+      }}
+    />
+  )
+}
+
+/**
+ * Ligne horizontale 1px pleine au moment exact du lever ou coucher
+ * + petit label texte sans fond.
+ */
+function ExactLine({ min, minToTop, timeColWidth, label }) {
+  const top = minToTop(min)
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        top,
+        left: timeColWidth,
+        right: 0,
+        height: 0,
+        zIndex: 2,
+        borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.35)`,
       }}
     >
-      <div
+      <span
         style={{
           position: 'absolute',
           right: 6,
-          top: 2,
-          fontSize: 10,
-          fontWeight: 500,
-          color: 'rgba(245, 158, 11, 0.95)',
-          background: 'rgba(0,0,0,0.35)',
-          padding: '1px 6px',
-          borderRadius: 3,
+          top: -7,
+          fontSize: 9,
+          color: `rgba(${GOLDEN_HUE}, 0.75)`,
           whiteSpace: 'nowrap',
+          letterSpacing: '0.02em',
         }}
       >
         {label}
-      </div>
+      </span>
     </div>
   )
 }
