@@ -1670,15 +1670,16 @@ function CreneauBlock({
   // gris, contenu allégé (juste "Indispo" + horaires), opacité réduite pour
   // s'effacer visuellement par rapport aux vrais créneaux artiste.
   const isIndispo = creneau.type === 'indispo'
-  // FEST-5.4 : alerte / point d'attention. Bandeau au top du bloc si height
-  // suffisante, sinon icône inline à côté du titre.
+  // FEST-5.4 : alerte / point d'attention.
+  // - Bloc assez grand (height >= 52) : ligne colorée APRÈS horaires
+  //   (texte seul, sans background, fontSize 10). L'œil va d'abord sur
+  //   l'artiste, puis horaires, puis remarque l'alerte qui complète.
+  // - Bloc petit (< 52) : juste l'icône inline à côté du titre + tooltip.
   const showAlerte = hasAlerte(creneau)
   const alerteColor = showAlerte ? ALERTE_COLORS[creneau.alerte_niveau] : null
   const alerteIsImportant = creneau.alerte_niveau === 'important'
-  // Banner top si bloc assez grand pour héberger 1 ligne de texte (~16px)
-  const showAlerteBanner = showAlerte && height >= 44
-  // Sinon, juste l'icône inline avant le titre
-  const showAlerteIconOnly = showAlerte && !showAlerteBanner
+  const showAlerteLine = showAlerte && height >= 52
+  const showAlerteIconOnly = showAlerte && !showAlerteLine
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
   // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
@@ -1850,51 +1851,6 @@ function CreneauBlock({
         </div>
       )}
 
-      {/* FEST-5.4 : Bandeau alerte ULTRA-DISCRET au top du bloc.
-          Doit être perceptible mais ne JAMAIS écraser le nom de l'artiste.
-          Background quasi-transparent, fontSize réduite, weight light,
-          pas de bordure. L'œil va sur l'artiste, l'alerte est une info
-          secondaire qui complète. */}
-      {showAlerteBanner && (
-        <div
-          title={creneau.alerte_text}
-          style={{
-            margin: '-4px -8px 3px -8px',
-            padding: '1px 8px',
-            background: alerteIsImportant
-              ? 'rgba(245,158,11,0.10)'
-              : 'rgba(59,130,246,0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            fontSize: 9,
-            fontWeight: 500,
-            color: alerteColor,
-            opacity: 0.85,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            pointerEvents: 'none',
-            letterSpacing: '0.01em',
-          }}
-        >
-          {alerteIsImportant ? (
-            <AlertTriangle size={9} style={{ flexShrink: 0 }} />
-          ) : (
-            <InfoIcon size={9} style={{ flexShrink: 0 }} />
-          )}
-          <span
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {creneau.alerte_text}
-          </span>
-        </div>
-      )}
-
       {/* Titre — gras + taille adaptative selon hauteur */}
       <div
         style={{
@@ -1971,6 +1927,43 @@ function CreneauBlock({
         >
           {formatMinHHMM(creneau.heure_debut_min)} – {formatMinHHMM(creneau.heure_fin_min)}
           {creneau.lieu_text && <> · {creneau.lieu_text}</>}
+        </div>
+      )}
+
+      {/* FEST-5.4 : Ligne alerte APRÈS horaires — texte coloré seul, pas
+          de background. Discret mais lisible. Tooltip = texte complet. */}
+      {showAlerteLine && (
+        <div
+          title={creneau.alerte_text}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 500,
+            color: alerteColor,
+            marginTop: 2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pointerEvents: 'none',
+            paddingRight: height >= 40 ? 50 : 0,
+          }}
+        >
+          {alerteIsImportant ? (
+            <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+          ) : (
+            <InfoIcon size={10} style={{ flexShrink: 0 }} />
+          )}
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {creneau.alerte_text}
+          </span>
         </div>
       )}
 
