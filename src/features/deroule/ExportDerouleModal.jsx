@@ -240,9 +240,24 @@ export default function ExportDerouleModal({
   // ─── Render ────────────────────────────────────────────────────────────
   const isPreview = Boolean(previewResult)
 
-  // Width adaptée : config = 560px ; preview = 90vw (max 900) pour mieux voir
-  const modalWidth = isPreview ? 'min(900px, 95vw)' : 'min(560px, 100%)'
-  const modalMaxHeight = isPreview ? '95vh' : 'calc(100vh - 32px)'
+  // Width + height adaptée selon le format du preview.
+  // - PDF (A4 paysage 297×210) : modal LARGE et HAUTE pour bien voir le rendu
+  // - PNG (portrait 9:19.5)     : modal moins large, hauteur quasi-pleine
+  // - Config                    : compact 560px
+  const isPdfPreview = isPreview && previewResult?.type === 'pdf'
+  const isPngPreview = isPreview && previewResult?.type === 'png'
+  let modalWidth = 'min(560px, 100%)'
+  let modalHeight = 'auto'
+  let modalMaxHeight = 'calc(100vh - 32px)'
+  if (isPdfPreview) {
+    modalWidth = 'min(1300px, 96vw)'
+    modalHeight = '92vh'
+    modalMaxHeight = '92vh'
+  } else if (isPngPreview) {
+    modalWidth = 'min(700px, 90vw)'
+    modalHeight = '92vh'
+    modalMaxHeight = '92vh'
+  }
 
   return (
     <div
@@ -263,6 +278,10 @@ export default function ExportDerouleModal({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: modalWidth,
+          // height fixe en mode preview pour que l'iframe/img ait toute
+          // la place (flex:1 sur le child a besoin d'une hauteur de parent
+          // résolue, pas juste maxHeight)
+          ...(modalHeight !== 'auto' ? { height: modalHeight } : {}),
           maxHeight: modalMaxHeight,
           background: 'var(--bg-surf)',
           border: '1px solid var(--brd)',
