@@ -161,8 +161,12 @@ function ExactLine({ min, minToTop, timeColWidth, label }) {
         style={{
           position: 'absolute',
           right: 6,
-          top: -7,
+          top: -2,
+          // translateY(-100%) place le bas du texte exactement au top:-2,
+          // donc 2px AU-DESSUS de la ligne — quelle que soit la fontSize.
+          transform: 'translateY(-100%)',
           fontSize: 9,
+          lineHeight: 1,
           color: `rgba(${GOLDEN_HUE}, 0.65)`,
           whiteSpace: 'nowrap',
           letterSpacing: '0.02em',
