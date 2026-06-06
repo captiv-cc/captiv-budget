@@ -1388,23 +1388,23 @@ export default function DerouleTimelineView({
     </div>
 
       {/* FEST-5.5.5 v6 : indicateurs de scroll horizontal. Fade gradient
-          côté débordement + bouton chevron pour scroller smoothly. */}
+          côté débordement + bouton chevron pour scroller smoothly.
+          v10 : fade démarre SOUS le header (top: LANE_HEADER_H) pour que
+          la sticky header row reste propre — le fade darken les colonnes
+          du body uniquement. */}
       {canScrollLeft && (
         <>
           <div
             style={{
               position: 'absolute',
-              top: 0,
+              top: LANE_HEADER_H,
               left: 0,
               width: 70,
               bottom: 0,
-              // v8 : 2 gradients superposés — un pour le header (bg-elev)
-              // et un pour le body (bg-surf). Plus visible et continu.
               background:
-                'linear-gradient(to right, var(--bg) 0%, var(--bg-surf) 40%, transparent)',
+                'linear-gradient(to right, var(--bg-surf) 0%, var(--bg-surf) 30%, transparent)',
               pointerEvents: 'none',
-              zIndex: 25,
-              borderRadius: '8px 0 0 8px',
+              zIndex: 15,
             }}
           />
           <button
@@ -1447,17 +1447,14 @@ export default function DerouleTimelineView({
           <div
             style={{
               position: 'absolute',
-              top: 0,
+              top: LANE_HEADER_H,
               right: 0,
               width: 70,
               bottom: 0,
-              // v8 : background plus opaque pour bien voir le voile
-              // au-dessus de la timeline (qui passe sur le header).
               background:
-                'linear-gradient(to left, var(--bg) 0%, var(--bg-surf) 40%, transparent)',
+                'linear-gradient(to left, var(--bg-surf) 0%, var(--bg-surf) 30%, transparent)',
               pointerEvents: 'none',
-              zIndex: 25,
-              borderRadius: '0 8px 8px 0',
+              zIndex: 15,
             }}
           />
           <button
