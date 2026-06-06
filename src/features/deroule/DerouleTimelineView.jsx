@@ -1328,13 +1328,35 @@ export default function DerouleTimelineView({
 /**
  * Initiales pour un nom complet : "Hugo Martin" → "HM", "Samuel Chibon" →
  * "SC". Utilisé pour les lanes cadreurs en mode étroit (FEST-5.5.5).
+ * Pour 3+ mots, on prend les 3 premières initiales (PMC pour Paul Marie
+ * Cuinet) — plus distinctif que PC.
  */
 function getInitials(fullName) {
   if (!fullName || typeof fullName !== 'string') return '?'
   const parts = fullName.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return '?'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  if (parts.length === 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase()
+  }
+  // 3 mots ou + → 3 premières initiales
+  return (parts[0][0] + parts[1][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+/**
+ * FEST-5.5.5 v4 : strip le préfixe "Scène " pour les lanes type='lieu'.
+ * L'icône 📍 indique déjà qu'il s'agit d'une scène — afficher "Médiator"
+ * au lieu de "Scène Médiator" libère de la place sans perdre d'info.
+ * On strip uniquement si le préfixe est "Scène " (avec espace) et qu'il
+ * reste qqch après (sinon "Scène" tout court reste affiché).
+ */
+function stripScenePrefix(libelle, type) {
+  if (!libelle || typeof libelle !== 'string') return libelle || ''
+  if (type !== 'lieu') return libelle
+  const trimmed = libelle.trim()
+  const m = trimmed.match(/^(?:Scène|Scene|SCÈNE|SCENE)\s+(.+)$/)
+  if (m && m[1] && m[1].length > 0) return m[1]
+  return libelle
 }
 
 function labelForType(type) {
@@ -1536,21 +1558,38 @@ function LaneHeader({
           }
         >
           {/* FEST-5.5.5 : nom adaptatif selon la largeur de la lane.
-              - >= 110px : nom complet (tronqué naturel)
+              - >= 110px : nom complet (avec strip "Scène " pour les lieu)
               - 80-110px : initiales (HM, SC) si type='personne', sinon
-                 nom tronqué normal
+                 nom (strippé) tronqué normal
               - < 80px   : icône+pastille suffit, on cache le texte */}
           {effectiveWidth < 80
             ? null
             : effectiveWidth < 110 && type === 'personne'
             ? getInitials(personneFullName || lane.libelle)
-            : personneFullName || lane.libelle}
+            : stripScenePrefix(personneFullName || lane.libelle, type)}
         </button>
       )}
-      {/* Mini actions : ← → ×. Visibles uniquement au hover du header
-          pour ne pas surcharger en mode repos. */}
+      {/* Mini actions : ← → ×. Visibles uniquement au hover du header.
+          FEST-5.5.5 v4 : position ABSOLUTE pour ne pas grignoter la place
+          du texte quand cachées. Sur hover, apparaissent à droite avec un
+          léger dégradé qui fond le texte derrière. */}
       {canEdit && !editing && (
-        <div className="flex items-center gap-px opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <div
+          className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-px"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 4,
+            bottom: 0,
+            paddingLeft: 14,
+            // Dégradé transparent → bg-surf : sur hover, les boutons
+            // apparaissent dans un "plateau" qui masque le bout droit du
+            // titre derrière (pour rester lisibles).
+            background:
+              'linear-gradient(to right, transparent 0%, var(--bg-surf) 40%)',
+            zIndex: 4,
+          }}
+        >
           {onMoveLeft && (
             <button
               type="button"
