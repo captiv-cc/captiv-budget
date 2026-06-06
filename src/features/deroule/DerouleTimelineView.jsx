@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   AlertTriangle,
+  Info as InfoIcon,
   MapPin,
   Camera,
   Users,
@@ -41,6 +42,8 @@ import {
   MAX_MIN,
   effectiveLaneColor,
   isCreneauUnavailable,
+  hasAlerte,
+  ALERTE_COLORS,
 } from '../../lib/deroule'
 import { notify } from '../../lib/notify'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
@@ -1667,6 +1670,15 @@ function CreneauBlock({
   // gris, contenu allégé (juste "Indispo" + horaires), opacité réduite pour
   // s'effacer visuellement par rapport aux vrais créneaux artiste.
   const isIndispo = creneau.type === 'indispo'
+  // FEST-5.4 : alerte / point d'attention. Bandeau au top du bloc si height
+  // suffisante, sinon icône inline à côté du titre.
+  const showAlerte = hasAlerte(creneau)
+  const alerteColor = showAlerte ? ALERTE_COLORS[creneau.alerte_niveau] : null
+  const alerteIsImportant = creneau.alerte_niveau === 'important'
+  // Banner top si bloc assez grand pour héberger 1 ligne de texte (~16px)
+  const showAlerteBanner = showAlerte && height >= 44
+  // Sinon, juste l'icône inline avant le titre
+  const showAlerteIconOnly = showAlerte && !showAlerteBanner
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
   // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
@@ -1838,6 +1850,47 @@ function CreneauBlock({
         </div>
       )}
 
+      {/* FEST-5.4 : Bandeau alerte au top du bloc (si height suffisante).
+          Marges négatives pour aller jusqu'aux bords du bloc (escape padding). */}
+      {showAlerteBanner && (
+        <div
+          title={creneau.alerte_text}
+          style={{
+            margin: '-4px -8px 4px -8px',
+            padding: '2px 8px',
+            background: alerteIsImportant
+              ? 'rgba(245,158,11,0.22)'
+              : 'rgba(59,130,246,0.18)',
+            borderBottom: `1px solid ${alerteColor}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            color: alerteColor,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pointerEvents: 'none',
+          }}
+        >
+          {alerteIsImportant ? (
+            <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+          ) : (
+            <InfoIcon size={10} style={{ flexShrink: 0 }} />
+          )}
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {creneau.alerte_text}
+          </span>
+        </div>
+      )}
+
       {/* Titre — gras + taille adaptative selon hauteur */}
       <div
         style={{
@@ -1865,6 +1918,35 @@ function CreneauBlock({
               verticalAlign: '-1px',
             }}
           />
+        )}
+        {/* FEST-5.4 : icône alerte inline pour les petits blocs où le bandeau
+            ne tient pas. Tooltip = texte de l'alerte. */}
+        {showAlerteIconOnly && (
+          alerteIsImportant ? (
+            <AlertTriangle
+              className="inline-block"
+              title={creneau.alerte_text}
+              style={{
+                width: 11,
+                height: 11,
+                marginRight: 4,
+                color: alerteColor,
+                verticalAlign: '-1px',
+              }}
+            />
+          ) : (
+            <InfoIcon
+              className="inline-block"
+              title={creneau.alerte_text}
+              style={{
+                width: 11,
+                height: 11,
+                marginRight: 4,
+                color: alerteColor,
+                verticalAlign: '-1px',
+              }}
+            />
+          )
         )}
         {creneau.titre || '(sans titre)'}
       </div>

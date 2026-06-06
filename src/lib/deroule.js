@@ -71,6 +71,35 @@ export const CRENEAU_TYPE_COLORS = {
 /** Statuts opérationnels (synchronisé avec le CHECK SQL). */
 export const CRENEAU_STATUTS = ['planifie', 'en_cours', 'fait', 'annule']
 
+/**
+ * Niveaux d'alerte / point d'attention sur créneaux (FEST-5.4).
+ * Synchronisé avec le CHECK SQL sur projet_deroule_creneaux.alerte_niveau.
+ *
+ *   - info      : info utile, bleu, signale sans urgence
+ *                 ex: "3 premiers titres seulement"
+ *   - important : attention requise, orange, pointe une particularité
+ *                 ex: "Show décalé !", "Pas d'autorisation côté scène"
+ */
+export const ALERTE_NIVEAUX = ['info', 'important']
+export const ALERTE_COLORS = {
+  info: '#3B82F6',
+  important: '#F59E0B',
+}
+export const ALERTE_LABELS = {
+  info: 'Info',
+  important: 'Important',
+}
+
+/** Retourne true si le créneau a une alerte renseignée + son niveau. */
+export function hasAlerte(creneau) {
+  return Boolean(
+    creneau &&
+      typeof creneau.alerte_text === 'string' &&
+      creneau.alerte_text.trim().length > 0 &&
+      creneau.alerte_niveau,
+  )
+}
+
 /** Statuts du déroulé global (synchronisé avec le CHECK SQL). */
 export const DEROULE_STATUTS = ['planifie', 'valide', 'verrouille']
 

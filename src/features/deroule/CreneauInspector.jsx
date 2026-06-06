@@ -37,6 +37,8 @@ import {
   Copy,
   Share2,
   Check,
+  AlertTriangle,
+  Info as InfoIcon,
 } from 'lucide-react'
 import {
   CRENEAU_TYPES,
@@ -46,6 +48,7 @@ import {
   timeToMinutes,
   formatMinTimeInput,
   formatMinHHMM,
+  ALERTE_COLORS,
 } from '../../lib/deroule'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
@@ -924,6 +927,22 @@ function CompactView({
       className="flex-1 overflow-y-auto"
       style={{ padding: '10px 14px' }}
     >
+      {/* FEST-5.4 : ligne Alerte / point d'attention (toujours visible si
+          alerte présente OU en mode édition). Édition inline du texte +
+          toggle niveau info/important. */}
+      <InlineAlerte
+        alerteText={draft.alerte_text}
+        alerteNiveau={draft.alerte_niveau}
+        canEdit={canEdit}
+        editMode={editMode || isCreate}
+        onSave={(text, niveau) =>
+          onSavePartial?.({
+            alerte_text: text || null,
+            alerte_niveau: text ? niveau || 'important' : null,
+          })
+        }
+      />
+
       {/* Ligne Horaires (2 inputs heure inline) */}
       <InlineHoraires
         heureDebut={draft.heure_debut_min}
@@ -1442,6 +1461,253 @@ function InlineHoraires({ heureDebut, heureFin, canEdit, onSave }) {
       <span className="cp-line-extra">
         {formatDuree((heureFin ?? 0) - (heureDebut ?? 0))}
       </span>
+    </div>
+  )
+}
+
+// ─── InlineAlerte (FEST-5.4) — alerte / point d'attention ─────────────────
+//
+// Bandeau coloré (orange = important, bleu = info) au top du popover.
+//   - Vide + non éditable      → ne rend rien
+//   - Vide + éditable          → placeholder "+ Ajouter un point d'attention"
+//   - Avec alerte (view ou edit) → bandeau coloré + texte éditable + toggle
+//                                  niveau + bouton supprimer
+//
+// Save real-time debounced 500ms (cohérent avec les autres InlineX).
+function InlineAlerte({ alerteText, alerteNiveau, canEdit, editMode, onSave }) {
+  const hasText = Boolean(alerteText && alerteText.trim())
+  const niveau = alerteNiveau || (hasText ? 'important' : 'important')
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(alerteText || '')
+  const [draftNiveau, setDraftNiveau] = useState(niveau)
+  const inputRef = useRef(null)
+  const debounceRef = useRef(null)
+  const lastSavedTextRef = useRef(alerteText || '')
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(alerteText || '')
+      lastSavedTextRef.current = alerteText || ''
+    }
+  }, [alerteText, editing])
+
+  useEffect(() => {
+    setDraftNiveau(niveau)
+  }, [niveau])
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
+  function scheduleSave(text, lvl) {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const trimmed = (text || '').trim()
+      if (trimmed !== (lastSavedTextRef.current || '').trim()) {
+        lastSavedTextRef.current = trimmed
+        onSave?.(trimmed, lvl)
+      }
+    }, 500)
+  }
+
+  function commit() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+    const trimmed = draft.trim()
+    if (trimmed !== (lastSavedTextRef.current || '').trim()) {
+      lastSavedTextRef.current = trimmed
+      onSave?.(trimmed, draftNiveau)
+    }
+    setEditing(false)
+  }
+
+  function cancel() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+    setDraft(alerteText || '')
+    setEditing(false)
+  }
+
+  function toggleNiveau() {
+    const next = draftNiveau === 'important' ? 'info' : 'important'
+    setDraftNiveau(next)
+    if (hasText) {
+      // Save immédiat du nouveau niveau (pas besoin de debounce)
+      onSave?.(alerteText, next)
+    }
+  }
+
+  function handleDelete() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+    setDraft('')
+    lastSavedTextRef.current = ''
+    onSave?.(null, null)
+    setEditing(false)
+  }
+
+  // Cas 1 : vide + non éditable → rien
+  if (!hasText && (!editMode || !canEdit)) return null
+
+  const color = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
+  const colorDraft = ALERTE_COLORS[draftNiveau] || color
+  const Icon = (editing ? draftNiveau : niveau) === 'important' ? AlertTriangle : InfoIcon
+
+  // Cas 2 : vide + éditable → placeholder
+  if (!hasText && !editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setEditing(true)
+          setDraft('')
+        }}
+        className="cp-line is-clickable"
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--txt-3)',
+          fontSize: 12,
+          padding: '6px 8px',
+          marginBottom: 4,
+          borderRadius: 6,
+          cursor: 'pointer',
+        }}
+      >
+        <span className="cp-line-icon">
+          <AlertTriangle size={14} />
+        </span>
+        <span className="cp-line-value">
+          + Ajouter un point d&apos;attention
+        </span>
+      </button>
+    )
+  }
+
+  // Cas 3 : avec alerte (view OU edit) — bandeau coloré
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 8,
+        padding: '6px 8px',
+        background:
+          (editing ? draftNiveau : niveau) === 'important'
+            ? 'rgba(245,158,11,0.10)'
+            : 'rgba(59,130,246,0.10)',
+        border: `1px solid ${editing ? colorDraft : color}55`,
+        borderRadius: 6,
+        marginBottom: 6,
+      }}
+    >
+      {/* Toggle niveau (cliquable si canEdit) */}
+      <button
+        type="button"
+        onClick={() => canEdit && toggleNiveau()}
+        disabled={!canEdit}
+        title={
+          canEdit
+            ? `Niveau : ${(editing ? draftNiveau : niveau) === 'important' ? 'Important' : 'Info'} — clic pour basculer`
+            : (editing ? draftNiveau : niveau) === 'important'
+            ? 'Important'
+            : 'Info'
+        }
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          marginTop: 2,
+          cursor: canEdit ? 'pointer' : 'default',
+          color: editing ? colorDraft : color,
+          flexShrink: 0,
+        }}
+      >
+        <Icon size={14} />
+      </button>
+
+      {/* Texte — éditable au click si canEdit */}
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            scheduleSave(e.target.value, draftNiveau)
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              cancel()
+            }
+          }}
+          placeholder="Ex : Show décalé · 3 premiers titres"
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            fontSize: 12,
+            color: 'var(--txt)',
+            padding: 0,
+          }}
+        />
+      ) : (
+        <span
+          onClick={() => canEdit && editMode && setEditing(true)}
+          style={{
+            flex: 1,
+            fontSize: 12,
+            color: 'var(--txt)',
+            cursor: canEdit && editMode ? 'text' : 'default',
+            lineHeight: 1.4,
+          }}
+        >
+          {alerteText}
+        </span>
+      )}
+
+      {/* Bouton supprimer (visible si canEdit et alerte présente) */}
+      {canEdit && (editMode || editing) && hasText && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          title="Supprimer cette alerte"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            marginTop: 2,
+            cursor: 'pointer',
+            color: 'var(--txt-3)',
+            flexShrink: 0,
+          }}
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   )
 }
@@ -2454,5 +2720,8 @@ function initDraft(creneau) {
     // était créé sans source → propagation auto impossible.
     source_creneau_id: creneau.source_creneau_id || null,
     source_anchor: creneau.source_anchor || null,
+    // FEST-5.4 : alerte / point d'attention
+    alerte_text: creneau.alerte_text || null,
+    alerte_niveau: creneau.alerte_niveau || null,
   }
 }
