@@ -825,11 +825,24 @@ export default function DerouleTimelineView({
       }}
     >
       {/* Header lanes */}
+      {/* FEST-5.5.5 v13 : Le header sticky avait son bg `var(--bg-elev)`
+          qui ne s'étendait pas au-delà de la largeur initiale du viewport
+          (quirk classique de `position: sticky` + `display: flex` dans un
+          parent overflow-x: auto). Résultat : au scroll horizontal, la
+          partie du header au-delà du viewport initial n'avait plus son
+          fond bg-elev → les lanes apparaissaient avec une teinte différente
+          (lighter zone = avec bg-elev derrière + tint 5% / darker zone =
+          seulement tint 5% sur bg-surf du container).
+          Fix : on impose explicitement `width: bodyWidth` (le scrollWidth
+          réel du body) au header — déjà tracké via ResizeObserver pour le
+          golden hour. Comme ça le bg-elev couvre toute la largeur du
+          contenu, pas juste le viewport initial. */}
       <div
         className="flex sticky top-0 z-20"
         style={{
           background: 'var(--bg-elev)',
           borderBottom: '1px solid var(--brd)',
+          ...(bodyWidth ? { width: bodyWidth } : {}),
         }}
       >
         <div
@@ -1394,8 +1407,7 @@ export default function DerouleTimelineView({
           du body uniquement.
           DEBUG v12 : désactivés temporairement pour confirmer s'ils sont
           la cause de l'artefact dans le header (Hugo). */}
-      {/* eslint-disable-next-line no-constant-binary-expression */}
-      {false && canScrollLeft && (
+      {canScrollLeft && (
         <>
           <div
             style={{
@@ -1447,8 +1459,7 @@ export default function DerouleTimelineView({
           </button>
         </>
       )}
-      {/* eslint-disable-next-line no-constant-binary-expression */}
-      {false && canScrollRight && (
+      {canScrollRight && (
         <>
           <div
             style={{
