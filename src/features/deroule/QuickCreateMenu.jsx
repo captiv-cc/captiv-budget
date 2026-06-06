@@ -253,7 +253,7 @@ export default function QuickCreateMenu({
           <Divider />
           <MenuItem
             icon={Moon}
-            label="Indispo / Sommeil"
+            label="Indispo"
             onClick={() =>
               onChoose?.({
                 draftOverride: { type: 'indispo', titre: 'Indispo' },
