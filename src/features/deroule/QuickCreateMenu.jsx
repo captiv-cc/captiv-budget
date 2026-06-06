@@ -33,6 +33,7 @@ import {
   Coffee,
   Car,
   Link as LinkIcon,
+  Moon,
 } from 'lucide-react'
 import { formatMinHHMM } from '../../lib/deroule'
 
@@ -96,6 +97,9 @@ export default function QuickCreateMenu({
   heureCible,
   heureFin,
   overlappingCreneaux = [],
+  // FEST-5.2 : type de la lane cliquée — utilisé pour afficher l'option
+  // "Indispo / Sommeil" seulement sur les lanes cadreur (type='personne').
+  laneType = null,
   onChoose,
   onClose,
 }) {
@@ -240,6 +244,24 @@ export default function QuickCreateMenu({
           onClick={() => onChoose?.({ draftOverride: a.draftOverride })}
         />
       ))}
+
+      {/* FEST-5.2 : Indispo / Sommeil — visible uniquement sur lanes cadreur.
+          Crée un créneau type='indispo' (rendu hachuré gris, bloque le drop
+          d'autres créneaux dessus). */}
+      {laneType === 'personne' && (
+        <>
+          <Divider />
+          <MenuItem
+            icon={Moon}
+            label="Indispo / Sommeil"
+            onClick={() =>
+              onChoose?.({
+                draftOverride: { type: 'indispo', titre: 'Indispo' },
+              })
+            }
+          />
+        </>
+      )}
 
       {/* Section "Lié à ce moment" — créneaux qui chevauchent l'heure cliquée
           dans d'autres lanes (festival : artistes en cours ; doc : ITW

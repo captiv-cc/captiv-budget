@@ -73,6 +73,7 @@ const TYPE_LABELS = {
   brief: 'Briefing',
   live: 'Live',
   autre: 'Autre',
+  indispo: 'Indispo', // FEST-5.2 : sommeil / repos cadreur
 }
 
 const STATUT_LABELS = {

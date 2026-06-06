@@ -28,7 +28,19 @@ export const CRENEAU_TYPES = [
   'brief',
   'live',
   'autre',
+  'indispo', // FEST-5.2 : sommeil/repos cadreur (lane type='personne')
 ]
+
+/**
+ * Types qui représentent une INDISPONIBILITÉ du cadreur (la lane est
+ * "bloquée" pendant ces créneaux : pas de drop d'autres créneaux, pas
+ * de clic-create dans la zone, rendu visuel hachuré).
+ */
+export const CRENEAU_UNAVAILABLE_TYPES = new Set(['indispo'])
+
+export function isCreneauUnavailable(creneau) {
+  return Boolean(creneau && CRENEAU_UNAVAILABLE_TYPES.has(creneau.type))
+}
 
 /**
  * Couleur hex par défaut par type de créneau (utilisée si `creneau.couleur`
@@ -53,6 +65,7 @@ export const CRENEAU_TYPE_COLORS = {
   brief: '#534AB7',
   live: '#27500A',
   autre: '#888780',
+  indispo: '#5C5C5C', // FEST-5.2 : gris sombre — bloc hachuré gris
 }
 
 /** Statuts opérationnels (synchronisé avec le CHECK SQL). */

@@ -40,7 +40,9 @@ import {
   MAX_LANES_LIVE,
   MAX_MIN,
   effectiveLaneColor,
+  isCreneauUnavailable,
 } from '../../lib/deroule'
+import { notify } from '../../lib/notify'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
 import AssignCadreurMenu from './AssignCadreurMenu'
@@ -119,6 +121,23 @@ export default function DerouleTimelineView({
     for (const c of creneauxMultiLane || []) arr.push(c)
     return arr
   }, [lanes, creneauxByLane, creneauxMultiLane])
+
+  // FEST-5.2 : détecte si un nouveau créneau (ou un déplacement) chevauche
+  // une plage d'indisponibilité (type='indispo') dans la lane cible. Si oui,
+  // on refuse le drop pour ne pas affecter un cadreur pendant son sommeil/off.
+  // - excludeId : id à exclure de la vérification (pour le move d'un bloc lui-même)
+  function findIndispoOverlap(laneId, debutMin, finMin, excludeId = null) {
+    if (!laneId) return null
+    const candidates = creneauxByLane.get(laneId) || []
+    for (const c of candidates) {
+      if (!isCreneauUnavailable(c)) continue
+      if (c.id === excludeId) continue
+      if (c.heure_debut_min < finMin && c.heure_fin_min > debutMin) {
+        return c
+      }
+    }
+    return null
+  }
   const maxCreneauFin = useMemo(() => {
     let max = heureFinMinConfig
     for (const c of allCreneaux) {
@@ -482,6 +501,17 @@ export default function DerouleTimelineView({
         }
 
         if (s.hasMoved) {
+          // FEST-5.2 : refuse la création si la zone chevauche une indispo
+          // (sauf si on crée multi-lane, par design transversal).
+          if (!s.multiLane) {
+            const indispo = findIndispoOverlap(s.initialLaneId, debut, fin)
+            if (indispo) {
+              notify.error(
+                `Plage d'indispo (${formatMinHHMM(indispo.heure_debut_min)}–${formatMinHHMM(indispo.heure_fin_min)}) — création refusée`,
+              )
+              return
+            }
+          }
           // Drag → création directe avec horaires choisis (créneau libre)
           onCreateCreneauAt?.(
             {
@@ -516,9 +546,13 @@ export default function DerouleTimelineView({
             })
           // Tri par heure de début pour scan visuel
           overlapping.sort((a, b) => a.heure_debut_min - b.heure_debut_min)
+          // FEST-5.2 : récupère le type de la lane cliquée pour permettre
+          // au QuickCreateMenu d'afficher "Indispo / Sommeil" si cadreur.
+          const clickedLane = lanes.find((l) => l.id === s.initialLaneId)
           setQuickMenu({
             anchorRect,
             laneId: s.initialLaneId,
+            laneType: clickedLane?.type || null,
             multiLane: s.multiLane,
             heureCible: debut,
             heureFin: fin,
@@ -553,6 +587,19 @@ export default function DerouleTimelineView({
           destLane?.type === 'personne' &&
           movedCreneau
         ) {
+          // FEST-5.2 : refuse le cross-lane-assign si la lane cadreur a une
+          // indispo sur la plage demandée (cadreur en sommeil/off).
+          const indispo = findIndispoOverlap(
+            destLane.id,
+            s.currentDebutMin,
+            s.currentFinMin,
+          )
+          if (indispo) {
+            notify.error(
+              `${destLane.libelle || 'Cadreur'} indispo ${formatMinHHMM(indispo.heure_debut_min)}–${formatMinHHMM(indispo.heure_fin_min)} — attribution refusée`,
+            )
+            return
+          }
           // Cross-lane-assign : créer un tournage lié dans la lane cadreur,
           // sans bouger le show source. Mêmes horaires que le drop (peut
           // être décalé si l'utilisateur a déplacé le bloc dans le temps
@@ -594,6 +641,27 @@ export default function DerouleTimelineView({
         fields.heure_fin_min === s.initialFinMin &&
         !('lane_id' in fields)
       if (noChange) return
+      // FEST-5.2 : refuse le déplacement s'il chevauche une indispo dans la
+      // lane cible (sauf pour le créneau lui-même s'il EST une indispo).
+      // - On exclut le créneau déplacé de la vérif (excludeId) car bien sûr
+      //   il "se chevauche lui-même".
+      const movedC = allCreneaux.find((c) => c.id === s.creneauId)
+      const targetLaneId = fields.lane_id || s.initialLaneId
+      if (!s.multiLane && !isCreneauUnavailable(movedC)) {
+        const indispo = findIndispoOverlap(
+          targetLaneId,
+          fields.heure_debut_min,
+          fields.heure_fin_min,
+          s.creneauId,
+        )
+        if (indispo) {
+          const targetLane = lanes.find((l) => l.id === targetLaneId)
+          notify.error(
+            `${targetLane?.libelle || 'Lane'} indispo ${formatMinHHMM(indispo.heure_debut_min)}–${formatMinHHMM(indispo.heure_fin_min)} — déplacement refusé`,
+          )
+          return
+        }
+      }
       try {
         await onMoveCreneau?.(s.creneauId, fields)
       } catch (err) {
@@ -1179,6 +1247,7 @@ export default function DerouleTimelineView({
           heureCible={quickMenu.heureCible}
           heureFin={quickMenu.heureFin}
           overlappingCreneaux={quickMenu.overlappingCreneaux}
+          laneType={quickMenu.laneType}
           onChoose={({ draftOverride }) => {
             // Compose le draft final : horaires + lane + overrides du menu
             const finalDraft = {
@@ -1594,6 +1663,10 @@ function CreneauBlock({
   const HANDLE_PX = 6 // zone de resize en haut/bas du bloc
   const isFait = creneau.statut === 'fait'
   const isEnCours = creneau.statut === 'en_cours'
+  // FEST-5.2 : bloc d'indisponibilité (sommeil/repos cadreur). Rendu hachuré
+  // gris, contenu allégé (juste "Indispo" + horaires), opacité réduite pour
+  // s'effacer visuellement par rapport aux vrais créneaux artiste.
+  const isIndispo = creneau.type === 'indispo'
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
   // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
@@ -1662,8 +1735,15 @@ function CreneauBlock({
         left: 4,
         right: 4,
         height: Math.max(minH, height - 2),
-        background: hexToBgFill(color),
-        borderLeft: `3px solid ${color}`,
+        // FEST-5.2 : indispo = pattern hachures gris diagonales 45° par-dessus
+        // un fond gris sombre semi-transparent. Bordure gauche fine vs
+        // bordure pleine pour les autres types.
+        background: isIndispo
+          ? 'repeating-linear-gradient(45deg, rgba(150,150,150,0.18) 0 4px, transparent 4px 8px), rgba(60,60,60,0.35)'
+          : hexToBgFill(color),
+        borderLeft: isIndispo
+          ? '2px dashed rgba(160,160,160,0.55)'
+          : `3px solid ${color}`,
         borderRadius: '0 6px 6px 0',
         padding: '4px 8px',
         cursor: canEdit ? 'grab' : 'pointer',
@@ -1676,6 +1756,8 @@ function CreneauBlock({
           ? 0.4
           : isFait
           ? 0.7
+          : isIndispo
+          ? 0.85
           : 1,
         textDecoration: creneau.statut === 'annule' ? 'line-through' : 'none',
         // UX-2 : color pour la pulse animation (currentColor dans la keyframe)
