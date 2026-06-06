@@ -1397,7 +1397,9 @@ export default function DerouleTimelineView({
           <div
             style={{
               position: 'absolute',
-              top: LANE_HEADER_H,
+              // v10b : top ajusté avec +2px buffer pour passer sous le
+              // borderBottom du header (1px) + petite marge de sécurité.
+              top: LANE_HEADER_H + 2,
               left: 0,
               width: 70,
               bottom: 0,
@@ -1447,7 +1449,7 @@ export default function DerouleTimelineView({
           <div
             style={{
               position: 'absolute',
-              top: LANE_HEADER_H,
+              top: LANE_HEADER_H + 2,
               right: 0,
               width: 70,
               bottom: 0,
