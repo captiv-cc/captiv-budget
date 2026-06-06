@@ -150,9 +150,15 @@ d'assigner le cadreur pendant une plage indispo.
 
 ---
 
-## FEST-5.3 — Couleurs cadreurs personnalisables
+## FEST-5.3 — Couleurs cadreurs personnalisables — **SKIPPÉ**
 
-### Mécanique
+> **Décision Hugo (post-FEST-5.2)** : skip. La fonction `effectiveCouleurCreneau`
+> calcule déjà la couleur d'un créneau via son TYPE (prise=vert, brief=violet,
+> install=bleu…). Un cadreur voit donc le sens du créneau au premier coup d'œil.
+> Une couleur custom par lane n'apporterait rien — pire, elle écraserait ce
+> code couleur sémantique. Sprint 5 clos avec 2 features sur 3.
+
+### Mécanique (gardée en archive doc si on veut revenir dessus)
 
 La colonne `projet_deroule_lanes.couleur` existe déjà (varchar 6 hex sans #).
 Actuellement initialisée par défaut. Il manque juste l'UI pour la modifier.
@@ -206,7 +212,7 @@ de la lane si pas de type-couleur dominant).
 | ✅ Sprint 2 — Notes + Liens | Clos |
 | ✅ Sprint 3 — Construction rapide | Clos |
 | ✅ Sprint 4 — Import IA | Clos |
-| 🔧 Sprint 5 — Polish (Golden + Indispos + Couleurs) | **EN COURS** |
+| ✅ Sprint 5 — Polish (Golden + Indispos) | **Clos** — Couleurs skippées |
 | ⏳ Sprint 5b ? — Vue Scène dédiée | Conditionnel à demande |
 | ⏳ Sprint 6 — Régie live | À venir |
 | ⏳ Sprint 7 — Historique versions | À venir |
