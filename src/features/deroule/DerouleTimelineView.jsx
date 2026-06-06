@@ -50,6 +50,11 @@ import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
 import AssignCadreurMenu from './AssignCadreurMenu'
 import GoldenHourOverlay from './GoldenHourOverlay'
+import {
+  useLaneWidths,
+  LANE_WIDTH_MIN,
+  LANE_WIDTH_MAX,
+} from '../../hooks/useLaneWidths'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
 const LANE_HEADER_H = 36
@@ -72,6 +77,7 @@ const TIME_COL_W = 56
  * @param {Function} onMoveCreneau            (creneauId, fields) => Promise — Phase C
  */
 export default function DerouleTimelineView({
+  projectId = null,
   deroule,
   lanes,
   creneauxByLane,
@@ -94,6 +100,40 @@ export default function DerouleTimelineView({
 }) {
   const containerRef = useRef(null)
   const bodyRef = useRef(null) // pour calcul lane sous mouseX en drag horizontal
+
+  // FEST-5.5.4 : largeur des lanes par type, persistée localStorage
+  const {
+    getWidth: getLaneWidth,
+    setWidth: setLaneWidth,
+    resetWidth: resetLaneWidth,
+  } = useLaneWidths(projectId)
+  // État local du resize : { type, currentWidth } pendant le drag actif
+  const [resizing, setResizing] = useState(null)
+
+  // FEST-5.5.4 : démarre un resize global pour toutes les lanes du type
+  // donné. Pendant le drag on update juste le state local (preview live
+  // synchronisé sur header + body). Au mouseup on commit dans localStorage.
+  function startLaneResize(type, initialWidth, startX) {
+    let lastWidth = initialWidth
+    function onMove(e) {
+      const delta = e.clientX - startX
+      const newWidth = Math.max(
+        LANE_WIDTH_MIN,
+        Math.min(LANE_WIDTH_MAX, initialWidth + delta),
+      )
+      lastWidth = newWidth
+      setResizing({ type, currentWidth: newWidth })
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      setLaneWidth(type, lastWidth)
+      setResizing(null)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    setResizing({ type, currentWidth: initialWidth })
+  }
 
   // Mapping membre_id → initiales pour les avatars
   const membreInitiales = useMemo(() => {
@@ -741,6 +781,11 @@ export default function DerouleTimelineView({
           const leftNeighbor = idx > 0 ? sortedLanes[idx - 1] : null
           const rightNeighbor =
             idx < sortedLanes.length - 1 ? sortedLanes[idx + 1] : null
+          // FEST-5.5.4 : largeur dynamique (pendant resize : preview live)
+          const headerWidth =
+            resizing && resizing.type === lane.type
+              ? resizing.currentWidth
+              : getLaneWidth(lane.type)
           return (
             <LaneHeader
               key={lane.id}
@@ -755,6 +800,10 @@ export default function DerouleTimelineView({
                 rightNeighbor ? () => onReorderLane?.(lane.id, rightNeighbor.id) : null
               }
               membres={membres}
+              width={headerWidth}
+              onStartResize={(startX) => startLaneResize(lane.type, headerWidth, startX)}
+              onResetWidth={() => resetLaneWidth(lane.type)}
+              isResizing={Boolean(resizing && resizing.type === lane.type)}
             />
           )
         })}
@@ -837,19 +886,24 @@ export default function DerouleTimelineView({
         {/* Lanes */}
         {sortedLanes.map((lane) => {
           const creneauxLane = creneauxByLane.get(lane.id) || []
+          // FEST-5.5.4 : largeur dynamique par type (resize partagé par groupe)
+          const laneBodyWidth =
+            resizing && resizing.type === lane.type
+              ? resizing.currentWidth
+              : getLaneWidth(lane.type)
           return (
             <div
               key={lane.id}
               data-lane-id={lane.id}
               onMouseDown={(e) => handleLaneMouseDown(e, lane.id, false)}
-              className="flex-1 relative"
+              className="relative"
               style={{
                 borderRight: '1px solid var(--brd-sub)',
                 cursor: canEdit ? 'crosshair' : 'default',
-                // FEST-2-bis : largeur compactée à 100px (vs 120 historique)
-                // pour permettre 12-15 lanes sur un écran 1440px avec un
-                // scroll horizontal minimal.
-                minWidth: 100,
+                width: laneBodyWidth,
+                minWidth: laneBodyWidth,
+                flexShrink: 0,
+                flexGrow: 0,
               }}
             >
               {/* Graduations de fond */}
@@ -1294,6 +1348,11 @@ function LaneHeader({
   onMoveLeft,
   onMoveRight,
   membres = [],
+  // FEST-5.5.4 : largeur dynamique + resize
+  width = null,
+  onStartResize = null,
+  onResetWidth = null,
+  isResizing = false,
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(lane.libelle)
@@ -1338,16 +1397,22 @@ function LaneHeader({
   // festival. Les boutons de réordonnancement (← →) et de suppression (×)
   // n'apparaissent qu'au hover via la classe `group` pour éviter d'écraser
   // le libellé en mode repos.
+  // FEST-5.5.4 : largeur effective (prop si fournie, sinon fallback 100px)
+  const effectiveWidth = Number.isFinite(width) ? width : 100
   return (
     <div
-      className="group flex items-center gap-1 px-1.5 text-xs flex-1"
+      className="group flex items-center gap-1 px-1.5 text-xs"
       style={{
         height: LANE_HEADER_H,
         borderRight: '1px solid var(--brd-sub)',
         borderTop: `2px solid ${color}`,
         fontWeight: 500,
         color: 'var(--txt-2)',
-        minWidth: 100,
+        width: effectiveWidth,
+        minWidth: effectiveWidth,
+        flexShrink: 0,
+        flexGrow: 0,
+        position: 'relative',
         background: type !== 'equipe' && type !== 'global' ? `${color}0d` : 'transparent',
       }}
       title={`Type : ${type}`}
@@ -1356,6 +1421,67 @@ function LaneHeader({
         className="w-3.5 h-3.5 shrink-0"
         style={{ color, opacity: 0.85 }}
       />
+
+      {/* FEST-5.5.4 : poignée de resize à droite, partage la largeur entre
+          toutes les lanes du même type. Hover → curseur ew-resize visible.
+          Pendant le drag : badge px flottant juste au-dessus du header. */}
+      {onStartResize && (
+        <>
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onStartResize(e.clientX)
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              onResetWidth?.()
+            }}
+            title="Glisser pour redimensionner toutes les lanes de ce type · Double-clic pour réinitialiser"
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: -3,
+              width: 6,
+              height: '100%',
+              cursor: 'ew-resize',
+              zIndex: 5,
+              background: isResizing ? 'rgba(59,130,246,0.55)' : 'transparent',
+              transition: isResizing ? 'none' : 'background 0.12s',
+            }}
+            onMouseEnter={(e) => {
+              if (!isResizing) {
+                e.currentTarget.style.background = 'rgba(59,130,246,0.30)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isResizing) {
+                e.currentTarget.style.background = 'transparent'
+              }
+            }}
+          />
+          {isResizing && (
+            <div
+              style={{
+                position: 'absolute',
+                top: -22,
+                right: -16,
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '2px 6px',
+                background: 'var(--blue, #3B82F6)',
+                color: 'white',
+                borderRadius: 4,
+                pointerEvents: 'none',
+                zIndex: 10,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {effectiveWidth}px
+            </div>
+          )}
+        </>
+      )}
       {editing && isLibelleEditable ? (
         <input
           autoFocus

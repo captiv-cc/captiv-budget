@@ -996,6 +996,7 @@ export default function DerouleTab() {
         />
       ) : view === 'timeline' && !isMobile ? (
         <DerouleTimelineView
+          projectId={projectId}
           deroule={deroule}
           lanes={lanes}
           creneauxByLane={creneauxByLane}
