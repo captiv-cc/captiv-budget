@@ -746,6 +746,30 @@ export default function DerouleTimelineView({
   // FEST-2 : menu d'ajout de lane (choix du type). Replié par défaut.
   const [addMenuOpen, setAddMenuOpen] = useState(false)
 
+  // FEST-5.5.5 v9 : largeur RÉELLE du body (scrollWidth) trackée via
+  // ResizeObserver. Nécessaire car en flex layout + parent à overflow,
+  // un enfant absolute avec width:100% reçoit le CLIENTwidth (= viewport),
+  // pas le SCROLLwidth (= contenu total). Donc la ligne sunset / les
+  // bandes golden s'arrêtaient à la fin du viewport au lieu d'aller
+  // jusqu'au bout des lanes.
+  const [bodyWidth, setBodyWidth] = useState(0)
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return undefined
+    function update() {
+      setBodyWidth(el.scrollWidth)
+    }
+    update()
+    let ro
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(update)
+      ro.observe(el)
+    }
+    return () => {
+      if (ro) ro.disconnect()
+    }
+  }, [sortedLanes.length, deroule?.id])
+
   // FEST-5.5.5 v6 : indicateurs de scroll horizontal (Hugo : "quand les
   // lanes sont plus larges que l'écran, suggérer qu'il en reste et qu'il
   // faut scroll à droite"). On track la position de scroll + la taille
@@ -1235,6 +1259,7 @@ export default function DerouleTimelineView({
           heureFinMin={heureFinMin}
           minToTop={minToTop}
           timeColWidth={TIME_COL_W}
+          containerWidth={bodyWidth}
           visible={showGoldenHour}
         />
 

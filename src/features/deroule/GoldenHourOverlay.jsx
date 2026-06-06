@@ -36,6 +36,11 @@ export default function GoldenHourOverlay({
   heureFinMin = 1440,
   minToTop,
   timeColWidth = 0,
+  // FEST-5.5.5 v9 : largeur réelle du body (scrollWidth) passée par le
+  // parent. Permet à la ligne et aux bandes de couvrir TOUTE la largeur
+  // du contenu, même quand celui-ci déborde du viewport (sinon width:100%
+  // d'un absolute en flex retourne juste le clientWidth visible).
+  containerWidth = null,
   visible = true,
 }) {
   if (!visible || !sunTimes || !minToTop) return null
@@ -72,6 +77,7 @@ export default function GoldenHourOverlay({
           end={morning.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          containerWidth={containerWidth}
           direction="from-top"
         />
       )}
@@ -83,6 +89,7 @@ export default function GoldenHourOverlay({
           end={evening.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          containerWidth={containerWidth}
           direction="to-bottom"
         />
       )}
@@ -91,6 +98,7 @@ export default function GoldenHourOverlay({
           min={sunTimes.sunriseMin}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          containerWidth={containerWidth}
           label={`lever ${formatMinAsHHMM(sunTimes.sunriseMin)}`}
         />
       )}
@@ -99,6 +107,7 @@ export default function GoldenHourOverlay({
           min={sunTimes.sunsetMin}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          containerWidth={containerWidth}
           label={`coucher ${formatMinAsHHMM(sunTimes.sunsetMin)}`}
         />
       )}
@@ -113,40 +122,41 @@ export default function GoldenHourOverlay({
  * zIndex 0 + mixBlendMode 'soft-light' pour passer SOUS les blocs créneaux
  * et se fondre comme une ambiance lumineuse plutôt qu'un calque opaque.
  */
-function SubtleBand({ start, end, minToTop, timeColWidth, direction }) {
+function SubtleBand({
+  start,
+  end,
+  minToTop,
+  timeColWidth,
+  containerWidth,
+  direction,
+}) {
   const top = minToTop(start)
   const height = Math.max(2, minToTop(end) - top)
   const gradient =
     direction === 'from-top'
       ? `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0.10) 0%, rgba(${GOLDEN_HUE}, 0) 100%)`
       : `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0) 0%, rgba(${GOLDEN_HUE}, 0.10) 100%)`
-  // v8 : width 100% + paddingLeft pour couvrir TOUTE la largeur du parent
-  // flex (lanes + spacer), au lieu de right:0 qui se faisait tronquer.
+  // v9 : explicit width = containerWidth (scrollWidth réel du body) pour
+  // couvrir tout le contenu même quand il déborde le viewport.
+  const width = containerWidth
+    ? Math.max(0, containerWidth - timeColWidth)
+    : null
   return (
     <div
       className="absolute pointer-events-none"
       style={{
         top,
-        left: 0,
-        width: '100%',
+        left: timeColWidth,
+        ...(width ? { width } : { right: 0 }),
         height,
         zIndex: 0,
-        paddingLeft: timeColWidth,
-        boxSizing: 'border-box',
+        background: gradient,
+        // soft-light : se comporte comme une lumière diffuse plutôt qu'un
+        // calque opaque ; les blocs au-dessus restent parfaitement visibles
+        // et la teinte ambre ne fait que "teinter" les zones vides du fond.
+        mixBlendMode: 'soft-light',
       }}
-    >
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          background: gradient,
-          // soft-light : se comporte comme une lumière diffuse plutôt qu'un
-          // calque opaque ; les blocs au-dessus restent parfaitement visibles
-          // et la teinte ambre ne fait que "teinter" les zones vides du fond.
-          mixBlendMode: 'soft-light',
-        }}
-      />
-    </div>
+    />
   )
 }
 
@@ -158,51 +168,46 @@ function SubtleBand({ start, end, minToTop, timeColWidth, direction }) {
  * v8 : utilise width 100% au lieu de right:0 pour éviter que le parent
  * flex ne tronque la largeur de la ligne avant la fin des lanes.
  */
-function ExactLine({ min, minToTop, timeColWidth, label }) {
+function ExactLine({ min, minToTop, timeColWidth, containerWidth, label }) {
   const top = minToTop(min)
+  // v9 : explicit width = containerWidth (scrollWidth) pour couvrir tout
+  // le contenu du body, pas juste le viewport visible.
+  const width = containerWidth
+    ? Math.max(0, containerWidth - timeColWidth)
+    : null
   return (
-    <div
-      className="absolute pointer-events-none"
-      style={{
-        top,
-        left: 0,
-        // width 100% du parent flex (= largeur totale incluant time col,
-        // toutes les lanes ET le spacer de droite). Plus robuste que
-        // right:0 qui se faisait parfois tronquer en flex layout.
-        width: '100%',
-        height: 0,
-        zIndex: 0,
-        // borderTop décalé via padding-left pour ne pas dessiner la ligne
-        // au-dessus de la colonne des heures (qui a son propre fond).
-        paddingLeft: timeColWidth,
-        boxSizing: 'border-box',
-      }}
-    >
-      {/* Ligne effective dans un sous-div pour respecter le paddingLeft */}
+    <>
+      {/* La LIGNE elle-même : démarre après la colonne des heures, s'étend
+          sur la largeur réelle des lanes (= scrollWidth - timeColWidth). */}
       <div
+        className="absolute pointer-events-none"
         style={{
+          top,
+          left: timeColWidth,
+          ...(width ? { width } : { right: 0 }),
           height: 0,
+          zIndex: 0,
           borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.3)`,
-          position: 'relative',
         }}
       />
+      {/* Le LABEL dans la colonne des heures à gauche (séparé pour pouvoir
+          positionner indépendamment de la ligne). */}
       <span
+        className="absolute pointer-events-none"
         style={{
-          position: 'absolute',
-          // À GAUCHE (collé à la colonne des heures) au lieu de la droite.
-          // Sticky à gauche : reste visible même si on scroll horizontalement.
+          top,
           left: 4,
-          top: -2,
-          transform: 'translateY(-100%)',
+          transform: 'translateY(calc(-100% - 2px))',
           fontSize: 9,
           lineHeight: 1,
           color: `rgba(${GOLDEN_HUE}, 0.65)`,
           whiteSpace: 'nowrap',
           letterSpacing: '0.02em',
+          zIndex: 1,
         }}
       >
         {label}
       </span>
-    </div>
+    </>
   )
 }
