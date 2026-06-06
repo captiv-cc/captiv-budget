@@ -64,20 +64,26 @@ export default function GoldenHourOverlay({
 
   return (
     <>
+      {/* Bande matin : gradient qui PART de la ligne du lever et fade vers le bas.
+          Le lever est en HAUT de la période golden matin (durée ~1h après). */}
       {morning && (
         <SubtleBand
           start={morning.start}
           end={morning.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          direction="from-top"
         />
       )}
+      {/* Bande soir : gradient qui MONTE jusqu'à la ligne du coucher en bas.
+          Le coucher est en BAS de la période golden soir (durée ~1h avant). */}
       {evening && (
         <SubtleBand
           start={evening.start}
           end={evening.end}
           minToTop={minToTop}
           timeColWidth={timeColWidth}
+          direction="to-bottom"
         />
       )}
       {sunriseInWindow && (
@@ -101,12 +107,19 @@ export default function GoldenHourOverlay({
 }
 
 /**
- * Bande dégradée très subtile sur toute la durée du golden hour.
- * Opacité max 0.06 — on doit deviner plus que voir.
+ * Bande dégradée discrète, ATTACHÉE à la ligne sunrise/sunset.
+ * direction='from-top' : opaque au top (ligne lever), fade vers le bas.
+ * direction='to-bottom' : transparent au top, opaque au bas (ligne coucher).
+ * zIndex 0 + mixBlendMode 'soft-light' pour passer SOUS les blocs créneaux
+ * et se fondre comme une ambiance lumineuse plutôt qu'un calque opaque.
  */
-function SubtleBand({ start, end, minToTop, timeColWidth }) {
+function SubtleBand({ start, end, minToTop, timeColWidth, direction }) {
   const top = minToTop(start)
   const height = Math.max(2, minToTop(end) - top)
+  const gradient =
+    direction === 'from-top'
+      ? `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0.10) 0%, rgba(${GOLDEN_HUE}, 0) 100%)`
+      : `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0) 0%, rgba(${GOLDEN_HUE}, 0.10) 100%)`
   return (
     <div
       className="absolute pointer-events-none"
@@ -115,8 +128,12 @@ function SubtleBand({ start, end, minToTop, timeColWidth }) {
         left: timeColWidth,
         right: 0,
         height,
-        zIndex: 1,
-        background: `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0) 0%, rgba(${GOLDEN_HUE}, 0.06) 50%, rgba(${GOLDEN_HUE}, 0) 100%)`,
+        zIndex: 0,
+        background: gradient,
+        // soft-light : se comporte comme une lumière diffuse plutôt qu'un
+        // calque opaque ; les blocs au-dessus restent parfaitement visibles
+        // et la teinte ambre ne fait que "teinter" les zones vides du fond.
+        mixBlendMode: 'soft-light',
       }}
     />
   )
@@ -124,7 +141,7 @@ function SubtleBand({ start, end, minToTop, timeColWidth }) {
 
 /**
  * Ligne horizontale 1px pleine au moment exact du lever ou coucher
- * + petit label texte sans fond.
+ * + petit label texte sans fond. zIndex 0 pour passer sous les blocs.
  */
 function ExactLine({ min, minToTop, timeColWidth, label }) {
   const top = minToTop(min)
@@ -136,8 +153,8 @@ function ExactLine({ min, minToTop, timeColWidth, label }) {
         left: timeColWidth,
         right: 0,
         height: 0,
-        zIndex: 2,
-        borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.35)`,
+        zIndex: 0,
+        borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.3)`,
       }}
     >
       <span
@@ -146,7 +163,7 @@ function ExactLine({ min, minToTop, timeColWidth, label }) {
           right: 6,
           top: -7,
           fontSize: 9,
-          color: `rgba(${GOLDEN_HUE}, 0.75)`,
+          color: `rgba(${GOLDEN_HUE}, 0.65)`,
           whiteSpace: 'nowrap',
           letterSpacing: '0.02em',
         }}
