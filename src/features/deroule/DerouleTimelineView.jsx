@@ -1892,6 +1892,18 @@ function CreneauBlock({
   // on n'a pas la place pour la ligne d'alerte → icône seule à côté du titre
   const showAlerteLine = showAlerte && height >= 52 && !isVeryNarrow
   const showAlerteIconOnly = showAlerte && !showAlerteLine
+  // FEST-5.5.5 v3 : l'alerte peut wrap sur plusieurs lignes si la place le
+  // permet (Hugo : "priorité par rapport aux avatars"). Estimation grossière
+  // de la place dispo : 1 ligne = ~13px (fontSize 10 + line-height 1.3).
+  // On a déjà consommé : title (16-30px selon wrap) + horaires (12-14px)
+  // + paddings ~10px. Reste pour alerte + avatars.
+  const alerteMaxLines = !showAlerteLine
+    ? 1
+    : height >= 100
+    ? 3
+    : height >= 75
+    ? 2
+    : 1
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
   // qui se chevauchent. On surligne ces blocs en rouge avec un tooltip
@@ -2183,36 +2195,46 @@ function CreneauBlock({
         )
       )}
 
-      {/* FEST-5.4 : Ligne alerte APRÈS horaires — texte coloré seul, pas
-          de background. Discret mais lisible. Tooltip = texte complet. */}
+      {/* FEST-5.4 + FEST-5.5.5 v3 : Ligne alerte APRÈS horaires — texte
+          coloré seul, sans background. Wrap multi-ligne (jusqu'à 3) si la
+          hauteur du bloc le permet. Priorité visuelle sur les avatars
+          (Hugo). Tooltip = texte complet. */}
       {showAlerteLine && (
         <div
           title={creneau.alerte_text}
           style={{
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: 4,
             fontSize: 10,
             fontWeight: 500,
             color: alerteColor,
             marginTop: 2,
-            whiteSpace: 'nowrap',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
             pointerEvents: 'none',
-            paddingRight: height >= 40 ? 50 : 0,
+            paddingRight: height >= 40 && !hideBadges ? 50 : 0,
           }}
         >
           {alerteIsImportant ? (
-            <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+            <AlertTriangle
+              size={10}
+              style={{ flexShrink: 0, marginTop: 1 }}
+            />
           ) : (
-            <InfoIcon size={10} style={{ flexShrink: 0 }} />
+            <InfoIcon size={10} style={{ flexShrink: 0, marginTop: 1 }} />
           )}
           <span
             style={{
+              flex: 1,
+              minWidth: 0,
+              lineHeight: 1.3,
+              // Wrap multi-ligne via -webkit-line-clamp
+              display: '-webkit-box',
+              WebkitLineClamp: alerteMaxLines,
+              WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              wordBreak: 'normal',
+              overflowWrap: 'break-word',
             }}
           >
             {creneau.alerte_text}
