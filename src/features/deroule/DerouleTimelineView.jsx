@@ -1344,6 +1344,23 @@ function getInitials(fullName) {
 }
 
 /**
+ * FEST-5.5.5 v5 : palier intermédiaire entre nom complet et initiales.
+ *   "Hugo Martin"        → "Hugo M"
+ *   "Samuel Chibon"      → "Samuel C"
+ *   "Paul Marie Cuinet"  → "Paul C"    (1er prénom + initiale du nom)
+ *   "John"               → "John"      (1 seul mot, pas de modif)
+ */
+function shortNameWithInitial(fullName) {
+  if (!fullName || typeof fullName !== 'string') return fullName || ''
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  if (parts.length === 1) return parts[0]
+  const lastInitial = parts[parts.length - 1][0]
+  if (!lastInitial) return parts[0]
+  return `${parts[0]} ${lastInitial.toUpperCase()}`
+}
+
+/**
  * FEST-5.5.5 v4 : strip le préfixe "Scène " pour les lanes type='lieu'.
  * L'icône 📍 indique déjà qu'il s'agit d'une scène — afficher "Médiator"
  * au lieu de "Scène Médiator" libère de la place sans perdre d'info.
@@ -1557,15 +1574,22 @@ function LaneHeader({
               : personneFullName || lane.libelle
           }
         >
-          {/* FEST-5.5.5 : nom adaptatif selon la largeur de la lane.
-              - >= 110px : nom complet (avec strip "Scène " pour les lieu)
-              - 80-110px : initiales (HM, SC) si type='personne', sinon
-                 nom (strippé) tronqué normal
-              - < 80px   : icône+pastille suffit, on cache le texte */}
+          {/* FEST-5.5.5 v5 : nom adaptatif selon la largeur de la lane.
+              Lanes type='personne' (cadreur) : 4 paliers.
+                - >= 140px : "Hugo Martin"    (nom complet)
+                - 110-140px : "Hugo M"         (prénom + initiale nom)
+                - 80-110px  : "HM"             (initiales)
+                - < 80px    : caché (icône+pastille suffit)
+              Autres lanes (lieu, equipe, global) : strip "Scène " si
+              applicable, sinon nom tronqué normal. Caché < 80px. */}
           {effectiveWidth < 80
             ? null
-            : effectiveWidth < 110 && type === 'personne'
-            ? getInitials(personneFullName || lane.libelle)
+            : type === 'personne'
+            ? effectiveWidth < 110
+              ? getInitials(personneFullName || lane.libelle)
+              : effectiveWidth < 140
+              ? shortNameWithInitial(personneFullName || lane.libelle)
+              : personneFullName || lane.libelle
             : stripScenePrefix(personneFullName || lane.libelle, type)}
         </button>
       )}
