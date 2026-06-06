@@ -1851,11 +1851,15 @@ function CreneauBlock({
   const isNarrow = !isVeryNarrow && !isWide
 
   // Combien de lignes max pour le titre (calculé selon height dispo)
+  // FEST-5.5.5 fix Hugo : on plafonne à 2 lignes en very-narrow (3 lignes
+  // sur un seul mot comme "Macklemore" → "M/a/c..." illisible). Et si la
+  // lane est ULTRA-étroite (< 70px), on force 1 ligne + ellipsis (plus
+  // lisible qu'un wrap caractère par caractère).
   const titleMaxLines = isWide
     ? 1
     : isVeryNarrow
-    ? height >= 80
-      ? 3
+    ? effectiveWidth < 70
+      ? 1
       : height >= 50
       ? 2
       : 1
@@ -2062,7 +2066,9 @@ function CreneauBlock({
           color: hexToTextColor(color),
           lineHeight: 1.2,
           // Mode 1 ligne : nowrap + ellipsis classique.
-          // Mode multi-ligne : line-clamp.
+          // Mode multi-ligne : line-clamp avec wrap aux espaces D'ABORD,
+          //  casse de mot uniquement en dernier recours (overflowWrap au
+          //  lieu de wordBreak agressif qui casse caractère par caractère).
           ...(titleMaxLines === 1
             ? {
                 whiteSpace: 'nowrap',
@@ -2074,7 +2080,8 @@ function CreneauBlock({
                 WebkitLineClamp: titleMaxLines,
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
-                wordBreak: 'break-word',
+                wordBreak: 'normal',
+                overflowWrap: 'break-word',
               }),
           paddingRight: height >= 40 && !hideBadges ? 50 : 0,
         }}
