@@ -591,6 +591,99 @@ export async function fetchDerouleComplet(derouleId) {
 // ─── CRUD déroulé ──────────────────────────────────────────────────────────
 
 /**
+ * FEST-5.5.3 : copie les lanes d'un déroulé source vers un déroulé
+ * cible (sans les créneaux). Utile pour :
+ *  - Création d'un nouveau jour d'un festival multi-jours → reprendre
+ *    les mêmes cadreurs + scènes que la veille.
+ *  - Import IA d'un nouveau jour : reprendre les cadreurs existants
+ *    (l'import crée déjà les lanes scène détectées par Claude).
+ *
+ * @param {string} srcDerouleId
+ * @param {string} destDerouleId
+ * @param {Array<string>} [types] - types à copier. Défaut : tous sauf 'global'.
+ * @returns {Promise<Array>} les lanes créées
+ */
+export async function copyLanesFromDeroule(srcDerouleId, destDerouleId, types) {
+  if (!srcDerouleId || !destDerouleId) {
+    throw new Error('copyLanesFromDeroule: srcDerouleId et destDerouleId requis')
+  }
+  if (srcDerouleId === destDerouleId) return []
+
+  const allowed = Array.isArray(types) && types.length > 0
+    ? types
+    : ['personne', 'lieu', 'equipe']
+
+  // 1. Récupère les lanes source filtrées par type
+  const { data: srcLanes, error: e1 } = await supabase
+    .from('projet_deroule_lanes')
+    .select('*')
+    .eq('deroule_id', srcDerouleId)
+    .in('type', allowed)
+    .order('sort_order', { ascending: true })
+  if (e1) throw e1
+  if (!srcLanes || srcLanes.length === 0) return []
+
+  // 2. Récupère le sort_order max actuel du déroulé cible pour le décalage
+  const { data: destExisting } = await supabase
+    .from('projet_deroule_lanes')
+    .select('sort_order, libelle, type, membre_id')
+    .eq('deroule_id', destDerouleId)
+    .order('sort_order', { ascending: false })
+    .limit(50)
+  let maxSortOrder = -1
+  for (const l of destExisting || []) {
+    if (typeof l.sort_order === 'number' && l.sort_order > maxSortOrder) {
+      maxSortOrder = l.sort_order
+    }
+  }
+
+  // 3. Filtre les lanes source qui auraient un duplicate côté cible
+  //    Critère : même type + même membre_id (pour 'personne') OU même
+  //    libelle normalisé (pour 'lieu' / 'equipe'). On évite de dupliquer.
+  const existingKeys = new Set()
+  for (const l of destExisting || []) {
+    if (l.type === 'personne' && l.membre_id) {
+      existingKeys.add(`personne|${l.membre_id}`)
+    } else if (l.libelle) {
+      existingKeys.add(
+        `${l.type}|${l.libelle.trim().toLowerCase()}`,
+      )
+    }
+  }
+
+  // 4. Insert chaque lane avec un nouveau sort_order décalé
+  const created = []
+  let nextSort = maxSortOrder + 1
+  for (const src of srcLanes) {
+    const key =
+      src.type === 'personne' && src.membre_id
+        ? `personne|${src.membre_id}`
+        : `${src.type}|${(src.libelle || '').trim().toLowerCase()}`
+    if (existingKeys.has(key)) continue
+    const payload = {
+      deroule_id: destDerouleId,
+      sort_order: nextSort,
+      libelle: src.libelle,
+      type: src.type,
+    }
+    if (src.membre_id) payload.membre_id = src.membre_id
+    if (src.couleur) payload.couleur = src.couleur
+    const { data, error } = await supabase
+      .from('projet_deroule_lanes')
+      .insert(payload)
+      .select('*')
+      .single()
+    if (error) {
+      console.warn('[copyLanesFromDeroule] insert error', src.libelle, error)
+      continue
+    }
+    created.push(data)
+    nextSort += 1
+  }
+  return created
+}
+
+/**
  * Crée un nouveau déroulé pour un projet à une date donnée. Crée
  * automatiquement la lane 0 "Global" (toujours présente).
  *

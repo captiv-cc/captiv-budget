@@ -45,6 +45,9 @@ export default function ImportPreviewModal({
   existingLanes = [],
   existingCreneaux = [],
   existingDeroule = null,
+  // FEST-5.5.3 : liste de tous les déroulés du projet pour proposer de
+  // copier la structure (cadreurs) du jour le plus récent.
+  allProjectDeroules = [],
   importing = false,
   onClose,
   onConfirm,
@@ -54,12 +57,16 @@ export default function ImportPreviewModal({
   const [checked, setChecked] = useState(() =>
     (extracted?.shows || []).map(() => true),
   )
+  // FEST-5.5.3 : copier les lanes cadreur (type='personne') depuis un
+  // déroulé existant si on crée un nouveau jour. Coché par défaut.
+  const [copyCadreurs, setCopyCadreurs] = useState(true)
 
   // Reset à chaque ouverture / nouveau résultat
   useEffect(() => {
     if (!open) return
     setTargetDate(extracted?.date || selectedDate)
     setChecked((extracted?.shows || []).map(() => true))
+    setCopyCadreurs(true)
   }, [open, extracted, selectedDate])
 
   // Esc ferme
@@ -157,14 +164,31 @@ export default function ImportPreviewModal({
     return map
   }, [showsWithMin, checked, existingCreneaux, existingLanes])
 
+  const dateMismatch = targetDate !== selectedDate
+  const willCreateDeroule = !existingDeroule || dateMismatch
+
+  // FEST-5.5.3 : si l'import va créer un nouveau déroulé, propose de
+  // reprendre les cadreurs (lanes type='personne') du déroulé le plus
+  // récent (autre que targetDate). Déclaré AVANT le return null pour
+  // respecter rules-of-hooks (useMemo doit être appelé à chaque render).
+  const cadreurSourceDeroule = useMemo(() => {
+    if (!willCreateDeroule) return null
+    const others = (allProjectDeroules || []).filter(
+      (d) => d.date_jour !== targetDate,
+    )
+    if (others.length === 0) return null
+    const sorted = [...others].sort((a, b) =>
+      a.date_jour < b.date_jour ? 1 : -1,
+    )
+    return sorted[0]
+  }, [allProjectDeroules, willCreateDeroule, targetDate])
+
   if (!open || !extracted) return null
 
   const validShows = showsWithMin.filter(
     (s) => Number.isFinite(s.debut_min) && Number.isFinite(s.fin_min),
   )
   const checkedCount = checked.filter(Boolean).length
-  const dateMismatch = targetDate !== selectedDate
-  const willCreateDeroule = !existingDeroule || dateMismatch
 
   function toggleAll(value) {
     setChecked(showsWithMin.map(() => value))
@@ -188,6 +212,10 @@ export default function ImportPreviewModal({
       scenesMapping: scenesAnalysis, // { scene, existingLaneId }
       shows: selectedShows,
       willCreateDeroule,
+      // FEST-5.5.3 : id du déroulé source pour copier les lanes cadreur
+      // (null si l'utilisateur a décoché ou s'il n'y en a pas).
+      copyCadreursFromDerouleId:
+        cadreurSourceDeroule && copyCadreurs ? cadreurSourceDeroule.id : null,
     })
   }
 
@@ -332,6 +360,43 @@ export default function ImportPreviewModal({
               Le déroulé du {formatHumanDate(targetDate)} sera créé
               automatiquement.
             </div>
+          )}
+
+          {/* FEST-5.5.3 : checkbox "Reprendre les cadreurs de [date]" */}
+          {willCreateDeroule && cadreurSourceDeroule && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                background: 'rgba(34,197,94,0.08)',
+                border: '1px solid rgba(34,197,94,0.3)',
+                borderRadius: 6,
+                fontSize: 12,
+                color: 'var(--txt-2)',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={copyCadreurs}
+                onChange={(e) => setCopyCadreurs(e.target.checked)}
+              />
+              Reprendre les cadreurs du{' '}
+              <strong style={{ color: 'var(--txt)' }}>
+                {formatHumanDate(cadreurSourceDeroule.date_jour)}
+              </strong>
+              <span
+                style={{
+                  color: 'var(--txt-3)',
+                  fontSize: 11,
+                  marginLeft: 4,
+                }}
+              >
+                (évite de re-saisir Hugo, Samuel…)
+              </span>
+            </label>
           )}
 
           {/* Section "Scènes nouvelles" */}

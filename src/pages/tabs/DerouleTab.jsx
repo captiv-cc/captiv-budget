@@ -257,17 +257,42 @@ export default function DerouleTab() {
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
-  async function handleCreateDeroule() {
+  async function handleCreateDeroule(options = {}) {
     if (!canEdit) return
+    const { copyLanesFromDerouleId = null } = options
     try {
       // V0.5 : minutes INTEGER (0 = 00:00, 1439 = 23:59, 1680 max = 04:00 J+1)
-      await createDeroule({
+      const created = await createDeroule({
         date_jour: selectedDate,
         titre: null,
         heure_debut_min: 0,
         heure_fin_min: 1439,
       })
-      notify.success('Déroulé créé')
+      // FEST-5.5.3 : copie des lanes cadreur/scène depuis un déroulé existant
+      // (festival multi-jours : on veut Hugo Martin, Samuel Chibon, etc. dès
+      // le jour 2 sans re-saisir).
+      let copiedLanes = []
+      if (copyLanesFromDerouleId && created?.deroule?.id) {
+        try {
+          copiedLanes = await DerouleLib.copyLanesFromDeroule(
+            copyLanesFromDerouleId,
+            created.deroule.id,
+            ['personne', 'lieu'],
+          )
+        } catch (e) {
+          console.warn('[handleCreateDeroule] copyLanes failed', e)
+          notify.error(
+            'Déroulé créé mais erreur copie lanes : ' + (e?.message || e),
+          )
+        }
+      }
+      if (copiedLanes.length > 0) {
+        notify.success(
+          `Déroulé créé · ${copiedLanes.length} lane${copiedLanes.length > 1 ? 's' : ''} reprise${copiedLanes.length > 1 ? 's' : ''}`,
+        )
+      } else {
+        notify.success('Déroulé créé')
+      }
     } catch (e) {
       notify.error('Erreur : ' + (e?.message || e))
     }
@@ -515,7 +540,13 @@ export default function DerouleTab() {
   //   3. Bulk-insert des créneaux
   //   4. Switch sur la date importée + close modals + reload
   async function handleImportConfirm(payload) {
-    const { targetDate, scenesMapping, shows } = payload
+    const {
+      targetDate,
+      scenesMapping,
+      shows,
+      // FEST-5.5.3 : id du déroulé source pour copier les cadreurs
+      copyCadreursFromDerouleId = null,
+    } = payload
     if (!targetDate || !Array.isArray(shows) || shows.length === 0) {
       notify.error("Rien à importer")
       return
@@ -530,6 +561,7 @@ export default function DerouleTab() {
       let targetDerouleId = null
       let targetLanes = []
       let createdDeroule = false
+      let copiedCadreurs = 0
 
       if (targetDate === selectedDate && deroule?.id) {
         targetDerouleId = deroule.id
@@ -550,6 +582,22 @@ export default function DerouleTab() {
           targetDerouleId = created.deroule.id
           targetLanes = created.lanes || []
           createdDeroule = true
+          // FEST-5.5.3 : si demandé, copie les lanes cadreur d'un autre
+          // jour avant l'insert des scènes/créneaux. On ne copie PAS les
+          // lanes 'lieu' (les scènes sont déjà gérées par scenesMapping).
+          if (copyCadreursFromDerouleId) {
+            try {
+              const newLanes = await DerouleLib.copyLanesFromDeroule(
+                copyCadreursFromDerouleId,
+                targetDerouleId,
+                ['personne'],
+              )
+              copiedCadreurs = newLanes.length
+              targetLanes = [...targetLanes, ...newLanes]
+            } catch (e) {
+              console.warn('[handleImportConfirm] copyLanes failed', e)
+            }
+          }
         }
       }
 
@@ -628,6 +676,11 @@ export default function DerouleTab() {
 
       const parts = []
       if (createdDeroule) parts.push('déroulé créé')
+      if (copiedCadreurs > 0) {
+        parts.push(
+          `${copiedCadreurs} cadreur${copiedCadreurs > 1 ? 's' : ''} repris${copiedCadreurs > 1 ? '' : ''}`,
+        )
+      }
       parts.push(`${okCount} créneau${okCount > 1 ? 'x' : ''} importé${okCount > 1 ? 's' : ''}`)
       if (errCount > 0) parts.push(`${errCount} en erreur`)
       notify.success(parts.join(' · '))
@@ -927,6 +980,7 @@ export default function DerouleTab() {
         <EmptyState
           selectedDate={selectedDate}
           canEdit={canEdit}
+          deroules={deroules}
           onCreate={handleCreateDeroule}
         />
       ) : view === 'cadreur' ? (
@@ -1057,6 +1111,7 @@ export default function DerouleTab() {
         existingLanes={lanes}
         existingCreneaux={creneaux}
         existingDeroule={deroule}
+        allProjectDeroules={deroules}
         importing={importing}
         onClose={() => {
           if (importing) return
@@ -1190,7 +1245,22 @@ function ToggleBtn({ active, onClick, icon: Icon, label, leftBorder }) {
 
 // ─── EmptyState ────────────────────────────────────────────────────────────
 
-function EmptyState({ selectedDate, canEdit, onCreate }) {
+function EmptyState({ selectedDate, canEdit, deroules = [], onCreate }) {
+  // FEST-5.5.3 : propose de reprendre les lanes du déroulé le plus récent
+  // (autre que la date courante) → on évite de re-saisir cadreurs+scènes
+  // chaque jour d'un festival.
+  const mostRecentOther = useMemo(() => {
+    const others = (deroules || []).filter((d) => d.date_jour !== selectedDate)
+    if (others.length === 0) return null
+    // Tri par date_jour DESC (le plus récent en premier)
+    const sorted = [...others].sort((a, b) =>
+      a.date_jour < b.date_jour ? 1 : -1,
+    )
+    return sorted[0]
+  }, [deroules, selectedDate])
+
+  const [copyLanes, setCopyLanes] = useState(true)
+
   return (
     <div
       className="rounded-lg p-12 text-center"
@@ -1206,19 +1276,58 @@ function EmptyState({ selectedDate, canEdit, onCreate }) {
       <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
         Créez un déroulé pour planifier la journée heure par heure.
       </p>
-      {canEdit && (
-        <button
-          type="button"
-          onClick={onCreate}
-          className="mt-4 inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded transition-colors"
+
+      {canEdit && mostRecentOther && (
+        <label
           style={{
-            background: 'var(--blue)',
-            color: 'white',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            marginTop: 16,
+            padding: '6px 12px',
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd-sub)',
+            borderRadius: 6,
+            fontSize: 12,
+            color: 'var(--txt-2)',
+            cursor: 'pointer',
           }}
         >
-          <Plus className="w-3.5 h-3.5" />
-          Créer le déroulé
-        </button>
+          <input
+            type="checkbox"
+            checked={copyLanes}
+            onChange={(e) => setCopyLanes(e.target.checked)}
+          />
+          Reprendre la structure du{' '}
+          <strong style={{ color: 'var(--txt)' }}>
+            {formatDate(mostRecentOther.date_jour)}
+          </strong>{' '}
+          <span style={{ color: 'var(--txt-3)', fontSize: 11 }}>
+            (cadreurs + scènes)
+          </span>
+        </label>
+      )}
+
+      {canEdit && (
+        <div>
+          <button
+            type="button"
+            onClick={() =>
+              onCreate({
+                copyLanesFromDerouleId:
+                  mostRecentOther && copyLanes ? mostRecentOther.id : null,
+              })
+            }
+            className="mt-4 inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded transition-colors"
+            style={{
+              background: 'var(--blue)',
+              color: 'white',
+            }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Créer le déroulé
+          </button>
+        </div>
       )}
     </div>
   )
