@@ -958,6 +958,7 @@ export default function DerouleTimelineView({
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
                       laneType={lane.type}
+                      laneWidth={laneBodyWidth}
                       onContextMenu={(e) => handleBlockContextMenu(e, c)}
                     />
                   )
@@ -1324,6 +1325,18 @@ export default function DerouleTimelineView({
   )
 }
 
+/**
+ * Initiales pour un nom complet : "Hugo Martin" → "HM", "Samuel Chibon" →
+ * "SC". Utilisé pour les lanes cadreurs en mode étroit (FEST-5.5.5).
+ */
+function getInitials(fullName) {
+  if (!fullName || typeof fullName !== 'string') return '?'
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 function labelForType(type) {
   const labels = {
     install: 'Installation',
@@ -1518,11 +1531,20 @@ function LaneHeader({
           }}
           title={
             isLibelleEditable
-              ? 'Cliquer pour renommer'
+              ? `Cliquer pour renommer · ${personneFullName || lane.libelle}`
               : personneFullName || lane.libelle
           }
         >
-          {personneFullName || lane.libelle}
+          {/* FEST-5.5.5 : nom adaptatif selon la largeur de la lane.
+              - >= 110px : nom complet (tronqué naturel)
+              - 80-110px : initiales (HM, SC) si type='personne', sinon
+                 nom tronqué normal
+              - < 80px   : icône+pastille suffit, on cache le texte */}
+          {effectiveWidth < 80
+            ? null
+            : effectiveWidth < 110 && type === 'personne'
+            ? getInitials(personneFullName || lane.libelle)
+            : personneFullName || lane.libelle}
         </button>
       )}
       {/* Mini actions : ← → ×. Visibles uniquement au hover du header
@@ -1786,6 +1808,8 @@ function CreneauBlock({
   conflicts = [],
   isLinked = false,
   laneType = null,
+  // FEST-5.5.5 : largeur de la lane (utilisée pour rendu adaptatif)
+  laneWidth = null,
 }) {
   const color = effectiveCouleurCreneau(creneau)
   const minH = 24
@@ -1797,14 +1821,63 @@ function CreneauBlock({
   // s'effacer visuellement par rapport aux vrais créneaux artiste.
   const isIndispo = creneau.type === 'indispo'
   // FEST-5.4 : alerte / point d'attention.
-  // - Bloc assez grand (height >= 52) : ligne colorée APRÈS horaires
-  //   (texte seul, sans background, fontSize 10). L'œil va d'abord sur
-  //   l'artiste, puis horaires, puis remarque l'alerte qui complète.
-  // - Bloc petit (< 52) : juste l'icône inline à côté du titre + tooltip.
   const showAlerte = hasAlerte(creneau)
   const alerteColor = showAlerte ? ALERTE_COLORS[creneau.alerte_niveau] : null
   const alerteIsImportant = creneau.alerte_niveau === 'important'
-  const showAlerteLine = showAlerte && height >= 52
+
+  // FEST-5.5.5 : rendu adaptatif selon la largeur de la lane.
+  // Hugo : "Le plus important est : Titre + Horaires. Il faut les voir presque
+  // absolument et en entier si pas trop long. Les avatars peuvent disparaître
+  // si trop court/fin."
+  //
+  // 3 paliers de largeur :
+  //  - WIDE   (>= 130px ou multi-lane)  : layout complet (1 ligne titre + horaires
+  //                                       + lieu + avatars)
+  //  - NARROW (90-130px)                : titre wrap 2 lignes si height >= 60,
+  //                                       horaires compactes (16:50–18:35),
+  //                                       lieu caché, avatars ≤ 2, police 11
+  //  - V_NARROW (< 90px)                : titre wrap 3 lignes si height >= 80,
+  //                                       horaires VERTICALES (16:50 / 18:35),
+  //                                       alerte icône seule, avatars "+N",
+  //                                       badge durée + link icon cachés
+  const isMulti = Boolean(isMultiLane)
+  const effectiveWidth = isMulti
+    ? 9999 // multi-lane couvre tout, comme wide
+    : Number.isFinite(laneWidth)
+    ? laneWidth
+    : 130
+  const isWide = effectiveWidth >= 130
+  const isVeryNarrow = effectiveWidth < 90
+  const isNarrow = !isVeryNarrow && !isWide
+
+  // Combien de lignes max pour le titre (calculé selon height dispo)
+  const titleMaxLines = isWide
+    ? 1
+    : isVeryNarrow
+    ? height >= 80
+      ? 3
+      : height >= 50
+      ? 2
+      : 1
+    : height >= 60
+    ? 2
+    : 1
+
+  // Hide badges (durée, link icon) sous 80px
+  const hideBadges = effectiveWidth < 80
+  // Cacher le lieu en mode narrow et plus
+  const hideLieu = !isWide
+  // Avatars limités
+  const maxAvatars = isVeryNarrow ? 0 : isNarrow ? 2 : 4
+  // Réduire la police titre sous 110px
+  const titleFontSize = effectiveWidth >= 110 ? (height >= 60 ? 12 : 11) : 11
+  const horairesFontSize = effectiveWidth >= 110 ? 10 : 9
+  // Horaires sur 2 lignes verticales si very narrow
+  const horairesVertical = isVeryNarrow
+
+  // Logique alerte (FEST-5.4) ajustée pour le mode étroit : si very narrow,
+  // on n'a pas la place pour la ligne d'alerte → icône seule à côté du titre
+  const showAlerteLine = showAlerte && height >= 52 && !isVeryNarrow
   const showAlerteIconOnly = showAlerte && !showAlerteLine
 
   // Phase D — conflit d'assignation : un même membre est dans 2+ créneaux
@@ -1926,8 +1999,9 @@ function CreneauBlock({
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >
-      {/* Top-right : badge durée + indicateur lié (UX-2) */}
-      {height >= 40 && (
+      {/* Top-right : badge durée + indicateur lié (UX-2). FEST-5.5.5 :
+          caché en mode étroit (< 80px) pour laisser la place au titre. */}
+      {height >= 40 && !hideBadges && (
         <div
           style={{
             position: 'absolute',
@@ -1977,17 +2051,32 @@ function CreneauBlock({
         </div>
       )}
 
-      {/* Titre — gras + taille adaptative selon hauteur */}
+      {/* Titre — gras, taille + wrap adaptatifs (FEST-5.5.5).
+          Wrap multi-ligne via -webkit-line-clamp (compat tous browsers
+          modernes), tronqué proprement avec "…" à la fin de la dernière
+          ligne autorisée. */}
       <div
         style={{
-          fontSize: height >= 60 ? 12 : 11,
+          fontSize: titleFontSize,
           fontWeight: 600,
           color: hexToTextColor(color),
           lineHeight: 1.2,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          paddingRight: height >= 40 ? 50 : 0,
+          // Mode 1 ligne : nowrap + ellipsis classique.
+          // Mode multi-ligne : line-clamp.
+          ...(titleMaxLines === 1
+            ? {
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }
+            : {
+                display: '-webkit-box',
+                WebkitLineClamp: titleMaxLines,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                wordBreak: 'break-word',
+              }),
+          paddingRight: height >= 40 && !hideBadges ? 50 : 0,
         }}
       >
         {isMultiLane && (
@@ -2037,23 +2126,45 @@ function CreneauBlock({
         {creneau.titre || '(sans titre)'}
       </div>
 
-      {/* Horaires + lieu (visible si height >= 36) */}
+      {/* Horaires + lieu (visible si height >= 36).
+          FEST-5.5.5 : adaptatif.
+          - WIDE   : "16:50 – 18:35 · Lieu" (1 ligne, format actuel)
+          - NARROW : "16:50–18:35" (compact, lieu caché)
+          - V_NARROW : "16:50" / "18:35" sur 2 lignes verticales */}
       {height >= 36 && (
-        <div
-          style={{
-            fontSize: 10,
-            color: hexToTextColor(color),
-            opacity: 0.65,
-            marginTop: 1,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            paddingRight: height >= 40 ? 50 : 0,
-          }}
-        >
-          {formatMinHHMM(creneau.heure_debut_min)} – {formatMinHHMM(creneau.heure_fin_min)}
-          {creneau.lieu_text && <> · {creneau.lieu_text}</>}
-        </div>
+        horairesVertical ? (
+          <div
+            style={{
+              fontSize: horairesFontSize,
+              color: hexToTextColor(color),
+              opacity: 0.65,
+              marginTop: 1,
+              lineHeight: 1.15,
+            }}
+          >
+            <div>{formatMinHHMM(creneau.heure_debut_min)}</div>
+            <div>{formatMinHHMM(creneau.heure_fin_min)}</div>
+          </div>
+        ) : (
+          <div
+            style={{
+              fontSize: horairesFontSize,
+              color: hexToTextColor(color),
+              opacity: 0.65,
+              marginTop: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              paddingRight: height >= 40 && !hideBadges ? 50 : 0,
+            }}
+          >
+            {/* En mode NARROW : sans espace autour du tiret pour gagner de la place */}
+            {isNarrow
+              ? `${formatMinHHMM(creneau.heure_debut_min)}–${formatMinHHMM(creneau.heure_fin_min)}`
+              : `${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`}
+            {!hideLieu && creneau.lieu_text && <> · {creneau.lieu_text}</>}
+          </div>
+        )
       )}
 
       {/* FEST-5.4 : Ligne alerte APRÈS horaires — texte coloré seul, pas
@@ -2098,13 +2209,17 @@ function CreneauBlock({
           FEST-3.2 raffinement Hugo : ne PAS afficher les avatars sur les
           blocs des lanes de type 'personne' (cadreur) → l'info est
           redondante (le bloc est déjà dans la lane du cadreur, on sait
-          qu'il est attitré). */}
+          qu'il est attitré).
+          FEST-5.5.5 : maxAvatars adaptatif selon la largeur (0 si very
+          narrow, 2 si narrow, 4 si wide). Si maxAvatars=0 mais des
+          membres existent → affiche juste un compteur compact "+N". */}
       {height >= 60 &&
         creneau.member_ids &&
         creneau.member_ids.length > 0 &&
-        laneType !== 'personne' && (
+        laneType !== 'personne' &&
+        (maxAvatars > 0 ? (
         <div className="flex gap-0 mt-1.5" style={{ pointerEvents: 'none' }}>
-          {creneau.member_ids.slice(0, 4).map((mid, idx) => {
+          {creneau.member_ids.slice(0, maxAvatars).map((mid, idx) => {
             const m = membreInitiales.get(mid)
             const avatarColor = colorFromUserId(mid)
             return (
@@ -2130,7 +2245,7 @@ function CreneauBlock({
               </div>
             )
           })}
-          {creneau.member_ids.length > 4 && (
+          {creneau.member_ids.length > maxAvatars && (
             <div
               style={{
                 width: 20,
@@ -2147,11 +2262,26 @@ function CreneauBlock({
                 marginLeft: -5,
               }}
             >
-              +{creneau.member_ids.length - 4}
+              +{creneau.member_ids.length - maxAvatars}
             </div>
           )}
         </div>
-      )}
+        ) : (
+          /* FEST-5.5.5 : mode very narrow → juste un compteur +N à la place
+             des avatars individuels (qui ne tiennent pas). */
+          <div
+            className="mt-1.5"
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              color: hexToTextColor(color),
+              opacity: 0.75,
+              pointerEvents: 'none',
+            }}
+          >
+            +{creneau.member_ids.length}
+          </div>
+        ))}
     </div>
   )
 }
