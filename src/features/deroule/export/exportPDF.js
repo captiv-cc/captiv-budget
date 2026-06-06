@@ -33,7 +33,8 @@ import {
   sanitizeFilename,
   TYPE_LABELS,
 } from './derouleExport'
-import { hasAlerte, formatMinHHMM } from '../../../lib/deroule'
+import { hasAlerte, isCreneauUnavailable, formatMinHHMM } from '../../../lib/deroule'
+import { loadImageAsPng, computeLogoBox } from '../../../lib/pdfImageLoader'
 
 // ─── Configuration A4 paysage ────────────────────────────────────────────
 const PAGE_W = 297 // mm
@@ -42,10 +43,11 @@ const MARGIN_X = 10
 const MARGIN_TOP = 8
 const MARGIN_BOTTOM = 8
 
-const HEADER_H = 18
+const HEADER_H = 22
 const FOOTER_H = 8
 const LANE_HEADER_H = 9
 const TIME_COL_W = 14
+const COVER_SIZE = 14 // mm — taille de l'icône projet dans le header
 
 // ─── Palette (RGB triplets) ──────────────────────────────────────────────
 const C = {
@@ -92,18 +94,63 @@ function rgbDarken([r, g, b], pct = 0.2) {
 }
 
 // ─── Rendu d'une page (un jour) ───────────────────────────────────────────
-function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, generatedAt }) {
-  // ─── Header ───────────────────────────────────────────────────────────
-  pdf.setFontSize(14)
+function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, generatedAt, coverImage }) {
+  // ─── Header : cover icône + titre + client + date + ref + nb créneaux ──
+  let textLeftX = MARGIN_X
+  if (coverImage) {
+    // Place l'image cover : carré 14×14 en haut à gauche, respecte le ratio
+    const box = computeLogoBox(
+      coverImage.width,
+      coverImage.height,
+      COVER_SIZE,
+      COVER_SIZE,
+    )
+    const imgX = MARGIN_X
+    const imgY = MARGIN_TOP + 1
+    // Centrer la box dans le carré COVER_SIZE
+    const offsetX = (COVER_SIZE - box.width) / 2
+    const offsetY = (COVER_SIZE - box.height) / 2
+    try {
+      pdf.addImage(
+        coverImage.dataUrl,
+        'PNG',
+        imgX + offsetX,
+        imgY + offsetY,
+        box.width,
+        box.height,
+        undefined,
+        'FAST',
+      )
+    } catch (e) {
+      console.warn('[exportPDF] addImage cover failed', e)
+    }
+    textLeftX = MARGIN_X + COVER_SIZE + 3.5
+  }
+
+  // Titre projet (bold, taille augmentée)
+  pdf.setFontSize(15)
   pdf.setFont('helvetica', 'bold')
   pdf.setTextColor(...C.text)
-  pdf.text(project?.title || 'Projet', MARGIN_X, MARGIN_TOP + 5)
+  pdf.text(project?.title || 'Projet', textLeftX, MARGIN_TOP + 5)
 
-  pdf.setFontSize(10)
+  // Nom client (gris medium) - juste sous le titre
+  const clientName = project?.clients?.nom_commercial || ''
+  let nextLineY = MARGIN_TOP + 10
+  if (clientName) {
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(...C.textMuted)
+    pdf.text(clientName, textLeftX, nextLineY)
+    nextLineY += 4.5
+  }
+
+  // Date du jour (gris clair)
+  pdf.setFontSize(9.5)
   pdf.setFont('helvetica', 'normal')
   pdf.setTextColor(...C.textMuted)
-  pdf.text(formatHumanDate(deroule?.date_jour), MARGIN_X, MARGIN_TOP + 11)
+  pdf.text(formatHumanDate(deroule?.date_jour), textLeftX, nextLineY)
 
+  // Bloc droit : ref + nb créneaux
   if (project?.ref_projet) {
     pdf.setFontSize(8)
     pdf.setTextColor(...C.textFaint)
@@ -199,6 +246,20 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
   pdf.setFillColor(...C.white)
   pdf.rect(MARGIN_X, gridTop, TIME_COL_W, gridHeight, 'F')
 
+  // (I) Bandes horaires alternées toutes les 2h pour faciliter le scan
+  // vertical. On démarre la 1ère bande à l'heure pleine en-dessous de
+  // minStart pour rester aligné avec les graduations.
+  const firstHour = Math.ceil(minStart / 60) * 60
+  for (let m = firstHour; m < maxEnd; m += 120) {
+    const bandStart = m
+    const bandEnd = Math.min(m + 60, maxEnd)
+    if (bandEnd <= bandStart) continue
+    const yBand = gridTop + (bandStart - minStart) * pxPerMin
+    const hBand = (bandEnd - bandStart) * pxPerMin
+    pdf.setFillColor(250, 250, 252) // très très clair, presque invisible
+    pdf.rect(gridLeft, yBand, gridWidth, hBand, 'F')
+  }
+
   const grads = buildHourGraduations(minStart, maxEnd)
   for (const g of grads) {
     const y = gridTop + (g.minutes - minStart) * pxPerMin
@@ -260,6 +321,63 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
 }
 
 /**
+ * Format durée compact (cohérent avec la timeline app).
+ *   < 60min → "30min"
+ *   exact 60 → "1h"
+ *   sinon → "1h45"
+ */
+function formatDureeShort(min) {
+  if (typeof min !== 'number' || min <= 0) return ''
+  const h = Math.floor(min / 60)
+  const m = Math.floor(min % 60)
+  if (h === 0) return `${m}min`
+  if (m === 0) return `${h}h`
+  return `${h}h${String(m).padStart(2, '0')}`
+}
+
+/**
+ * Trace un triangle d'alerte vectoriel (filled) avec un "!" blanc à
+ * l'intérieur. ⚠ ne s'imprime pas avec helvetica → on dessine.
+ *
+ * Le triangle fait `size` mm de côté, ancré bottom-left en (x, y).
+ */
+function drawWarningTriangle(pdf, x, y, size, [r, g, b]) {
+  pdf.setFillColor(r, g, b)
+  // Triangle pointe vers le haut
+  const apex = { x: x + size / 2, y: y - size + 0.2 }
+  const bl = { x, y }
+  const br = { x: x + size, y }
+  pdf.triangle(apex.x, apex.y, bl.x, bl.y, br.x, br.y, 'F')
+  // "!" blanc centré
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(size * 2.0)
+  pdf.text('!', x + size / 2, y - size * 0.25, { align: 'center' })
+}
+
+/**
+ * Trace un pattern de hachures diagonales par-dessus une zone, pour
+ * représenter les créneaux 'indispo' (cohérent avec la timeline app).
+ *
+ * Diagonales 45° (sens bas-gauche → haut-droite), clampées au rectangle.
+ * Paramètre c = u + v (u: horizontal local 0..w ; v: vertical local 0..h
+ * où v est mesuré depuis le BAS du rect). On balaie c de 0 à w+h.
+ */
+function drawHatchOverlay(pdf, x, y, w, h, [r, g, b]) {
+  pdf.setDrawColor(r, g, b)
+  pdf.setLineWidth(0.18)
+  const spacing = 1.6 // mm entre lignes
+  for (let c = 0; c <= w + h; c += spacing) {
+    const u1 = Math.max(0, c - h)
+    const v1 = Math.min(c, h)
+    const u2 = Math.min(c, w)
+    const v2 = Math.max(0, c - w)
+    // v mesuré depuis le bas → Y_pdf = y + h - v
+    pdf.line(x + u1, y + h - v1, x + u2, y + h - v2)
+  }
+}
+
+/**
  * Dessine une "box" représentant un créneau dans la grille.
  */
 function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
@@ -267,9 +385,17 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
   const baseColor = getCreneauColor(creneau)
   const rgb = hexToRgb(baseColor)
   const fill = rgbLighten(rgb, 0.78)
+  const isIndispo = isCreneauUnavailable(creneau)
+
   // Fond
   pdf.setFillColor(...fill)
   pdf.rect(x, y, w, h, 'F')
+
+  // (G) Indispo : pattern hachuré par-dessus le fond
+  if (isIndispo) {
+    drawHatchOverlay(pdf, x, y, w, h, rgbDarken(rgb, 0.15))
+  }
+
   // Bordure gauche colorée (signature visuelle)
   pdf.setFillColor(...rgb)
   pdf.rect(x, y, 0.6, h, 'F')
@@ -278,49 +404,90 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
   pdf.setLineWidth(0.1)
   pdf.rect(x, y, w, h, 'S')
 
-  // Texte interne (titre + horaires)
+  // ─── Calcul de la place dispo / réservation badge durée ───────────────
+  // (D) Badge durée en haut à droite (uniquement si h >= 8 et w >= 22)
+  const dureeMin = (creneau.heure_fin_min || 0) - (creneau.heure_debut_min || 0)
+  const dureeStr = formatDureeShort(dureeMin)
+  let badgeWidth = 0
+  if (h >= 8 && w >= 22 && dureeStr) {
+    pdf.setFontSize(6.5)
+    pdf.setFont('helvetica', 'normal')
+    badgeWidth = pdf.getTextWidth(dureeStr) + 2
+    pdf.setTextColor(...C.textFaint)
+    pdf.text(dureeStr, x + w - 1.5, y + 3, { align: 'right' })
+  }
+
+  // ─── Texte interne (titre + horaires + lieu) ──────────────────────────
   pdf.setTextColor(...C.text)
   pdf.setFont('helvetica', 'bold')
   const titleFontSize = h > 8 ? 8 : 7
   pdf.setFontSize(titleFontSize)
   const titleY = y + 2.5
   const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
-  // Wrap titre sur 2-3 lignes max
+  // Wrap titre sur 2-3 lignes max, en réservant la place du badge sur 1ère ligne
   const maxLines = h > 16 ? 3 : h > 8 ? 2 : 1
-  const titleLines = pdf.splitTextToSize(titre, w - 2)
+  const titleMaxW = Math.max(8, w - 2 - badgeWidth - 1)
+  // Première ligne tronquée par le badge ; lignes suivantes pleine largeur
+  const titleLines = pdf.splitTextToSize(titre, titleMaxW)
   for (let i = 0; i < Math.min(titleLines.length, maxLines); i += 1) {
     pdf.text(titleLines[i], x + 1.5, titleY + i * (titleFontSize * 0.4))
   }
 
+  // (A) Préparer la bande d'alerte : on calcule la position AVANT pour
+  // savoir si horaires/lieu doivent être décalés vers le haut.
+  const showAlerte = hasAlerte(creneau) && h >= 9
+  const alertColor = showAlerte ? getCreneauAlertColor(creneau) : null
+  const alertRgb = alertColor ? hexToRgb(alertColor) : C.alertImportant
+  const ALERT_BAND_H = 4.2 // mm
+  const alertBandY = showAlerte ? y + h - ALERT_BAND_H : null
+  const contentMaxY = showAlerte ? alertBandY - 0.6 : y + h - 0.5
+
   // Horaires (si la place le permet)
-  if (h >= 7) {
-    const horaireY = titleY + Math.min(titleLines.length, maxLines) * (titleFontSize * 0.4) + 0.8
-    if (horaireY + 2 < y + h - 0.5) {
-      pdf.setFont('helvetica', 'normal')
-      pdf.setFontSize(6.5)
-      pdf.setTextColor(...C.textMuted)
-      pdf.text(
-        `${formatMinHHMM(creneau.heure_debut_min)}–${formatMinHHMM(creneau.heure_fin_min)}`,
-        x + 1.5,
-        horaireY,
-      )
+  let cursorY = titleY + Math.min(titleLines.length, maxLines) * (titleFontSize * 0.4) + 0.8
+  if (h >= 7 && cursorY + 2 < contentMaxY) {
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(6.5)
+    pdf.setTextColor(...C.textMuted)
+    pdf.text(
+      `${formatMinHHMM(creneau.heure_debut_min)}–${formatMinHHMM(creneau.heure_fin_min)}`,
+      x + 1.5,
+      cursorY,
+    )
+    cursorY += 3
+  }
+
+  // (F) Lieu sous les horaires (si présent et place dispo)
+  if (creneau.lieu_text && h >= 11 && cursorY + 2 < contentMaxY) {
+    pdf.setFont('helvetica', 'italic')
+    pdf.setFontSize(6)
+    pdf.setTextColor(...C.textMuted)
+    const lieuLines = pdf.splitTextToSize(creneau.lieu_text, w - 2.5)
+    if (lieuLines[0]) {
+      pdf.text(lieuLines[0], x + 1.5, cursorY)
     }
   }
 
-  // Alerte (icône + texte court si présente)
-  if (hasAlerte(creneau) && h >= 11) {
-    const alertColor = getCreneauAlertColor(creneau)
-    const alertRgb = alertColor ? hexToRgb(alertColor) : C.alertImportant
+  // (A) Alerte : bande de fond orange/bleu + triangle vectoriel + texte
+  if (showAlerte) {
+    const bgRgb = rgbLighten(alertRgb, 0.75)
+    pdf.setFillColor(...bgRgb)
+    pdf.rect(x + 0.6, alertBandY, w - 0.6, ALERT_BAND_H, 'F')
+    // Triangle (taille 2.4mm) ancré à 1mm du bord gauche, base sur la
+    // baseline du texte d'alerte.
+    const triSize = 2.4
+    const triX = x + 1.6
+    const triBaseY = alertBandY + ALERT_BAND_H - 0.8
+    drawWarningTriangle(pdf, triX, triBaseY, triSize, alertRgb)
+    // Texte alerte (sans symbole — le triangle fait le job)
     pdf.setFontSize(6.5)
     pdf.setFont('helvetica', 'bold')
-    pdf.setTextColor(...alertRgb)
-    const alertY = y + h - 1
-    const alertLabel = creneau.alerte_niveau === 'important' ? '⚠ ' : 'ℹ '
+    pdf.setTextColor(...rgbDarken(alertRgb, 0.35))
+    const alertTextX = triX + triSize + 1
     pdf.text(
-      `${alertLabel}${creneau.alerte_text || ''}`,
-      x + 1.5,
-      alertY,
-      { maxWidth: w - 2 },
+      creneau.alerte_text || '',
+      alertTextX,
+      alertBandY + ALERT_BAND_H - 1.3,
+      { maxWidth: w - (alertTextX - x) - 1 },
     )
   }
 
@@ -369,7 +536,7 @@ function formatDateTime(d) {
  * @param {Date} [args.generatedAt]
  * @returns {{ blob, url, filename, download, revoke }}
  */
-export function buildDerouleMultiJourPdf({
+export async function buildDerouleMultiJourPdf({
   project,
   deroulesData,
   generatedAt,
@@ -381,6 +548,17 @@ export function buildDerouleMultiJourPdf({
   })
 
   const now = generatedAt || new Date()
+
+  // Preload de l'icône projet (cover_url). Si échec, on continue sans
+  // image (header s'adapte automatiquement via textLeftX).
+  let coverImage = null
+  if (project?.cover_url) {
+    try {
+      coverImage = await loadImageAsPng(project.cover_url)
+    } catch (e) {
+      console.warn('[exportPDF] cover_url load failed', e)
+    }
+  }
 
   if (!Array.isArray(deroulesData) || deroulesData.length === 0) {
     pdf.setFontSize(14)
@@ -398,6 +576,7 @@ export function buildDerouleMultiJourPdf({
         creneaux,
         membres,
         generatedAt: now,
+        coverImage,
       })
     }
   }

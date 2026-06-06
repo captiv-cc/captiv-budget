@@ -205,7 +205,7 @@ export default function ExportDerouleModal({
 
       let result
       if (exportType === 'pdf') {
-        result = buildDerouleMultiJourPdf({
+        result = await buildDerouleMultiJourPdf({
           project,
           deroulesData,
           generatedAt: new Date(),
