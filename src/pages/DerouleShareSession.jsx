@@ -898,19 +898,21 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
           border: '1px solid var(--brd)',
         }}
       >
-        {/* Header lanes — STICKY au scroll vertical de la page. Le top
-            offset correspond à la hauteur approx du sticky bar
-            (day-selector+view-toggle) au-dessus. Sur mobile cette barre
-            mesure ~96px (chips 3-lignes + paddings). */}
+        {/* Header lanes — au top du wrapper en flow naturel.
+            NB : on avait tenté `position: sticky; top: 96` pour garder
+            les noms visibles au scroll vertical, mais le wrapper a
+            overflow-x: auto, ce qui (per CSS spec) force overflow-y:
+            auto et crée un scroll context vertical local. Du coup le
+            sticky shiftait le header de 96px DANS le wrapper au lieu
+            de suivre le scroll de la page → headers flottants au
+            milieu de la timeline. Le sticky day selector (top de page)
+            couvre l'essentiel du besoin nav. */}
         <div
           className="flex"
           style={{
             background: 'var(--bg-elev)',
             borderBottom: '1px solid var(--brd)',
             minWidth: 'fit-content',
-            position: 'sticky',
-            top: 96,
-            zIndex: 10,
           }}
         >
           <div
