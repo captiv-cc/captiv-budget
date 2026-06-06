@@ -22,6 +22,7 @@ import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import DateRangesInput from '../../features/projets/components/DateRangesInput'
 import PeriodesRecapWidget from '../../features/projets/components/PeriodesRecapWidget'
 import LivrablesProjectWidget from '../../features/livrables/components/LivrablesProjectWidget'
+import { geocodeAddress, formatLatLon } from '../../lib/geocode'
 import {
   PERIODE_KEYS,
   PERIODE_META,
@@ -49,6 +50,9 @@ import {
   Phone,
   MapPin,
   Folder,
+  Loader2,
+  Check as CheckIcon,
+  AlertCircle,
 } from 'lucide-react'
 
 // ─── Définition des champs dynamiques PROJET ─────────────────────────────────
@@ -142,6 +146,11 @@ function buildDraftFromProject(project) {
     visible,
     periodes,
     noteProd: project.note_prod || '',
+    // FEST-5.1 : géolocalisation pour le golden hour du déroulé
+    lieu_text: project.lieu_text || '',
+    lat: project.lat ?? null,
+    lon: project.lon ?? null,
+    geocoded_at: project.geocoded_at || null,
   }
 }
 
@@ -165,6 +174,11 @@ function buildPayloadFromDraft(draft) {
     realisateur: draft.fields.realisateur || null,
     note_prod: draft.noteProd,
     metadata,
+    // FEST-5.1 : géolocalisation (vide si user n'a pas saisi)
+    lieu_text: draft.lieu_text?.trim() ? draft.lieu_text.trim() : null,
+    lat: Number.isFinite(draft.lat) ? draft.lat : null,
+    lon: Number.isFinite(draft.lon) ? draft.lon : null,
+    geocoded_at: draft.geocoded_at || null,
     // NB : livrables_json (legacy) n'est volontairement plus écrit ici —
     // les livrables sont gérés depuis LivrablesTab (LIV-7+).
     updated_at: new Date().toISOString(),
@@ -1151,6 +1165,9 @@ function EditModal({
               ))}
             </select>
           </div>
+          {/* FEST-5.1c : champ Lieu + géocodage (utilisé pour le golden hour
+              dans le déroulé festival). Géocodage Nominatim onBlur. */}
+          <LieuField draft={draft} setDraft={setDraft} />
           <FieldSubSection label="Général">
             {/* Tags type de projet — multi-sélection */}
             <div className="mb-3">
@@ -1330,6 +1347,176 @@ function Field({ label, value, onChange, placeholder, type = 'text', big = false
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
+    </div>
+  )
+}
+
+// FEST-5.1c : Champ "Lieu" du projet avec géocodage Nominatim auto.
+// onBlur : si lieu_text a changé depuis le dernier géocodage, on relance
+// la requête Nominatim et on stocke lat/lon + geocoded_at dans le draft
+// parent (qui sera persisté au save du form complet).
+function LieuField({ draft, setDraft }) {
+  const [geocoding, setGeocoding] = useState(false)
+  const [lastError, setLastError] = useState(null)
+  const lastGeocodedQueryRef = useRef(draft.lieu_text || '')
+
+  async function tryGeocode(query) {
+    const q = (query || '').trim()
+    if (!q) {
+      // Vidé → on nettoie lat/lon/geocoded_at
+      setDraft((p) => ({ ...p, lat: null, lon: null, geocoded_at: null }))
+      setLastError(null)
+      lastGeocodedQueryRef.current = ''
+      return
+    }
+    if (q === lastGeocodedQueryRef.current && Number.isFinite(draft.lat)) {
+      // Pas de changement et déjà géocodé → no-op
+      return
+    }
+    setGeocoding(true)
+    setLastError(null)
+    try {
+      const result = await geocodeAddress(q)
+      if (result) {
+        setDraft((p) => ({
+          ...p,
+          lat: result.lat,
+          lon: result.lon,
+          geocoded_at: new Date().toISOString(),
+        }))
+        lastGeocodedQueryRef.current = q
+      } else {
+        setDraft((p) => ({ ...p, lat: null, lon: null, geocoded_at: null }))
+        setLastError('Lieu introuvable')
+        lastGeocodedQueryRef.current = q
+      }
+    } catch (e) {
+      setLastError(e?.message || 'Erreur géocodage')
+    } finally {
+      setGeocoding(false)
+    }
+  }
+
+  const hasCoords = Number.isFinite(draft.lat) && Number.isFinite(draft.lon)
+
+  return (
+    <div>
+      <FieldLabel>
+        Lieu du projet
+        <span
+          style={{
+            marginLeft: 6,
+            color: 'var(--txt-3)',
+            fontWeight: 400,
+            fontSize: 10,
+          }}
+        >
+          (utilisé pour le golden hour du déroulé festival)
+        </span>
+      </FieldLabel>
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          className="input text-sm w-full"
+          style={{ paddingLeft: 30 }}
+          value={draft.lieu_text || ''}
+          onChange={(e) => {
+            const v = e.target.value
+            setDraft((p) => ({ ...p, lieu_text: v }))
+          }}
+          onBlur={() => tryGeocode(draft.lieu_text)}
+          placeholder="Ex: Vand'B Fest, Vendeuvre-sur-Barse — ou Marseille — ou 44.84, -0.58"
+        />
+        <MapPin
+          size={14}
+          style={{
+            position: 'absolute',
+            left: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            color: 'var(--txt-3)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+      <div
+        style={{
+          marginTop: 6,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 11,
+        }}
+      >
+        {geocoding ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: 'var(--txt-3)',
+            }}
+          >
+            <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+            Géocodage…
+          </span>
+        ) : hasCoords ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: '#22C55E',
+            }}
+          >
+            <CheckIcon size={12} />
+            Géolocalisé : {formatLatLon(draft.lat, draft.lon)}
+          </span>
+        ) : lastError ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: '#EF4444',
+            }}
+          >
+            <AlertCircle size={12} />
+            {lastError}
+          </span>
+        ) : draft.lieu_text ? (
+          <span style={{ color: 'var(--txt-3)' }}>
+            Cliquer hors du champ pour géocoder
+          </span>
+        ) : (
+          <span style={{ color: 'var(--txt-3)' }}>
+            Laisser vide si pas de localisation pertinente
+          </span>
+        )}
+        {hasCoords && draft.lieu_text && (
+          <button
+            type="button"
+            onClick={() => {
+              lastGeocodedQueryRef.current = ''
+              tryGeocode(draft.lieu_text)
+            }}
+            disabled={geocoding}
+            style={{
+              marginLeft: 'auto',
+              fontSize: 10,
+              padding: '2px 6px',
+              background: 'transparent',
+              border: '1px solid var(--brd-sub)',
+              borderRadius: 4,
+              color: 'var(--txt-2)',
+              cursor: geocoding ? 'not-allowed' : 'pointer',
+            }}
+            title="Forcer une nouvelle requête Nominatim"
+          >
+            Re-géocoder
+          </button>
+        )}
+      </div>
     </div>
   )
 }

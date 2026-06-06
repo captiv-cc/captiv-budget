@@ -16,7 +16,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useOutletContext } from 'react-router-dom'
 import {
   Plus,
   ChevronLeft,
@@ -31,6 +31,7 @@ import {
   Share2,
   Eye,
   Sparkles,
+  Sun,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -53,6 +54,7 @@ import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
 import ImportPreviewModal from '../../features/deroule/ImportPreviewModal'
 import * as DerouleLib from '../../lib/deroule'
+import useGoldenHour from '../../hooks/useGoldenHour'
 import {
   getLinkedChildren,
   applySourceUpdate,
@@ -62,6 +64,11 @@ const OUTIL_KEY = 'deroule'
 
 export default function DerouleTab() {
   const { id: projectId } = useParams()
+  // FEST-5.1d : récupère lat/lon depuis le project chargé par ProjetLayout
+  // (utilisé pour le golden hour). Optional chaining car DerouleTab peut être
+  // mounté dans d'autres contextes (preview public ?).
+  const outletCtx = useOutletContext?.() || {}
+  const project = outletCtx.project || null
   const { can } = useProjectPermissions(projectId)
   const canRead = can(OUTIL_KEY, 'read')
   const canEdit = can(OUTIL_KEY, 'edit')
@@ -119,6 +126,28 @@ export default function DerouleTab() {
   const [importExtracted, setImportExtracted] = useState(null)
   const [importPreviewOpen, setImportPreviewOpen] = useState(false)
   const [importing, setImporting] = useState(false)
+  // FEST-5.1d : toggle overlay golden hour, persisté localStorage par user
+  const [showGoldenHour, setShowGoldenHour] = useState(() => {
+    try {
+      return localStorage.getItem('deroule.showGoldenHour') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('deroule.showGoldenHour', showGoldenHour ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [showGoldenHour])
+  // Calcul sunrise/sunset/golden depuis lat/lon projet + date du déroulé
+  const sunTimes = useGoldenHour(
+    selectedDate,
+    project?.lat ? Number(project.lat) : null,
+    project?.lon ? Number(project.lon) : null,
+  )
+  const hasProjectGeoloc = Boolean(sunTimes)
 
   // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
   useEffect(() => {
@@ -803,6 +832,29 @@ export default function DerouleTab() {
               <span className="hidden sm:inline">Importer prog.</span>
             </button>
           )}
+          {/* FEST-5.1d : toggle overlay golden hour (visible si projet géolocalisé) */}
+          {hasProjectGeoloc && deroule && (
+            <button
+              type="button"
+              onClick={() => setShowGoldenHour((v) => !v)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+              style={{
+                color: showGoldenHour ? '#F59E0B' : 'var(--txt-2)',
+                background: showGoldenHour
+                  ? 'rgba(245,158,11,0.08)'
+                  : 'transparent',
+                border: `1px solid ${showGoldenHour ? 'rgba(245,158,11,0.45)' : 'var(--brd)'}`,
+              }}
+              title={
+                showGoldenHour
+                  ? 'Masquer les golden hours (lever/coucher du soleil)'
+                  : 'Afficher les golden hours (lever/coucher du soleil)'
+              }
+            >
+              <Sun className="w-3 h-3" />
+              <span className="hidden sm:inline">Golden</span>
+            </button>
+          )}
           {deroule && canEdit && (
             <button
               type="button"
@@ -880,6 +932,8 @@ export default function DerouleTab() {
           onDeleteLane={handleDeleteLane}
           onReorderLane={handleReorderLane}
           onMoveCreneau={handleMoveCreneau}
+          sunTimes={sunTimes}
+          showGoldenHour={showGoldenHour}
         />
       ) : (
         <DerouleListView

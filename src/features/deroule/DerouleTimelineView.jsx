@@ -44,6 +44,7 @@ import {
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
 import AssignCadreurMenu from './AssignCadreurMenu'
+import GoldenHourOverlay from './GoldenHourOverlay'
 
 const PX_PER_HOUR = 60 // 60px = 1h, donc 15px = 15min, 1px ≈ 1min
 const LANE_HEADER_H = 36
@@ -82,6 +83,9 @@ export default function DerouleTimelineView({
   onDeleteLane,
   onReorderLane, // (laneId, neighborLaneId) → swap sort_order
   onMoveCreneau,
+  // FEST-5.1d : overlay golden hour optionnel
+  sunTimes = null,
+  showGoldenHour = false,
 }) {
   const containerRef = useRef(null)
   const bodyRef = useRef(null) // pour calcul lane sous mouseX en drag horizontal
@@ -1056,6 +1060,18 @@ export default function DerouleTimelineView({
             )
           })}
         </div>
+
+        {/* FEST-5.1d : Overlay golden hour (matin + soir).
+            Calé en pointer-events:none + zIndex:1 (sous les blocs) pour ne
+            pas gêner l'interaction. */}
+        <GoldenHourOverlay
+          sunTimes={sunTimes}
+          heureDebutMin={heureDebutMin}
+          heureFinMin={heureFinMin}
+          minToTop={minToTop}
+          timeColWidth={TIME_COL_W}
+          visible={showGoldenHour}
+        />
 
         {/* Now line */}
         {nowVisible && (
