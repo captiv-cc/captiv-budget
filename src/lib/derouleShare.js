@@ -208,6 +208,35 @@ export async function fetchSharePayload(token) {
   return data
 }
 
+/**
+ * Permet à un visiteur de la page share (sans auth) de marquer un créneau
+ * comme "fait" / "en_cours" / "annule" / "planifie".
+ *
+ * La RPC SECURITY DEFINER `share_deroule_set_creneau_statut` valide :
+ *   - que le token existe et n'est ni révoqué ni expiré
+ *   - que le créneau ciblé appartient bien au projet du token
+ *   - que le statut est dans l'enum autorisé
+ *
+ * @param {string} token
+ * @param {string} creneauId
+ * @param {'planifie'|'en_cours'|'fait'|'annule'} statut
+ * @returns {Promise<{ id: string, statut: string }>}
+ */
+export async function shareSetCreneauStatut(token, creneauId, statut) {
+  if (!token) throw new Error('shareSetCreneauStatut : token requis')
+  if (!creneauId) throw new Error('shareSetCreneauStatut : creneauId requis')
+  const { data, error } = await supabase.rpc('share_deroule_set_creneau_statut', {
+    p_token: token,
+    p_creneau_id: creneauId,
+    p_statut: statut,
+  })
+  if (error) {
+    console.error('[derouleShare] share_deroule_set_creneau_statut error', error)
+    throw error
+  }
+  return data
+}
+
 /* ─── Helpers de présentation ───────────────────────────────────────────── */
 
 /**

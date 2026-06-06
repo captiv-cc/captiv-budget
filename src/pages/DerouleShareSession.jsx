@@ -31,6 +31,7 @@ import {
   Camera,
 } from 'lucide-react'
 import { useDerouleShareSession } from '../hooks/useDerouleShareSession'
+import { shareSetCreneauStatut } from '../lib/derouleShare'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import RichEditor from '../components/rich-editor'
@@ -64,6 +65,11 @@ const ACCENT = '#3B82F6'
 export default function DerouleShareSession() {
   const { token } = useParams()
   const { payload, loading, error } = useDerouleShareSession(token)
+  // Sprint B : overrides locaux des statuts créneaux (cochage cadreur via
+  // la RPC publique share_deroule_set_creneau_statut). On garde les patches
+  // en mémoire pour évite un refetch complet à chaque toggle. Si la RPC
+  // échoue, on revert le patch.
+  const [statutOverrides, setStatutOverrides] = useState(() => new Map())
 
   // Toggle light/dark — default DARK (cohérent avec l'app + autres share).
   const [theme, setTheme] = useState(() => {
@@ -98,20 +104,78 @@ export default function DerouleShareSession() {
     return <ErrorState error={error} />
   }
 
-  return <ShareContent payload={payload} theme={theme} setTheme={setTheme} />
+  return (
+    <ShareContent
+      payload={payload}
+      theme={theme}
+      setTheme={setTheme}
+      token={token}
+      statutOverrides={statutOverrides}
+      setStatutOverrides={setStatutOverrides}
+    />
+  )
 }
 
 // ─── Contenu principal ──────────────────────────────────────────────────────
 
-function ShareContent({ payload, theme, setTheme }) {
+function ShareContent({
+  payload,
+  theme,
+  setTheme,
+  token,
+  statutOverrides,
+  setStatutOverrides,
+}) {
   const share = payload.share || {}
   const project = payload.project || {}
   const org = payload.org || null
   const deroules = useMemo(() => payload.deroules || [], [payload.deroules])
   const lanes = useMemo(() => payload.lanes || [], [payload.lanes])
-  const creneaux = useMemo(() => payload.creneaux || [], [payload.creneaux])
+  // Sprint B : on applique les overrides locaux (cochage cadreur via RPC
+  // publique). Si un créneau a un override, on remplace son statut serveur
+  // par celui de l'override jusqu'au prochain refetch.
+  const creneaux = useMemo(() => {
+    const raw = payload.creneaux || []
+    if (!statutOverrides || statutOverrides.size === 0) return raw
+    return raw.map((c) =>
+      statutOverrides.has(c.id)
+        ? { ...c, statut: statutOverrides.get(c.id) }
+        : c,
+    )
+  }, [payload.creneaux, statutOverrides])
   const membres = useMemo(() => payload.membres || [], [payload.membres])
   const showSensitive = share.show_sensitive !== false
+
+  // Sprint B : handler du toggle statut depuis la page share. Optimistic
+  // update via statutOverrides, revert si RPC fail.
+  const handleToggleStatut = async (creneauId, nextStatut) => {
+    // Snapshot du statut précédent (serveur, hors override) pour revert.
+    const prevServerCreneau = (payload.creneaux || []).find(
+      (c) => c.id === creneauId,
+    )
+    const prevStatut = statutOverrides.get(creneauId)
+      ?? prevServerCreneau?.statut
+      ?? 'planifie'
+
+    // Optimistic
+    setStatutOverrides((prev) => {
+      const next = new Map(prev)
+      next.set(creneauId, nextStatut)
+      return next
+    })
+
+    try {
+      await shareSetCreneauStatut(token, creneauId, nextStatut)
+    } catch (e) {
+      console.error('[DerouleShareSession] toggle statut failed', e)
+      // Revert
+      setStatutOverrides((prev) => {
+        const next = new Map(prev)
+        next.set(creneauId, prevStatut)
+        return next
+      })
+    }
+  }
 
   // FEST-5 : on lit `?cadreur=<membre_id>` dans l'URL pour permettre des
   // liens directs vers la vue Cadreur d'un membre spécifique. Si le param
@@ -303,6 +367,7 @@ function ShareContent({ payload, theme, setTheme }) {
                   selectedMembreId={selectedCadreurId}
                   setSelectedMembreId={handleSelectCadreur}
                   onSelectCreneau={null /* read-only sur le share */}
+                  onToggleStatut={handleToggleStatut /* Sprint B : cochage cadreur */}
                 />
               ) : view === 'timeline' ? (
                 <CreneauxTimeline

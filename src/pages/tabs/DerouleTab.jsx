@@ -1013,6 +1013,13 @@ export default function DerouleTab() {
           selectedMembreId={selectedCadreurId}
           setSelectedMembreId={setSelectedCadreurId}
           onSelectCreneau={handleSelectCreneau}
+          /* Sprint B : cochage statut depuis l'admin (réutilise le
+             save partial générique). Si canEdit=false on désactive. */
+          onToggleStatut={
+            canEdit
+              ? (id, statut) => handleSavePartialForCreneau(id, { statut })
+              : null
+          }
         />
       ) : view === 'timeline' && !isMobile ? (
         <DerouleTimelineView

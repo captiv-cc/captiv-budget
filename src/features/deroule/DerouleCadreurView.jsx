@@ -20,7 +20,7 @@
 // Cf. CHANTIER_DEROULE_FESTIVAL.md pour les conventions visuelles.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MapPin,
   Camera,
@@ -29,6 +29,7 @@ import {
   Inbox,
   ChevronDown,
   Users,
+  Check,
 } from 'lucide-react'
 import {
   effectiveCouleurCreneau,
@@ -52,6 +53,10 @@ export default function DerouleCadreurView({
   selectedMembreId,
   setSelectedMembreId,
   onSelectCreneau,
+  // Sprint B : si fourni, active le bouton coche "Marquer fait" sur chaque
+  // mission. Signature: (creneauId, nextStatut) => Promise<void>.
+  // Si null/undefined → mode read-only (pas de bouton coche).
+  onToggleStatut = null,
 }) {
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'sm' || breakpoint === 'md'
@@ -192,6 +197,7 @@ export default function DerouleCadreurView({
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={onSelectCreneau}
+          onToggleStatut={onToggleStatut}
         />
       ) : (
         <CadreurDesktopLayout
@@ -203,6 +209,7 @@ export default function DerouleCadreurView({
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={onSelectCreneau}
+          onToggleStatut={onToggleStatut}
           accentColor={
             selectedMembreLane
               ? `#${effectiveLaneColor(selectedMembreLane)}`
@@ -397,6 +404,7 @@ function CadreurMobileLayout({
   membreById,
   conflictsByCreneau,
   onSelectCreneau,
+  onToggleStatut,
 }) {
   const sortedAll = useMemo(
     () => sortCreneauxByTime(allCreneaux || []),
@@ -404,22 +412,77 @@ function CadreurMobileLayout({
   )
   const missionIds = new Set(missions.map((m) => m.id))
 
+  // Sprint B : auto-scroll vers la prochaine mission non-"fait" au mount.
+  // - Si le déroulé est aujourd'hui : scroll vers la mission "en cours"
+  //   ou la prochaine à venir.
+  // - Si c'est un autre jour : scroll vers la première mission non-faite.
+  // On utilise un anchor ref sur le 1er match et scrollIntoView block: center.
+  // Note : on calcule l'anchor target via le sorted list, pas par re-render.
+  const containerRef = useRef(null)
+  const targetCreneauId = useMemo(() => {
+    if (missions.length === 0) return null
+    const nowMin = (() => {
+      const d = new Date()
+      return d.getHours() * 60 + d.getMinutes()
+    })()
+    // Sorted missions (croissant heure_debut)
+    const sorted = sortCreneauxByTime([...missions])
+    // 1. En cours (now ∈ [debut, fin])
+    const enCours = sorted.find(
+      (c) =>
+        c.statut !== 'fait' &&
+        c.statut !== 'annule' &&
+        c.heure_debut_min <= nowMin &&
+        c.heure_fin_min > nowMin,
+    )
+    if (enCours) return enCours.id
+    // 2. Prochaine non-faite (heure_debut > now)
+    const next = sorted.find(
+      (c) => c.statut !== 'fait' && c.statut !== 'annule' && c.heure_debut_min > nowMin,
+    )
+    if (next) return next.id
+    // 3. Fallback : 1ère mission non-faite (toutes faites ou autre jour)
+    const firstActive = sorted.find((c) => c.statut !== 'fait' && c.statut !== 'annule')
+    if (firstActive) return firstActive.id
+    return sorted[0]?.id || null
+  }, [missions])
+
+  useEffect(() => {
+    if (!targetCreneauId || !containerRef.current) return
+    // Léger délai pour laisser le DOM peindre les cards avant scroll.
+    const t = setTimeout(() => {
+      const el = containerRef.current?.querySelector(
+        `[data-creneau-id="${targetCreneauId}"]`,
+      )
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 200)
+    return () => clearTimeout(t)
+    // Volontairement pas dépendant de targetCreneauId pour éviter de
+    // scroller en boucle au cochage. On scroll seulement au mount (et au
+    // changement de membre/jour via le mount du composant).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={containerRef} className="flex flex-col gap-2">
       {sortedAll.map((c) => {
         if (missionIds.has(c.id)) {
           return (
-            <MissionCard
-              key={c.id}
-              creneau={c}
-              lane={laneById.get(c.lane_id)}
-              conflicts={filterSelfConflicts(
-                conflictsByCreneau?.get?.(c.id) || [],
-                focusMembreId,
-              )}
-              membreById={membreById}
-              onClick={(e) => onSelectCreneau?.(c, e)}
-            />
+            <div key={c.id} data-creneau-id={c.id}>
+              <MissionCard
+                creneau={c}
+                lane={laneById.get(c.lane_id)}
+                conflicts={filterSelfConflicts(
+                  conflictsByCreneau?.get?.(c.id) || [],
+                  focusMembreId,
+                )}
+                membreById={membreById}
+                onClick={(e) => onSelectCreneau?.(c, e)}
+                onToggleStatut={onToggleStatut}
+              />
+            </div>
           )
         }
         return (
@@ -454,6 +517,7 @@ function CadreurDesktopLayout({
   membreById,
   conflictsByCreneau,
   onSelectCreneau,
+  onToggleStatut,
   accentColor,
 }) {
   const sortedAll = useMemo(
@@ -498,6 +562,7 @@ function CadreurDesktopLayout({
               )}
               membreById={membreById}
               onClick={(e) => onSelectCreneau?.(c, e)}
+              onToggleStatut={onToggleStatut}
             />
           ))}
         </div>
@@ -537,7 +602,14 @@ function CadreurDesktopLayout({
 
 // ─── MissionCard — card active pour une mission du cadreur ─────────────────
 
-function MissionCard({ creneau: c, lane, conflicts = [], membreById, onClick }) {
+function MissionCard({
+  creneau: c,
+  lane,
+  conflicts = [],
+  membreById,
+  onClick,
+  onToggleStatut = null,
+}) {
   const color = effectiveCouleurCreneau(c)
   const dureeMin = creneauDureeMin(c)
   const dureeStr =
@@ -549,28 +621,57 @@ function MissionCard({ creneau: c, lane, conflicts = [], membreById, onClick }) 
     .map((id) => membreById.get(id))
     .filter(Boolean)
   const isCancel = c.statut === 'annule'
+  const isFait = c.statut === 'fait'
   const hasConflict = conflicts.length > 0
   const Icon = lane?.type === 'lieu' ? MapPin : Clipboard
   const laneLabel = lane?.libelle || ''
+  // Désactivation visuelle : annulé OU fait (opacity réduite + strikethrough)
+  const isDimmed = isCancel || isFait
+
+  // Sprint B : handler local du toggle statut (planifie ↔ fait).
+  // Le bouton coche est rendu seulement si onToggleStatut est fourni
+  // (mode "interactif", typiquement la vue mobile cadreur ou la page share).
+  const handleToggle = (e) => {
+    e.stopPropagation()
+    if (!onToggleStatut) return
+    const next = isFait ? 'planifie' : 'fait'
+    Promise.resolve(onToggleStatut(c.id, next)).catch((err) => {
+      // Le wrapper parent affichera un toast si besoin ; on log juste.
+      console.warn('[MissionCard] toggle statut failed', err)
+    })
+  }
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="w-full flex gap-2.5 text-left rounded-md transition-all"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.(e)
+        }
+      }}
+      className="w-full flex gap-2.5 text-left rounded-md transition-all cursor-pointer outline-none focus-visible:ring-2"
       style={{
         background: `${color}14`,
         border: `0.5px solid ${color}55`,
         borderLeft: `3px solid ${color}`,
         padding: '10px 12px',
         minHeight: 44,
-        opacity: isCancel ? 0.5 : 1,
+        opacity: isDimmed ? 0.55 : 1,
         textDecoration: isCancel ? 'line-through' : 'none',
       }}
     >
       {/* Heure */}
       <div className="shrink-0 flex flex-col" style={{ minWidth: 48 }}>
-        <div className="text-[13px] font-semibold" style={{ color: 'var(--txt)' }}>
+        <div
+          className="text-[13px] font-semibold"
+          style={{
+            color: 'var(--txt)',
+            textDecoration: isFait ? 'line-through' : undefined,
+          }}
+        >
           {formatMinHHMM(c.heure_debut_min)}
         </div>
         <div className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
@@ -660,7 +761,30 @@ function MissionCard({ creneau: c, lane, conflicts = [], membreById, onClick }) 
           </div>
         )}
       </div>
-    </button>
+      {/* Bouton "Marquer fait" — rendu seulement si onToggleStatut fourni.
+          stopPropagation pour ne pas trigger le onClick de la card. */}
+      {onToggleStatut && !isCancel && (
+        <button
+          type="button"
+          onClick={handleToggle}
+          aria-label={isFait ? 'Marquer comme non fait' : 'Marquer comme fait'}
+          aria-pressed={isFait}
+          className="shrink-0 self-center flex items-center justify-center rounded-full transition-all"
+          style={{
+            width: 36,
+            height: 36,
+            background: isFait ? 'var(--green)' : 'transparent',
+            border: isFait
+              ? '2px solid var(--green)'
+              : '2px solid var(--brd)',
+            color: isFait ? '#FFFFFF' : 'var(--txt-3)',
+            opacity: 1, // override le dim parent pour rester visible
+          }}
+        >
+          <Check className="w-4 h-4" strokeWidth={3} />
+        </button>
+      )}
+    </div>
   )
 }
 
