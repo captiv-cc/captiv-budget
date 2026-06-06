@@ -70,13 +70,24 @@ const SYSTEM_PROMPT = `Tu es un parseur expert de programmations de festival aud
 
 Règles strictes :
 - Les horaires sont au format HH:MM (24h).
-- Si un show se termine après minuit, l'heure de fin reste en HH:MM (l'application interprète comme J+1).
 - Le titre est le NOM DE L'ARTISTE OU DU GROUPE, pas la catégorie ni le genre musical.
 - La scène est le NOM exact de la scène (ex: "Grande Scène", "Scène Plage", "Scène Médiator"). Si non identifiable, retourner null.
 - Si la date du festival est visible (date complète OU "jour 1 / jour 2" avec une date associée), la retourner au format YYYY-MM-DD.
 - Si plusieurs jours sont visibles, ne retourner QUE le premier jour identifié (l'utilisateur importera les autres séparément).
 - N'INVENTE JAMAIS de show qui n'apparaît pas dans le document. Si un horaire est ambigu ou illisible, omets le show plutôt que de deviner.
-- Ignore les éléments NON-show : annonces sponsors, repas, navettes, conférences sauf si elles font partie de la programmation artistique.`
+- Ignore les éléments NON-show : annonces sponsors, repas, navettes, conférences sauf si elles font partie de la programmation artistique.
+
+PASSAGE DE MINUIT (très important pour les festivals) :
+- Une grille horaire de festival affiche typiquement les heures de haut en bas : par exemple "16h, 17h, 18h, 19h, 20h, 21h, 22h, 23h, 00h, 01h, 02h".
+- Les shows positionnés visuellement DANS LA PARTIE BASSE de la grille (après minuit, typiquement 00h-05h) ont lieu LE JOUR SUIVANT (J+1) par rapport à la date principale du festival.
+- Pour ces shows entièrement après minuit, mets lendemain=true. Exemple : un show "00:30 – 02:00" dans une grille qui commence à 16h → lendemain=true.
+- Cas spécial : un show qui CHEVAUCHE minuit (ex: début 23:30 J, fin 00:30 J+1). Garde heure_debut="23:30" heure_fin="00:30" et NE METS PAS lendemain=true. L'application interprète automatiquement la fin comme J+1.
+- En cas de doute (festival qui commence à 11h le matin et se termine à 23h le soir), laisse lendemain=false.
+
+ORDRE DES SHOWS dans le tableau :
+- Trie les shows par SCÈNE en respectant l'ORDRE VISUEL gauche-à-droite tel qu'elles apparaissent dans la timetable.
+- Au sein de chaque scène, trie les shows par heure de début ASC (les premiers shows de la soirée en premier, les shows after-midnight en dernier).
+- Exemple : si la timetable a 5 colonnes "Scène A | Scène B | Scène C | Scène D | Scène E", commence par tous les shows de Scène A (triés par heure), puis Scène B, etc.`
 
 // ─── Tool definition (force la sortie JSON via tool_use) ───────────────────
 const EXTRACTION_TOOL = {
@@ -93,7 +104,8 @@ const EXTRACTION_TOOL = {
       },
       shows: {
         type: 'array',
-        description: 'Liste des shows extraits du document',
+        description:
+          'Liste des shows extraits du document, triés par ordre visuel des scènes (gauche-à-droite), puis par heure de début ASC au sein de chaque scène',
         items: {
           type: 'object',
           properties: {
@@ -112,6 +124,11 @@ const EXTRACTION_TOOL = {
             heure_fin: {
               type: 'string',
               description: 'Heure de fin au format HH:MM 24h',
+            },
+            lendemain: {
+              type: 'boolean',
+              description:
+                "true si le show a lieu ENTIÈREMENT après minuit (J+1 par rapport à la date principale du festival). Typiquement les shows de fin de soirée 00h-05h dans une grille festival. Pour un show qui CHEVAUCHE minuit (ex: 23:30→00:30), laisse false : l'app gère ce cas automatiquement.",
             },
           },
           required: ['titre', 'heure_debut', 'heure_fin'],
@@ -321,7 +338,9 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // Normalise les horaires (trim, padding 0)
+    // Normalise les horaires (trim, padding 0). Si lendemain=true, on
+    // encode l'heure en h+24 (ex: "01:30" → "25:30") pour que côté client
+    // timeToMinutes() retourne une valeur > 1440 ⇒ l'app interprète J+1.
     const normalizedShows = extracted.shows
       .filter(
         (s) =>
@@ -331,12 +350,21 @@ Deno.serve(async (req: Request) => {
           typeof s.heure_debut === 'string' &&
           typeof s.heure_fin === 'string',
       )
-      .map((s) => ({
-        titre: s.titre.trim(),
-        scene: s.scene && typeof s.scene === 'string' ? s.scene.trim() : null,
-        heure_debut: normalizeHHMM(s.heure_debut),
-        heure_fin: normalizeHHMM(s.heure_fin),
-      }))
+      .map((s) => {
+        let heure_debut = normalizeHHMM(s.heure_debut)
+        let heure_fin = normalizeHHMM(s.heure_fin)
+        if (s.lendemain === true) {
+          heure_debut = shiftToLendemain(heure_debut)
+          heure_fin = shiftToLendemain(heure_fin)
+        }
+        return {
+          titre: s.titre.trim(),
+          scene:
+            s.scene && typeof s.scene === 'string' ? s.scene.trim() : null,
+          heure_debut,
+          heure_fin,
+        }
+      })
       .filter((s) => s.heure_debut && s.heure_fin)
 
     const durationMs = Date.now() - startedAt
@@ -378,6 +406,25 @@ function normalizeHHMM(s: string): string {
   const h = parseInt(m[1], 10)
   const mm = parseInt(m[2], 10)
   if (Number.isNaN(h) || Number.isNaN(mm)) return ''
-  if (h < 0 || h > 27 || mm < 0 || mm > 59) return ''
+  // Accepte jusqu'à 28h pour permettre l'encodage J+1 (00h-04h J+1 = 24h-28h)
+  if (h < 0 || h > 28 || mm < 0 || mm > 59) return ''
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+/**
+ * Décale une heure HH:MM vers J+1 en ajoutant 24h.
+ *   shiftToLendemain("00:30") → "24:30"
+ *   shiftToLendemain("01:30") → "25:30"
+ *   shiftToLendemain("04:00") → "28:00"
+ * Côté client, timeToMinutes("25:30") = 1530 (> 1440) ⇒ interprété comme J+1.
+ */
+function shiftToLendemain(hhmm: string): string {
+  if (!hhmm) return ''
+  const m = hhmm.match(/^(\d{2}):(\d{2})$/)
+  if (!m) return hhmm
+  const h = parseInt(m[1], 10)
+  if (h >= 24) return hhmm // déjà au-delà, no-op
+  const shifted = h + 24
+  if (shifted > 28) return hhmm // borne max app : 28:00 (= 04h00 J+1)
+  return `${String(shifted).padStart(2, '0')}:${m[2]}`
 }
