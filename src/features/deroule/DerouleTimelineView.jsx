@@ -746,7 +746,46 @@ export default function DerouleTimelineView({
   // FEST-2 : menu d'ajout de lane (choix du type). Replié par défaut.
   const [addMenuOpen, setAddMenuOpen] = useState(false)
 
+  // FEST-5.5.5 v6 : indicateurs de scroll horizontal (Hugo : "quand les
+  // lanes sont plus larges que l'écran, suggérer qu'il en reste et qu'il
+  // faut scroll à droite"). On track la position de scroll + la taille
+  // du contenu pour afficher/cacher les flèches + le fade des bords.
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return undefined
+    function update() {
+      const tolerance = 4
+      setCanScrollLeft(el.scrollLeft > tolerance)
+      setCanScrollRight(
+        el.scrollLeft + el.clientWidth < el.scrollWidth - tolerance,
+      )
+    }
+    update()
+    el.addEventListener('scroll', update)
+    let ro
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(update)
+      ro.observe(el)
+      // Observe aussi le contenu interne (header lanes) pour réagir
+      // quand on resize une lane ou qu'on en ajoute/supprime
+      const firstChild = el.firstElementChild
+      if (firstChild) ro.observe(firstChild)
+    }
+    return () => {
+      el.removeEventListener('scroll', update)
+      if (ro) ro.disconnect()
+    }
+  }, [sortedLanes.length, deroule?.id])
+  function scrollByX(delta) {
+    const el = containerRef.current
+    if (!el) return
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }
+
   return (
+    <div style={{ position: 'relative' }}>
     <div
       ref={containerRef}
       key={deroule?.id || 'empty'}
@@ -1320,6 +1359,112 @@ export default function DerouleTimelineView({
           }}
           onClose={() => setQuickMenu(null)}
         />
+      )}
+    </div>
+
+      {/* FEST-5.5.5 v6 : indicateurs de scroll horizontal. Fade gradient
+          côté débordement + bouton chevron pour scroller smoothly. */}
+      {canScrollLeft && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              top: 1,
+              left: 1,
+              width: 50,
+              bottom: 1,
+              background:
+                'linear-gradient(to right, var(--bg-surf), transparent)',
+              pointerEvents: 'none',
+              zIndex: 25,
+              borderRadius: '8px 0 0 8px',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => scrollByX(-300)}
+            title="Scroller à gauche"
+            style={{
+              position: 'absolute',
+              left: 8,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+              color: 'var(--txt-2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 26,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </>
+      )}
+      {canScrollRight && (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              top: 1,
+              right: 1,
+              width: 50,
+              bottom: 1,
+              background:
+                'linear-gradient(to left, var(--bg-surf), transparent)',
+              pointerEvents: 'none',
+              zIndex: 25,
+              borderRadius: '0 8px 8px 0',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => scrollByX(300)}
+            title="Scroller à droite — d'autres lanes sont masquées"
+            style={{
+              position: 'absolute',
+              right: 8,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd)',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+              color: 'var(--txt-2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 26,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hov)'
+              e.currentTarget.style.color = 'var(--txt)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt-2)'
+            }}
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </>
       )}
     </div>
   )
