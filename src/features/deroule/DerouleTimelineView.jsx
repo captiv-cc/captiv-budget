@@ -1391,8 +1391,11 @@ export default function DerouleTimelineView({
           côté débordement + bouton chevron pour scroller smoothly.
           v10 : fade démarre SOUS le header (top: LANE_HEADER_H) pour que
           la sticky header row reste propre — le fade darken les colonnes
-          du body uniquement. */}
-      {canScrollLeft && (
+          du body uniquement.
+          DEBUG v12 : désactivés temporairement pour confirmer s'ils sont
+          la cause de l'artefact dans le header (Hugo). */}
+      {/* eslint-disable-next-line no-constant-binary-expression */}
+      {false && canScrollLeft && (
         <>
           <div
             style={{
@@ -1444,7 +1447,8 @@ export default function DerouleTimelineView({
           </button>
         </>
       )}
-      {canScrollRight && (
+      {/* eslint-disable-next-line no-constant-binary-expression */}
+      {false && canScrollRight && (
         <>
           <div
             style={{
