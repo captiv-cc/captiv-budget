@@ -20,7 +20,7 @@
 // Cf. CHANTIER_DEROULE_FESTIVAL.md pour les conventions visuelles.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MapPin,
   Camera,
@@ -42,9 +42,8 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 import { extractPlainText } from '../../components/rich-editor/utils'
 
 export default function DerouleCadreurView({
-  // deroule passé pour future intégration (régie live, méta jour : golden
-  // hour / sunset) — pas utilisé en V1.
-  // eslint-disable-next-line no-unused-vars
+  // deroule : utilisé pour calculer isTodayDeroule (now indicator dans
+  // la liste mobile). Sera aussi utile pour la régie live (Sprint A).
   deroule,
   lanes = [],
   creneaux = [],
@@ -57,9 +56,15 @@ export default function DerouleCadreurView({
   // mission. Signature: (creneauId, nextStatut) => Promise<void>.
   // Si null/undefined → mode read-only (pas de bouton coche).
   onToggleStatut = null,
+  // Sprint mobile-cadreur : force l'usage du layout 1-colonne quel que soit
+  // le breakpoint. Utilisé par la page share (le programme festival à
+  // droite encombre + brouille la lecture mobile/tablet). L'admin (DerouleTab)
+  // garde le split desktop par défaut quand cette prop n'est pas fournie.
+  singleColumn = false,
 }) {
   const breakpoint = useBreakpoint()
-  const isMobile = breakpoint === 'sm' || breakpoint === 'md'
+  const isMobile =
+    singleColumn || breakpoint === 'sm' || breakpoint === 'md'
 
   // ─── Index membres + lanes ────────────────────────────────────────────────
   const membreById = useMemo(() => {
@@ -198,6 +203,9 @@ export default function DerouleCadreurView({
           conflictsByCreneau={conflictsByCreneau}
           onSelectCreneau={onSelectCreneau}
           onToggleStatut={onToggleStatut}
+          isTodayDeroule={
+            deroule?.date_jour === new Date().toISOString().slice(0, 10)
+          }
         />
       ) : (
         <CadreurDesktopLayout
@@ -244,10 +252,9 @@ function CadreurHeader({
   const ini =
     selectedMembre &&
     `${(selectedMembre.contact?.prenom || selectedMembre.prenom || '')[0] || ''}${(selectedMembre.contact?.nom || selectedMembre.nom || '')[0] || ''}`.toUpperCase()
-  const specialite =
-    selectedMembre?.specialite ||
-    selectedMembre?.contact?.specialite ||
-    ''
+  // Sprint mobile : on n'affiche plus la spécialité dans le header cadreur
+  // pour gagner en densité — déjà visible dans le sélecteur (dropdown)
+  // et peu utile sur le terrain.
 
   const hStr =
     totalActiveMin >= 60
@@ -308,8 +315,7 @@ function CadreurHeader({
               className="text-[11px] truncate"
               style={{ color: 'var(--txt-3)' }}
             >
-              {missionsCount} mission{missionsCount > 1 ? 's' : ''} ·{' '}
-              {hStr} actives{specialite ? ` · ${specialite}` : ''}
+              {missionsCount} mission{missionsCount > 1 ? 's' : ''} · {hStr} actives
             </div>
           </div>
           <ChevronDown
@@ -405,12 +411,29 @@ function CadreurMobileLayout({
   conflictsByCreneau,
   onSelectCreneau,
   onToggleStatut,
+  // Sprint mobile : si le déroulé courant est aujourd'hui, on insère un
+  // séparateur visuel "Maintenant" entre les missions terminées (ou
+  // passées) et celles à venir. Permet de scanner d'un coup d'œil
+  // "où j'en suis dans la journée".
+  isTodayDeroule = false,
 }) {
   const sortedAll = useMemo(
     () => sortCreneauxByTime(allCreneaux || []),
     [allCreneaux],
   )
   const missionIds = new Set(missions.map((m) => m.id))
+  // Now indicator : on insère le séparateur AVANT le 1er créneau qui se
+  // termine après l'heure courante (donc en cours ou à venir). Si toutes
+  // les missions sont terminées ou aucune à venir, pas de séparateur.
+  const nowMin = (() => {
+    const d = new Date()
+    return d.getHours() * 60 + d.getMinutes()
+  })()
+  const nowAnchorId = useMemo(() => {
+    if (!isTodayDeroule || !sortedAll.length) return null
+    const next = sortedAll.find((c) => (c.heure_fin_min ?? 0) > nowMin)
+    return next ? next.id : null
+  }, [sortedAll, isTodayDeroule, nowMin])
 
   // Sprint B : auto-scroll vers la prochaine mission non-"fait" au mount.
   // - Si le déroulé est aujourd'hui : scroll vers la mission "en cours"
@@ -468,30 +491,38 @@ function CadreurMobileLayout({
   return (
     <div ref={containerRef} className="flex flex-col gap-2">
       {sortedAll.map((c) => {
-        if (missionIds.has(c.id)) {
-          return (
-            <div key={c.id} data-creneau-id={c.id}>
-              <MissionCard
-                creneau={c}
-                lane={laneById.get(c.lane_id)}
-                conflicts={filterSelfConflicts(
-                  conflictsByCreneau?.get?.(c.id) || [],
-                  focusMembreId,
-                )}
-                membreById={membreById}
-                onClick={(e) => onSelectCreneau?.(c, e)}
-                onToggleStatut={onToggleStatut}
-              />
-            </div>
-          )
-        }
-        return (
+        const showNowMarker = c.id === nowAnchorId
+        const node = missionIds.has(c.id) ? (
+          <div key={c.id} data-creneau-id={c.id}>
+            <MissionCard
+              creneau={c}
+              lane={laneById.get(c.lane_id)}
+              conflicts={filterSelfConflicts(
+                conflictsByCreneau?.get?.(c.id) || [],
+                focusMembreId,
+              )}
+              membreById={membreById}
+              focusMembreId={focusMembreId}
+              onClick={(e) => onSelectCreneau?.(c, e)}
+              onToggleStatut={onToggleStatut}
+            />
+          </div>
+        ) : (
           <ContextCard
             key={c.id}
             creneau={c}
             lane={laneById.get(c.lane_id)}
           />
         )
+        if (showNowMarker) {
+          return (
+            <Fragment key={`${c.id}-with-now`}>
+              <NowMarker nowMin={nowMin} />
+              {node}
+            </Fragment>
+          )
+        }
+        return node
       })}
     </div>
   )
@@ -561,6 +592,7 @@ function CadreurDesktopLayout({
                 focusMembreId,
               )}
               membreById={membreById}
+              focusMembreId={focusMembreId}
               onClick={(e) => onSelectCreneau?.(c, e)}
               onToggleStatut={onToggleStatut}
             />
@@ -607,6 +639,7 @@ function MissionCard({
   lane,
   conflicts = [],
   membreById,
+  focusMembreId = null,
   onClick,
   onToggleStatut = null,
 }) {
@@ -617,16 +650,32 @@ function MissionCard({
       ? `${Math.floor(dureeMin / 60)}h${dureeMin % 60 ? String(dureeMin % 60).padStart(2, '0') : ''}`
       : `${dureeMin}min`
   const memberIds = Array.isArray(c.member_ids) ? c.member_ids : []
+  // Co-équipiers : on exclut le cadreur focus pour ne pas afficher son
+  // propre nom dans "Avec ..." (redondant).
   const otherMembers = memberIds
     .map((id) => membreById.get(id))
     .filter(Boolean)
+    .filter((m) => !focusMembreId || m.id !== focusMembreId)
   const isCancel = c.statut === 'annule'
   const isFait = c.statut === 'fait'
   const hasConflict = conflicts.length > 0
   const Icon = lane?.type === 'lieu' ? MapPin : Clipboard
   const laneLabel = lane?.libelle || ''
+  // Sprint mobile : si la lane est la lane perso du cadreur focus (ex :
+  // "Hugo Martin" quand on regarde la vue Hugo Martin), on cache la chip
+  // — elle ne raconte rien et pollue. Quand la lane est ailleurs (un lieu,
+  // un autre cadreur en mode co-équipier), on la garde.
+  const isOwnPersonalLane =
+    lane?.type === 'personne' &&
+    focusMembreId &&
+    lane.membre_id === focusMembreId
+  const showLaneChip = !isOwnPersonalLane && (laneLabel || c.lieu_text)
   // Désactivation visuelle : annulé OU fait (opacity réduite + strikethrough)
   const isDimmed = isCancel || isFait
+
+  // Sprint mobile : tap sur "Conflit" → expand inline le détail des conflits.
+  // Mobile-friendly (title= ne marche pas en touch).
+  const [conflictExpanded, setConflictExpanded] = useState(false)
 
   // Sprint B : handler local du toggle statut (planifie ↔ fait).
   // Le bouton coche est rendu seulement si onToggleStatut est fourni
@@ -680,44 +729,80 @@ function MissionCard({
       </div>
       {/* Contenu */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-start gap-1.5 flex-wrap">
           <span
-            className="text-[13px] font-semibold truncate"
-            style={{ color: 'var(--txt)' }}
+            className="text-[13px] font-semibold"
+            style={{
+              color: 'var(--txt)',
+              // Sprint mobile : pas de truncate, on autorise 2 lignes
+              // (line-clamp-2) pour afficher le titre complet sur mobile.
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'normal',
+              overflowWrap: 'break-word',
+            }}
           >
             {c.titre || '(sans titre)'}
           </span>
           {hasConflict && (
-            <span
-              className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1 rounded shrink-0"
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setConflictExpanded((v) => !v)
+              }}
+              aria-expanded={conflictExpanded}
+              className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1 rounded shrink-0 cursor-pointer"
               style={{
                 background: 'var(--red-bg)',
                 color: 'var(--red)',
               }}
-              title={
-                'Conflit horaire avec :\n' +
-                conflicts
-                  .map(({ creneau: other }) => {
-                    const t = other.titre || '(sans titre)'
-                    return `• ${formatMinHHMM(other.heure_debut_min)}–${formatMinHHMM(other.heure_fin_min)} ${t}`
-                  })
-                  .join('\n')
-              }
+              title="Voir les conflits horaires"
             >
               <AlertTriangle className="w-2.5 h-2.5" />
               Conflit
-            </span>
+            </button>
           )}
         </div>
-        {(laneLabel || c.lieu_text) && (
+        {/* Détail des conflits — visible au tap sur le badge */}
+        {hasConflict && conflictExpanded && (
+          <div
+            className="mt-1 rounded px-2 py-1 text-[10px]"
+            style={{
+              background: 'var(--red-bg)',
+              color: 'var(--red)',
+              borderLeft: '2px solid var(--red)',
+            }}
+          >
+            <div className="font-semibold mb-0.5">Conflits horaires :</div>
+            {conflicts.map(({ creneau: other }) => (
+              <div key={other.id} className="opacity-90">
+                • {formatMinHHMM(other.heure_debut_min)}–
+                {formatMinHHMM(other.heure_fin_min)}{' '}
+                {other.titre || '(sans titre)'}
+              </div>
+            ))}
+          </div>
+        )}
+        {showLaneChip && (
           <div
             className="text-[11px] mt-0.5 flex items-center gap-1 flex-wrap"
             style={{ color: 'var(--txt-3)' }}
           >
             <Icon className="w-3 h-3 shrink-0" />
             <span className="truncate">
-              {laneLabel}
-              {c.lieu_text && ` · ${c.lieu_text}`}
+              {/* Si lane perso cachée, on affiche juste le lieu.
+                  Sinon : lane + (· lieu) */}
+              {isOwnPersonalLane ? (
+                c.lieu_text
+              ) : (
+                <>
+                  {laneLabel}
+                  {c.lieu_text && ` · ${c.lieu_text}`}
+                </>
+              )}
             </span>
           </div>
         )}
@@ -784,6 +869,39 @@ function MissionCard({
           <Check className="w-4 h-4" strokeWidth={3} />
         </button>
       )}
+    </div>
+  )
+}
+
+// ─── NowMarker — séparateur visuel "Maintenant HH:MM" ─────────────────────
+//
+// Inséré dans la liste des missions du cadreur entre les missions terminées
+// et celles à venir, uniquement si le déroulé courant est aujourd'hui.
+// Visuellement : ligne rouge horizontale + chip "Maintenant 19:23".
+
+function NowMarker({ nowMin }) {
+  const hh = String(Math.floor(nowMin / 60)).padStart(2, '0')
+  const mm = String(nowMin % 60).padStart(2, '0')
+  return (
+    <div
+      className="flex items-center gap-2 my-1"
+      role="separator"
+      aria-label={`Maintenant ${hh}:${mm}`}
+    >
+      <span
+        className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+        style={{
+          background: '#E24B4A',
+          color: '#fff',
+          letterSpacing: '0.5px',
+        }}
+      >
+        MAINTENANT · {hh}:{mm}
+      </span>
+      <div
+        className="flex-1"
+        style={{ height: 1.5, background: '#E24B4A' }}
+      />
     </div>
   )
 }

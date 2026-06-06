@@ -20,17 +20,18 @@ import { createPortal } from 'react-dom'
 import { useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
-  Loader2,
-  Clock,
-  MapPin,
-  Inbox,
-  List as ListIcon,
-  LayoutGrid,
-  X,
-  Users,
+  AlertTriangle,
   Camera,
-  ChevronRight,
   ChevronLeft,
+  ChevronRight,
+  Clock,
+  Inbox,
+  Info,
+  LayoutGrid,
+  Loader2,
+  MapPin,
+  Users,
+  X,
 } from 'lucide-react'
 import { useDerouleShareSession } from '../hooks/useDerouleShareSession'
 import { shareSetCreneauStatut } from '../lib/derouleShare'
@@ -46,6 +47,9 @@ import {
   CRENEAU_TYPE_COLORS,
   enrichCreneauxWithImplicitMembers,
   findMembreOverlaps,
+  hasAlerte,
+  ALERTE_COLORS,
+  ALERTE_LABELS,
 } from '../lib/deroule'
 import DerouleCadreurView from '../features/deroule/DerouleCadreurView'
 
@@ -72,6 +76,15 @@ export default function DerouleShareSession() {
   // en mémoire pour évite un refetch complet à chaque toggle. Si la RPC
   // échoue, on revert le patch.
   const [statutOverrides, setStatutOverrides] = useState(() => new Map())
+
+  // Migration localStorage : si l'utilisateur avait sauvegardé 'liste'
+  // (vue supprimée), bascule en 'timeline' au premier chargement.
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return
+    if (localStorage.getItem(VIEW_STORAGE_KEY) === 'liste') {
+      localStorage.setItem(VIEW_STORAGE_KEY, 'timeline')
+    }
+  }, [])
 
   // Toggle light/dark — default DARK (cohérent avec l'app + autres share).
   const [theme, setTheme] = useState(() => {
@@ -179,6 +192,29 @@ function ShareContent({
     }
   }
 
+  // Sprint mobile-cadreur : state du créneau sélectionné (popover détail)
+  // lifté ici pour être partagé entre la vue Timeline ET la vue Cadreur.
+  // Le popover CreneauDetailPopover est rendu une seule fois en bas du
+  // JSX. selected = { creneau, anchorRect } | null
+  const [selectedCreneau, setSelectedCreneau] = useState(null)
+  const handleSelectCreneau = (creneau, anchorRectOrEvent) => {
+    if (!creneau) {
+      setSelectedCreneau(null)
+      return
+    }
+    // Le caller passe soit un DOMRect direct (CreneauxTimeline → ReadOnlyBlock),
+    // soit un React event (DerouleCadreurView). On normalise.
+    let rect = null
+    if (anchorRectOrEvent && typeof anchorRectOrEvent.getBoundingClientRect === 'function') {
+      rect = anchorRectOrEvent
+    } else if (anchorRectOrEvent?.currentTarget?.getBoundingClientRect) {
+      rect = anchorRectOrEvent.currentTarget.getBoundingClientRect()
+    } else if (anchorRectOrEvent && 'top' in anchorRectOrEvent) {
+      rect = anchorRectOrEvent
+    }
+    setSelectedCreneau({ creneau, anchorRect: rect })
+  }
+
   // FEST-5 : on lit `?cadreur=<membre_id>` dans l'URL pour permettre des
   // liens directs vers la vue Cadreur d'un membre spécifique. Si le param
   // est présent, on force view='cadreur' et selectedCadreurId.
@@ -186,13 +222,16 @@ function ShareContent({
   const urlCadreurId = searchParams.get('cadreur') || null
 
   // Vue active : 'timeline' / 'liste' / 'cadreur' (FEST-5).
-  // Persistée par-tab dans localStorage. Default timeline desktop, liste
-  // mobile. Si ?cadreur=<id> dans l'URL → force 'cadreur'.
+  // Persistée par-tab dans localStorage. Sprint mobile : vue 'liste'
+  // supprimée car redondante avec timeline + ambiguë (créneaux dupliqués
+  // par lane). On reste sur 'timeline' / 'cadreur'.
+  // Si ?cadreur=<id> dans l'URL → force 'cadreur'.
   const [view, setView] = useState(() => {
     if (urlCadreurId) return 'cadreur'
     if (typeof localStorage === 'undefined') return 'timeline'
     const stored = localStorage.getItem(VIEW_STORAGE_KEY)
-    if (stored === 'liste' || stored === 'cadreur') return stored
+    if (stored === 'cadreur') return 'cadreur'
+    // 'liste' (vue supprimée) ou autre → fallback timeline
     return 'timeline'
   })
   useEffect(() => {
@@ -236,11 +275,6 @@ function ShareContent({
   }, [deroules, selectedDeroleId, todayIso])
 
   // Index helpers
-  const laneById = useMemo(() => {
-    const m = new Map()
-    for (const l of lanes) m.set(l.id, l)
-    return m
-  }, [lanes])
   const membreById = useMemo(() => {
     const m = new Map()
     for (const x of membres) {
@@ -375,25 +409,22 @@ function ShareContent({
                   conflictsByCreneau={shareConflictsByCreneau}
                   selectedMembreId={selectedCadreurId}
                   setSelectedMembreId={handleSelectCadreur}
-                  onSelectCreneau={null /* read-only sur le share */}
-                  onToggleStatut={handleToggleStatut /* Sprint B : cochage cadreur */}
+                  /* Sprint mobile-cadreur : tap → drawer détail créneau
+                     (partagé avec la vue Timeline via setSelectedCreneau). */
+                  onSelectCreneau={handleSelectCreneau}
+                  onToggleStatut={handleToggleStatut}
+                  /* Force le layout 1-colonne (vue share = pas de programme
+                     festival à droite, redondant avec la vue Timeline). */
+                  singleColumn
                 />
-              ) : view === 'timeline' ? (
+              ) : (
                 <CreneauxTimeline
                   deroule={currentDeroule}
                   creneaux={currentCreneaux}
                   lanes={currentLanes}
                   membreById={membreById}
                   todayIso={todayIso}
-                  showSensitive={showSensitive}
-                />
-              ) : (
-                <CreneauxList
-                  creneaux={currentCreneaux}
-                  laneById={laneById}
-                  currentLanes={currentLanes}
-                  membreById={membreById}
-                  showSensitive={showSensitive}
+                  onSelectCreneau={handleSelectCreneau}
                 />
               )}
             </div>
@@ -403,6 +434,24 @@ function ShareContent({
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         <SharePageFooter />
       </div>
+
+      {/* Popover détail créneau — partagé entre vue Timeline et vue Cadreur.
+          Visible quand un créneau est sélectionné (tap sur bloc / mission). */}
+      {selectedCreneau && (
+        <CreneauDetailPopover
+          creneau={selectedCreneau.creneau}
+          anchorRect={selectedCreneau.anchorRect}
+          lane={
+            selectedCreneau.creneau.multi_lane
+              ? null
+              : lanes.find((l) => l.id === selectedCreneau.creneau.lane_id) || null
+          }
+          totalLanes={lanes.length}
+          membreById={membreById}
+          showSensitive={showSensitive}
+          onClose={() => setSelectedCreneau(null)}
+        />
+      )}
     </div>
   )
 }
@@ -505,11 +554,9 @@ function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
 // attendu : le destinataire scroll latéralement pour explorer les lanes).
 
 function ViewToggle({ view, onChange }) {
-  // FEST-5 : ajout du 3e mode 'cadreur' pour basculer en vue par membre.
-  // Sprint mobile (P-mobile) : on affiche le label texte SUR MOBILE aussi
-  // (auparavant masqué via `hidden sm:inline`). 3 icônes seules étaient
-  // ambiguës (Camera = "cadreur" peu évident). On garde le label compact
-  // pour préserver la place avec le day selector adjacent.
+  // Sprint mobile : vue Liste supprimée (redondante avec timeline +
+  // ambiguë car les créneaux multi-lane apparaissaient dupliqués). On
+  // garde Timeline + Cadreur. Labels visibles à tous breakpoints.
   return (
     <div
       className="inline-flex items-center rounded-md p-0.5 shrink-0"
@@ -525,14 +572,6 @@ function ViewToggle({ view, onChange }) {
       >
         <LayoutGrid className="w-3.5 h-3.5" />
         <span>Timeline</span>
-      </ToggleBtn>
-      <ToggleBtn
-        active={view === 'liste'}
-        onClick={() => onChange('liste')}
-        title="Vue liste"
-      >
-        <ListIcon className="w-3.5 h-3.5" />
-        <span>Liste</span>
       </ToggleBtn>
       <ToggleBtn
         active={view === 'cadreur'}
@@ -586,7 +625,7 @@ function ToggleBtn({ active, onClick, title, children }) {
 const COMPACT_BLOCK_THRESHOLD_PX = 36 // hauteur rendue < 36px → layout compact horizontal
 const SCROLL_OFFSET_TOP = 80 // marge en haut du viewport pour l'auto-scroll
 
-function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, showSensitive }) {
+function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, onSelectCreneau }) {
   // [SHARE-7] Crop intelligent — la timeline n'affiche que la plage active
   // [1er créneau − 60min, dernier créneau + 60min], snappée sur les heures
   // rondes (10:30 → 10:00, 23:45 → 24:00). Évite l'immense vide en haut/bas
@@ -736,10 +775,11 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // [SHARE-5 / SHARE-10] Popover détail au clic sur un bloc.
-  // selected = { creneau, anchorRect } — anchorRect est le getBoundingClientRect
-  // du bouton bloc au moment du clic. Sert d'ancre pour positionner le popover.
-  const [selected, setSelected] = useState(null)
+  // Sprint mobile-cadreur : le state du popover détail (selected) a été
+  // lifté au niveau ShareContent (handleSelectCreneau + selectedCreneau)
+  // pour être partagé avec la vue Cadreur. Le rendu du popover se fait
+  // également en haut. Ici on s'occupe juste de propager l'event au
+  // parent via la prop onSelectCreneau.
 
   // ─── Sprint mobile : indicateur de scroll horizontal ────────────────────
   // Sur mobile, 6 lanes sur 360px = ~60px/lane et la moitié est cachée à
@@ -797,7 +837,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
         height={height}
         membreById={membreById}
         isMultiLane={isMultiLane}
-        onClick={(rect) => setSelected({ creneau: c, anchorRect: rect })}
+        onClick={(rect) => onSelectCreneau?.(c, rect)}
       />
     )
   }
@@ -1092,24 +1132,9 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, show
       </div>
       </div>{/* /relative — fade & chevron overlays */}
 
-      {/* [SHARE-5 / SHARE-10] Popover détail créneau, render via Portal.
-          Desktop : popover ancré à droite (ou gauche si overflow) du bloc.
-          Mobile  : bottom-sheet qui remonte du bas. */}
-      {selected && (
-        <CreneauDetailPopover
-          creneau={selected.creneau}
-          anchorRect={selected.anchorRect}
-          lane={
-            selected.creneau.multi_lane
-              ? null
-              : lanes.find((l) => l.id === selected.creneau.lane_id) || null
-          }
-          totalLanes={lanes.length}
-          membreById={membreById}
-          showSensitive={showSensitive}
-          onClose={() => setSelected(null)}
-        />
-      )}
+      {/* Popover détail créneau : rendu au niveau ShareContent (parent)
+          pour pouvoir être déclenché depuis la vue Timeline ET la vue
+          Cadreur. Voir ShareContent. */}
     </>
   )
 }
@@ -1170,6 +1195,14 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   const titrePrefix = isMultiLane ? '↔ ' : ''
   const titre = c.titre || '(sans titre)'
 
+  // Sprint mobile-cadreur : indicateur d'alerte sur les blocs timeline.
+  // Triangle orange (important) ou ⓘ bleu (info) en haut-droite, visible
+  // dès qu'un alerte est présent. Le détail s'affiche au tap (popover).
+  const showAlerteIcon = hasAlerte(c)
+  const alerteNiveau = c.alerte_niveau || 'important'
+  const alerteColor = ALERTE_COLORS[alerteNiveau] || ALERTE_COLORS.important
+  const AlertIconCmp = alerteNiveau === 'info' ? Info : AlertTriangle
+
   if (isCompact) {
     return (
       <button
@@ -1181,8 +1214,14 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
           padding: '2px 6px',
           fontSize: 11,
         }}
-        title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}`}
+        title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}${c.alerte_text ? ' · ⚠ ' + c.alerte_text : ''}`}
       >
+        {showAlerteIcon && (
+          <AlertIconCmp
+            className="shrink-0"
+            style={{ width: 11, height: 11, color: alerteColor }}
+          />
+        )}
         <span
           className="font-semibold truncate"
           style={{ color: 'var(--txt)', minWidth: 0 }}
@@ -1214,11 +1253,27 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
         padding: '4px 8px',
         fontSize: 11,
       }}
-      title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}`}
+      title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}${c.alerte_text ? ' · ⚠ ' + c.alerte_text : ''}`}
     >
+      {/* Icône alerte en haut-droite si présente */}
+      {showAlerteIcon && (
+        <AlertIconCmp
+          className="absolute"
+          style={{
+            top: 3,
+            right: 4,
+            width: 12,
+            height: 12,
+            color: alerteColor,
+          }}
+        />
+      )}
       <div
         className="font-semibold leading-tight truncate"
-        style={{ color: 'var(--txt)' }}
+        style={{
+          color: 'var(--txt)',
+          paddingRight: showAlerteIcon ? 14 : 0,
+        }}
       >
         {titrePrefix}{titre}
       </div>
@@ -1528,6 +1583,31 @@ function CreneauDetailPopover({
           </DetailRow>
         )}
 
+        {/* Sprint mobile-cadreur : afficher les alertes (info ou important).
+            Niveau 'important' = triangle orange, 'info' = ⓘ bleu. */}
+        {hasAlerte(c) && (() => {
+          const niveau = c.alerte_niveau || 'important'
+          const alertColor = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
+          const AlertIcon = niveau === 'info' ? Info : AlertTriangle
+          return (
+            <DetailRow
+              icon={<AlertIcon className="w-3.5 h-3.5" style={{ color: alertColor }} />}
+              label={ALERTE_LABELS[niveau] || 'Alerte'}
+            >
+              <div
+                className="text-xs px-2 py-1.5 rounded leading-relaxed"
+                style={{
+                  background: `${alertColor}22`,
+                  borderLeft: `3px solid ${alertColor}`,
+                  color: 'var(--txt)',
+                }}
+              >
+                {c.alerte_text || ''}
+              </div>
+            </DetailRow>
+          )
+        })()}
+
         {memberIds.length > 0 && (
           <DetailRow
             icon={<Users className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />}
@@ -1688,204 +1768,6 @@ function labelForType(type) {
   return labels[type] || type
 }
 
-// ─── Liste des créneaux (vue principale) ────────────────────────────────────
-
-function CreneauxList({ creneaux, laneById, currentLanes, membreById, showSensitive }) {
-  return (
-    <div
-      className="rounded-lg overflow-hidden"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
-    >
-      <ul>
-        {creneaux.map((c, i) => (
-          <CreneauRow
-            key={c.id}
-            creneau={c}
-            zebra={i % 2 === 1}
-            laneById={laneById}
-            currentLanes={currentLanes}
-            membreById={membreById}
-            showSensitive={showSensitive}
-            isLast={i === creneaux.length - 1}
-          />
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function CreneauRow({
-  creneau: c,
-  zebra,
-  laneById,
-  currentLanes,
-  membreById,
-  showSensitive,
-  isLast,
-}) {
-  const color = effectiveCouleurCreneau(c)
-  const lane = c.multi_lane ? null : laneById.get(c.lane_id)
-  const laneLibelle = lane?.libelle || (lane ? defaultLaneLibelle(lane.sort_order) : null)
-  const dureeMin = creneauDureeMin(c)
-  const dureeStr =
-    dureeMin >= 60
-      ? `${Math.floor(dureeMin / 60)}h${dureeMin % 60 ? String(dureeMin % 60).padStart(2, '0') : ''}`
-      : `${dureeMin}min`
-  const memberIds = Array.isArray(c.member_ids) ? c.member_ids : []
-
-  return (
-    <li
-      className="px-3 sm:px-4 py-3"
-      style={{
-        background: zebra ? 'var(--bg-elev)' : 'transparent',
-        borderBottom: isLast ? 'none' : '1px solid var(--brd-sub)',
-        opacity: c.statut === 'annule' ? 0.5 : 1,
-      }}
-    >
-      <div className="flex items-start gap-3">
-        {/* Bandeau couleur + heures */}
-        <div
-          className="shrink-0 rounded-md py-1.5 px-2 text-center"
-          style={{
-            background: `${color}22`,
-            color,
-            minWidth: 68,
-            border: `1px solid ${color}33`,
-          }}
-        >
-          <div className="text-xs font-bold leading-tight whitespace-nowrap">
-            {formatMinHHMM(c.heure_debut_min)}
-          </div>
-          <div className="text-[10px] opacity-80 leading-tight">
-            {formatMinHHMM(c.heure_fin_min)}
-          </div>
-          <div className="text-[9px] uppercase tracking-wider opacity-70 mt-0.5">
-            {dureeStr}
-          </div>
-        </div>
-
-        {/* Contenu */}
-        <div className="flex-1 min-w-0">
-          {/* Titre + statut */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-              style={{ background: color }}
-            />
-            <span
-              className="text-sm font-semibold"
-              style={{
-                color: 'var(--txt)',
-                textDecoration: c.statut === 'annule' ? 'line-through' : 'none',
-              }}
-            >
-              {c.titre || '(sans titre)'}
-            </span>
-            {c.statut === 'fait' && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                style={{ background: 'var(--green-bg)', color: 'var(--green)' }}
-              >
-                Fait
-              </span>
-            )}
-            {c.statut === 'en_cours' && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                style={{ background: `${color}22`, color }}
-              >
-                En cours
-              </span>
-            )}
-            {c.statut === 'annule' && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                style={{ background: 'var(--red-bg)', color: 'var(--red)' }}
-              >
-                Annulé
-              </span>
-            )}
-          </div>
-
-          {/* Meta : lane + lieu (le type est déduit de la couleur, pas de chip
-              redondant — décision Hugo : "pas besoin d'afficher le chip type"). */}
-          <div
-            className="text-[11px] mt-1 flex items-center gap-3 flex-wrap"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded"
-              style={{
-                background: c.multi_lane
-                  ? 'rgba(136,135,128,0.2)'
-                  : `${color}1a`,
-                color: c.multi_lane ? 'var(--txt-2)' : color,
-                fontWeight: 600,
-              }}
-            >
-              {c.multi_lane
-                ? `↔ Multi (${currentLanes.length})`
-                : laneLibelle || '—'}
-            </span>
-            {c.lieu_text && (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="w-3 h-3" />
-                {c.lieu_text}
-              </span>
-            )}
-          </div>
-
-          {/* Membres assignés */}
-          {memberIds.length > 0 && (
-            <div className="mt-2 flex items-center gap-1 flex-wrap">
-              {memberIds.map((id) => {
-                const m = membreById.get(id)
-                if (!m) return null
-                return (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
-                    style={{
-                      background: `${color}14`,
-                      color: 'var(--txt-2)',
-                      border: `1px solid ${color}26`,
-                    }}
-                    title={m.fullName}
-                  >
-                    <span
-                      className="w-3.5 h-3.5 rounded-full inline-flex items-center justify-center text-[8px] font-bold"
-                      style={{ background: `${color}33`, color }}
-                    >
-                      {m.ini}
-                    </span>
-                    <span className="hidden sm:inline">{m.fullName}</span>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Description / notes */}
-          {c.description && (
-            <p
-              className="text-[11px] mt-1.5 leading-relaxed"
-              style={{ color: 'var(--txt-2)' }}
-            >
-              {c.description}
-            </p>
-          )}
-          {showSensitive && c.notes && (
-            <div
-              style={{ color: 'var(--txt-3)', fontSize: 11, marginTop: 4 }}
-            >
-              <RichEditor value={c.notes} readOnly minHeight={0} />
-            </div>
-          )}
-        </div>
-      </div>
-    </li>
-  )
-}
 
 // ─── Empty / Status ─────────────────────────────────────────────────────────
 
