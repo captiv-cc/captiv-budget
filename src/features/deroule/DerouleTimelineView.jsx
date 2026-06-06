@@ -1850,34 +1850,38 @@ function CreneauBlock({
         </div>
       )}
 
-      {/* FEST-5.4 : Bandeau alerte au top du bloc (si height suffisante).
-          Marges négatives pour aller jusqu'aux bords du bloc (escape padding). */}
+      {/* FEST-5.4 : Bandeau alerte ULTRA-DISCRET au top du bloc.
+          Doit être perceptible mais ne JAMAIS écraser le nom de l'artiste.
+          Background quasi-transparent, fontSize réduite, weight light,
+          pas de bordure. L'œil va sur l'artiste, l'alerte est une info
+          secondaire qui complète. */}
       {showAlerteBanner && (
         <div
           title={creneau.alerte_text}
           style={{
-            margin: '-4px -8px 4px -8px',
-            padding: '2px 8px',
+            margin: '-4px -8px 3px -8px',
+            padding: '1px 8px',
             background: alerteIsImportant
-              ? 'rgba(245,158,11,0.22)'
-              : 'rgba(59,130,246,0.18)',
-            borderBottom: `1px solid ${alerteColor}`,
+              ? 'rgba(245,158,11,0.10)'
+              : 'rgba(59,130,246,0.08)',
             display: 'flex',
             alignItems: 'center',
             gap: 4,
-            fontSize: 10,
-            fontWeight: 600,
+            fontSize: 9,
+            fontWeight: 500,
             color: alerteColor,
+            opacity: 0.85,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             pointerEvents: 'none',
+            letterSpacing: '0.01em',
           }}
         >
           {alerteIsImportant ? (
-            <AlertTriangle size={10} style={{ flexShrink: 0 }} />
+            <AlertTriangle size={9} style={{ flexShrink: 0 }} />
           ) : (
-            <InfoIcon size={10} style={{ flexShrink: 0 }} />
+            <InfoIcon size={9} style={{ flexShrink: 0 }} />
           )}
           <span
             style={{
