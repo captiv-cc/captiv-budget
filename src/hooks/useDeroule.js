@@ -262,8 +262,8 @@ export function useDeroule(projectId, selectedDateJour) {
   )
 
   const deleteLane = useCallback(
-    async (laneId) => {
-      await D.deleteLane(laneId)
+    async (laneId, options) => {
+      await D.deleteLane(laneId, options)
       bumpReload()
     },
     [bumpReload],

@@ -1302,7 +1302,6 @@ function LaneHeader({
   // sort_order=0 qui était la convention historique). Backward compat
   // pour les déroulés legacy : sort_order=0 et type vide → considérer global.
   const type = lane.type || (lane.sort_order === 0 ? 'global' : 'equipe')
-  const isGlobal = type === 'global'
 
   // Couleur effective de la lane (hérite du type, override possible).
   const color = `#${effectiveLaneColor(lane)}`
@@ -1448,28 +1447,29 @@ function LaneHeader({
               <ChevronRight className="w-3 h-3" />
             </button>
           )}
-          {!isGlobal && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete?.(lane.id)
-              }}
-              className="p-0.5 rounded transition-colors"
-              style={{ color: 'var(--txt-3)', background: 'transparent' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--red-bg)'
-                e.currentTarget.style.color = 'var(--red)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.color = 'var(--txt-3)'
-              }}
-              title="Supprimer (doit être vide)"
-            >
-              <span style={{ fontSize: 13, lineHeight: 1 }}>×</span>
-            </button>
-          )}
+          {/* FEST-5.5.1 : suppression désormais ouverte à toutes les lanes,
+              y compris Global. Si la lane contient des créneaux, le caller
+              demande une 2e confirmation avant cascade-delete. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete?.(lane.id)
+            }}
+            className="p-0.5 rounded transition-colors"
+            style={{ color: 'var(--txt-3)', background: 'transparent' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--red-bg)'
+              e.currentTarget.style.color = 'var(--red)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-3)'
+            }}
+            title="Supprimer cette lane"
+          >
+            <span style={{ fontSize: 13, lineHeight: 1 }}>×</span>
+          </button>
         </div>
       )}
     </div>

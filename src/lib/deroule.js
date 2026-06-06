@@ -419,11 +419,34 @@ export function effectiveLaneColor(lane) {
   const stored = (lane.couleur || '').replace('#', '').trim()
   if (stored) return stored
   if (lane.type === 'personne') {
-    // Couleur stable pour ce cadreur : pioche dans la palette via sort_order
+    // FEST-5.5.2 : couleur DÉTERMINISTE pour ce cadreur, dérivée du
+    // membre_id (uuid stable du membre projet). Cela garantit que le
+    // même cadreur a la même teinte sur TOUS les déroulés du projet.
+    // Avant : sort_order modulo palette → couleur changeait selon
+    // l'ordre d'ajout dans chaque déroulé.
+    if (lane.membre_id) {
+      return colorFromIdString(lane.membre_id, CADREUR_COLOR_PALETTE)
+    }
+    // Fallback si pas de membre_id (lane personne sans membre lié, cas
+    // rare) : ancien comportement basé sur sort_order.
     const i = Math.max(0, (lane.sort_order ?? 0) - 1) % CADREUR_COLOR_PALETTE.length
     return CADREUR_COLOR_PALETTE[i]
   }
   return LANE_TYPE_DEFAULT_COLORS[lane.type] || LANE_TYPE_DEFAULT_COLORS.equipe
+}
+
+/**
+ * Hash déterministe d'une string vers un index de palette.
+ * Même logique que colorFromUserId (useProjectPresence) → garantit la
+ * cohérence visuelle entre la pastille avatar et la lane d'un cadreur.
+ */
+function colorFromIdString(id, palette) {
+  if (!id || !palette?.length) return palette?.[0] || '888888'
+  let h = 0
+  for (let i = 0; i < id.length; i += 1) {
+    h = (h * 31 + id.charCodeAt(i)) | 0
+  }
+  return palette[Math.abs(h) % palette.length]
 }
 
 /**
@@ -782,27 +805,20 @@ export async function updateLane(laneId, fields) {
 }
 
 /**
- * Supprime une lane. Refuse si type='global' (lane transverse non
- * supprimable). Refuse aussi si la lane contient encore des créneaux
- * (l'admin doit d'abord les déplacer ou supprimer).
+ * Supprime une lane. Refuse si la lane contient des créneaux (sauf si
+ * options.force=true, auquel cas les créneaux sont supprimés en CASCADE).
  *
- * FEST-1 : la règle "lane 0 = Global non supprimable" est remplacée par
- * "type='global' non supprimable", plus précis depuis qu'on a le typage.
- * Les déroulés legacy ont déjà été migrés (sort_order=0 → type='global').
+ * FEST-5.5.1 : la lane Global est désormais supprimable comme les autres
+ * (Hugo : "je n'ai pas besoin de la lane Global tout le temps"). En cas
+ * de besoin transverse plus tard, l'utilisateur peut la re-créer via
+ * addLane({ type: 'global', libelle: 'Global' }).
+ *
+ * @param {string} laneId
+ * @param {{ force?: boolean }} [options] - force=true supprime aussi les
+ *   créneaux contenus. Le caller doit avoir confirmé l'action côté UI.
  */
-export async function deleteLane(laneId) {
+export async function deleteLane(laneId, options = {}) {
   if (!laneId) throw new Error('deleteLane: laneId manquant')
-
-  const { data: lane, error: e1 } = await supabase
-    .from('projet_deroule_lanes')
-    .select('sort_order, type')
-    .eq('id', laneId)
-    .single()
-  if (e1) throw e1
-
-  if (lane.type === 'global') {
-    throw new Error('La lane Global ne peut pas être supprimée')
-  }
 
   const { count, error: e2 } = await supabase
     .from('projet_deroule_creneaux')
@@ -810,10 +826,22 @@ export async function deleteLane(laneId) {
     .eq('lane_id', laneId)
   if (e2) throw e2
 
-  if (count && count > 0) {
-    throw new Error(
-      `Impossible de supprimer cette lane : elle contient ${count} créneau(x). Déplacez-les d'abord.`,
+  if (count && count > 0 && !options.force) {
+    const err = new Error(
+      `Impossible de supprimer cette lane : elle contient ${count} créneau(x). Déplacez-les d'abord ou passez force=true pour supprimer en cascade.`,
     )
+    err.code = 'LANE_NOT_EMPTY'
+    err.creneauxCount = count
+    throw err
+  }
+
+  // CASCADE delete des créneaux si force=true
+  if (count && count > 0 && options.force) {
+    const { error: eDel } = await supabase
+      .from('projet_deroule_creneaux')
+      .delete()
+      .eq('lane_id', laneId)
+    if (eDel) throw eDel
   }
 
   const { error: e3 } = await supabase

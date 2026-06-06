@@ -726,17 +726,43 @@ export default function DerouleTab() {
   }
 
   async function handleDeleteLane(laneId) {
+    const lane = lanes.find((l) => l.id === laneId)
+    const laneLabel = lane?.libelle || 'cette lane'
     const ok = await confirm({
-      title: 'Supprimer cette lane ?',
-      message: 'La lane doit être vide pour pouvoir être supprimée.',
+      title: `Supprimer ${laneLabel} ?`,
+      message:
+        'Si la lane contient des créneaux, ils seront eux aussi supprimés.',
       confirmLabel: 'Supprimer',
       cancelLabel: 'Annuler',
       danger: true,
     })
     if (!ok) return
     try {
+      // 1er essai : sans force. Si lane vide → suppression directe.
       await deleteLane(laneId)
+      notify.success(`Lane ${laneLabel} supprimée`)
     } catch (e) {
+      // FEST-5.5.1 : si la lane contient des créneaux, demande une 2e
+      // confirmation explicite avant de cascade-delete.
+      if (e?.code === 'LANE_NOT_EMPTY') {
+        const okForce = await confirm({
+          title: `Supprimer aussi les ${e.creneauxCount} créneau(x) ?`,
+          message: `La lane ${laneLabel} contient ${e.creneauxCount} créneau${e.creneauxCount > 1 ? 'x' : ''}. Ils seront définitivement supprimés.`,
+          confirmLabel: 'Tout supprimer',
+          cancelLabel: 'Annuler',
+          danger: true,
+        })
+        if (!okForce) return
+        try {
+          await deleteLane(laneId, { force: true })
+          notify.success(
+            `Lane ${laneLabel} et ${e.creneauxCount} créneau(x) supprimés`,
+          )
+        } catch (e2) {
+          notify.error('Erreur : ' + (e2?.message || e2))
+        }
+        return
+      }
       notify.error('Erreur : ' + (e?.message || e))
     }
   }
