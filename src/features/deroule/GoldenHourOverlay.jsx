@@ -120,30 +120,43 @@ function SubtleBand({ start, end, minToTop, timeColWidth, direction }) {
     direction === 'from-top'
       ? `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0.10) 0%, rgba(${GOLDEN_HUE}, 0) 100%)`
       : `linear-gradient(180deg, rgba(${GOLDEN_HUE}, 0) 0%, rgba(${GOLDEN_HUE}, 0.10) 100%)`
+  // v8 : width 100% + paddingLeft pour couvrir TOUTE la largeur du parent
+  // flex (lanes + spacer), au lieu de right:0 qui se faisait tronquer.
   return (
     <div
       className="absolute pointer-events-none"
       style={{
         top,
-        left: timeColWidth,
-        right: 0,
+        left: 0,
+        width: '100%',
         height,
         zIndex: 0,
-        background: gradient,
-        // soft-light : se comporte comme une lumière diffuse plutôt qu'un
-        // calque opaque ; les blocs au-dessus restent parfaitement visibles
-        // et la teinte ambre ne fait que "teinter" les zones vides du fond.
-        mixBlendMode: 'soft-light',
+        paddingLeft: timeColWidth,
+        boxSizing: 'border-box',
       }}
-    />
+    >
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          background: gradient,
+          // soft-light : se comporte comme une lumière diffuse plutôt qu'un
+          // calque opaque ; les blocs au-dessus restent parfaitement visibles
+          // et la teinte ambre ne fait que "teinter" les zones vides du fond.
+          mixBlendMode: 'soft-light',
+        }}
+      />
+    </div>
   )
 }
 
 /**
  * Ligne horizontale 1px pleine au moment exact du lever ou coucher
  * + petit label texte sans fond. zIndex 0 pour passer sous les blocs.
- * v7 : label déplacé à GAUCHE (au-dessus de la colonne heures) — toujours
- * visible même si la timeline déborde / scroll, et collé au temps affiché.
+ *
+ * v7 : label déplacé à GAUCHE (au-dessus de la colonne heures).
+ * v8 : utilise width 100% au lieu de right:0 pour éviter que le parent
+ * flex ne tronque la largeur de la ligne avant la fin des lanes.
  */
 function ExactLine({ min, minToTop, timeColWidth, label }) {
   const top = minToTop(min)
@@ -152,13 +165,27 @@ function ExactLine({ min, minToTop, timeColWidth, label }) {
       className="absolute pointer-events-none"
       style={{
         top,
-        left: timeColWidth,
-        right: 0,
+        left: 0,
+        // width 100% du parent flex (= largeur totale incluant time col,
+        // toutes les lanes ET le spacer de droite). Plus robuste que
+        // right:0 qui se faisait parfois tronquer en flex layout.
+        width: '100%',
         height: 0,
         zIndex: 0,
-        borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.3)`,
+        // borderTop décalé via padding-left pour ne pas dessiner la ligne
+        // au-dessus de la colonne des heures (qui a son propre fond).
+        paddingLeft: timeColWidth,
+        boxSizing: 'border-box',
       }}
     >
+      {/* Ligne effective dans un sous-div pour respecter le paddingLeft */}
+      <div
+        style={{
+          height: 0,
+          borderTop: `1px solid rgba(${GOLDEN_HUE}, 0.3)`,
+          position: 'relative',
+        }}
+      />
       <span
         style={{
           position: 'absolute',

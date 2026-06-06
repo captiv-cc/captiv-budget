@@ -1369,12 +1369,14 @@ export default function DerouleTimelineView({
           <div
             style={{
               position: 'absolute',
-              top: 1,
-              left: 1,
-              width: 60,
-              bottom: 1,
+              top: 0,
+              left: 0,
+              width: 70,
+              bottom: 0,
+              // v8 : 2 gradients superposés — un pour le header (bg-elev)
+              // et un pour le body (bg-surf). Plus visible et continu.
               background:
-                'linear-gradient(to right, var(--bg-surf) 30%, transparent)',
+                'linear-gradient(to right, var(--bg) 0%, var(--bg-surf) 40%, transparent)',
               pointerEvents: 'none',
               zIndex: 25,
               borderRadius: '8px 0 0 8px',
@@ -1420,12 +1422,14 @@ export default function DerouleTimelineView({
           <div
             style={{
               position: 'absolute',
-              top: 1,
-              right: 1,
-              width: 60,
-              bottom: 1,
+              top: 0,
+              right: 0,
+              width: 70,
+              bottom: 0,
+              // v8 : background plus opaque pour bien voir le voile
+              // au-dessus de la timeline (qui passe sur le header).
               background:
-                'linear-gradient(to left, var(--bg-surf) 30%, transparent)',
+                'linear-gradient(to left, var(--bg) 0%, var(--bg-surf) 40%, transparent)',
               pointerEvents: 'none',
               zIndex: 25,
               borderRadius: '0 8px 8px 0',
