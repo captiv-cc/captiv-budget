@@ -2224,16 +2224,29 @@ function DetailRow({ icon, label, children }) {
 }
 
 // Label affiché pour un type de créneau (utilisé dans légende + drawer).
+// Sprint types V2 : aligné sur CRENEAU_TYPE_LABELS de lib/deroule.js.
+// Côté share, on n'a pas accès aux types custom du projet (pas dans le
+// payload), donc on retombe sur la clé brute si pas de match. Pour V2,
+// on pourra exposer project.creneau_types dans share_deroule_fetch.
 function labelForType(type) {
   const labels = {
     install: 'Installation',
+    brief: 'Briefing',
+    tournage: 'Tournage',
+    captation: 'Captation live',
+    show: 'Show',
+    interview: 'Interview',
+    drone: 'Drone',
+    ambiance: 'Ambiance',
     repas: 'Repas',
-    prise: 'Prise',
     pause: 'Pause',
     transport: 'Transport',
-    brief: 'Briefing',
-    live: 'Live',
+    postprod: 'Post-prod',
     autre: 'Autre',
+    indispo: 'Indispo',
+    // Legacy values for old data not yet migrated
+    prise: 'Tournage',
+    live: 'Show',
   }
   return labels[type] || type
 }

@@ -193,16 +193,24 @@ export function buildHourGraduations(minStart, maxEnd) {
 }
 
 /**
- * Label métier d'un type de créneau (FR).
+ * Label métier d'un type de créneau (FR). Sprint types V2 : aligné sur
+ * CRENEAU_TYPE_LABELS de lib/deroule.js. Inclut les types core uniquement
+ * (les exports peuvent compléter avec project.creneau_types pour les
+ * libellés custom).
  */
 export const TYPE_LABELS = {
   install: 'Installation',
+  brief: 'Briefing',
+  tournage: 'Tournage',
+  captation: 'Captation live',
+  show: 'Show',
+  interview: 'Interview',
+  drone: 'Drone',
+  ambiance: 'Ambiance',
   repas: 'Repas',
-  prise: 'Prise',
   pause: 'Pause',
   transport: 'Transport',
-  brief: 'Briefing',
-  live: 'Live',
+  postprod: 'Post-prod',
   autre: 'Autre',
   indispo: 'Indispo',
 }

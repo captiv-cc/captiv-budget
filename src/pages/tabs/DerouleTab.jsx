@@ -57,6 +57,7 @@ import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
 import ImportPreviewModal from '../../features/deroule/ImportPreviewModal'
 import ExportDerouleModal from '../../features/deroule/ExportDerouleModal'
 import LiveModeOverlay from '../../features/deroule/LiveModeOverlay'
+import CustomTypesModal from '../../features/deroule/CustomTypesModal'
 import * as DerouleLib from '../../lib/deroule'
 import useGoldenHour from '../../hooks/useGoldenHour'
 import { useLiveMode } from '../../hooks/useLiveMode'
@@ -195,6 +196,22 @@ export default function DerouleTab() {
   //   - Override manuel "Suivant" / "Marquer fait"
   // Toggle persisté en localStorage par projet (vital si la régie ferme
   // l'onglet par accident pendant le festival).
+  // Sprint types V2 : ouverture modale "Types personnalisés" + état local
+  // miroir des types custom du projet pour réagir immédiatement aux changes
+  // sans attendre un refetch projet (le project est passé en prop depuis
+  // ProjetLayout via useOutletContext, donc on patche localement).
+  const [customTypesOpen, setCustomTypesOpen] = useState(false)
+  const [localProjectTypes, setLocalProjectTypes] = useState(
+    project?.creneau_types || [],
+  )
+  useEffect(() => {
+    setLocalProjectTypes(project?.creneau_types || [])
+  }, [project?.creneau_types])
+  const projectWithLocalTypes = useMemo(
+    () => ({ ...(project || {}), creneau_types: localProjectTypes }),
+    [project, localProjectTypes],
+  )
+
   // Démo / test mode : bypass le check date_jour=today et injecte un
   // nowMin custom dans le hook. Pas d'auto-write BDD en démo (le hook
   // skip). Permet de valider l'UX live sans attendre le jour J réel.
@@ -1343,6 +1360,7 @@ export default function DerouleTab() {
           /* Pass les conflits du créneau courant pour affichage dans
              l'inspecteur (mode debug visuel : qui chevauche qui). */
           conflicts={conflictsByCreneau?.get?.(inspectedCreneau.id) || []}
+          project={projectWithLocalTypes}
           canEdit={canEdit}
           onClose={closeInspector}
           onSave={handleSaveCreneau}
@@ -1353,6 +1371,7 @@ export default function DerouleTab() {
           onDelete={handleDeleteCreneau}
           onDuplicate={handleDuplicateCreneau}
           onSetMembres={handleSetCreneauMembres}
+          onOpenCustomTypesModal={() => setCustomTypesOpen(true)}
         />
       )}
       {creatingDraft && (
@@ -1362,12 +1381,14 @@ export default function DerouleTab() {
           isCreate
           lanes={lanes}
           membresPresents={membresAvecPresence}
+          project={projectWithLocalTypes}
           canEdit={canEdit}
           onClose={() => {
             setCreatingDraft(null)
             setCreatingAnchor(null)
           }}
           onCreate={handleCreateCreneauSubmit}
+          onOpenCustomTypesModal={() => setCustomTypesOpen(true)}
         />
       )}
 
@@ -1417,6 +1438,15 @@ export default function DerouleTab() {
           setImportExtracted(null)
         }}
         onConfirm={handleImportConfirm}
+      />
+
+      {/* Sprint types V2 : modale de gestion des types personnalisés */}
+      <CustomTypesModal
+        open={customTypesOpen}
+        project={projectWithLocalTypes}
+        allUserProjects={[]}
+        onClose={() => setCustomTypesOpen(false)}
+        onProjectUpdate={(updatedTypes) => setLocalProjectTypes(updatedTypes)}
       />
 
       {/* Sprint A — Mode Régie live : overlay plein écran */}

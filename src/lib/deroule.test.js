@@ -29,10 +29,11 @@ import {
 // ─── Constantes ────────────────────────────────────────────────────────────
 
 describe('CRENEAU_TYPES', () => {
-  it('contient tous les types attendus', () => {
+  it('contient tous les types attendus (set V2)', () => {
     expect(CRENEAU_TYPES).toEqual([
-      'install', 'repas', 'prise', 'pause', 'transport',
-      'brief', 'live', 'autre',
+      'install', 'brief', 'tournage', 'captation', 'show',
+      'interview', 'drone', 'ambiance', 'repas', 'pause',
+      'transport', 'postprod', 'autre', 'indispo',
     ])
   })
 })

@@ -41,7 +41,6 @@ import {
   Info as InfoIcon,
 } from 'lucide-react'
 import {
-  CRENEAU_TYPES,
   CRENEAU_STATUTS,
   MAX_MIN,
   effectiveCouleurCreneau,
@@ -51,6 +50,7 @@ import {
   ALERTE_COLORS,
   hasAlerte,
 } from '../../lib/deroule'
+import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
 import CustomSelect from '../../components/CustomSelect'
@@ -71,17 +71,9 @@ import {
 } from '../../lib/derouleSoftLinks'
 import './CreneauInspector.css'
 
-const TYPE_LABELS = {
-  install: 'Installation',
-  repas: 'Repas',
-  prise: 'Prise',
-  pause: 'Pause',
-  transport: 'Transport',
-  brief: 'Briefing',
-  live: 'Live',
-  autre: 'Autre',
-  indispo: 'Indispo', // FEST-5.2 : sommeil / repos cadreur
-}
+// TYPE_LABELS local supprimé : la source de vérité est désormais
+// getProjectCreneauTypes(project) qui retourne core + custom du projet.
+// Voir lib/creneauTypes.js.
 
 const STATUT_LABELS = {
   planifie: 'Planifié',
@@ -121,6 +113,10 @@ export default function CreneauInspector({
   // Permet d'afficher en lecture pourquoi le créneau est marqué en conflit
   // (quel membre est en double, avec quel autre créneau).
   conflicts = [],
+  // Sprint types V2 : passe le projet pour lire ses types custom
+  // (project.creneau_types JSONB). Si null/undefined, seul le core
+  // sera affiché dans le picker.
+  project = null,
   canEdit,
   anchorRect = null,
   onClose,
@@ -133,6 +129,9 @@ export default function CreneauInspector({
   onDelete,
   onDuplicate,
   onSetMembres,
+  // Sprint types V2 : ouvrir la modale de gestion des types custom
+  // depuis le picker ("+ Ajouter un type personnalisé").
+  onOpenCustomTypesModal,
 }) {
   const [draft, setDraft] = useState(() => initDraft(creneau))
   const [memberIds, setMemberIds] = useState(() => creneau?.member_ids || [])
@@ -259,10 +258,25 @@ export default function CreneauInspector({
     }
   }, [creneau?.id])
 
-  // Couleur d'accent dérivée du type courant (impacte le header en temps réel)
+  // Sprint types V2 : liste effective des types du projet (core + custom).
+  // Mémorisé au niveau de l'inspecteur principal car utilisé dans le
+  // picker du header (Header dense POP-2.A) ET dans le calcul accentColor.
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
+  const typesByKey = useMemo(() => {
+    const m = new Map()
+    for (const t of projectTypes) m.set(t.key, t)
+    return m
+  }, [projectTypes])
+
+  // Couleur d'accent dérivée du type courant (impacte le header en temps réel).
+  // Inclut les types CUSTOM du projet pour qu'un type ajouté par l'utilisateur
+  // affiche sa couleur dans le picker.
   const accentColor = useMemo(
-    () => effectiveCouleurCreneau({ ...creneau, ...draft }),
-    [creneau, draft],
+    () => effectiveCouleurCreneau({ ...creneau, ...draft }, projectTypes),
+    [creneau, draft, projectTypes],
   )
 
   // Validation live des horaires
@@ -504,11 +518,27 @@ export default function CreneauInspector({
             {editing ? (
               <CustomSelect
                 value={draft.type}
-                options={CRENEAU_TYPES.map((t) => ({
-                  value: t,
-                  label: TYPE_LABELS[t] || t,
-                }))}
+                options={[
+                  ...projectTypes.map((t) => ({
+                    value: t.key,
+                    label: t.libelle,
+                  })),
+                  // Item spécial "+ Ajouter…" — n'est PAS une valeur valide.
+                  // Au choix, on intercepte dans onChange et on ouvre la modale.
+                  ...(onOpenCustomTypesModal
+                    ? [
+                        {
+                          value: '__add_custom_type__',
+                          label: '+ Ajouter un type personnalisé',
+                        },
+                      ]
+                    : []),
+                ]}
                 onChange={(v) => {
+                  if (v === '__add_custom_type__') {
+                    onOpenCustomTypesModal?.()
+                    return
+                  }
                   patch({ type: v })
                   if (!isCreate) onSavePartial?.({ type: v })
                 }}
@@ -524,7 +554,7 @@ export default function CreneauInspector({
                     {label}
                   </span>
                 )}
-                minWidth={130}
+                minWidth={160}
               />
             ) : (
               <span
@@ -534,7 +564,7 @@ export default function CreneauInspector({
                   color: accentColor,
                 }}
               >
-                {TYPE_LABELS[draft.type] || draft.type}
+                {typesByKey.get(draft.type)?.libelle || draft.type}
               </span>
             )}
             {/* POP-2.B + UX-3 : titre éditable au click (mode view) OU
@@ -671,6 +701,7 @@ export default function CreneauInspector({
           setMemberIds={setMemberIds}
           membresPresents={membresPresents}
           conflicts={conflicts}
+          project={project}
           canEdit={canEdit}
           editMode={editing}
           isCreate={isCreate}
@@ -861,6 +892,12 @@ function CompactView({
   setMemberIds,
   membresPresents,
   conflicts = [],
+  // project est passé mais non utilisé directement dans CompactView (la
+  // logique types est dans CreneauInspector principal). On le garde dans
+  // la signature pour clarifier l’API et anticiper une utilisation future
+  // (ex: lookup nom_commercial du client dans les notes).
+  // eslint-disable-next-line no-unused-vars
+  project = null,
   canEdit,
   editMode = false,
   isCreate = false,
@@ -908,6 +945,10 @@ function CompactView({
       })
       .filter(Boolean)
   }, [membreIds, membresPresents])
+
+  // (projectTypes / typesByKey sont calculés au niveau du CreneauInspector
+  // principal — le picker du header utilise les valeurs portées en prop
+  // accentColor déjà dérivée des types projet.)
 
   // ─── Options pour les selects ───────────────────────────────────────────
   const laneOptions = useMemo(

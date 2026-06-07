@@ -18,18 +18,56 @@ import { supabase } from './supabase'
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
 
-/** Types sémantiques de créneau (synchronisé avec le CHECK SQL). */
+/**
+ * Types CORE de créneau (Sprint Festival types V2).
+ *
+ * Universels, couvrent tous les formats de projet : festival, live, pub,
+ * doc, fiction. Chaque projet peut ajouter ses propres types personnalisés
+ * stockés dans projects.creneau_types (JSONB).
+ *
+ * Migration data (20260608_creneau_types_v2.sql) :
+ *   - 'prise' → 'tournage' (terme universel)
+ *   - 'live'  → 'show' (le terme désignait un set d'artiste)
+ *
+ * Pour accéder à la liste effective (core + custom du projet courant),
+ * utiliser getProjectCreneauTypes(project) dans lib/creneauTypes.js.
+ */
 export const CRENEAU_TYPES = [
   'install',
+  'brief',
+  'tournage',
+  'captation',
+  'show',
+  'interview',
+  'drone',
+  'ambiance',
   'repas',
-  'prise',
   'pause',
   'transport',
-  'brief',
-  'live',
+  'postprod',
   'autre',
   'indispo', // FEST-5.2 : sommeil/repos cadreur (lane type='personne')
 ]
+
+/**
+ * Labels FR pour l'UI (picker dans CreneauInspector, légende exports, etc.).
+ */
+export const CRENEAU_TYPE_LABELS = {
+  install: 'Installation',
+  brief: 'Briefing',
+  tournage: 'Tournage',
+  captation: 'Captation live',
+  show: 'Show',
+  interview: 'Interview',
+  drone: 'Drone',
+  ambiance: 'Ambiance',
+  repas: 'Repas',
+  pause: 'Pause',
+  transport: 'Transport',
+  postprod: 'Post-prod',
+  autre: 'Autre',
+  indispo: 'Indispo',
+}
 
 /**
  * Types qui représentent une INDISPONIBILITÉ du cadreur (la lane est
@@ -46,26 +84,40 @@ export function isCreneauUnavailable(creneau) {
  * Couleur hex par défaut par type de créneau (utilisée si `creneau.couleur`
  * est NULL — ce qui est le cas par défaut).
  *
- * Choisies pour cohérence avec la palette interne Captiv :
- *   install   = blue 600   (technique/setup)
- *   repas     = amber 400  (chaud/convivial)
- *   prise     = green 600  (action/réussite)
- *   pause     = gray 400   (neutre)
- *   transport = coral 400  (mouvement)
- *   brief     = purple 600 (info/réflexion)
- *   live      = green 800  (action+intensité)
- *   autre     = gray 400   (fallback)
+ * Palette V2 alignée Tailwind 500-600 pour cohérence visuelle :
+ *   install    = blue       (technique/setup)
+ *   brief      = violet     (info/réflexion)
+ *   tournage   = green      (action universel)
+ *   captation  = red        (action live)
+ *   show       = pink       (scène, lumière)
+ *   interview  = cyan       (échange, conversation)
+ *   drone      = teal       (aérien, technique distinct)
+ *   ambiance   = lime       (atmosphère, B-roll)
+ *   repas      = orange     (chaud/convivial)
+ *   pause      = gray       (neutre)
+ *   transport  = red light  (mouvement)
+ *   postprod   = yellow     (étape de prod)
+ *   autre      = gray dark  (fallback)
+ *   indispo    = gris       (bloc hachuré)
+ *
+ * Pour les types custom (projets.creneau_types), la couleur est portée
+ * par le type lui-même. effectiveCouleurCreneau() fait le fallback.
  */
 export const CRENEAU_TYPE_COLORS = {
-  install: '#185FA5',
-  repas: '#EF9F27',
-  prise: '#639922',
-  pause: '#888780',
-  transport: '#D85A30',
-  brief: '#534AB7',
-  live: '#27500A',
-  autre: '#888780',
-  indispo: '#5C5C5C', // FEST-5.2 : gris sombre — bloc hachuré gris
+  install: '#3B82F6',
+  brief: '#8B5CF6',
+  tournage: '#22C55E',
+  captation: '#EF4444',
+  show: '#EC4899',
+  interview: '#06B6D4',
+  drone: '#14B8A6',
+  ambiance: '#84CC16',
+  repas: '#F97316',
+  pause: '#9CA3AF',
+  transport: '#FCA5A5',
+  postprod: '#EAB308',
+  autre: '#6B7280',
+  indispo: '#888888',
 }
 
 /** Statuts opérationnels (synchronisé avec le CHECK SQL). */
@@ -410,14 +462,32 @@ export function enrichCreneauxWithImplicitMembers(creneaux, lanes) {
 }
 
 /**
- * Renvoie la couleur effective d'un créneau : `couleur` override si présent,
- * sinon mapping CRENEAU_TYPE_COLORS sur le type, sinon fallback gray.
+ * Renvoie la couleur effective d'un créneau :
+ *   1. `creneau.couleur` override si défini
+ *   2. Sinon : couleur du type CORE (CRENEAU_TYPE_COLORS)
+ *   3. Sinon : couleur du type CUSTOM du projet (param projectTypes)
+ *   4. Sinon : fallback gris (couleur du type 'autre')
+ *
+ * @param {object} creneau
+ * @param {Array<{key, couleur}>} [projectTypes] - liste de types custom
+ *   du projet (depuis projects.creneau_types). Optionnel pour rétrocompat.
  */
-export function effectiveCouleurCreneau(creneau) {
+export function effectiveCouleurCreneau(creneau, projectTypes = null) {
   if (creneau?.couleur && /^#?[0-9a-f]{3,8}$/i.test(creneau.couleur)) {
     return creneau.couleur.startsWith('#') ? creneau.couleur : `#${creneau.couleur}`
   }
-  return CRENEAU_TYPE_COLORS[creneau?.type] || CRENEAU_TYPE_COLORS.autre
+  // Type CORE ?
+  if (creneau?.type && CRENEAU_TYPE_COLORS[creneau.type]) {
+    return CRENEAU_TYPE_COLORS[creneau.type]
+  }
+  // Type CUSTOM ? (cherche dans la liste passée)
+  if (Array.isArray(projectTypes) && creneau?.type) {
+    const custom = projectTypes.find((t) => t.key === creneau.type)
+    if (custom?.couleur) {
+      return custom.couleur.startsWith('#') ? custom.couleur : `#${custom.couleur}`
+    }
+  }
+  return CRENEAU_TYPE_COLORS.autre
 }
 
 /**
