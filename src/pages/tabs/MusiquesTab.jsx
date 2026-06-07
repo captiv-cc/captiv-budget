@@ -43,6 +43,7 @@ import {
 } from '../../lib/musiques'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 
 const OUTIL_KEY = 'musiques'
 
@@ -65,6 +66,9 @@ export default function MusiquesTab() {
   // Filtres locaux (recherche, statut)
   const [searchLocal, setSearchLocal] = useState('')
   const [filterStatut, setFilterStatut] = useState(null)
+
+  // Modals
+  const [addOpen, setAddOpen] = useState(false)
 
   // ─── Chargement initial ────────────────────────────────────────────────────
   const refetch = useCallback(async () => {
@@ -259,7 +263,7 @@ export default function MusiquesTab() {
             </button>
             <button
               type="button"
-              onClick={() => alert('AddProposition modal — MUS-1.9')}
+              onClick={() => setAddOpen(true)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -542,6 +546,17 @@ export default function MusiquesTab() {
           {project?.title ? ` · ${project.title}` : ''}
         </div>
       )}
+
+      {/* ─── Modals ────────────────────────────────────────────────────── */}
+      <AddPropositionModal
+        open={addOpen}
+        projectId={projectId}
+        onClose={() => setAddOpen(false)}
+        onCreated={() => {
+          // Le Realtime refetch va catch la nouveauté de toute façon ;
+          // on évite un double refetch immédiat.
+        }}
+      />
     </div>
   )
 }
