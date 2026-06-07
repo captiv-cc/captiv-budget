@@ -2271,11 +2271,20 @@ function CreneauBlock({
         textDecoration: creneau.statut === 'annule' ? 'line-through' : 'none',
         // UX-2 : color pour la pulse animation (currentColor dans la keyframe)
         color: '#3B82F6',
-        // Phase D — bordure rouge si conflit (override le boxShadow hover)
+        // Phase D — bordure rouge si conflit (override le boxShadow hover).
+        // Bordure issue source = orange/rouge selon sévérité, dashed pour
+        // distinguer du conflit (qui reste solid). Conflit prend la priorité
+        // s'il y a les deux (cas plus grave).
         outline: isDragging
           ? `2px solid ${color}`
           : hasConflict
           ? '1.5px solid #E24B4A'
+          : sourceTimingIssue
+          ? `2px dashed ${
+              sourceTimingIssueSeverity(sourceTimingIssue) === 'severe'
+                ? '#DC2626'
+                : '#F59E0B'
+            }`
           : 'none',
         outlineOffset: isDragging ? 1 : 0,
         zIndex: isDragging ? 5 : 'auto',
@@ -2296,6 +2305,35 @@ function CreneauBlock({
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >
+      {/* Mini-icône d'incohérence horaire (toujours visible, même sur
+          les petits blocs). Le badge texte au-dessous prend le relais
+          quand height >= 40 et qu'on est en mode large. */}
+      {sourceTimingIssue && (height < 40 || hideBadges) && (
+        <div
+          title={`${SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]} : ce créneau lié est hors plage du créneau source.`}
+          style={{
+            position: 'absolute',
+            top: 3,
+            right: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 14,
+            height: 14,
+            borderRadius: '50%',
+            background:
+              sourceTimingIssueSeverity(sourceTimingIssue) === 'severe'
+                ? '#DC2626'
+                : '#F59E0B',
+            color: '#FFFFFF',
+            pointerEvents: 'none',
+            boxShadow: '0 0 0 1.5px rgba(0,0,0,0.25)',
+          }}
+        >
+          <AlertTriangle size={9} strokeWidth={3} />
+        </div>
+      )}
+
       {/* Top-right : badge durée + indicateur lié (UX-2). FEST-5.5.5 :
           caché en mode étroit (< 80px) pour laisser la place au titre. */}
       {height >= 40 && !hideBadges && (
