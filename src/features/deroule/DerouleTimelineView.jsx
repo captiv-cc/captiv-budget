@@ -679,7 +679,9 @@ export default function DerouleTimelineView({
               multi_lane: false,
               heure_debut_min: s.currentDebutMin,
               heure_fin_min: s.currentFinMin,
-              type: 'prise',
+              // Types V2 : le cadreur filme = type 'tournage' (terme
+              // universel). La source (artiste sur scène) reste 'show'.
+              type: 'tournage',
               titre: movedCreneau.titre || '',
               lieu_text: lieuInferred,
               notes: movedCreneau.notes || null,
@@ -1437,7 +1439,9 @@ export default function DerouleTimelineView({
                 multi_lane: false,
                 heure_debut_min: src.heure_debut_min,
                 heure_fin_min: src.heure_fin_min,
-                type: 'prise',
+                // Types V2 : cadreur qui filme un show = 'tournage'
+                // (cohérent avec le drag-and-drop ci-dessus).
+                type: 'tournage',
                 titre: src.titre || '',
                 lieu_text: lieuInferred,
                 notes: src.notes || null,

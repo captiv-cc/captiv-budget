@@ -2262,7 +2262,7 @@ function labelForType(type) {
     install: 'Installation',
     brief: 'Briefing',
     tournage: 'Tournage',
-    captation: 'Captation live',
+    captation: 'Live',
     show: 'Show',
     interview: 'Interview',
     drone: 'Drone',

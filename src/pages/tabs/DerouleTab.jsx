@@ -729,7 +729,11 @@ export default function DerouleTab() {
             lane_id: laneId,
             heure_debut_min: s.debut_min,
             heure_fin_min: s.fin_min,
-            type: 'prise',
+            // Festival : un artiste importé = un show sur scène
+            // (lane lieu/scène). Le tournage qu'un cadreur fait de ce
+            // show sera un type='tournage' (créé via drag-and-drop ou
+            // assign-cadreur).
+            type: 'show',
             titre: s.titre,
           })
           okCount += 1

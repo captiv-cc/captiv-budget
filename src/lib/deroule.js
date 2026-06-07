@@ -56,7 +56,7 @@ export const CRENEAU_TYPE_LABELS = {
   install: 'Installation',
   brief: 'Briefing',
   tournage: 'Tournage',
-  captation: 'Captation live',
+  captation: 'Live',
   show: 'Show',
   interview: 'Interview',
   drone: 'Drone',
@@ -92,7 +92,8 @@ export function isCreneauUnavailable(creneau) {
  *   show       = pink       (scène, lumière)
  *   interview  = cyan       (échange, conversation)
  *   drone      = teal       (aérien, technique distinct)
- *   ambiance   = lime       (atmosphère, B-roll)
+ *   ambiance   = purple    (atmosphère, B-roll — distinct du green tournage,
+ *                            du violet brief plus bleuté, et du pink show plus chaud)
  *   repas      = orange     (chaud/convivial)
  *   pause      = gray       (neutre)
  *   transport  = red light  (mouvement)
@@ -111,7 +112,7 @@ export const CRENEAU_TYPE_COLORS = {
   show: '#EC4899',
   interview: '#06B6D4',
   drone: '#14B8A6',
-  ambiance: '#84CC16',
+  ambiance: '#A855F7',
   repas: '#F97316',
   pause: '#9CA3AF',
   transport: '#FCA5A5',

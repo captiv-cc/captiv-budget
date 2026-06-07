@@ -52,7 +52,7 @@ const RAPID_ACTIONS = [
     kind: 'tournage',
     label: 'Tournage',
     icon: Video,
-    draftOverride: { type: 'prise', titre: '' },
+    draftOverride: { type: 'tournage', titre: '' },
     section: 'main',
   },
   {
@@ -280,7 +280,7 @@ export default function QuickCreateMenu({
               onClick={() =>
                 onChoose?.({
                   draftOverride: {
-                    type: 'prise',
+                    type: 'tournage',
                     titre: c.titre || '',
                     heure_debut_min: c.heure_debut_min,
                     heure_fin_min: c.heure_fin_min,
