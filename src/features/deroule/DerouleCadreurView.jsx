@@ -27,6 +27,7 @@ import {
   Clipboard,
   AlertTriangle,
   Inbox,
+  Info,
   ChevronDown,
   Users,
   Check,
@@ -37,6 +38,8 @@ import {
   creneauDureeMin,
   effectiveLaneColor,
   sortCreneauxByTime,
+  hasAlerte,
+  ALERTE_COLORS,
 } from '../../lib/deroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
 import { extractPlainText } from '../../components/rich-editor/utils'
@@ -786,6 +789,33 @@ function MissionCard({
             ))}
           </div>
         )}
+        {/* Alerte (info / important) — bandeau coloré dédié, plus discret que
+            les conflits mais toujours visible sans tap. */}
+        {hasAlerte(c) && (() => {
+          const niveau = c.alerte_niveau || 'important'
+          const alertColor = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
+          const AlertIc = niveau === 'info' ? Info : AlertTriangle
+          return (
+            <div
+              className="mt-1 rounded flex items-center gap-1.5 px-2 py-1"
+              style={{
+                background: `${alertColor}1f`,
+                borderLeft: `2px solid ${alertColor}`,
+              }}
+            >
+              <AlertIc
+                className="w-3 h-3 shrink-0"
+                style={{ color: alertColor }}
+              />
+              <span
+                className="text-[11px] truncate"
+                style={{ color: alertColor, fontWeight: 600 }}
+              >
+                {c.alerte_text || ''}
+              </span>
+            </div>
+          )
+        })()}
         {showLaneChip && (
           <div
             className="text-[11px] mt-0.5 flex items-center gap-1 flex-wrap"

@@ -311,6 +311,10 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
 function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
   if (h < 8) return
   const baseHex = normalizeHex(getCreneauColor(creneau))
+  const showAlerte = hasAlerte(creneau)
+  const alertColor = showAlerte
+    ? getCreneauAlertColor(creneau) || baseHex
+    : null
 
   // Fond très sombre teinté
   ctx.fillStyle = hexToRgba(baseHex, 0.15)
@@ -329,6 +333,47 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
   roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 6)
   ctx.stroke()
 
+  // ─── Icône alerte (triangle vectoriel) en haut-droite ─────────────────
+  // Toujours rendue quand hasAlerte (même sur les petits blocs), pour que
+  // le cadreur ait toujours le signal visuel. Le texte de l'alerte vient
+  // plus bas si la place le permet (>= 70px de hauteur).
+  // On dessine un triangle plein avec un "!" blanc — plus fiable que
+  // l'emoji ⚠ qui peut ne pas être supporté par la police système canvas.
+  const ALERT_ICON_SIZE = 22
+  const ALERT_ICON_MARGIN = 8
+  let titleRightInset = 0
+  if (showAlerte) {
+    titleRightInset = ALERT_ICON_SIZE + 6
+    const triCx = x + w - ALERT_ICON_MARGIN - ALERT_ICON_SIZE / 2
+    const triCy = y + ALERT_ICON_MARGIN + ALERT_ICON_SIZE / 2
+    const triR = ALERT_ICON_SIZE / 2
+    ctx.fillStyle = alertColor
+    ctx.beginPath()
+    if (creneau.alerte_niveau === 'info') {
+      // Cercle pour info
+      ctx.arc(triCx, triCy, triR, 0, Math.PI * 2)
+    } else {
+      // Triangle pour important
+      ctx.moveTo(triCx, triCy - triR)
+      ctx.lineTo(triCx + triR, triCy + triR * 0.85)
+      ctx.lineTo(triCx - triR, triCy + triR * 0.85)
+      ctx.closePath()
+    }
+    ctx.fill()
+    // "!" ou "i" blanc au centre
+    ctx.fillStyle = '#FFFFFF'
+    ctx.font = '900 16px -apple-system, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(
+      creneau.alerte_niveau === 'info' ? 'i' : '!',
+      triCx,
+      triCy + (creneau.alerte_niveau === 'info' ? 1 : 2),
+    )
+    ctx.textAlign = 'start'
+    ctx.textBaseline = 'top'
+  }
+
   // Texte interne
   ctx.fillStyle = C.text
   const titleFontSize = h > 80 ? 28 : h > 50 ? 24 : 20
@@ -336,7 +381,9 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
   ctx.textBaseline = 'top'
   const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
   const maxLines = h > 130 ? 3 : h > 80 ? 2 : 1
-  const titleLines = wrapText(ctx, titre, w - 24, maxLines)
+  // Réserve la place de l'icône d'alerte sur la 1ère ligne du titre.
+  const titleMaxW = Math.max(8, w - 24 - titleRightInset)
+  const titleLines = wrapText(ctx, titre, titleMaxW, maxLines)
   let yCursor = y + 12
   for (let i = 0; i < titleLines.length; i += 1) {
     ctx.fillText(titleLines[i], x + 14, yCursor)
@@ -364,22 +411,23 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
     yCursor += 20
   }
 
-  // Alerte
-  if (hasAlerte(creneau) && h >= 95) {
-    const alertColor = getCreneauAlertColor(creneau) || baseHex
+  // Texte d'alerte (sous le lieu/horaires) — seuil baissé de 95 à 70 pour
+  // qu'un bloc de 1h soit éligible. Si vraiment pas la place, l'icône en
+  // haut-droite reste visible comme signal minimal.
+  if (showAlerte && h >= 70 && yCursor + 18 < y + h - 4) {
     ctx.fillStyle = alertColor
     ctx.font = '700 16px -apple-system, system-ui, sans-serif'
-    const alertPrefix = creneau.alerte_niveau === 'important' ? '⚠ ' : 'ℹ '
-    const alertText = `${alertPrefix}${creneau.alerte_text || ''}`
-    const alertLines = wrapText(ctx, alertText, w - 24, 2)
+    const alertLines = wrapText(ctx, creneau.alerte_text || '', w - 24, 2)
     for (const line of alertLines) {
+      if (yCursor + 18 >= y + h - 4) break
       ctx.fillText(line, x + 14, yCursor)
       yCursor += 18
     }
   }
 
-  // Indicateur multi-lane (icône en haut à droite)
-  if (multiLane) {
+  // Indicateur multi-lane (icône en haut à droite) — uniquement si pas
+  // d'alerte (l'alerte occupe déjà ce coin). Sinon on l'omet pour V1.
+  if (multiLane && !showAlerte) {
     ctx.fillStyle = C.textFaint
     ctx.font = '600 20px -apple-system, system-ui, sans-serif'
     ctx.textAlign = 'right'

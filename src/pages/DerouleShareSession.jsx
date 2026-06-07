@@ -902,7 +902,8 @@ function ExportSharePreviewSheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const label = type === 'pdf' ? 'Déroulé PDF' : 'Fond d\'écran cadreur PNG'
+  const label =
+    type === 'pdf' ? 'Planning déroulé (PDF)' : 'Planning cadreur (PNG)'
 
   // Sheet rendu via Portal pour échapper aux container constraints
   // (z-index, overflow, etc.).
