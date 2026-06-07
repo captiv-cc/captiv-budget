@@ -160,6 +160,20 @@ export default function CustomSelect({
                 >
                   {isSelected && <Check size={12} strokeWidth={3} />}
                 </span>
+                {/* Dot couleur optionnel — utilisé par le type picker
+                    (déroulé) pour donner un repère visuel à côté du libellé. */}
+                {opt.color ? (
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      background: opt.color,
+                      flexShrink: 0,
+                      display: 'inline-block',
+                    }}
+                  />
+                ) : null}
                 <span>{opt.label}</span>
               </button>
             )

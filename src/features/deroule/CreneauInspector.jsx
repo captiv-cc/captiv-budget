@@ -522,6 +522,10 @@ export default function CreneauInspector({
                   ...projectTypes.map((t) => ({
                     value: t.key,
                     label: t.libelle,
+                    // Dot couleur dans le dropdown (raffinement palette V3
+                    // pâle : sans repère visuel, les libellés se lisent
+                    // tous pareil dans la liste).
+                    color: t.couleur,
                   })),
                   // Item spécial "+ Ajouter…" — n'est PAS une valeur valide.
                   // Au choix, on intercepte dans onChange et on ouvre la modale.
