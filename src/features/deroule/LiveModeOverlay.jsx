@@ -24,8 +24,9 @@ export default function LiveModeOverlay({
   nowMin = 0,
   membreById,
   laneById,
-  onSkipToNext,
-  onMarkDone,
+  // Actions per-créneau (granularité venue par venue)
+  onMarkCreneauDone, // (creneauId) => void
+  onSkipFromCreneau, // (creneauId) => void : marque fait + lance next sur même lane
   onClose,
 }) {
   // Esc ferme
@@ -75,9 +76,6 @@ export default function LiveModeOverlay({
       })),
     [personneLanes, currentCreneaux],
   )
-
-  // Au moins une action possible ? (pour disable les boutons)
-  const hasAnyCurrent = currentCreneaux.length > 0
 
   return (
     <div
@@ -185,6 +183,8 @@ export default function LiveModeOverlay({
                   creneau={creneau}
                   nowMin={nowMin}
                   membreById={membreById}
+                  onMarkDone={onMarkCreneauDone}
+                  onSkipNext={onSkipFromCreneau}
                 />
               ))}
             </div>
@@ -213,6 +213,8 @@ export default function LiveModeOverlay({
                   creneau={creneau}
                   membreById={membreById}
                   laneById={laneById}
+                  onMarkDone={onMarkCreneauDone}
+                  onSkipNext={onSkipFromCreneau}
                 />
               ))}
             </div>
@@ -244,81 +246,6 @@ export default function LiveModeOverlay({
         )}
       </div>
 
-      {/* Bottom bar : actions */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          padding: '16px 28px',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          background: 'rgba(0,0,0,0.5)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={onMarkDone}
-          disabled={!hasAnyCurrent}
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            padding: '14px 24px',
-            background: hasAnyCurrent
-              ? 'rgba(34,197,94,0.18)'
-              : 'rgba(255,255,255,0.04)',
-            border: `2px solid ${
-              hasAnyCurrent ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.1)'
-            }`,
-            color: hasAnyCurrent ? '#22C55E' : 'rgba(255,255,255,0.3)',
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 700,
-            cursor: hasAnyCurrent ? 'pointer' : 'not-allowed',
-            letterSpacing: 0.3,
-          }}
-        >
-          <Check size={18} strokeWidth={3} />
-          Marquer fait
-        </button>
-        <button
-          type="button"
-          onClick={onSkipToNext}
-          disabled={!hasAnyCurrent && !nextCreneau}
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            padding: '14px 24px',
-            background:
-              hasAnyCurrent || nextCreneau
-                ? 'rgba(59,130,246,0.18)'
-                : 'rgba(255,255,255,0.04)',
-            border: `2px solid ${
-              hasAnyCurrent || nextCreneau
-                ? 'rgba(59,130,246,0.6)'
-                : 'rgba(255,255,255,0.1)'
-            }`,
-            color:
-              hasAnyCurrent || nextCreneau
-                ? '#3B82F6'
-                : 'rgba(255,255,255,0.3)',
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 700,
-            cursor:
-              hasAnyCurrent || nextCreneau ? 'pointer' : 'not-allowed',
-            letterSpacing: 0.3,
-          }}
-        >
-          <SkipForward size={18} strokeWidth={3} />
-          Suivant (avancer)
-        </button>
-      </div>
-
       <style>{`
         @keyframes live-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
@@ -330,7 +257,7 @@ export default function LiveModeOverlay({
 }
 
 // ─── VenueCard : une scène, ce qui s'y passe maintenant ────────────────────
-function VenueCard({ lane, creneau, nowMin, membreById }) {
+function VenueCard({ lane, creneau, nowMin, membreById, onMarkDone, onSkipNext }) {
   const isActive = Boolean(creneau)
   const color = creneau ? effectiveCouleurCreneau(creneau) : '#6B7280'
   const remaining = creneau
@@ -559,6 +486,70 @@ function VenueCard({ lane, creneau, nowMin, membreById }) {
               )}
             </div>
           )}
+
+          {/* Actions per-venue : marquer fait + suivant (lance prochain
+              sur cette même venue, sans toucher aux autres scènes). */}
+          {(onMarkDone || onSkipNext) && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginTop: 6,
+              }}
+            >
+              {onMarkDone && (
+                <button
+                  type="button"
+                  onClick={() => onMarkDone(creneau.id)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    padding: '7px 10px',
+                    background: 'rgba(34,197,94,0.15)',
+                    border: '1px solid rgba(34,197,94,0.4)',
+                    color: '#22C55E',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  <Check size={13} strokeWidth={3} />
+                  Fait
+                </button>
+              )}
+              {onSkipNext && (
+                <button
+                  type="button"
+                  onClick={() => onSkipNext(creneau.id)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 5,
+                    padding: '7px 10px',
+                    background: 'rgba(59,130,246,0.15)',
+                    border: '1px solid rgba(59,130,246,0.4)',
+                    color: '#3B82F6',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    letterSpacing: 0.2,
+                  }}
+                  title="Marque fait + lance le suivant sur cette scène"
+                >
+                  <SkipForward size={13} strokeWidth={3} />
+                  Suivant
+                </button>
+              )}
+            </div>
+          )}
         </>
       ) : (
         <div
@@ -578,7 +569,7 @@ function VenueCard({ lane, creneau, nowMin, membreById }) {
 }
 
 // ─── CadreurCard : un cadreur, ce qu'il fait maintenant ────────────────────
-function CadreurCard({ lane, creneau, membreById, laneById }) {
+function CadreurCard({ lane, creneau, membreById, laneById, onMarkDone, onSkipNext }) {
   const membre = lane.membre_id ? membreById?.get?.(lane.membre_id) : null
   const isActive = Boolean(creneau)
   const color = creneau ? effectiveCouleurCreneau(creneau) : '#6B7280'
@@ -665,6 +656,70 @@ function CadreurCard({ lane, creneau, membreById, laneById }) {
               <span style={{ opacity: 0.7 }}>· {creneauLane.libelle}</span>
             )}
           </div>
+          {/* Actions compactes pour cadreur — icon-only pour ne pas
+              encombrer la card étroite. Tooltips au hover. */}
+          {(onMarkDone || onSkipNext) && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 6,
+                marginTop: 4,
+              }}
+            >
+              {onMarkDone && (
+                <button
+                  type="button"
+                  onClick={() => onMarkDone(creneau.id)}
+                  title="Marquer fait"
+                  aria-label="Marquer fait"
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    padding: '5px 6px',
+                    background: 'rgba(34,197,94,0.12)',
+                    border: '1px solid rgba(34,197,94,0.35)',
+                    color: '#22C55E',
+                    borderRadius: 5,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Check size={11} strokeWidth={3} />
+                  Fait
+                </button>
+              )}
+              {onSkipNext && (
+                <button
+                  type="button"
+                  onClick={() => onSkipNext(creneau.id)}
+                  title="Suivant (fait + lance le prochain de ce cadreur)"
+                  aria-label="Suivant"
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    padding: '5px 6px',
+                    background: 'rgba(59,130,246,0.12)',
+                    border: '1px solid rgba(59,130,246,0.35)',
+                    color: '#3B82F6',
+                    borderRadius: 5,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <SkipForward size={11} strokeWidth={3} />
+                  Suivant
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div

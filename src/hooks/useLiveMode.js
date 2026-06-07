@@ -233,6 +233,72 @@ export function useLiveMode({
     }
   }, [currentCreneaux, onUpdateStatut])
 
+  // ─── Actions PER-créneau (UX 'tour de contrôle' multi-venue) ──────────
+  // Plus fines que les globales : permettent à la régie d'agir venue par
+  // venue / cadreur par cadreur sans toucher au reste.
+
+  /** Marque UN créneau précis comme fait. */
+  const markCreneauDone = useCallback(
+    async (creneauId) => {
+      if (!onUpdateStatut || !creneauId) return
+      triggeredRef.current.fait.add(creneauId)
+      try {
+        await onUpdateStatut(creneauId, 'fait')
+      } catch (e) {
+        console.warn('[useLiveMode] markCreneauDone failed', e)
+        triggeredRef.current.fait.delete(creneauId)
+      }
+    },
+    [onUpdateStatut],
+  )
+
+  /**
+   * "Suivant" pour UN créneau : marque-le fait ET lance le prochain
+   * sur la MÊME lane (ou prochain multi-lane si l'actuel est multi).
+   * Cas typique : la régie veut clore Kalash sur Le Château et démarrer
+   * BU$HI immédiatement, sans toucher au Virage qui suit son rythme.
+   */
+  const skipFromCreneau = useCallback(
+    async (creneauId) => {
+      if (!onUpdateStatut || !creneauId) return
+      const current = (creneaux || []).find((c) => c.id === creneauId)
+      if (!current) return
+      triggeredRef.current.fait.add(creneauId)
+      try {
+        await onUpdateStatut(creneauId, 'fait')
+      } catch (e) {
+        console.warn('[useLiveMode] skipFromCreneau fait failed', e)
+        triggeredRef.current.fait.delete(creneauId)
+        return
+      }
+      // Cherche le prochain sur la même lane (ou multi_lane si actuel est
+      // multi). Tri par heure_debut, on prend le 1er encore 'planifie'
+      // dont l'heure_debut est ≥ heure_fin du précédent.
+      const sameLanePool = (creneaux || [])
+        .filter((c) => {
+          if (c.id === creneauId) return false
+          if (c.statut !== 'planifie') return false
+          if (current.multi_lane) return c.multi_lane === true
+          return c.lane_id === current.lane_id
+        })
+        .sort(
+          (a, b) => (a.heure_debut_min ?? 0) - (b.heure_debut_min ?? 0),
+        )
+      const next = sameLanePool.find(
+        (c) => (c.heure_debut_min ?? 0) >= (current.heure_fin_min ?? 0),
+      ) || sameLanePool[0]
+      if (next) {
+        triggeredRef.current.enCours.add(next.id)
+        try {
+          await onUpdateStatut(next.id, 'en_cours')
+        } catch (e) {
+          console.warn('[useLiveMode] skipFromCreneau next failed', e)
+        }
+      }
+    },
+    [creneaux, onUpdateStatut],
+  )
+
   return {
     enabled,
     setEnabled,
@@ -241,6 +307,8 @@ export function useLiveMode({
     nextCreneau,
     skipToNext,
     markCurrentDone,
+    markCreneauDone,
+    skipFromCreneau,
     isToday,
   }
 }
