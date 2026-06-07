@@ -123,6 +123,12 @@ BEGIN
           -- (point d'attention sur le terrain). Pas gated par show_sensitive.
           'alerte_text',     c.alerte_text,
           'alerte_niveau',   c.alerte_niveau,
+          -- source_creneau_id (soft link FEST-2.10) : exposé pour permettre
+          -- au client share de retrouver le créneau source et hériter de
+          -- ses méta (notamment l'alerte). Sans ce champ, un créneau enfant
+          -- "Hamza @ cadreur" ne pouvait pas afficher l'alerte du créneau
+          -- source "Hamza @ scène". Pas sensible (seul l'id est exposé).
+          'source_creneau_id', c.source_creneau_id,
           'notes',           CASE WHEN v_show_sensitive THEN c.notes ELSE NULL END,
           'member_ids',      COALESCE((
             SELECT jsonb_agg(cm.membre_id ORDER BY cm.created_at)

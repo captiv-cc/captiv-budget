@@ -38,7 +38,7 @@ import {
   creneauDureeMin,
   effectiveLaneColor,
   sortCreneauxByTime,
-  hasAlerte,
+  effectiveAlerte,
   ALERTE_COLORS,
 } from '../../lib/deroule'
 import useBreakpoint from '../../hooks/useBreakpoint'
@@ -407,12 +407,10 @@ function CadreurHeader({
 
 function CadreurMobileLayout({
   missions,
-  // allCreneaux : reçu pour compat avec l'admin (où les ContextCards des
-  // autres événements du jour étaient utiles). Sur la page share, on ne
-  // s'en sert PLUS — la vue Cadreur affiche uniquement les missions du
-  // cadreur. Pour voir le programme global, l'utilisateur bascule en
-  // vue Timeline. Décision Hugo : "c'est trop fouilli avec TOUS les events".
-  // eslint-disable-next-line no-unused-vars
+  // allCreneaux : on ne rend plus les ContextCards (Hugo : "trop fouilli")
+  // mais on s'en sert pour construire la Map creneauxById utilisée par
+  // effectiveAlerte() pour l'héritage d'alertes via soft link (un créneau
+  // cadreur sans alerte hérite de celle du parent sur la scène).
   allCreneaux,
   focusMembreId,
   laneById,
@@ -431,6 +429,12 @@ function CadreurMobileLayout({
     () => sortCreneauxByTime([...missions]),
     [missions],
   )
+  // Index par id pour le lookup des alertes héritées (effectiveAlerte).
+  const creneauxById = useMemo(() => {
+    const m = new Map()
+    for (const c of allCreneaux || []) m.set(c.id, c)
+    return m
+  }, [allCreneaux])
   // Now indicator : on insère le séparateur AVANT la 1ère mission qui se
   // termine après l'heure courante (donc en cours ou à venir). Si toutes
   // les missions sont terminées ou aucune à venir, pas de séparateur.
@@ -512,6 +516,7 @@ function CadreurMobileLayout({
               )}
               membreById={membreById}
               focusMembreId={focusMembreId}
+              creneauxById={creneauxById}
               onClick={(e) => onSelectCreneau?.(c, e)}
               onToggleStatut={onToggleStatut}
             />
@@ -558,6 +563,12 @@ function CadreurDesktopLayout({
     () => sortCreneauxByTime(allCreneaux || []),
     [allCreneaux],
   )
+  // Index par id pour le lookup des alertes héritées (effectiveAlerte).
+  const creneauxById = useMemo(() => {
+    const m = new Map()
+    for (const c of allCreneaux || []) m.set(c.id, c)
+    return m
+  }, [allCreneaux])
 
   return (
     <div
@@ -596,6 +607,7 @@ function CadreurDesktopLayout({
               )}
               membreById={membreById}
               focusMembreId={focusMembreId}
+              creneauxById={creneauxById}
               onClick={(e) => onSelectCreneau?.(c, e)}
               onToggleStatut={onToggleStatut}
             />
@@ -643,6 +655,10 @@ function MissionCard({
   conflicts = [],
   membreById,
   focusMembreId = null,
+  // creneauxById : Map des créneaux du jour, pour la lookup des alertes
+  // héritées via source_creneau_id (soft link). Si absent, on tombe sur
+  // l'alerte locale uniquement.
+  creneauxById = null,
   onClick,
   onToggleStatut = null,
 }) {
@@ -790,11 +806,16 @@ function MissionCard({
           </div>
         )}
         {/* Alerte (info / important) — bandeau coloré dédié, plus discret que
-            les conflits mais toujours visible sans tap. */}
-        {hasAlerte(c) && (() => {
-          const niveau = c.alerte_niveau || 'important'
-          const alertColor = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
-          const AlertIc = niveau === 'info' ? Info : AlertTriangle
+            les conflits mais toujours visible sans tap.
+            Sprint mobile-2.2 : utilise effectiveAlerte(), qui hérite de
+            l'alerte du parent soft-link si l'enfant n'en a pas. Cas typique :
+            "Hamza @ scène" a "3P CRASHS" → "Hamza @ cadreur" l'hérite
+            automatiquement sans propagation BDD. */}
+        {(() => {
+          const ea = effectiveAlerte(c, creneauxById)
+          if (!ea) return null
+          const alertColor = ALERTE_COLORS[ea.niveau] || ALERTE_COLORS.important
+          const AlertIc = ea.niveau === 'info' ? Info : AlertTriangle
           return (
             <div
               className="mt-1 rounded flex items-center gap-1.5 px-2 py-1"
@@ -811,7 +832,7 @@ function MissionCard({
                 className="text-[11px] truncate"
                 style={{ color: alertColor, fontWeight: 600 }}
               >
-                {c.alerte_text || ''}
+                {ea.text}
               </span>
             </div>
           )

@@ -100,6 +100,47 @@ export function hasAlerte(creneau) {
   )
 }
 
+/**
+ * Retourne l'alerte effective d'un créneau, avec héritage de la source.
+ *
+ * Logique :
+ *   1. Si le créneau a sa propre alerte → priorité
+ *   2. Sinon, si soft-link vers un parent (source_creneau_id) ET le parent
+ *      a une alerte → héritage visuel (signal "ce que je filme a un point
+ *      d'attention sur la scène source")
+ *   3. Sinon → null
+ *
+ * Le retour inclut `inheritedFrom` (id du parent) pour permettre à l'UI
+ * de signaler que l'alerte vient d'ailleurs si besoin.
+ *
+ * @param {object} creneau - le créneau à inspecter
+ * @param {Map<string, object>|null|undefined} creneauxById - index par id
+ *   pour la lookup du parent. Si absent ou si pas de soft link, on ne
+ *   tente pas l'héritage.
+ * @returns {{ text: string, niveau: 'info'|'important', inheritedFrom: string|null }|null}
+ */
+export function effectiveAlerte(creneau, creneauxById) {
+  if (!creneau) return null
+  if (hasAlerte(creneau)) {
+    return {
+      text: creneau.alerte_text,
+      niveau: creneau.alerte_niveau || 'important',
+      inheritedFrom: null,
+    }
+  }
+  if (!creneau.source_creneau_id || !creneauxById) return null
+  const parent =
+    (typeof creneauxById.get === 'function'
+      ? creneauxById.get(creneau.source_creneau_id)
+      : creneauxById[creneau.source_creneau_id]) || null
+  if (!parent || !hasAlerte(parent)) return null
+  return {
+    text: parent.alerte_text,
+    niveau: parent.alerte_niveau || 'important',
+    inheritedFrom: parent.id,
+  }
+}
+
 /** Statuts du déroulé global (synchronisé avec le CHECK SQL). */
 export const DEROULE_STATUTS = ['planifie', 'valide', 'verrouille']
 

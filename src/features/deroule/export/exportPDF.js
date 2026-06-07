@@ -24,7 +24,6 @@ import {
   getCreneauxForLane,
   getMultiLaneCreneaux,
   getCreneauColor,
-  getCreneauAlertColor,
   formatHumanDate,
   formatShortDate,
   buildHourGraduations,
@@ -33,7 +32,7 @@ import {
   sanitizeFilename,
   TYPE_LABELS,
 } from './derouleExport'
-import { hasAlerte, isCreneauUnavailable, formatMinHHMM } from '../../../lib/deroule'
+import { effectiveAlerte, ALERTE_COLORS, isCreneauUnavailable, formatMinHHMM } from '../../../lib/deroule'
 import { loadImageAsPng, computeLogoBox } from '../../../lib/pdfImageLoader'
 
 // ─── Configuration A4 paysage ────────────────────────────────────────────
@@ -95,6 +94,9 @@ function rgbDarken([r, g, b], pct = 0.2) {
 
 // ─── Rendu d'une page (un jour) ───────────────────────────────────────────
 function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, generatedAt, coverImage }) {
+  // Index par id pour le lookup d'alerte héritée via soft link.
+  const creneauxById = new Map()
+  for (const c of creneaux || []) creneauxById.set(c.id, c)
   // ─── Header : cover icône + titre + client + date + ref + nb créneaux ──
   let textLeftX = MARGIN_X
   if (coverImage) {
@@ -285,6 +287,7 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
         y: gridTop + (c.heure_debut_min - minStart) * pxPerMin,
         w: laneW - 0.8,
         h: Math.max(2, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
+        creneauxById,
       })
     }
   }
@@ -299,6 +302,7 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
       h: Math.max(2, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
       membres,
       multiLane: true,
+      creneauxById,
     })
   }
 
@@ -380,12 +384,14 @@ function drawHatchOverlay(pdf, x, y, w, h, [r, g, b]) {
 /**
  * Dessine une "box" représentant un créneau dans la grille.
  */
-function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
+function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneauxById = null }) {
   if (h < 1) return
   const baseColor = getCreneauColor(creneau)
   const rgb = hexToRgb(baseColor)
   const fill = rgbLighten(rgb, 0.78)
   const isIndispo = isCreneauUnavailable(creneau)
+  // effectiveAlerte() résout aussi l'héritage soft-link.
+  const ea = effectiveAlerte(creneau, creneauxById)
 
   // Fond
   pdf.setFillColor(...fill)
@@ -435,9 +441,11 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
 
   // (A) Préparer la bande d'alerte : on calcule la position AVANT pour
   // savoir si horaires/lieu doivent être décalés vers le haut.
-  const showAlerte = hasAlerte(creneau) && h >= 9
-  const alertColor = showAlerte ? getCreneauAlertColor(creneau) : null
-  const alertRgb = alertColor ? hexToRgb(alertColor) : C.alertImportant
+  const showAlerte = Boolean(ea) && h >= 9
+  const alertColorHex = showAlerte
+    ? ALERTE_COLORS[ea.niveau] || ALERTE_COLORS.important
+    : null
+  const alertRgb = alertColorHex ? hexToRgb(alertColorHex) : C.alertImportant
   const ALERT_BAND_H = 4.2 // mm
   const alertBandY = showAlerte ? y + h - ALERT_BAND_H : null
   const contentMaxY = showAlerte ? alertBandY - 0.6 : y + h - 0.5
@@ -484,7 +492,7 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false }) {
     pdf.setTextColor(...rgbDarken(alertRgb, 0.35))
     const alertTextX = triX + triSize + 1
     pdf.text(
-      creneau.alerte_text || '',
+      ea.text || '',
       alertTextX,
       alertBandY + ALERT_BAND_H - 1.3,
       { maxWidth: w - (alertTextX - x) - 1 },

@@ -50,7 +50,7 @@ import {
   CRENEAU_TYPE_COLORS,
   enrichCreneauxWithImplicitMembers,
   findMembreOverlaps,
-  hasAlerte,
+  effectiveAlerte,
   ALERTE_COLORS,
   ALERTE_LABELS,
 } from '../lib/deroule'
@@ -285,6 +285,14 @@ function ShareContent({
   }, [deroules, selectedDeroleId, todayIso])
 
   // Index helpers
+  // Index complet (tous jours) — utilisé par effectiveAlerte pour résoudre
+  // l'héritage d'alerte via source_creneau_id. Le source peut être dans
+  // un autre jour théoriquement, donc on indexe tous les créneaux.
+  const creneauxById = useMemo(() => {
+    const m = new Map()
+    for (const c of creneaux) m.set(c.id, c)
+    return m
+  }, [creneaux])
   const membreById = useMemo(() => {
     const m = new Map()
     for (const x of membres) {
@@ -471,6 +479,7 @@ function ShareContent({
                   creneaux={currentCreneaux}
                   lanes={currentLanes}
                   membreById={membreById}
+                  creneauxById={creneauxById}
                   todayIso={todayIso}
                   onSelectCreneau={handleSelectCreneau}
                 />
@@ -496,6 +505,7 @@ function ShareContent({
           }
           totalLanes={lanes.length}
           membreById={membreById}
+          creneauxById={creneauxById}
           showSensitive={showSensitive}
           onClose={() => setSelectedCreneau(null)}
         />
@@ -1070,7 +1080,7 @@ function ExportSharePreviewSheet({
 const COMPACT_BLOCK_THRESHOLD_PX = 36 // hauteur rendue < 36px → layout compact horizontal
 const SCROLL_OFFSET_TOP = 80 // marge en haut du viewport pour l'auto-scroll
 
-function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, onSelectCreneau }) {
+function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, todayIso, onSelectCreneau }) {
   // [SHARE-7] Crop intelligent — la timeline n'affiche que la plage active
   // [1er créneau − 60min, dernier créneau + 60min], snappée sur les heures
   // rondes (10:30 → 10:00, 23:45 → 24:00). Évite l'immense vide en haut/bas
@@ -1281,6 +1291,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, onSe
         top={top}
         height={height}
         membreById={membreById}
+        creneauxById={creneauxById}
         isMultiLane={isMultiLane}
         onClick={(rect) => onSelectCreneau?.(c, rect)}
       />
@@ -1602,7 +1613,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, todayIso, onSe
 // Ordre des infos cohérent entre compact et normal : titre EN PREMIER,
 // heure ENSUITE (alignement avec le layout normal sur 2 lignes).
 
-function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = false, onClick }) {
+function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, isMultiLane = false, onClick }) {
   const color = effectiveCouleurCreneau(c)
   const minH = 22
   const memberIds = Array.isArray(c.member_ids) ? c.member_ids : []
@@ -1643,8 +1654,10 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
   // Sprint mobile-cadreur : indicateur d'alerte sur les blocs timeline.
   // Triangle orange (important) ou ⓘ bleu (info) en haut-droite, visible
   // dès qu'un alerte est présent. Le détail s'affiche au tap (popover).
-  const showAlerteIcon = hasAlerte(c)
-  const alerteNiveau = c.alerte_niveau || 'important'
+  // effectiveAlerte() résout aussi l'héritage soft-link (créneau source).
+  const effAlerte = effectiveAlerte(c, creneauxById)
+  const showAlerteIcon = Boolean(effAlerte)
+  const alerteNiveau = effAlerte?.niveau || 'important'
   const alerteColor = ALERTE_COLORS[alerteNiveau] || ALERTE_COLORS.important
   const AlertIconCmp = alerteNiveau === 'info' ? Info : AlertTriangle
 
@@ -1659,7 +1672,7 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
           padding: '2px 6px',
           fontSize: 11,
         }}
-        title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}${c.alerte_text ? ' · ⚠ ' + c.alerte_text : ''}`}
+        title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)}${isMultiLane ? ' · multi-lane' : ''}${effAlerte ? ' · ⚠ ' + effAlerte.text : ''}`}
       >
         {showAlerteIcon && (
           <AlertIconCmp
@@ -1698,7 +1711,7 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, isMultiLane = fals
         padding: '4px 8px',
         fontSize: 11,
       }}
-      title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}${c.alerte_text ? ' · ⚠ ' + c.alerte_text : ''}`}
+      title={`${titre} · ${formatMinHHMM(c.heure_debut_min)} – ${formatMinHHMM(c.heure_fin_min)} · ${dureeStr}${c.lieu_text ? ' · ' + c.lieu_text : ''}${isMultiLane ? ' · multi-lane' : ''}${effAlerte ? ' · ⚠ ' + effAlerte.text : ''}`}
     >
       {/* Icône alerte en haut-droite si présente */}
       {showAlerteIcon && (
@@ -1831,6 +1844,7 @@ function CreneauDetailPopover({
   lane,
   totalLanes,
   membreById,
+  creneauxById,
   showSensitive,
   onClose,
 }) {
@@ -2028,16 +2042,19 @@ function CreneauDetailPopover({
           </DetailRow>
         )}
 
-        {/* Sprint mobile-cadreur : afficher les alertes (info ou important).
-            Niveau 'important' = triangle orange, 'info' = ⓘ bleu. */}
-        {hasAlerte(c) && (() => {
-          const niveau = c.alerte_niveau || 'important'
-          const alertColor = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
-          const AlertIcon = niveau === 'info' ? Info : AlertTriangle
+        {/* Alertes (info ou important) avec héritage soft-link.
+            effectiveAlerte() retourne aussi l'alerte du parent si l'enfant
+            n'en a pas — ex: "Hamza @ cadreur" hérite de "3P CRASHS" venant
+            de "Hamza @ scène". */}
+        {(() => {
+          const ea = effectiveAlerte(c, creneauxById)
+          if (!ea) return null
+          const alertColor = ALERTE_COLORS[ea.niveau] || ALERTE_COLORS.important
+          const AlertIcon = ea.niveau === 'info' ? Info : AlertTriangle
           return (
             <DetailRow
               icon={<AlertIcon className="w-3.5 h-3.5" style={{ color: alertColor }} />}
-              label={ALERTE_LABELS[niveau] || 'Alerte'}
+              label={ALERTE_LABELS[ea.niveau] || 'Alerte'}
             >
               <div
                 className="text-xs px-2 py-1.5 rounded leading-relaxed"
@@ -2047,7 +2064,15 @@ function CreneauDetailPopover({
                   color: 'var(--txt)',
                 }}
               >
-                {c.alerte_text || ''}
+                {ea.text}
+                {ea.inheritedFrom && (
+                  <div
+                    className="text-[10px] mt-1 italic"
+                    style={{ color: 'var(--txt-3)' }}
+                  >
+                    (hérité du créneau source)
+                  </div>
+                )}
               </div>
             </DetailRow>
           )

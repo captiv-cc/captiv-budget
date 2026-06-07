@@ -35,7 +35,6 @@ import {
   getCreneauxForLane,
   getMultiLaneCreneaux,
   getCreneauColor,
-  getCreneauAlertColor,
   formatHumanDate,
   buildHourGraduations,
   getLaneShortLabel,
@@ -43,7 +42,7 @@ import {
   sanitizeFilename,
   TYPE_LABELS,
 } from './derouleExport'
-import { hasAlerte, formatMinHHMM } from '../../../lib/deroule'
+import { effectiveAlerte, formatMinHHMM } from '../../../lib/deroule'
 
 // ─── Dimensions cible (iPhone Pro Max lock screen, ratio 9:19.5) ──────────
 const W = 1170
@@ -140,6 +139,10 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
   canvas.height = H
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 2D non disponible')
+
+  // Index des créneaux pour la lookup d'alertes héritées (effectiveAlerte).
+  const creneauxById = new Map()
+  for (const c of creneaux || []) creneauxById.set(c.id, c)
 
   // ─── Fond global ──────────────────────────────────────────────────────
   ctx.fillStyle = C.bg
@@ -270,6 +273,7 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
         y: gridTop + (c.heure_debut_min - minStart) * pxPerMin,
         w: laneW - 8,
         h: Math.max(8, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
+        creneauxById,
       })
     }
   }
@@ -284,6 +288,7 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
       h: Math.max(8, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
       membres,
       multiLane: true,
+      creneauxById,
     })
   }
 
@@ -308,12 +313,17 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
 /**
  * Dessine une box de créneau à l'intérieur du canvas.
  */
-function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
+function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false, creneauxById = null }) {
   if (h < 8) return
   const baseHex = normalizeHex(getCreneauColor(creneau))
-  const showAlerte = hasAlerte(creneau)
+  // effectiveAlerte() résout aussi l'héritage soft-link (créneau source).
+  const ea = effectiveAlerte(creneau, creneauxById)
+  const showAlerte = Boolean(ea)
+  // Couleur d'alerte directement depuis ea.niveau (cohérent avec UI).
   const alertColor = showAlerte
-    ? getCreneauAlertColor(creneau) || baseHex
+    ? ea.niveau === 'info'
+      ? '#3B82F6'
+      : '#F59E0B'
     : null
 
   // Fond très sombre teinté
@@ -349,7 +359,7 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
     const triR = ALERT_ICON_SIZE / 2
     ctx.fillStyle = alertColor
     ctx.beginPath()
-    if (creneau.alerte_niveau === 'info') {
+    if (ea.niveau === 'info') {
       // Cercle pour info
       ctx.arc(triCx, triCy, triR, 0, Math.PI * 2)
     } else {
@@ -366,9 +376,9 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(
-      creneau.alerte_niveau === 'info' ? 'i' : '!',
+      ea.niveau === 'info' ? 'i' : '!',
       triCx,
-      triCy + (creneau.alerte_niveau === 'info' ? 1 : 2),
+      triCy + (ea.niveau === 'info' ? 1 : 2),
     )
     ctx.textAlign = 'start'
     ctx.textBaseline = 'top'
@@ -417,7 +427,7 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false }) {
   if (showAlerte && h >= 70 && yCursor + 18 < y + h - 4) {
     ctx.fillStyle = alertColor
     ctx.font = '700 16px -apple-system, system-ui, sans-serif'
-    const alertLines = wrapText(ctx, creneau.alerte_text || '', w - 24, 2)
+    const alertLines = wrapText(ctx, ea.text || '', w - 24, 2)
     for (const line of alertLines) {
       if (yCursor + 18 >= y + h - 4) break
       ctx.fillText(line, x + 14, yCursor)
