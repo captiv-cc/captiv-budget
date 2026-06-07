@@ -292,24 +292,55 @@ function ShareContent({
     [deroules, selectedDeroleId],
   )
 
-  // FEST-5 : conflits par créneau pour la vue Cadreur. On enrichit
-  // d'abord les créneaux avec les membres implicites (lane perso) puis
-  // on calcule les overlaps par membre. Même logique que côté admin
-  // (DerouleTab.jsx) mais en read-only.
+  // FEST-5 : conflits par créneau pour la vue Cadreur.
+  //
+  // BUG FIX (mobile-2 follow-up) : on doit calculer les conflits PAR JOUR
+  // (deroule_id). Avant : findMembreOverlaps sur l'ensemble du projet, ce
+  // qui faisait apparaître en conflit un "Brief 17:15" du jeu 4 juin avec
+  // un "Micro trottoir 18:30" du ven 13 juin (overlaps horaires sans
+  // tenir compte de la date). Maintenant on groupe les créneaux par
+  // deroule_id puis on calcule les overlaps dans chaque groupe.
+  //
+  // Côté admin (DerouleTab) ce bug n'existe pas car useDeroule(projectId,
+  // selectedDate) ne charge que les créneaux du jour courant.
   const shareConflictsByCreneau = useMemo(() => {
     const map = new Map()
     if (!Array.isArray(creneaux) || creneaux.length === 0) return map
     if (!Array.isArray(membres) || membres.length === 0) return map
-    const enriched = enrichCreneauxWithImplicitMembers(creneaux, lanes)
-    for (const m of membres) {
-      const pairs = findMembreOverlaps(m.id, enriched)
-      for (const [a, b] of pairs) {
-        const arrA = map.get(a.id) || []
-        arrA.push({ creneau: b, membre: m })
-        map.set(a.id, arrA)
-        const arrB = map.get(b.id) || []
-        arrB.push({ creneau: a, membre: m })
-        map.set(b.id, arrB)
+
+    // Group creneaux by deroule_id
+    const byDay = new Map()
+    for (const c of creneaux) {
+      if (!c.deroule_id) continue
+      let arr = byDay.get(c.deroule_id)
+      if (!arr) {
+        arr = []
+        byDay.set(c.deroule_id, arr)
+      }
+      arr.push(c)
+    }
+
+    // Per-day overlap detection — chaque jour est isolé, donc deux créneaux
+    // de jours différents ne peuvent plus matcher.
+    for (const [, dayCreneaux] of byDay) {
+      // Filter lanes for this day (enrichissement implicite par lane perso)
+      const dayLanes = lanes.filter((l) =>
+        dayCreneaux.some((c) => c.lane_id === l.id) ||
+        // garde aussi les lanes type='personne' du même déroulé (utile pour
+        // l'enrichissement implicite des cadreurs sans créneau direct)
+        dayCreneaux.some((c) => c.deroule_id === l.deroule_id),
+      )
+      const enriched = enrichCreneauxWithImplicitMembers(dayCreneaux, dayLanes)
+      for (const m of membres) {
+        const pairs = findMembreOverlaps(m.id, enriched)
+        for (const [a, b] of pairs) {
+          const arrA = map.get(a.id) || []
+          arrA.push({ creneau: b, membre: m })
+          map.set(a.id, arrA)
+          const arrB = map.get(b.id) || []
+          arrB.push({ creneau: a, membre: m })
+          map.set(b.id, arrB)
+        }
       }
     }
     return map

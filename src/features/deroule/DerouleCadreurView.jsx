@@ -404,6 +404,12 @@ function CadreurHeader({
 
 function CadreurMobileLayout({
   missions,
+  // allCreneaux : reçu pour compat avec l'admin (où les ContextCards des
+  // autres événements du jour étaient utiles). Sur la page share, on ne
+  // s'en sert PLUS — la vue Cadreur affiche uniquement les missions du
+  // cadreur. Pour voir le programme global, l'utilisateur bascule en
+  // vue Timeline. Décision Hugo : "c'est trop fouilli avec TOUS les events".
+  // eslint-disable-next-line no-unused-vars
   allCreneaux,
   focusMembreId,
   laneById,
@@ -417,12 +423,12 @@ function CadreurMobileLayout({
   // "où j'en suis dans la journée".
   isTodayDeroule = false,
 }) {
-  const sortedAll = useMemo(
-    () => sortCreneauxByTime(allCreneaux || []),
-    [allCreneaux],
+  // Liste : uniquement les missions du cadreur, triées par heure de début.
+  const sortedMissions = useMemo(
+    () => sortCreneauxByTime([...missions]),
+    [missions],
   )
-  const missionIds = new Set(missions.map((m) => m.id))
-  // Now indicator : on insère le séparateur AVANT le 1er créneau qui se
+  // Now indicator : on insère le séparateur AVANT la 1ère mission qui se
   // termine après l'heure courante (donc en cours ou à venir). Si toutes
   // les missions sont terminées ou aucune à venir, pas de séparateur.
   const nowMin = (() => {
@@ -430,10 +436,10 @@ function CadreurMobileLayout({
     return d.getHours() * 60 + d.getMinutes()
   })()
   const nowAnchorId = useMemo(() => {
-    if (!isTodayDeroule || !sortedAll.length) return null
-    const next = sortedAll.find((c) => (c.heure_fin_min ?? 0) > nowMin)
+    if (!isTodayDeroule || !sortedMissions.length) return null
+    const next = sortedMissions.find((c) => (c.heure_fin_min ?? 0) > nowMin)
     return next ? next.id : null
-  }, [sortedAll, isTodayDeroule, nowMin])
+  }, [sortedMissions, isTodayDeroule, nowMin])
 
   // Sprint B : auto-scroll vers la prochaine mission non-"fait" au mount.
   // - Si le déroulé est aujourd'hui : scroll vers la mission "en cours"
@@ -490,9 +496,9 @@ function CadreurMobileLayout({
 
   return (
     <div ref={containerRef} className="flex flex-col gap-2">
-      {sortedAll.map((c) => {
+      {sortedMissions.map((c) => {
         const showNowMarker = c.id === nowAnchorId
-        const node = missionIds.has(c.id) ? (
+        const card = (
           <div key={c.id} data-creneau-id={c.id}>
             <MissionCard
               creneau={c}
@@ -507,22 +513,16 @@ function CadreurMobileLayout({
               onToggleStatut={onToggleStatut}
             />
           </div>
-        ) : (
-          <ContextCard
-            key={c.id}
-            creneau={c}
-            lane={laneById.get(c.lane_id)}
-          />
         )
         if (showNowMarker) {
           return (
             <Fragment key={`${c.id}-with-now`}>
               <NowMarker nowMin={nowMin} />
-              {node}
+              {card}
             </Fragment>
           )
         }
-        return node
+        return card
       })}
     </div>
   )
@@ -902,54 +902,6 @@ function NowMarker({ nowMin }) {
         className="flex-1"
         style={{ height: 1.5, background: '#E24B4A' }}
       />
-    </div>
-  )
-}
-
-// ─── ContextCard — card estompée pour un événement non assigné au cadreur ─
-
-function ContextCard({ creneau: c, lane }) {
-  const color = effectiveCouleurCreneau(c)
-  const Icon = lane?.type === 'lieu' ? MapPin : Clipboard
-  const laneLabel = lane?.libelle || ''
-  return (
-    <div
-      className="w-full flex items-center gap-2 rounded-md"
-      style={{
-        background: 'transparent',
-        border: '0.5px dashed var(--brd-sub)',
-        padding: '6px 10px',
-        opacity: 0.55,
-        minHeight: 32,
-      }}
-    >
-      <div
-        className="text-[11px] shrink-0"
-        style={{ color: 'var(--txt-3)', minWidth: 44 }}
-      >
-        {formatMinHHMM(c.heure_debut_min)}
-      </div>
-      <div className="flex-1 min-w-0 flex items-center gap-1.5">
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ background: color }}
-        />
-        <span
-          className="text-[11px] truncate"
-          style={{ color: 'var(--txt-2)' }}
-        >
-          {c.titre || '(sans titre)'}
-        </span>
-        {laneLabel && (
-          <span
-            className="text-[10px] truncate flex items-center gap-0.5 shrink-0"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            <Icon className="w-2.5 h-2.5" />
-            {laneLabel}
-          </span>
-        )}
-      </div>
     </div>
   )
 }
