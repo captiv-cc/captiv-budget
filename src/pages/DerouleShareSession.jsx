@@ -746,7 +746,7 @@ function ExportButtons({ view, hasCadreur, onExport }) {
         >
           <ExportMenuItem
             icon={<FileText className="w-4 h-4" />}
-            label="PDF du déroulé"
+            label="Planning déroulé (PDF)"
             sublabel="Tout le jour, toutes les lanes"
             onClick={() => {
               setMenuOpen(false)
