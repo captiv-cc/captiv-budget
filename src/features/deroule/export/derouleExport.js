@@ -119,9 +119,14 @@ export function getMultiLaneCreneaux(creneaux) {
 
 /**
  * Couleur effective d'un créneau pour le rendu.
+ *
+ * `projectTypes` (optionnel) : liste des types custom du projet
+ * (issue de getProjectCreneauTypes ou project.creneau_types). Si fourni,
+ * les types custom rendent avec leur couleur définie ; sinon ils tombent
+ * sur le gris fallback CRENEAU_TYPE_COLORS.autre.
  */
-export function getCreneauColor(creneau) {
-  return effectiveCouleurCreneau(creneau)
+export function getCreneauColor(creneau, projectTypes = null) {
+  return effectiveCouleurCreneau(creneau, projectTypes)
 }
 
 /**

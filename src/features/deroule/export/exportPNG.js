@@ -43,6 +43,7 @@ import {
   TYPE_LABELS,
 } from './derouleExport'
 import { effectiveAlerte, formatMinHHMM } from '../../../lib/deroule'
+import { getProjectCreneauTypes } from '../../../lib/creneauTypes'
 
 // ─── Dimensions cible (iPhone Pro Max lock screen, ratio 9:19.5) ──────────
 const W = 1170
@@ -143,6 +144,11 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
   // Index des créneaux pour la lookup d'alertes héritées (effectiveAlerte).
   const creneauxById = new Map()
   for (const c of creneaux || []) creneauxById.set(c.id, c)
+
+  // Types projet (core + custom) — pour résoudre les couleurs des types
+  // personnalisés. Sans ça, les créneaux de types custom rendent en gris
+  // fallback dans l'export.
+  const projectTypes = getProjectCreneauTypes(project)
 
   // ─── Fond global ──────────────────────────────────────────────────────
   ctx.fillStyle = C.bg
@@ -274,6 +280,7 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
         w: laneW - 8,
         h: Math.max(8, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
         creneauxById,
+        projectTypes,
       })
     }
   }
@@ -289,6 +296,7 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
       membres,
       multiLane: true,
       creneauxById,
+      projectTypes,
     })
   }
 
@@ -313,9 +321,9 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
 /**
  * Dessine une box de créneau à l'intérieur du canvas.
  */
-function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false, creneauxById = null }) {
+function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false, creneauxById = null, projectTypes = null }) {
   if (h < 8) return
-  const baseHex = normalizeHex(getCreneauColor(creneau))
+  const baseHex = normalizeHex(getCreneauColor(creneau, projectTypes))
   // effectiveAlerte() résout aussi l'héritage soft-link (créneau source).
   const ea = effectiveAlerte(creneau, creneauxById)
   const showAlerte = Boolean(ea)

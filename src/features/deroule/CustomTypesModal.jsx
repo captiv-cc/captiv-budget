@@ -33,6 +33,7 @@ import {
   fetchProjectCustomTypes,
   MAX_CUSTOM_TYPES,
 } from '../../lib/creneauTypes'
+import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
 
 export default function CustomTypesModal({
@@ -74,6 +75,48 @@ export default function CustomTypesModal({
   const [copyOpen, setCopyOpen] = useState(false)
   const [copySrcId, setCopySrcId] = useState('')
   const [copyBusy, setCopyBusy] = useState(false)
+  // Liste fetchée à la demande (à l'ouverture du form copy). On filtre
+  // pour ne montrer que les projets qui ont au moins 1 type custom — sinon
+  // pas la peine d'apparaître dans la liste.
+  const [otherProjects, setOtherProjects] = useState(allUserProjects)
+  const [loadingProjects, setLoadingProjects] = useState(false)
+  useEffect(() => {
+    // Si le parent a déjà passé des projets, on les utilise. Sinon on fetch
+    // au moment où le user ouvre le formulaire copy.
+    if (allUserProjects && allUserProjects.length > 0) {
+      setOtherProjects(allUserProjects)
+    }
+  }, [allUserProjects])
+  async function ensureProjectsLoaded() {
+    // No refetch si déjà chargé
+    if (otherProjects.length > 0 || loadingProjects) return
+    setLoadingProjects(true)
+    try {
+      // Lit l'org du projet courant pour scope la requête.
+      // RLS filtre déjà sur les projets accessibles, mais on précise
+      // pour la lisibilité de la query.
+      const orgId = project.org_id || null
+      let query = supabase
+        .from('projects')
+        .select('id, title, creneau_types')
+        .neq('id', project.id)
+        .order('updated_at', { ascending: false })
+        .limit(100)
+      if (orgId) query = query.eq('org_id', orgId)
+      const { data, error } = await query
+      if (error) throw error
+      // Ne garde que ceux qui ont au moins 1 type custom (sinon rien à copier)
+      const withTypes = (data || []).filter(
+        (p) => Array.isArray(p.creneau_types) && p.creneau_types.length > 0,
+      )
+      setOtherProjects(withTypes)
+    } catch (e) {
+      console.warn('[CustomTypesModal] fetch projects failed', e)
+      notify.error('Impossible de charger la liste des projets')
+    } finally {
+      setLoadingProjects(false)
+    }
+  }
 
   // ─── List view : types CORE (read-only) ─────────────────────────────────
   const allTypes = useMemo(
@@ -291,29 +334,32 @@ export default function CustomTypesModal({
                 Types personnalisés ({customTypes.length})
               </SectionLabel>
               <div style={{ display: 'flex', gap: 6 }}>
-                {/* Copier depuis un autre projet */}
-                {allUserProjects.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setCopyOpen((v) => !v)}
-                    disabled={saving || copyBusy}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '4px 8px',
-                      background: 'transparent',
-                      border: '1px solid var(--brd-sub)',
-                      color: 'var(--txt-2)',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Copy size={11} />
-                    Copier d&apos;un projet
-                  </button>
-                )}
+                {/* Copier depuis un autre projet — toujours visible.
+                    Charge la liste à la demande (au click). */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !copyOpen
+                    setCopyOpen(next)
+                    if (next) ensureProjectsLoaded()
+                  }}
+                  disabled={saving || copyBusy}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '4px 8px',
+                    background: 'transparent',
+                    border: '1px solid var(--brd-sub)',
+                    color: 'var(--txt-2)',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Copy size={11} />
+                  Copier d&apos;un projet
+                </button>
                 {/* + Ajouter */}
                 <button
                   type="button"
@@ -363,29 +409,68 @@ export default function CustomTypesModal({
                 <span style={{ fontSize: 12, color: 'var(--txt-2)' }}>
                   Copier les types depuis :
                 </span>
-                <select
-                  value={copySrcId}
-                  onChange={(e) => setCopySrcId(e.target.value)}
-                  disabled={copyBusy}
-                  style={{
-                    flex: 1,
-                    padding: '5px 8px',
-                    background: 'var(--bg-surf)',
-                    border: '1px solid var(--brd-sub)',
-                    color: 'var(--txt)',
-                    borderRadius: 4,
-                    fontSize: 12,
-                  }}
-                >
-                  <option value="">— Choisir un projet —</option>
-                  {allUserProjects
-                    .filter((p) => p.id !== project.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.title}
-                      </option>
-                    ))}
-                </select>
+                {loadingProjects ? (
+                  <span
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: 'var(--txt-3)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    <Loader2
+                      size={12}
+                      style={{ animation: 'spin 1s linear infinite' }}
+                    />
+                    Chargement des projets…
+                  </span>
+                ) : otherProjects.length === 0 ? (
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: 12,
+                      color: 'var(--txt-3)',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    Aucun autre projet avec des types personnalisés.
+                  </span>
+                ) : (
+                  <select
+                    value={copySrcId}
+                    onChange={(e) => setCopySrcId(e.target.value)}
+                    disabled={copyBusy}
+                    style={{
+                      flex: 1,
+                      padding: '5px 8px',
+                      background: 'var(--bg-surf)',
+                      border: '1px solid var(--brd-sub)',
+                      color: 'var(--txt)',
+                      borderRadius: 4,
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="">— Choisir un projet —</option>
+                    {otherProjects
+                      .filter((p) => p.id !== project.id)
+                      .map((p) => {
+                        const nbTypes = Array.isArray(p.creneau_types)
+                          ? p.creneau_types.length
+                          : 0
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.title}
+                            {nbTypes > 0
+                              ? ` (${nbTypes} type${nbTypes > 1 ? 's' : ''})`
+                              : ''}
+                          </option>
+                        )
+                      })}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={handleCopyFromProject}

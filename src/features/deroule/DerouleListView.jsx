@@ -15,14 +15,21 @@ import {
   creneauDureeMin,
   formatMinHHMM,
 } from '../../lib/deroule'
+import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 
 export default function DerouleListView({
+  project = null,
   lanes,
   creneaux,
   membres,
   conflictsByCreneau,
   onSelectCreneau,
 }) {
+  // Types V2 : merge core + custom pour résoudre les couleurs.
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
   const laneById = useMemo(() => {
     const m = new Map()
     for (const l of lanes || []) m.set(l.id, l)
@@ -80,7 +87,7 @@ export default function DerouleListView({
         </thead>
         <tbody>
           {sorted.map((c) => {
-            const color = effectiveCouleurCreneau(c)
+            const color = effectiveCouleurCreneau(c, projectTypes)
             const lane = c.multi_lane ? null : laneById.get(c.lane_id)
             const dureeMin = creneauDureeMin(c)
             const dureeStr = dureeMin >= 60

@@ -38,7 +38,6 @@ import {
   effectiveCouleurCreneau,
   defaultLaneLibelle,
   snapToStep,
-  CRENEAU_TYPE_COLORS,
   MAX_LANES_LIVE,
   MAX_MIN,
   effectiveLaneColor,
@@ -52,6 +51,7 @@ import {
   sourceTimingIssueSeverity,
 } from '../../lib/derouleSoftLinks'
 import { notify } from '../../lib/notify'
+import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
 import AssignCadreurMenu from './AssignCadreurMenu'
@@ -83,6 +83,9 @@ const TIME_COL_W = 56
  * @param {Function} onMoveCreneau            (creneauId, fields) => Promise — Phase C
  */
 export default function DerouleTimelineView({
+  // Types V2 : projet complet (avec creneau_types JSONB) pour résoudre
+  // les couleurs des types personnalisés.
+  project = null,
   projectId = null,
   deroule,
   lanes,
@@ -106,6 +109,14 @@ export default function DerouleTimelineView({
 }) {
   const containerRef = useRef(null)
   const bodyRef = useRef(null) // pour calcul lane sous mouseX en drag horizontal
+
+  // Types V2 : merge core + custom (depuis project.creneau_types) — sert
+  // à résoudre les couleurs des types personnalisés dans CreneauBlock et
+  // dans la légende. useMemo pour éviter de recalculer à chaque render.
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
 
   // FEST-5.5.4 : largeur des lanes par type, persistée localStorage
   const {
@@ -1057,6 +1068,7 @@ export default function DerouleTimelineView({
                       }
                       laneType={lane.type}
                       laneWidth={laneBodyWidth}
+                      projectTypes={projectTypes}
                       onContextMenu={(e) => handleBlockContextMenu(e, c)}
                     />
                   )
@@ -1227,6 +1239,7 @@ export default function DerouleTimelineView({
                       onClick={() => {}}
                       canEdit={false}
                       isDragging
+                      projectTypes={projectTypes}
                     />
                   )
                 })()}
@@ -1280,6 +1293,7 @@ export default function DerouleTimelineView({
                 onMouseDownDrag={handleBlockMouseDown}
                 isDragging={isThisDragging && dragState.hasMoved}
                 conflicts={conflictsByCreneau?.get?.(c.id) || []}
+                projectTypes={projectTypes}
               />
             )
           })}
@@ -1368,7 +1382,7 @@ export default function DerouleTimelineView({
         })()}
       </div>
 
-      {/* Légende types de créneau */}
+      {/* Légende types de créneau (core + custom du projet, types V2) */}
       <div
         className="flex flex-wrap gap-3 px-3 py-2 text-[10px] items-center"
         style={{
@@ -1378,21 +1392,26 @@ export default function DerouleTimelineView({
         }}
       >
         <span style={{ fontWeight: 500 }}>Légende</span>
-        {Object.entries(CRENEAU_TYPE_COLORS).map(([type, color]) => (
-          <span
-            key={type}
-            className="inline-flex items-center gap-1"
-          >
+        {projectTypes.map((t) => (
+          <span key={t.key} className="inline-flex items-center gap-1">
             <span
               style={{
                 width: 8,
                 height: 8,
-                background: color,
+                background: t.couleur,
                 borderRadius: 2,
                 display: 'inline-block',
               }}
             />
-            {labelForType(type)}
+            {t.libelle}
+            {t.isCustom && (
+              <span
+                style={{ opacity: 0.5, fontSize: 9, marginLeft: 1 }}
+                title="Type personnalisé du projet"
+              >
+                ●
+              </span>
+            )}
           </span>
         ))}
       </div>
@@ -1624,20 +1643,6 @@ function stripScenePrefix(libelle, type) {
   const m = trimmed.match(/^(?:Scène|Scene|SCÈNE|SCENE)\s+(.+)$/)
   if (m && m[1] && m[1].length > 0) return m[1]
   return libelle
-}
-
-function labelForType(type) {
-  const labels = {
-    install: 'Installation',
-    repas: 'Repas',
-    prise: 'Prise',
-    pause: 'Pause',
-    transport: 'Transport',
-    brief: 'Briefing',
-    live: 'Live',
-    autre: 'Autre',
-  }
-  return labels[type] || type
 }
 
 // ─── LaneHeader (titre éditable + bouton supprimer pour lanes 1+) ──────────
@@ -2169,8 +2174,11 @@ function CreneauBlock({
   laneType = null,
   // FEST-5.5.5 : largeur de la lane (utilisée pour rendu adaptatif)
   laneWidth = null,
+  // Types V2 : projectTypes (core + custom) pour résoudre les couleurs
+  // des types personnalisés. Sans ça les types custom rendent en gris.
+  projectTypes = null,
 }) {
-  const color = effectiveCouleurCreneau(creneau)
+  const color = effectiveCouleurCreneau(creneau, projectTypes)
   const minH = 24
   const HANDLE_PX = 6 // zone de resize en haut/bas du bloc
   const isFait = creneau.statut === 'fait'

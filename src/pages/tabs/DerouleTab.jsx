@@ -1274,6 +1274,7 @@ export default function DerouleTab() {
         />
       ) : view === 'cadreur' ? (
         <DerouleCadreurView
+          project={projectWithLocalTypes}
           deroule={deroule}
           lanes={lanes}
           creneaux={creneaux}
@@ -1296,6 +1297,7 @@ export default function DerouleTab() {
         />
       ) : view === 'timeline' && !isMobile ? (
         <DerouleTimelineView
+          project={projectWithLocalTypes}
           projectId={projectId}
           deroule={deroule}
           lanes={lanes}
@@ -1318,6 +1320,7 @@ export default function DerouleTab() {
         />
       ) : (
         <DerouleListView
+          project={projectWithLocalTypes}
           lanes={lanes}
           creneaux={creneaux}
           membres={membres}
@@ -1452,6 +1455,7 @@ export default function DerouleTab() {
       {/* Sprint A — Mode Régie live : overlay plein écran */}
       {liveFullscreen && liveMode.enabled && (
         <LiveModeOverlay
+          project={projectWithLocalTypes}
           currentCreneaux={liveMode.currentCreneaux}
           nextCreneau={liveMode.nextCreneau}
           nowMin={liveMode.nowMin}

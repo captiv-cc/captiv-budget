@@ -33,6 +33,7 @@ import {
   TYPE_LABELS,
 } from './derouleExport'
 import { effectiveAlerte, ALERTE_COLORS, isCreneauUnavailable, formatMinHHMM } from '../../../lib/deroule'
+import { getProjectCreneauTypes } from '../../../lib/creneauTypes'
 import { loadImageAsPng, computeLogoBox } from '../../../lib/pdfImageLoader'
 
 // ─── Configuration A4 paysage ────────────────────────────────────────────
@@ -97,6 +98,9 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
   // Index par id pour le lookup d'alerte héritée via soft link.
   const creneauxById = new Map()
   for (const c of creneaux || []) creneauxById.set(c.id, c)
+  // Types projet (core + custom) — pour résoudre les couleurs des types
+  // personnalisés. Sans ça, les blocs de types custom rendent en gris fallback.
+  const projectTypes = getProjectCreneauTypes(project)
   // ─── Header : cover icône + titre + client + date + ref + nb créneaux ──
   let textLeftX = MARGIN_X
   if (coverImage) {
@@ -288,6 +292,7 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
         w: laneW - 0.8,
         h: Math.max(2, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
         creneauxById,
+        projectTypes,
       })
     }
   }
@@ -303,6 +308,7 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
       membres,
       multiLane: true,
       creneauxById,
+      projectTypes,
     })
   }
 
@@ -384,9 +390,9 @@ function drawHatchOverlay(pdf, x, y, w, h, [r, g, b]) {
 /**
  * Dessine une "box" représentant un créneau dans la grille.
  */
-function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneauxById = null }) {
+function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneauxById = null, projectTypes = null }) {
   if (h < 1) return
-  const baseColor = getCreneauColor(creneau)
+  const baseColor = getCreneauColor(creneau, projectTypes)
   const rgb = hexToRgb(baseColor)
   const fill = rgbLighten(rgb, 0.78)
   const isIndispo = isCreneauUnavailable(creneau)

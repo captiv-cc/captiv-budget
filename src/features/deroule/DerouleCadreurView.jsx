@@ -49,8 +49,11 @@ import {
 } from '../../lib/derouleSoftLinks'
 import useBreakpoint from '../../hooks/useBreakpoint'
 import { extractPlainText } from '../../components/rich-editor/utils'
+import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 
 export default function DerouleCadreurView({
+  // Types V2 : projet complet pour résoudre les couleurs des types custom.
+  project = null,
   // deroule : utilisé pour calculer isTodayDeroule (now indicator dans
   // la liste mobile). Sera aussi utile pour la régie live (Sprint A).
   deroule,
@@ -74,6 +77,12 @@ export default function DerouleCadreurView({
   const breakpoint = useBreakpoint()
   const isMobile =
     singleColumn || breakpoint === 'sm' || breakpoint === 'md'
+
+  // Types V2 : merge core + custom pour résoudre les couleurs.
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
 
   // ─── Index membres + lanes ────────────────────────────────────────────────
   const membreById = useMemo(() => {
@@ -210,6 +219,7 @@ export default function DerouleCadreurView({
           laneById={laneById}
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
+          projectTypes={projectTypes}
           onSelectCreneau={onSelectCreneau}
           onToggleStatut={onToggleStatut}
           isTodayDeroule={
@@ -225,6 +235,7 @@ export default function DerouleCadreurView({
           laneById={laneById}
           membreById={membreById}
           conflictsByCreneau={conflictsByCreneau}
+          projectTypes={projectTypes}
           onSelectCreneau={onSelectCreneau}
           onToggleStatut={onToggleStatut}
           accentColor={
@@ -422,6 +433,7 @@ function CadreurMobileLayout({
   laneById,
   membreById,
   conflictsByCreneau,
+  projectTypes = null,
   onSelectCreneau,
   onToggleStatut,
   // Sprint mobile : si le déroulé courant est aujourd'hui, on insère un
@@ -523,6 +535,7 @@ function CadreurMobileLayout({
               membreById={membreById}
               focusMembreId={focusMembreId}
               creneauxById={creneauxById}
+              projectTypes={projectTypes}
               onClick={(e) => onSelectCreneau?.(c, e)}
               onToggleStatut={onToggleStatut}
             />
@@ -561,6 +574,7 @@ function CadreurDesktopLayout({
   laneById,
   membreById,
   conflictsByCreneau,
+  projectTypes = null,
   onSelectCreneau,
   onToggleStatut,
   accentColor,
@@ -614,6 +628,7 @@ function CadreurDesktopLayout({
               membreById={membreById}
               focusMembreId={focusMembreId}
               creneauxById={creneauxById}
+              projectTypes={projectTypes}
               onClick={(e) => onSelectCreneau?.(c, e)}
               onToggleStatut={onToggleStatut}
             />
@@ -645,6 +660,7 @@ function CadreurDesktopLayout({
               key={c.id}
               creneau={c}
               lane={laneById.get(c.lane_id)}
+              projectTypes={projectTypes}
             />
           ))}
         </div>
@@ -665,10 +681,12 @@ function MissionCard({
   // héritées via source_creneau_id (soft link). Si absent, on tombe sur
   // l'alerte locale uniquement.
   creneauxById = null,
+  // Types V2 : projectTypes pour résoudre les couleurs custom.
+  projectTypes = null,
   onClick,
   onToggleStatut = null,
 }) {
-  const color = effectiveCouleurCreneau(c)
+  const color = effectiveCouleurCreneau(c, projectTypes)
   const dureeMin = creneauDureeMin(c)
   const dureeStr =
     dureeMin >= 60
@@ -991,8 +1009,8 @@ function NowMarker({ nowMin }) {
 
 // ─── ContextLine — ligne compacte pour le rail global desktop ──────────────
 
-function ContextLine({ creneau: c, lane }) {
-  const color = effectiveCouleurCreneau(c)
+function ContextLine({ creneau: c, lane, projectTypes = null }) {
+  const color = effectiveCouleurCreneau(c, projectTypes)
   return (
     <div
       className="flex items-center gap-2"

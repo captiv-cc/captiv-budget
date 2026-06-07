@@ -47,7 +47,6 @@ import {
   sortCreneauxByTime,
   defaultLaneLibelle,
   creneauDureeMin,
-  CRENEAU_TYPE_COLORS,
   enrichCreneauxWithImplicitMembers,
   findMembreOverlaps,
   effectiveAlerte,
@@ -57,6 +56,7 @@ import {
 import DerouleCadreurView from '../features/deroule/DerouleCadreurView'
 import { buildDerouleMultiJourPdf } from '../features/deroule/export/exportPDF'
 import { buildDerouleCadreurPng } from '../features/deroule/export/exportPNG'
+import { getProjectCreneauTypes } from '../lib/creneauTypes'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -147,8 +147,19 @@ function ShareContent({
   setStatutOverrides,
 }) {
   const share = payload.share || {}
-  const project = payload.project || {}
+  // useMemo pour stabiliser la référence (sinon la fonction qui dépend de
+  // project recalcule à chaque render) — payload.project est une nouvelle
+  // référence à chaque fetch même si le contenu est identique.
+  const project = useMemo(() => payload.project || {}, [payload.project])
   const org = payload.org || null
+  // Types V2 : merge core + custom (lus depuis project.creneau_types côté
+  // share RPC, exposé via migration 20260608b_share_creneau_types.sql).
+  // Sert à résoudre les couleurs des types personnalisés dans les blocs
+  // de la timeline, le popover de détail, la vue cadreur et les exports.
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
   const deroules = useMemo(() => payload.deroules || [], [payload.deroules])
   const lanes = useMemo(() => payload.lanes || [], [payload.lanes])
   // Sprint B : on applique les overrides locaux (cochage cadreur via RPC
@@ -458,6 +469,7 @@ function ShareContent({
                 <EmptyDayState />
               ) : view === 'cadreur' ? (
                 <DerouleCadreurView
+                  project={project}
                   deroule={currentDeroule}
                   lanes={currentLanes}
                   creneaux={currentCreneaux}
@@ -480,6 +492,7 @@ function ShareContent({
                   lanes={currentLanes}
                   membreById={membreById}
                   creneauxById={creneauxById}
+                  projectTypes={projectTypes}
                   todayIso={todayIso}
                   onSelectCreneau={handleSelectCreneau}
                 />
@@ -506,6 +519,7 @@ function ShareContent({
           totalLanes={lanes.length}
           membreById={membreById}
           creneauxById={creneauxById}
+          projectTypes={projectTypes}
           showSensitive={showSensitive}
           onClose={() => setSelectedCreneau(null)}
         />
@@ -1080,7 +1094,7 @@ function ExportSharePreviewSheet({
 const COMPACT_BLOCK_THRESHOLD_PX = 36 // hauteur rendue < 36px → layout compact horizontal
 const SCROLL_OFFSET_TOP = 80 // marge en haut du viewport pour l'auto-scroll
 
-function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, todayIso, onSelectCreneau }) {
+function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, projectTypes = null, todayIso, onSelectCreneau }) {
   // [SHARE-7] Crop intelligent — la timeline n'affiche que la plage active
   // [1er créneau − 60min, dernier créneau + 60min], snappée sur les heures
   // rondes (10:30 → 10:00, 23:45 → 24:00). Évite l'immense vide en haut/bas
@@ -1179,14 +1193,27 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
     [lanes],
   )
 
-  // [SHARE-3] Légende — uniquement les types présents dans le jour.
+  // [SHARE-3] Légende — uniquement les types présents dans le jour, mais
+  // résolus via projectTypes (core + custom) pour avoir libellé + couleur
+  // côté types personnalisés.
   const presentTypes = useMemo(() => {
     const set = new Set()
     for (const c of creneaux) set.add(c.type || 'autre')
-    // Ordre déterministe basé sur l'ordre de CRENEAU_TYPE_COLORS
-    const ordered = Object.keys(CRENEAU_TYPE_COLORS).filter((t) => set.has(t))
-    return ordered
-  }, [creneaux])
+    const all = Array.isArray(projectTypes) && projectTypes.length > 0
+      ? projectTypes
+      : []
+    // Ordre déterministe = ordre de projectTypes (core en premier, custom à la suite).
+    // Fallback : si projectTypes est vide (vieux share sans creneau_types),
+    // on construit à la volée depuis les keys présents avec gris fallback.
+    if (all.length > 0) {
+      return all.filter((t) => set.has(t.key))
+    }
+    return [...set].map((key) => ({
+      key,
+      libelle: labelForType(key),
+      couleur: '#6B7280',
+    }))
+  }, [creneaux, projectTypes])
 
   // [SHARE-1+2] Auto-scroll au mount.
   // Cible : nowMin si jour J, sinon le premier créneau du jour, en laissant
@@ -1292,6 +1319,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
         height={height}
         membreById={membreById}
         creneauxById={creneauxById}
+        projectTypes={projectTypes}
         isMultiLane={isMultiLane}
         onClick={(rect) => onSelectCreneau?.(c, rect)}
       />
@@ -1565,9 +1593,9 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
             <span className="font-semibold uppercase tracking-wider">
               Légende
             </span>
-            {presentTypes.map((type) => (
+            {presentTypes.map((t) => (
               <span
-                key={type}
+                key={t.key}
                 className="inline-flex items-center gap-1"
                 style={{ color: 'var(--txt-2)' }}
               >
@@ -1575,12 +1603,12 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
                   style={{
                     width: 8,
                     height: 8,
-                    background: CRENEAU_TYPE_COLORS[type],
+                    background: t.couleur,
                     borderRadius: 2,
                     display: 'inline-block',
                   }}
                 />
-                {labelForType(type)}
+                {t.libelle}
               </span>
             ))}
           </div>
@@ -1613,8 +1641,8 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
 // Ordre des infos cohérent entre compact et normal : titre EN PREMIER,
 // heure ENSUITE (alignement avec le layout normal sur 2 lignes).
 
-function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, isMultiLane = false, onClick }) {
-  const color = effectiveCouleurCreneau(c)
+function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, projectTypes = null, isMultiLane = false, onClick }) {
+  const color = effectiveCouleurCreneau(c, projectTypes)
   const minH = 22
   const memberIds = Array.isArray(c.member_ids) ? c.member_ids : []
   const isCancel = c.statut === 'annule'
@@ -1845,10 +1873,11 @@ function CreneauDetailPopover({
   totalLanes,
   membreById,
   creneauxById,
+  projectTypes = null,
   showSensitive,
   onClose,
 }) {
-  const color = effectiveCouleurCreneau(c)
+  const color = effectiveCouleurCreneau(c, projectTypes)
   const dureeMin = creneauDureeMin(c)
   const dureeStr =
     dureeMin >= 60

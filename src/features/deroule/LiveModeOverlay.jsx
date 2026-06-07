@@ -17,8 +17,11 @@
 import { useEffect, useMemo } from 'react'
 import { X, SkipForward, Check, Clock, MapPin, Camera, Pause } from 'lucide-react'
 import { effectiveCouleurCreneau, formatMinHHMM } from '../../lib/deroule'
+import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 
 export default function LiveModeOverlay({
+  // Types V2 : projet complet pour résoudre les couleurs des types custom.
+  project = null,
   currentCreneaux = [],
   nextCreneau = null,
   // allCreneaux : passé pour calculer "à venir" par lane sans
@@ -34,6 +37,11 @@ export default function LiveModeOverlay({
   onMarkCreneauDone,
   onClose,
 }) {
+  // Types V2 : merge core + custom (memoize pour passer aux cards).
+  const projectTypes = useMemo(
+    () => getProjectCreneauTypes(project),
+    [project],
+  )
   // Esc ferme
   useEffect(() => {
     function onKey(e) {
@@ -213,6 +221,7 @@ export default function LiveModeOverlay({
                   upcoming={upcoming}
                   nowMin={nowMin}
                   membreById={membreById}
+                  projectTypes={projectTypes}
                   onMarkDone={onMarkCreneauDone}
                 />
               ))}
@@ -244,6 +253,7 @@ export default function LiveModeOverlay({
                   nowMin={nowMin}
                   membreById={membreById}
                   laneById={laneById}
+                  projectTypes={projectTypes}
                   onMarkDone={onMarkCreneauDone}
                 />
               ))}
@@ -258,7 +268,7 @@ export default function LiveModeOverlay({
               <SkipForward size={12} strokeWidth={2.5} />
               Suivant
             </SectionLabel>
-            <NextCard creneau={nextCreneau} laneById={laneById} nowMin={nowMin} />
+            <NextCard creneau={nextCreneau} laneById={laneById} nowMin={nowMin} projectTypes={projectTypes} />
           </section>
         )}
 
@@ -287,9 +297,9 @@ export default function LiveModeOverlay({
 }
 
 // ─── VenueCard : une scène, ce qui s'y passe maintenant ────────────────────
-function VenueCard({ lane, creneau, upcoming, nowMin, membreById, onMarkDone }) {
+function VenueCard({ lane, creneau, upcoming, nowMin, membreById, projectTypes = null, onMarkDone }) {
   const isActive = Boolean(creneau)
-  const color = creneau ? effectiveCouleurCreneau(creneau) : '#6B7280'
+  const color = creneau ? effectiveCouleurCreneau(creneau, projectTypes) : '#6B7280'
   const remaining = creneau
     ? (creneau.heure_fin_min ?? 0) - nowMin
     : 0
@@ -568,10 +578,10 @@ function VenueCard({ lane, creneau, upcoming, nowMin, membreById, onMarkDone }) 
 }
 
 // ─── CadreurCard : un cadreur, ce qu'il fait maintenant ────────────────────
-function CadreurCard({ lane, creneau, upcoming, nowMin, membreById, laneById, onMarkDone }) {
+function CadreurCard({ lane, creneau, upcoming, nowMin, membreById, laneById, projectTypes = null, onMarkDone }) {
   const membre = lane.membre_id ? membreById?.get?.(lane.membre_id) : null
   const isActive = Boolean(creneau)
-  const color = creneau ? effectiveCouleurCreneau(creneau) : '#6B7280'
+  const color = creneau ? effectiveCouleurCreneau(creneau, projectTypes) : '#6B7280'
   const creneauLane =
     creneau && !creneau.multi_lane ? laneById?.get?.(creneau.lane_id) : null
 
@@ -759,8 +769,8 @@ function UpcomingFooter({ creneau, nowMin, compact = false }) {
 }
 
 // ─── NextCard : prochain créneau global ───────────────────────────────────
-function NextCard({ creneau, laneById, nowMin }) {
-  const color = effectiveCouleurCreneau(creneau)
+function NextCard({ creneau, laneById, nowMin, projectTypes = null }) {
+  const color = effectiveCouleurCreneau(creneau, projectTypes)
   const lane = laneById?.get?.(creneau.lane_id)
   const startsIn = (creneau.heure_debut_min ?? 0) - nowMin
   return (
