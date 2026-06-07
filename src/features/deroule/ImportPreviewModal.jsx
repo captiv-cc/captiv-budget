@@ -144,6 +144,11 @@ export default function ImportPreviewModal({
   const scenesToCreate = scenesAnalysis.filter((s) => !s.existingLaneId)
   const scenesExisting = scenesAnalysis.filter((s) => Boolean(s.existingLaneId))
 
+  // Déclaré ICI (avant le diff) car utilisé en short-circuit dans le useMemo
+  // ci-dessous. (Avant : déclaré plus bas → TDZ ReferenceError au mount.)
+  const dateMismatch = targetDate !== selectedDate
+  const willCreateDeroule = !existingDeroule || dateMismatch
+
   // ─── DIFF intelligent (FEST-import-update) ──────────────────────────────
   // Calcul du diff entre la prog extraite et les créneaux LIEU existants
   // du jour cible. Pour chaque show extracté, retourne s'il s'agit d'une
@@ -233,8 +238,8 @@ export default function ImportPreviewModal({
     return map
   }, [showsWithMin, checked, existingCreneaux, existingLanes])
 
-  const dateMismatch = targetDate !== selectedDate
-  const willCreateDeroule = !existingDeroule || dateMismatch
+  // (dateMismatch et willCreateDeroule sont déclarés plus haut, avant le
+  // useMemo `diff`, pour éviter une TDZ ReferenceError au mount.)
 
   // FEST-5.5.3 : si l'import va créer un nouveau déroulé, propose de
   // reprendre les cadreurs (lanes type='personne') du déroulé le plus
