@@ -111,6 +111,12 @@ export default function CustomSelect({
             borderRadius: 6,
             boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
             padding: 4,
+            // Cap la hauteur pour éviter qu'une longue liste (types V2 :
+            // 14 core + custom) sorte du viewport et que le dernier item
+            // (souvent "+ Ajouter un type") soit caché. Scroll vertical
+            // si nécessaire.
+            maxHeight: 'min(420px, 60vh)',
+            overflowY: 'auto',
             animation: 'custom-select-fade-in 100ms ease-out',
           }}
         >
