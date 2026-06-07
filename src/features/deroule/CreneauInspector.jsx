@@ -116,6 +116,11 @@ export default function CreneauInspector({
   lanes,
   allCreneaux = [],
   membresPresents,
+  // Liste des conflits horaires détectés pour ce créneau. Shape :
+  //   [{ creneau: otherCreneau, membre: membreObjet }, ...]
+  // Permet d'afficher en lecture pourquoi le créneau est marqué en conflit
+  // (quel membre est en double, avec quel autre créneau).
+  conflicts = [],
   canEdit,
   anchorRect = null,
   onClose,
@@ -665,6 +670,7 @@ export default function CreneauInspector({
           membreIds={memberIds}
           setMemberIds={setMemberIds}
           membresPresents={membresPresents}
+          conflicts={conflicts}
           canEdit={canEdit}
           editMode={editing}
           isCreate={isCreate}
@@ -854,6 +860,7 @@ function CompactView({
   membreIds,
   setMemberIds,
   membresPresents,
+  conflicts = [],
   canEdit,
   editMode = false,
   isCreate = false,
@@ -931,6 +938,81 @@ function CompactView({
       className="flex-1 overflow-y-auto"
       style={{ padding: '10px 14px' }}
     >
+      {/* Conflits horaires (overlap de membres). Lecture des données
+          conflictsByCreneau du parent : pour chaque conflit on a
+          { creneau: other, membre: who }. On groupe par membre pour ne
+          pas afficher "X conflits" mais "1 membre × 3 chevauchements".
+          Banner rouge (priorité visuelle, c'est le plus grave). */}
+      {conflicts && conflicts.length > 0 && (() => {
+        // Group par membre.id
+        const byMembre = new Map()
+        for (const { creneau: other, membre } of conflicts) {
+          if (!byMembre.has(membre.id)) {
+            const prenom = membre.contact?.prenom || membre.prenom || ''
+            const nom = membre.contact?.nom || membre.nom || ''
+            byMembre.set(membre.id, {
+              membre,
+              fullName: `${prenom} ${nom}`.trim() || '—',
+              others: [],
+            })
+          }
+          byMembre.get(membre.id).others.push(other)
+        }
+        const color = '#E24B4A'
+        return (
+          <div
+            className="rounded mb-2"
+            style={{
+              background: `${color}1a`,
+              borderLeft: `3px solid ${color}`,
+              padding: '6px 10px',
+            }}
+          >
+            <div
+              className="flex items-center gap-1.5 text-xs font-semibold mb-1"
+              style={{ color }}
+            >
+              <AlertTriangle size={14} />
+              {byMembre.size === 1
+                ? 'Conflit horaire'
+                : `${byMembre.size} conflits horaires`}
+            </div>
+            <div className="space-y-1.5">
+              {[...byMembre.values()].map(({ membre, fullName, others }) => (
+                <div key={membre.id} className="text-[11px]">
+                  <div
+                    className="font-semibold"
+                    style={{ color: 'var(--txt)' }}
+                  >
+                    {fullName}{' '}
+                    <span
+                      className="font-normal"
+                      style={{ color: 'var(--txt-3)' }}
+                    >
+                      en double sur :
+                    </span>
+                  </div>
+                  <ul
+                    className="mt-0.5 pl-3 space-y-0.5"
+                    style={{ color: 'var(--txt-2)' }}
+                  >
+                    {others.map((o) => (
+                      <li key={o.id}>
+                        • {formatMinHHMM(o.heure_debut_min)}–
+                        {formatMinHHMM(o.heure_fin_min)} ·{' '}
+                        <span style={{ color: 'var(--txt)' }}>
+                          {o.titre || '(sans titre)'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Incohérence horaire vs créneau source.
           Cas : un cadreur a son créneau hors de la plage de l'artiste source
           (décalé manuellement, ou source raccourcie après coup). Style

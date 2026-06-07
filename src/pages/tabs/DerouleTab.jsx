@@ -1088,6 +1088,9 @@ export default function DerouleTab() {
           lanes={lanes}
           allCreneaux={creneaux}
           membresPresents={membresAvecPresence}
+          /* Pass les conflits du créneau courant pour affichage dans
+             l'inspecteur (mode debug visuel : qui chevauche qui). */
+          conflicts={conflictsByCreneau?.get?.(inspectedCreneau.id) || []}
           canEdit={canEdit}
           onClose={closeInspector}
           onSave={handleSaveCreneau}
