@@ -1,7 +1,8 @@
 # CHANTIER MUSIQUES — Module de gestion des choix musicaux festival
 
-> **État** : Roadmap discutée et validée avec Hugo le 2026-06-08.
-> Maquette MVP1 validée. Code pas encore commencé.
+> **État** : MVP1 en cours. Maquette validée. Migrations BDD poussées.
+> Pivot Spotify → Deezer le 2026-06-08 (voir section "Décision : pivot
+> Spotify → Deezer" plus bas).
 > Document vivant, à mettre à jour au fil des sprints.
 >
 > **Contexte** : Pour chaque festival que Captiv couvre en vidéo, l'équipe
@@ -260,20 +261,20 @@ CREATE TABLE projet_musique_label_history (
 Une seule barre de recherche, comportement détecté automatiquement selon
 l'input.
 
-### Niveau 1 — Recherche Spotify directe (MVP1)
+### Niveau 1 — Recherche Deezer directe (MVP1, post-pivot)
 
 L'utilisateur tape un nom d'artiste, un titre, ou un mélange.
 
 - Debounce 300ms
-- Hit l'endpoint `/spotify-search?q=...`
+- Hit l'endpoint `/deezer-search?action=search&q=...` (Edge Function)
 - Affiche 5-10 matches avec cover, artiste, titre, album, durée,
-  popularité, BPM + énergie en métadonnée discrète
-- Bouton ▶ play preview 30s sans pub
-- Click "Ajouter" → proposition créée avec toutes les métadonnées
-  préremplies (artist, title, cover_url, spotify_id, preview_url,
-  duration, BPM, énergie, danceability)
-- En parallèle, recherche YouTube `{artist} {title}` pour pré-remplir
-  `lien_youtube`
+  popularité (rank Deezer)
+- Bouton ▶ play preview 30s sans pub (champ `preview` Deezer)
+- Click "Ajouter" → second call `/deezer-search?action=track&id=...`
+  pour récupérer BPM + détails, puis proposition créée avec toutes les
+  métadonnées préremplies
+- (Futur) recherche YouTube `{artist} {title}` en arrière-plan pour
+  pré-remplir `lien_youtube`
 
 ### Niveau 2 — Coller un lien YouTube (MVP1)
 
@@ -433,27 +434,86 @@ correspondants.
 
 ## Pré-requis avant de coder MVP1
 
-### Spotify credentials (bloquant à partir de MUS-1.3)
+### Aucun credential externe nécessaire (post-pivot Deezer)
 
-Hugo doit créer une app Spotify (gratuit) :
-
-1. Aller sur https://developer.spotify.com → Dashboard
-2. Create app → type "Web API"
-3. Récupérer `Client ID` et `Client Secret`
-4. Les pousser en secrets Supabase Edge Functions :
-   - `SPOTIFY_CLIENT_ID`
-   - `SPOTIFY_CLIENT_SECRET`
-
-Tant que pas configuré, l'Edge Function `spotify-search` retourne une
-erreur claire et le front affiche "Spotify non configuré — utilisez le
-paste YouTube en attendant".
-
-**Demande à faire à Hugo quand on attaque MUS-1.3.**
+Suite au pivot Spotify → Deezer (voir section suivante), il n'y a plus
+de credentials à pousser. Deezer expose une API publique sans auth pour
+search + track endpoints.
 
 ### Refacto léger du déroulé (intégré à MUS-1.1)
 
 Ajout d'une colonne `artiste_id` nullable sur `projet_deroule_creneaux`.
 Aucun breaking change. Validé par Hugo le 2026-06-08.
+
+## Décision : pivot Spotify → Deezer (2026-06-08)
+
+**Contexte du pivot**
+
+Le plan initial était d'utiliser Spotify pour la recherche musicale
+(preview 30s sans pub + audio-features BPM/énergie). Test rapide
+révèle que **Spotify a fortement restreint son Web API** :
+
+- **Novembre 2024** : `audio-features`, `preview_url`, Related Artists,
+  Recommendations sont dépréciés pour les nouvelles apps. Seules les
+  apps en Extended Quota Mode (approuvées avant Nov 2024) conservent
+  l'accès.
+- **Février 2026** : Spotify Premium devient obligatoire pour le owner
+  de l'app + apps en Dev Mode limitées à 5 users. Migration vers
+  Authorization Code Flow (Client Credentials Flow déprécié pour les
+  endpoints metadata).
+
+Test fait avec Hugo le 2026-06-08 sur une app fraîchement créée :
+- search → `preview_url` absent de la réponse ✗
+- audio-features → HTTP 403 ✗
+
+Verdict : Spotify ne fournit plus les 2 features clés pour notre cas
+d'usage. Conserver Spotify reviendrait à perdre la preview inline et
+les métadonnées BPM/énergie/danceability.
+
+**Choix retenu**
+
+Deezer + YouTube fallback + saisie manuelle :
+
+| Critère | Spotify (post-2026) | Deezer | Pourquoi Deezer |
+|---|---|---|---|
+| Preview 30s sans pub | Non (preview_url null) | Oui (champ `preview`) | Game changer |
+| BPM auto | Non (audio-features 403) | Oui (champ `bpm` sur /track) | OK |
+| Énergie / danceability | Non | Non | À perdre, audio-features Deezer plus pauvre |
+| Premium requis | Oui | Non | Pas de coût récurrent |
+| 5 users max | Oui (Dev Mode) | Non | Pas de gating |
+| Authentication | Premium + OAuth | Aucune | Plus simple |
+| Catalogue électro/festival FR | ~95% | ~85-90% | Suffisant |
+| Stabilité futur | Risque resserrement | Stable | Plus pérenne |
+
+**Ce qu'on perd côté audio-features**
+
+Spotify exposait : tempo, energy, danceability, valence, key, loudness,
+acousticness, instrumentalness, liveness, speechiness, time_signature.
+
+Deezer expose : bpm (= tempo), gain (= loudness).
+
+Impact MVP : on garde le tri par BPM, le tag auto "130 BPM", la
+coloration énergétique attendue est reportée au MVP5 (ou abandonnée).
+La recherche IA niveau 3 (MVP5) reposera sur tags + BPM + contexte
+artiste/jour plutôt que sur audio-features riches.
+
+**Sur le schéma BDD**
+
+Le champ `spotify_id` est conservé tel quel en MVP1 pour ne pas refaire
+une migration. Sémantiquement il devient "external_track_id" (peut être
+Deezer ou Spotify selon le source). `audio_features` JSONB contient un
+champ `source: 'deezer'` pour tracer la provenance. Rename éventuel
+des colonnes en `provider_track_id` / `provider_url` à prévoir au
+MVP2 ou MVP3 si nécessaire.
+
+**Sur l'UX**
+
+Aucun changement visible côté utilisateur :
+- Toujours barre unifiée 3 niveaux (text → Deezer / paste YouTube /
+  IA future)
+- Toujours bouton play 30s sans pub
+- Toujours cover, durée, popularité
+- Étiquette "Spotify" remplacée par "Deezer" dans l'UI
 
 ## Considérations transversales
 
