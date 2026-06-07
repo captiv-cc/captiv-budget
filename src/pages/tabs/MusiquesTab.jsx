@@ -44,6 +44,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
+import PropositionRow from '../../features/musiques/PropositionRow'
 
 const OUTIL_KEY = 'musiques'
 
@@ -69,6 +70,30 @@ export default function MusiquesTab() {
 
   // Modals
   const [addOpen, setAddOpen] = useState(false)
+
+  // Audio player partagé : un seul preview joue à la fois.
+  const [playingId, setPlayingId] = useState(null)
+  const [audioEl, setAudioEl] = useState(null)
+  const togglePlay = useCallback(
+    (prop) => {
+      if (playingId === prop.id) {
+        audioEl?.pause?.()
+        setPlayingId(null)
+        return
+      }
+      if (audioEl) audioEl.pause()
+      if (!prop.preview_url) return
+      const audio = new Audio(prop.preview_url)
+      audio.volume = 0.7
+      audio.play().catch((e) => console.warn('[preview] play failed', e))
+      audio.addEventListener('ended', () => setPlayingId(null))
+      setAudioEl(audio)
+      setPlayingId(prop.id)
+    },
+    [audioEl, playingId],
+  )
+  // Cleanup audio à l'unmount du tab
+  useEffect(() => () => audioEl?.pause?.(), [audioEl])
 
   // ─── Chargement initial ────────────────────────────────────────────────────
   const refetch = useCallback(async () => {
@@ -376,7 +401,7 @@ export default function MusiquesTab() {
         </div>
       )}
 
-      {/* ─── Liste propositions (rendu inline — MUS-1.11 fera PropositionRow) ── */}
+      {/* ─── Liste propositions (vrai PropositionRow — MUS-1.11) ───────── */}
       {!loading && visiblePropositions.length > 0 && (
         <div
           style={{
@@ -386,148 +411,24 @@ export default function MusiquesTab() {
             overflow: 'hidden',
           }}
         >
-          {visiblePropositions.map((p, idx) => {
-            const agg = aggregates.get(p.id) || {
-              noteAvg: null,
-              noteCount: 0,
-              myNote: null,
-              tags: [],
-            }
-            const artistName = p.artiste?.nom || p.artiste_text || '—'
-            return (
-              <div
-                key={p.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '36px 1fr auto',
-                  gap: 12,
-                  padding: '10px 14px',
-                  borderBottom:
-                    idx < visiblePropositions.length - 1
-                      ? '1px solid var(--brd-sub)'
-                      : 'none',
-                  alignItems: 'center',
-                }}
-              >
-                {/* Cover (placeholder MUS-1.11 fera initiales ou cover_url) */}
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    background: p.cover_url ? 'transparent' : 'var(--bg-elev)',
-                    backgroundImage: p.cover_url ? `url(${p.cover_url})` : 'none',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    borderRadius: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: 'var(--txt-3)',
-                  }}
-                >
-                  {!p.cover_url && (artistName[0] || '?').toUpperCase()}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 6,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: 'var(--txt)',
-                      }}
-                    >
-                      {artistName}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>·</span>
-                    <span style={{ fontSize: 13, color: 'var(--txt-2)' }}>
-                      {p.titre}
-                    </span>
-                    {p.artiste?.jour && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          padding: '1px 5px',
-                          background: 'rgba(59,130,246,0.12)',
-                          color: 'var(--blue, #3B82F6)',
-                          borderRadius: 6,
-                        }}
-                      >
-                        Joue {p.artiste.jour}
-                        {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
-                      </span>
-                    )}
-                  </div>
-                  {agg.tags.length > 0 && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: 4,
-                        marginTop: 4,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      {agg.tags.slice(0, 5).map((t) => (
-                        <span
-                          key={t.id}
-                          style={{
-                            fontSize: 10,
-                            padding: '1px 6px',
-                            background: 'var(--bg-elev)',
-                            color: 'var(--txt-3)',
-                            borderRadius: 8,
-                          }}
-                        >
-                          {t.tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-end',
-                    gap: 2,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: agg.noteAvg ? '#B68B0E' : 'var(--txt-3)',
-                    }}
-                  >
-                    {agg.noteAvg ? `★ ${agg.noteAvg}` : '— pas noté —'}
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
-                    {agg.noteCount > 0
-                      ? `${agg.noteCount} vote${agg.noteCount > 1 ? 's' : ''}`
-                      : (
-                        <span
-                          style={{
-                            padding: '0 5px',
-                            background: 'var(--bg-elev)',
-                            borderRadius: 6,
-                          }}
-                        >
-                          {STATUT_LABELS[p.statut] || p.statut}
-                        </span>
-                      )}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
+          {visiblePropositions.map((p, idx) => (
+            <div
+              key={p.id}
+              style={{
+                borderBottom:
+                  idx < visiblePropositions.length - 1
+                    ? '1px solid var(--brd-sub)'
+                    : 'none',
+              }}
+            >
+              <PropositionRow
+                proposition={p}
+                aggregate={aggregates.get(p.id)}
+                isPlaying={playingId === p.id}
+                onTogglePlay={togglePlay}
+              />
+            </div>
+          ))}
         </div>
       )}
 
