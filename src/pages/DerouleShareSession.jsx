@@ -25,6 +25,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Download,
+  FileText,
+  Image as ImageIcon,
   Inbox,
   Info,
   LayoutGrid,
@@ -52,6 +55,8 @@ import {
   ALERTE_LABELS,
 } from '../lib/deroule'
 import DerouleCadreurView from '../features/deroule/DerouleCadreurView'
+import { buildDerouleMultiJourPdf } from '../features/deroule/export/exportPDF'
+import { buildDerouleCadreurPng } from '../features/deroule/export/exportPNG'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -197,6 +202,11 @@ function ShareContent({
   // Le popover CreneauDetailPopover est rendu une seule fois en bas du
   // JSX. selected = { creneau, anchorRect } | null
   const [selectedCreneau, setSelectedCreneau] = useState(null)
+
+  // Sprint mobile-export : state du sheet d'export (preview + télécharger).
+  // exportRequest = { type: 'pdf' | 'png' } | null. Quand non-null, la
+  // génération se déclenche et le sheet s'affiche (loader puis preview).
+  const [exportRequest, setExportRequest] = useState(null)
   const handleSelectCreneau = (creneau, anchorRectOrEvent) => {
     if (!creneau) {
       setSelectedCreneau(null)
@@ -404,7 +414,14 @@ function ShareContent({
                 onSelect={setSelectedDeroleId}
                 todayIso={todayIso}
               />
-              <ViewToggle view={view} onChange={setView} />
+              <div className="flex items-stretch gap-2 shrink-0">
+                <ViewToggle view={view} onChange={setView} />
+                <ExportButtons
+                  view={view}
+                  hasCadreur={Boolean(selectedCadreurId)}
+                  onExport={(type) => setExportRequest({ type })}
+                />
+              </div>
             </div>
 
             {/* ── Notes du jour (si renseignées) ─────────────────────────── */}
@@ -481,6 +498,22 @@ function ShareContent({
           membreById={membreById}
           showSensitive={showSensitive}
           onClose={() => setSelectedCreneau(null)}
+        />
+      )}
+
+      {/* Sheet d'export (preview + télécharger) — visible quand
+          exportRequest != null. Génère le fichier puis affiche un aperçu
+          plein écran (iframe pour PDF, img pour PNG). */}
+      {exportRequest && (
+        <ExportSharePreviewSheet
+          type={exportRequest.type}
+          project={project}
+          deroule={currentDeroule}
+          lanes={currentLanes}
+          creneaux={currentCreneaux}
+          membres={membres}
+          membreId={selectedCadreurId}
+          onClose={() => setExportRequest(null)}
         />
       )}
     </div>
@@ -587,10 +620,12 @@ function DaySelector({ deroules, selectedId, onSelect, todayIso }) {
 function ViewToggle({ view, onChange }) {
   // Sprint mobile : vue Liste supprimée (redondante avec timeline +
   // ambiguë car les créneaux multi-lane apparaissaient dupliqués). On
-  // garde Timeline + Cadreur. Labels visibles à tous breakpoints.
+  // garde Timeline + Cadreur. Layout vertical (2 boutons empilés) pour
+  // gagner de la place horizontale — laisse de la marge pour les
+  // boutons d'export PDF/PNG à droite.
   return (
     <div
-      className="inline-flex items-center rounded-md p-0.5 shrink-0"
+      className="inline-flex flex-col rounded-md p-0.5 shrink-0"
       style={{
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd-sub)',
@@ -631,6 +666,296 @@ function ToggleBtn({ active, onClick, title, children }) {
     >
       {children}
     </button>
+  )
+}
+
+// ─── Export buttons (PDF / PNG) ─────────────────────────────────────────────
+//
+// Deux icônes empilées verticalement à côté du ViewToggle, dans le sticky bar.
+// PDF : déroulé complet (jour courant, toutes lanes).
+// PNG : fond d'écran cadreur (jour courant, 1 cadreur sélectionné).
+// Si on n'est pas en vue Cadreur, le bouton PNG est désactivé avec un hint
+// ("Bascule en vue Cadreur pour exporter ton fond d'écran").
+
+function ExportButtons({ view, hasCadreur, onExport }) {
+  const pngDisabled = view !== 'cadreur' || !hasCadreur
+  const pngTitle = pngDisabled
+    ? 'Bascule en vue Cadreur et sélectionne un cadreur pour exporter le PNG'
+    : 'Télécharger en PNG (fond d\'écran cadreur)'
+  return (
+    <div
+      className="inline-flex flex-col rounded-md p-0.5 shrink-0"
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onExport('pdf')}
+        title="Télécharger le déroulé en PDF"
+        className="px-2.5 py-1 text-xs rounded inline-flex items-center gap-1 transition-colors"
+        style={{
+          background: 'transparent',
+          color: 'var(--txt-2)',
+          fontWeight: 500,
+        }}
+      >
+        <FileText className="w-3.5 h-3.5" />
+        <span>PDF</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => !pngDisabled && onExport('png')}
+        title={pngTitle}
+        disabled={pngDisabled}
+        className="px-2.5 py-1 text-xs rounded inline-flex items-center gap-1 transition-colors"
+        style={{
+          background: 'transparent',
+          color: pngDisabled ? 'var(--txt-3)' : 'var(--txt-2)',
+          opacity: pngDisabled ? 0.5 : 1,
+          fontWeight: 500,
+          cursor: pngDisabled ? 'not-allowed' : 'pointer',
+        }}
+      >
+        <ImageIcon className="w-3.5 h-3.5" />
+        <span>PNG</span>
+      </button>
+    </div>
+  )
+}
+
+// ─── Sheet d'export PDF/PNG (preview + télécharger) ─────────────────────────
+//
+// Plein écran sur mobile (background opaque), modal centrée sur desktop.
+// Workflow :
+//   1. Mount → génère le fichier via buildDerouleMultiJourPdf ou
+//      buildDerouleCadreurPng (selon type)
+//   2. Loading spinner pendant la génération
+//   3. Affiche l'aperçu (iframe pour PDF, <img> pour PNG)
+//   4. Bouton "Télécharger" en bas
+//   5. Au close, revoke() de l'URL du blob pour éviter les leaks
+//
+// Pas de configuration : on prend le jour courant + le cadreur sélectionné
+// (déjà choisi par l'utilisateur dans la vue Cadreur).
+
+function ExportSharePreviewSheet({
+  type, // 'pdf' | 'png'
+  project,
+  deroule,
+  lanes,
+  creneaux,
+  membres,
+  membreId,
+  onClose,
+}) {
+  const [result, setResult] = useState(null) // { url, filename, download, revoke }
+  const [error, setError] = useState(null)
+  const [generating, setGenerating] = useState(true)
+
+  // Génération au mount. On encapsule dans un useEffect avec cleanup pour
+  // revoke l'URL si l'utilisateur ferme avant la fin.
+  useEffect(() => {
+    let cancelled = false
+    let cleanupResult = null
+
+    async function generate() {
+      try {
+        const deroulesData = [
+          {
+            deroule,
+            lanes,
+            creneaux,
+            membres,
+          },
+        ]
+        let r
+        if (type === 'pdf') {
+          r = await buildDerouleMultiJourPdf({
+            project,
+            deroulesData,
+            generatedAt: new Date(),
+          })
+        } else {
+          r = await buildDerouleCadreurPng({
+            project,
+            deroulesData,
+            membreId,
+            generatedAt: new Date(),
+          })
+        }
+        if (cancelled) {
+          r.revoke?.()
+          return
+        }
+        cleanupResult = r
+        setResult(r)
+      } catch (e) {
+        console.error('[ExportSharePreviewSheet] generation failed', e)
+        if (!cancelled) setError(e)
+      } finally {
+        if (!cancelled) setGenerating(false)
+      }
+    }
+    generate()
+
+    return () => {
+      cancelled = true
+      cleanupResult?.revoke?.()
+    }
+  }, [type, project, deroule, lanes, creneaux, membres, membreId])
+
+  // Esc to close
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const label = type === 'pdf' ? 'Déroulé PDF' : 'Fond d\'écran cadreur PNG'
+
+  // Sheet rendu via Portal pour échapper aux container constraints
+  // (z-index, overflow, etc.).
+  return createPortal(
+    <div
+      role="dialog"
+      aria-label={`Aperçu ${label}`}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0, 0, 0, 0.75)',
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        backdropFilter: 'blur(4px)',
+        animation: 'shareSheetFadeIn 200ms ease-out',
+      }}
+      onClick={(e) => {
+        // Click sur le fond → close
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      {/* Header */}
+      <div
+        className="shrink-0 flex items-center justify-between px-4 py-3"
+        style={{
+          background: 'var(--bg-surf)',
+          borderBottom: '1px solid var(--brd-sub)',
+          color: 'var(--txt)',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          {type === 'pdf' ? (
+            <FileText className="w-4 h-4" style={{ color: 'var(--txt-2)' }} />
+          ) : (
+            <ImageIcon className="w-4 h-4" style={{ color: 'var(--txt-2)' }} />
+          )}
+          <span className="text-sm font-semibold">{label}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fermer"
+          className="p-1.5 rounded transition-colors"
+          style={{ color: 'var(--txt-3)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--txt-3)'
+          }}
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Body : loader / erreur / preview */}
+      <div
+        className="flex-1 min-h-0 flex items-center justify-center p-4"
+        style={{ background: 'var(--bg)' }}
+      >
+        {generating ? (
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-7 h-7 animate-spin" style={{ color: 'var(--txt-3)' }} />
+            <div className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              Génération…
+            </div>
+          </div>
+        ) : error ? (
+          <div className="text-center max-w-sm">
+            <AlertCircle className="w-7 h-7 mx-auto mb-2" style={{ color: 'var(--red)' }} />
+            <div className="text-sm font-semibold mb-1" style={{ color: 'var(--txt)' }}>
+              Erreur de génération
+            </div>
+            <div className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {error.message || String(error)}
+            </div>
+          </div>
+        ) : result && type === 'pdf' ? (
+          <iframe
+            src={result.url}
+            title={label}
+            style={{
+              width: '100%',
+              height: '100%',
+              border: '1px solid var(--brd)',
+              borderRadius: 4,
+              background: '#fff',
+            }}
+          />
+        ) : result && type === 'png' ? (
+          <img
+            src={result.url}
+            alt={label}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              borderRadius: 4,
+              boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
+            }}
+          />
+        ) : null}
+      </div>
+
+      {/* Footer : bouton Télécharger */}
+      <div
+        className="shrink-0 px-4 py-3"
+        style={{
+          background: 'var(--bg-surf)',
+          borderTop: '1px solid var(--brd-sub)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => result?.download()}
+          disabled={!result}
+          className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-semibold transition-colors"
+          style={{
+            background: result ? ACCENT : 'var(--bg-hov)',
+            color: result ? '#fff' : 'var(--txt-3)',
+            cursor: result ? 'pointer' : 'not-allowed',
+            opacity: result ? 1 : 0.6,
+          }}
+        >
+          <Download className="w-4 h-4" />
+          Télécharger
+        </button>
+        {result?.filename && (
+          <div
+            className="text-[10px] text-center mt-1.5 truncate"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            {result.filename}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
