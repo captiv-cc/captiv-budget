@@ -289,7 +289,7 @@ export default function DerouleTimelineView({
   //   - 'resize-top'   : ajuste heure_debut_min sans toucher heure_fin_min.
   //   - 'resize-bottom': ajuste heure_fin_min sans toucher heure_debut_min.
   //
-  // Snap : 15 min par défaut, 5 min si Alt enfoncé pendant le drag.
+  // Snap : 5 min par défaut, 1 min si Alt enfoncé (ultra-précis).
   const [dragState, setDragState] = useState(null)
   // FEST-3.2 : menu de création rapide au clic simple (sans drag).
   // shape : { anchorRect, lane, heureCible, heureFin, overlappingCreneaux }
@@ -451,7 +451,9 @@ export default function DerouleTimelineView({
     function onMove(e) {
       const s = dragStateRef.current
       if (!s) return
-      const step = e.altKey ? 5 : 15
+      // Snap par défaut 5 min (cohérent avec la précision attendue côté
+      // festival). Alt → snap ultra-précis 1 min pour les ajustements fins.
+      const step = e.altKey ? 1 : 5
       const deltaY = e.clientY - s.initialMouseY
       const deltaMin = pixelsToMin(deltaY)
       let nextDebut = s.initialDebutMin
@@ -2112,6 +2114,8 @@ function MenuItem({ icon: Icon, colorHex, title, subtitle, onClick, disabled }) 
 
 function AlignGuide({ top, minutes, timeColWidth }) {
   const ACCENT = '#3B82F6'
+  // Version discrète : trait dashed bleu avec opacity réduite + chip
+  // semi-transparente. Reste lisible mais moins agressif que le now line.
   return (
     <div
       className="absolute pointer-events-none"
@@ -2119,21 +2123,22 @@ function AlignGuide({ top, minutes, timeColWidth }) {
         top,
         left: timeColWidth,
         right: 0,
-        borderTop: `1px solid ${ACCENT}`,
+        borderTop: `1px dashed ${ACCENT}`,
+        opacity: 0.65,
         zIndex: 35,
       }}
     >
       <div
         style={{
           position: 'absolute',
-          left: -42,
-          top: -8,
-          background: ACCENT,
+          left: -38,
+          top: -7,
+          background: `${ACCENT}cc`,
           color: '#FFFFFF',
           fontSize: 9,
-          fontWeight: 600,
-          padding: '1px 5px',
-          borderRadius: 8,
+          fontWeight: 500,
+          padding: '0 4px',
+          borderRadius: 3,
           letterSpacing: 0.2,
         }}
       >
