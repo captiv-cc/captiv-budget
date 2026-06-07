@@ -1324,6 +1324,46 @@ export default function DerouleTimelineView({
             </div>
           </div>
         )}
+
+        {/* Guides d'alignement pendant drag/resize.
+            - mode 'move' : 2 lignes (haut + bas du bloc déplacé)
+            - mode 'resize-top' : ligne au haut
+            - mode 'resize-bottom' : ligne au bas
+            - mode 'create' : 2 lignes (preview du nouveau créneau)
+            Ligne bleue (accent) pour différencier du now indicator rouge.
+            Chip horaire à gauche dans la colonne temps pour repère rapide. */}
+        {dragState &&
+          (dragState.mode === 'move' ||
+            dragState.mode === 'resize-top' ||
+            dragState.mode === 'resize-bottom' ||
+            dragState.mode === 'create') && (() => {
+          const showTop =
+            dragState.mode === 'move' ||
+            dragState.mode === 'resize-top' ||
+            dragState.mode === 'create'
+          const showBottom =
+            dragState.mode === 'move' ||
+            dragState.mode === 'resize-bottom' ||
+            dragState.mode === 'create'
+          return (
+            <>
+              {showTop && (
+                <AlignGuide
+                  top={minToTop(dragState.currentDebutMin)}
+                  minutes={dragState.currentDebutMin}
+                  timeColWidth={TIME_COL_W}
+                />
+              )}
+              {showBottom && (
+                <AlignGuide
+                  top={minToTop(dragState.currentFinMin)}
+                  minutes={dragState.currentFinMin}
+                  timeColWidth={TIME_COL_W}
+                />
+              )}
+            </>
+          )
+        })()}
       </div>
 
       {/* Légende types de créneau */}
@@ -2059,6 +2099,47 @@ function MenuItem({ icon: Icon, colorHex, title, subtitle, onClick, disabled }) 
         <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 1 }}>{subtitle}</div>
       </div>
     </button>
+  )
+}
+
+// ─── AlignGuide — ligne horizontale d'alignement pendant drag/resize ─────
+//
+// Aide à aligner visuellement le bloc déplacé avec d'autres créneaux. Trait
+// solide bleu accent (#3B82F6) sur toute la largeur de la grille, plus chip
+// horaire à gauche dans la colonne temps. Rendu en absolute avec z-index 35
+// (au-dessus des blocs, en-dessous du popover si présent). pointer-events
+// none pour ne pas gêner le drag en cours.
+
+function AlignGuide({ top, minutes, timeColWidth }) {
+  const ACCENT = '#3B82F6'
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        top,
+        left: timeColWidth,
+        right: 0,
+        borderTop: `1px solid ${ACCENT}`,
+        zIndex: 35,
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: -42,
+          top: -8,
+          background: ACCENT,
+          color: '#FFFFFF',
+          fontSize: 9,
+          fontWeight: 600,
+          padding: '1px 5px',
+          borderRadius: 8,
+          letterSpacing: 0.2,
+        }}
+      >
+        {formatMinHHMM(minutes)}
+      </div>
+    </div>
   )
 }
 
