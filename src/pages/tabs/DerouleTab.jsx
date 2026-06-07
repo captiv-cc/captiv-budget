@@ -547,10 +547,19 @@ export default function DerouleTab() {
       targetDate,
       scenesMapping,
       shows,
+      // FEST-import-update : updates / deletes / propagation soft-link
+      updates = [],
+      deletes = [],
+      propagateLinks = false,
       // FEST-5.5.3 : id du déroulé source pour copier les cadreurs
       copyCadreursFromDerouleId = null,
     } = payload
-    if (!targetDate || !Array.isArray(shows) || shows.length === 0) {
+    if (
+      !targetDate ||
+      ((!Array.isArray(shows) || shows.length === 0) &&
+        updates.length === 0 &&
+        deletes.length === 0)
+    ) {
       notify.error("Rien à importer")
       return
     }
@@ -639,6 +648,9 @@ export default function DerouleTab() {
       //    et on rapporte au final.
       let okCount = 0
       let errCount = 0
+      let updCount = 0
+      let delCount = 0
+      let propagCount = 0
       for (const s of shows) {
         try {
           const sceneKey = (s.scene || '').trim().toLowerCase()
@@ -665,6 +677,45 @@ export default function DerouleTab() {
         }
       }
 
+      // 3b. Mises à jour (mode update) — update du créneau source puis
+      //     propagation soft-link aux enfants si demandé.
+      for (const u of updates) {
+        try {
+          // Source créneau frais : on relit dans `creneaux` (state local)
+          // pour disposer des champs source_anchor des enfants. Si non
+          // trouvé, on prend l'existing du payload.
+          const sourceCreneau =
+            creneaux.find((c) => c.id === u.existingId) || null
+          await updateCreneau(u.existingId, u.fields)
+          updCount += 1
+          // Propagation aux enfants liés (cadreur shoots)
+          if (propagateLinks && sourceCreneau) {
+            try {
+              await propagateToChildren(sourceCreneau, u.fields)
+              propagCount += 1
+            } catch (e) {
+              console.warn('[import-update] propagateToChildren failed', e)
+            }
+          }
+        } catch (e) {
+          console.warn('[import-update] update error', u, e)
+          errCount += 1
+        }
+      }
+
+      // 3c. Suppressions (mode update) — seuls les créneaux LIEU absents
+      //     de la nouvelle prog ET cochés. Les enfants soft-link auront
+      //     leur source_creneau_id mis à NULL via ON DELETE SET NULL.
+      for (const d of deletes) {
+        try {
+          await DerouleLib.deleteCreneau(d.existingId)
+          delCount += 1
+        } catch (e) {
+          console.warn('[import-update] delete error', d, e)
+          errCount += 1
+        }
+      }
+
       // 4. Switch + close + reload
       if (targetDate !== selectedDate) {
         setSelectedDate(targetDate)
@@ -684,8 +735,19 @@ export default function DerouleTab() {
           `${copiedCadreurs} cadreur${copiedCadreurs > 1 ? 's' : ''} repris${copiedCadreurs > 1 ? '' : ''}`,
         )
       }
-      parts.push(`${okCount} créneau${okCount > 1 ? 'x' : ''} importé${okCount > 1 ? 's' : ''}`)
+      if (okCount > 0) {
+        parts.push(`${okCount} nouveau${okCount > 1 ? 'x' : ''}`)
+      }
+      if (updCount > 0) {
+        parts.push(
+          `${updCount} mis à jour${propagCount > 0 ? ` (+${propagCount} cascade${propagCount > 1 ? 's' : ''})` : ''}`,
+        )
+      }
+      if (delCount > 0) {
+        parts.push(`${delCount} supprimé${delCount > 1 ? 's' : ''}`)
+      }
       if (errCount > 0) parts.push(`${errCount} en erreur`)
+      if (parts.length === 0) parts.push('aucune action')
       notify.success(parts.join(' · '))
     } catch (e) {
       console.error('[import] global error', e)

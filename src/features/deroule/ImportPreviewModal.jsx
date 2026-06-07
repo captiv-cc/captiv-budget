@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import DayPicker from '../../components/DayPicker'
 import { timeToMinutes, formatMinHHMM } from '../../lib/deroule'
+import { analyzeImportDiff, formatDelta } from '../../lib/derouleImportMatch'
 
 export default function ImportPreviewModal({
   open,
@@ -60,6 +61,12 @@ export default function ImportPreviewModal({
   // FEST-5.5.3 : copier les lanes cadreur (type='personne') depuis un
   // déroulé existant si on crée un nouveau jour. Coché par défaut.
   const [copyCadreurs, setCopyCadreurs] = useState(true)
+  // Mode UPDATE : checkboxes de suppression pour les créneaux existants
+  // absents de la nouvelle prog. Décochés par défaut (safety). Map par id.
+  const [deleteChecked, setDeleteChecked] = useState({})
+  // Mode UPDATE : toggle global "Décaler aussi les créneaux cadreurs
+  // liés". Default ON (use case courant : MAJ programme festival).
+  const [propagateLinks, setPropagateLinks] = useState(true)
 
   // Reset à chaque ouverture / nouveau résultat
   useEffect(() => {
@@ -67,6 +74,8 @@ export default function ImportPreviewModal({
     setTargetDate(extracted?.date || selectedDate)
     setChecked((extracted?.shows || []).map(() => true))
     setCopyCadreurs(true)
+    setDeleteChecked({})
+    setPropagateLinks(true)
   }, [open, extracted, selectedDate])
 
   // Esc ferme
@@ -135,6 +144,66 @@ export default function ImportPreviewModal({
   const scenesToCreate = scenesAnalysis.filter((s) => !s.existingLaneId)
   const scenesExisting = scenesAnalysis.filter((s) => Boolean(s.existingLaneId))
 
+  // ─── DIFF intelligent (FEST-import-update) ──────────────────────────────
+  // Calcul du diff entre la prog extraite et les créneaux LIEU existants
+  // du jour cible. Pour chaque show extracté, retourne s'il s'agit d'une
+  // mise à jour, d'une création, ou inchangé. Et liste séparée des
+  // existants non-matchés (candidats à la suppression).
+  //
+  // Le diff n'est calculé que si on importe sur un déroulé EXISTANT
+  // (sinon : tout est création par définition).
+  const diff = useMemo(() => {
+    if (willCreateDeroule) {
+      // Pas de matching : tout est création
+      return { updates: [], creates: [], deletes: [], unchanged: [] }
+    }
+    return analyzeImportDiff({
+      extracted: showsWithMin,
+      existing: existingCreneaux,
+      lanes: existingLanes,
+    })
+  }, [willCreateDeroule, showsWithMin, existingCreneaux, existingLanes])
+
+  // Indexation : pour chaque idx du show, son état diff
+  const showStateByIdx = useMemo(() => {
+    const m = new Map()
+    for (const u of diff.updates) {
+      m.set(u.extractedIdx, { kind: 'update', match: u })
+    }
+    for (const c of diff.creates) {
+      m.set(c.extractedIdx, { kind: 'create' })
+    }
+    for (const u of diff.unchanged) {
+      m.set(u.extractedIdx, { kind: 'unchanged', match: u })
+    }
+    return m
+  }, [diff])
+
+  // En mode UPDATE, les "unchanged" sont décochés par défaut (rien à faire).
+  // Effet : on s'aligne sur l'état du diff au moment du calcul, sans
+  // écraser une éventuelle action user. Comme `checked` est aussi reset
+  // au open, ce useEffect ne tourne que quand le diff change vraiment.
+  useEffect(() => {
+    if (willCreateDeroule || showsWithMin.length === 0) return
+    setChecked((prev) =>
+      showsWithMin.map((_, i) => {
+        const state = showStateByIdx.get(i)
+        // Si déjà touché par l'user, on ne change rien
+        // (heuristique simple : on respecte la dernière valeur)
+        // Pour V1 on suit toujours le diff : inchangés OFF, MAJ/nouv ON.
+        if (state?.kind === 'unchanged') return false
+        return prev[i] !== undefined ? prev[i] : true
+      }),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showStateByIdx, willCreateDeroule, showsWithMin.length])
+
+  const isUpdateMode =
+    !willCreateDeroule &&
+    (diff.updates.length > 0 ||
+      diff.deletes.length > 0 ||
+      diff.unchanged.length > 0)
+
   // ─── Détection des conflits avec les créneaux existants ─────────────────
   // Considère un conflit si un show coché overlap avec un créneau existant
   // sur la MÊME lane scène (ou multi_lane). On ne tient pas compte des
@@ -199,21 +268,69 @@ export default function ImportPreviewModal({
 
   async function handleConfirm() {
     if (importing) return
-    const selectedShows = showsWithMin
-      .map((s, i) => ({ ...s, idx: i }))
-      .filter((s) => checked[s.idx])
+    // En mode UPDATE on découpe le payload : creates/updates/deletes
+    // (basés sur le diff + les checkboxes user). Sinon : full create
+    // (comportement historique).
+    const selectedIdxs = showsWithMin
+      .map((_, i) => i)
+      .filter((i) => checked[i])
       .filter(
-        (s) => Number.isFinite(s.debut_min) && Number.isFinite(s.fin_min),
+        (i) =>
+          Number.isFinite(showsWithMin[i].debut_min) &&
+          Number.isFinite(showsWithMin[i].fin_min),
       )
-    if (selectedShows.length === 0) return
+
+    let createsPayload = []
+    const updatesPayload = []
+    if (isUpdateMode) {
+      for (const i of selectedIdxs) {
+        const state = showStateByIdx.get(i)
+        const show = { ...showsWithMin[i], idx: i }
+        if (!state || state.kind === 'create') {
+          createsPayload.push(show)
+        } else if (state.kind === 'update') {
+          updatesPayload.push({
+            existingId: state.match.existing.id,
+            fields: state.match.fields,
+            show,
+            old: {
+              heure_debut_min: state.match.existing.heure_debut_min,
+              heure_fin_min: state.match.existing.heure_fin_min,
+            },
+          })
+        }
+        // unchanged : on n'envoie pas (no-op)
+      }
+    } else {
+      createsPayload = selectedIdxs.map((i) => ({
+        ...showsWithMin[i],
+        idx: i,
+      }))
+    }
+    const deletesPayload = isUpdateMode
+      ? diff.deletes
+          .filter((d) => deleteChecked[d.existing.id])
+          .map((d) => ({ existingId: d.existing.id }))
+      : []
+
+    if (
+      createsPayload.length === 0 &&
+      updatesPayload.length === 0 &&
+      deletesPayload.length === 0
+    ) {
+      return
+    }
+
     await onConfirm?.({
       targetDate,
       scenesToCreate: scenesToCreate.map((s) => s.scene),
-      scenesMapping: scenesAnalysis, // { scene, existingLaneId }
-      shows: selectedShows,
+      scenesMapping: scenesAnalysis,
+      // Backward-compat : 'shows' = créations (comportement historique).
+      shows: createsPayload,
+      updates: updatesPayload,
+      deletes: deletesPayload,
+      propagateLinks,
       willCreateDeroule,
-      // FEST-5.5.3 : id du déroulé source pour copier les lanes cadreur
-      // (null si l'utilisateur a décoché ou s'il n'y en a pas).
       copyCadreursFromDerouleId:
         cadreurSourceDeroule && copyCadreurs ? cadreurSourceDeroule.id : null,
     })
@@ -557,6 +674,10 @@ export default function ImportPreviewModal({
               const invalid =
                 !Number.isFinite(s.debut_min) || !Number.isFinite(s.fin_min)
               const conflict = conflictsByIndex[i]
+              const diffState = isUpdateMode ? showStateByIdx.get(i) : null
+              const isUpdate = diffState?.kind === 'update'
+              const isCreate = diffState?.kind === 'create'
+              const isUnchanged = diffState?.kind === 'unchanged'
               return (
                 <label
                   key={i}
@@ -567,12 +688,16 @@ export default function ImportPreviewModal({
                     padding: '8px 10px',
                     background: checked[i] ? 'var(--bg-elev)' : 'transparent',
                     border: '1px solid',
-                    borderColor: checked[i]
+                    borderColor: isUpdate
+                      ? 'rgba(245,158,11,0.35)'
+                      : isCreate
+                      ? 'rgba(59,130,246,0.35)'
+                      : checked[i]
                       ? 'var(--brd-sub)'
                       : 'transparent',
                     borderRadius: 5,
                     cursor: invalid ? 'not-allowed' : 'pointer',
-                    opacity: invalid ? 0.45 : 1,
+                    opacity: invalid ? 0.45 : isUnchanged ? 0.6 : 1,
                   }}
                 >
                   <input
@@ -593,15 +718,80 @@ export default function ImportPreviewModal({
                   >
                     <div
                       style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: 'var(--txt)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      {s.titre || '(sans titre)'}
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: 'var(--txt)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flex: 1,
+                          minWidth: 0,
+                        }}
+                      >
+                        {s.titre || '(sans titre)'}
+                      </div>
+                      {/* Badges d'état diff (mode update) */}
+                      {isUpdate && (
+                        <span
+                          style={{
+                            padding: '1px 5px',
+                            background: 'rgba(245,158,11,0.18)',
+                            border: '1px solid rgba(245,158,11,0.45)',
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: '#F59E0B',
+                            flexShrink: 0,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          MAJ
+                        </span>
+                      )}
+                      {isCreate && (
+                        <span
+                          style={{
+                            padding: '1px 5px',
+                            background: 'rgba(59,130,246,0.18)',
+                            border: '1px solid rgba(59,130,246,0.45)',
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: '#3B82F6',
+                            flexShrink: 0,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          Nouveau
+                        </span>
+                      )}
+                      {isUnchanged && (
+                        <span
+                          style={{
+                            padding: '1px 5px',
+                            background: 'rgba(150,150,150,0.12)',
+                            border: '1px solid rgba(150,150,150,0.25)',
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            color: 'var(--txt-3)',
+                            flexShrink: 0,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.3,
+                          }}
+                        >
+                          Inchangé
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -610,6 +800,7 @@ export default function ImportPreviewModal({
                         gap: 10,
                         fontSize: 11,
                         color: 'var(--txt-3)',
+                        flexWrap: 'wrap',
                       }}
                     >
                       <span
@@ -624,6 +815,60 @@ export default function ImportPreviewModal({
                           <span style={{ color: 'var(--red)' }}>
                             Horaire invalide
                           </span>
+                        ) : isUpdate ? (
+                          // Diff visuel : ancien (strikethrough) → nouveau
+                          <>
+                            <span style={{ textDecoration: 'line-through' }}>
+                              {formatMinHHMM(
+                                diffState.match.existing.heure_debut_min,
+                              )}
+                              –
+                              {formatMinHHMM(
+                                diffState.match.existing.heure_fin_min,
+                              )}
+                            </span>
+                            <span
+                              style={{
+                                margin: '0 4px',
+                                color: '#F59E0B',
+                                fontWeight: 600,
+                              }}
+                            >
+                              →
+                            </span>
+                            <span
+                              style={{ color: 'var(--txt)', fontWeight: 600 }}
+                            >
+                              {formatMinHHMM(s.debut_min)}–
+                              {formatMinHHMM(s.fin_min)}
+                            </span>
+                            {/* delta */}
+                            {(diffState.match.deltaStart !== 0 ||
+                              diffState.match.deltaEnd !== 0) && (
+                              <span
+                                style={{
+                                  marginLeft: 4,
+                                  color: '#F59E0B',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {diffState.match.deltaStart !== 0
+                                  ? formatDelta(diffState.match.deltaStart)
+                                  : ''}
+                                {diffState.match.deltaStart !== 0 &&
+                                diffState.match.deltaEnd !== 0 &&
+                                diffState.match.deltaStart !==
+                                  diffState.match.deltaEnd
+                                  ? ' / '
+                                  : ''}
+                                {diffState.match.deltaEnd !== 0 &&
+                                diffState.match.deltaStart !==
+                                  diffState.match.deltaEnd
+                                  ? formatDelta(diffState.match.deltaEnd)
+                                  : ''}
+                              </span>
+                            )}
+                          </>
                         ) : (
                           `${formatMinHHMM(s.debut_min)} – ${formatMinHHMM(s.fin_min)}`
                         )}
@@ -642,7 +887,7 @@ export default function ImportPreviewModal({
                       )}
                     </div>
                   </div>
-                  {conflict && (
+                  {conflict && !isUpdate && !isUnchanged && (
                     <span
                       title={`Conflit avec « ${conflict.titre || '(sans titre)'} » ${formatMinHHMM(conflict.heure_debut_min)}–${formatMinHHMM(conflict.heure_fin_min)}`}
                       style={{
@@ -666,6 +911,148 @@ export default function ImportPreviewModal({
               )
             })}
           </div>
+
+          {/* Section ABSENTS (mode update) : créneaux existants non
+              présents dans la nouvelle prog. Décochés par défaut (safety).
+              Si coché, ils seront supprimés à l'apply. */}
+          {isUpdateMode && diff.deletes.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px 12px',
+                background: 'rgba(239,68,68,0.06)',
+                border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: 6,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: 'var(--red, #EF4444)',
+                  marginBottom: 6,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.05,
+                }}
+              >
+                <AlertTriangle
+                  size={11}
+                  style={{
+                    display: 'inline',
+                    marginRight: 4,
+                    verticalAlign: 'middle',
+                  }}
+                />
+                Absents de la nouvelle prog ({diff.deletes.length})
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: 'var(--txt-3)',
+                  marginBottom: 8,
+                }}
+              >
+                Ces créneaux existent en BDD mais ne figurent pas dans la
+                nouvelle prog. Coche ceux à supprimer.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {diff.deletes.map(({ existing: c }) => {
+                  const lane = existingLanes.find((l) => l.id === c.lane_id)
+                  return (
+                    <label
+                      key={c.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '6px 8px',
+                        background: deleteChecked[c.id]
+                          ? 'rgba(239,68,68,0.12)'
+                          : 'transparent',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(deleteChecked[c.id])}
+                        disabled={importing}
+                        onChange={() =>
+                          setDeleteChecked((p) => ({
+                            ...p,
+                            [c.id]: !p[c.id],
+                          }))
+                        }
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--txt-2)',
+                            textDecoration: deleteChecked[c.id]
+                              ? 'line-through'
+                              : 'none',
+                          }}
+                        >
+                          {c.titre || '(sans titre)'}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: 'var(--txt-3)',
+                            display: 'flex',
+                            gap: 8,
+                          }}
+                        >
+                          <span>
+                            {formatMinHHMM(c.heure_debut_min)}–
+                            {formatMinHHMM(c.heure_fin_min)}
+                          </span>
+                          {lane?.libelle && <span>· {lane.libelle}</span>}
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Toggle propagation aux cadreurs liés (mode update uniquement
+              et seulement si y a des MAJ). */}
+          {isUpdateMode && diff.updates.length > 0 && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                background: 'rgba(59,130,246,0.06)',
+                border: '1px solid rgba(59,130,246,0.25)',
+                borderRadius: 6,
+                fontSize: 12,
+                color: 'var(--txt-2)',
+                cursor: 'pointer',
+                marginTop: 4,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={propagateLinks}
+                onChange={(e) => setPropagateLinks(e.target.checked)}
+              />
+              Décaler aussi les créneaux cadreurs liés (soft link)
+              <span
+                style={{
+                  color: 'var(--txt-3)',
+                  fontSize: 11,
+                  marginLeft: 4,
+                }}
+              >
+                ({diff.updates.length} MAJ → cascade vers les enfants liés)
+              </span>
+            </label>
+          )}
         </div>
 
         {/* Footer */}
@@ -696,43 +1083,74 @@ export default function ImportPreviewModal({
           >
             Annuler
           </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={importing || checkedCount === 0}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '6px 14px',
-              background:
-                importing || checkedCount === 0
-                  ? 'var(--brd)'
-                  : 'var(--blue, #3B82F6)',
-              color: 'white',
-              border: 'none',
-              borderRadius: 5,
-              fontSize: 12,
-              fontWeight: 500,
-              cursor:
-                importing || checkedCount === 0 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {importing ? (
-              <>
-                <Loader2
-                  size={12}
-                  style={{ animation: 'spin 1s linear infinite' }}
-                />
-                Import…
-              </>
-            ) : (
-              <>
-                <Check size={12} />
-                Importer {checkedCount} créneau{checkedCount > 1 ? 'x' : ''}
-              </>
-            )}
-          </button>
+          {(() => {
+            // Compteurs pour le label du bouton + état disabled
+            const nUpdates = isUpdateMode
+              ? checked
+                  .map((v, i) =>
+                    v && showStateByIdx.get(i)?.kind === 'update' ? 1 : 0,
+                  )
+                  .reduce((a, b) => a + b, 0)
+              : 0
+            const nCreates = isUpdateMode
+              ? checked
+                  .map((v, i) =>
+                    v && showStateByIdx.get(i)?.kind === 'create' ? 1 : 0,
+                  )
+                  .reduce((a, b) => a + b, 0)
+              : checkedCount
+            const nDeletes = isUpdateMode
+              ? diff.deletes.filter((d) => deleteChecked[d.existing.id]).length
+              : 0
+            const hasActions = nCreates + nUpdates + nDeletes > 0
+            return (
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={importing || !hasActions}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  background:
+                    importing || !hasActions
+                      ? 'var(--brd)'
+                      : 'var(--blue, #3B82F6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 5,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor:
+                    importing || !hasActions ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {importing ? (
+                  <>
+                    <Loader2
+                      size={12}
+                      style={{ animation: 'spin 1s linear infinite' }}
+                    />
+                    Import…
+                  </>
+                ) : isUpdateMode ? (
+                  <>
+                    <Check size={12} />
+                    Appliquer
+                    {nUpdates > 0 ? ` · ${nUpdates} MAJ` : ''}
+                    {nCreates > 0 ? ` · ${nCreates} nouv.` : ''}
+                    {nDeletes > 0 ? ` · ${nDeletes} suppr.` : ''}
+                  </>
+                ) : (
+                  <>
+                    <Check size={12} />
+                    Importer {checkedCount} créneau{checkedCount > 1 ? 'x' : ''}
+                  </>
+                )}
+              </button>
+            )
+          })()}
         </div>
       </div>
 
