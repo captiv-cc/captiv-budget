@@ -156,7 +156,38 @@ export default function DerouleTab() {
   )
   const hasProjectGeoloc = Boolean(sunTimes)
 
+  // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
+  useEffect(() => {
+    if (isMobile && view === 'timeline') setView('liste')
+  }, [isMobile, view])
+
+  const {
+    loading,
+    error,
+    deroules,
+    deroule,
+    lanes,
+    creneaux,
+    creneauxByLane,
+    creneauxMultiLane,
+    createDeroule,
+    // updateDeroule, // exposé par le hook, sera utilisé en Sprint 2 (notes session)
+    deleteDeroule,
+    addLane,
+    updateLane,
+    deleteLane,
+    swapLaneOrder,
+    createCreneau,
+    updateCreneau,
+    deleteCreneau,
+    setCreneauMembres,
+    importPresences,
+    reload,
+  } = useDeroule(canRead ? projectId : null, selectedDate)
+
   // ─── Sprint A — Mode Régie live (FEST-live) ──────────────────────────
+  // (Doit être déclaré APRÈS le destructure useDeroule car le hook
+  // consomme creneaux/deroule/updateCreneau. Sinon TDZ ReferenceError.)
   // Le hook gère :
   //   - Détection du créneau en cours d'après l'heure (tick 30s)
   //   - Auto-transition planifie → en_cours (heure_debut)
@@ -187,35 +218,6 @@ export default function DerouleTab() {
       }
     }
   }, [liveFullscreen])
-
-  // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
-  useEffect(() => {
-    if (isMobile && view === 'timeline') setView('liste')
-  }, [isMobile, view])
-
-  const {
-    loading,
-    error,
-    deroules,
-    deroule,
-    lanes,
-    creneaux,
-    creneauxByLane,
-    creneauxMultiLane,
-    createDeroule,
-    // updateDeroule, // exposé par le hook, sera utilisé en Sprint 2 (notes session)
-    deleteDeroule,
-    addLane,
-    updateLane,
-    deleteLane,
-    swapLaneOrder,
-    createCreneau,
-    updateCreneau,
-    deleteCreneau,
-    setCreneauMembres,
-    importPresences,
-    reload,
-  } = useDeroule(canRead ? projectId : null, selectedDate)
 
   // FEST-2 fix : sync inspectedCreneau avec la version fraîche de creneaux
   // quand realtime broadcast une mise à jour. Sans ça, le popover affiche
