@@ -152,6 +152,67 @@ export function isLinkedToSource(creneau) {
   return Boolean(creneau && creneau.source_creneau_id)
 }
 
+// ─── getSourceTimingIssue ──────────────────────────────────────────────────
+//
+// Détecte les incohérences temporelles entre un créneau enfant et son créneau
+// source. Cas d'usage Festival : un cadreur film l'artiste mais son créneau
+// a été décalé manuellement et tombe en-dehors des horaires de l'artiste,
+// ce qui est probablement une erreur.
+//
+// Retourne :
+//   - 'outside_before' : enfant complètement AVANT la source (pas d'overlap)
+//   - 'outside_after'  : enfant complètement APRÈS la source (cas BUSHI Hugo)
+//   - 'starts_before'  : enfant overlap mais démarre AVANT la source
+//   - 'ends_after'     : enfant overlap mais finit APRÈS la source
+//   - 'starts_before_ends_after' : enfant encompasse la source (rare)
+//   - null             : pas d'incohérence (enfant dans la plage source)
+//                        OU pas de source / heures manquantes (no-op).
+//
+// Note : on ne juge pas si c'est intentionnel — l'UI décide quelle gravité
+// afficher (outside_* = severe, autres = warning). Les "starts_before" /
+// "ends_after" peuvent être volontaires (filmer arrivée/départ artiste).
+export function getSourceTimingIssue(child, source) {
+  if (!child || !source) return null
+  const childStart = child.heure_debut_min
+  const childEnd = child.heure_fin_min
+  const srcStart = source.heure_debut_min
+  const srcEnd = source.heure_fin_min
+  if (
+    typeof childStart !== 'number' ||
+    typeof childEnd !== 'number' ||
+    typeof srcStart !== 'number' ||
+    typeof srcEnd !== 'number'
+  ) {
+    return null
+  }
+  // Pas d'overlap du tout
+  if (childEnd <= srcStart) return 'outside_before'
+  if (childStart >= srcEnd) return 'outside_after'
+  // Overlap mais bords qui dépassent
+  const startsBefore = childStart < srcStart
+  const endsAfter = childEnd > srcEnd
+  if (startsBefore && endsAfter) return 'starts_before_ends_after'
+  if (startsBefore) return 'starts_before'
+  if (endsAfter) return 'ends_after'
+  return null
+}
+
+/** Libellé FR court d'une incohérence temporelle (pour badges UI). */
+export const SOURCE_TIMING_ISSUE_LABELS = {
+  outside_before: 'Avant l\'artiste',
+  outside_after: 'Après l\'artiste',
+  starts_before: 'Démarre avant',
+  ends_after: 'Finit après',
+  starts_before_ends_after: 'Excède la plage',
+}
+
+/** Sévérité d'une incohérence. 'severe' (rouge, outside) ou 'warn' (orange). */
+export function sourceTimingIssueSeverity(issue) {
+  if (issue === 'outside_before' || issue === 'outside_after') return 'severe'
+  if (!issue) return null
+  return 'warn'
+}
+
 // ─── isSourceOf ────────────────────────────────────────────────────────────
 // Helper bool : true si ce créneau est source d'au moins un autre créneau.
 export function isSourceOf(creneaux, creneauId) {

@@ -41,6 +41,11 @@ import {
   effectiveAlerte,
   ALERTE_COLORS,
 } from '../../lib/deroule'
+import {
+  getSourceTimingIssue,
+  SOURCE_TIMING_ISSUE_LABELS,
+  sourceTimingIssueSeverity,
+} from '../../lib/derouleSoftLinks'
 import useBreakpoint from '../../hooks/useBreakpoint'
 import { extractPlainText } from '../../components/rich-editor/utils'
 
@@ -784,6 +789,31 @@ function MissionCard({
               Conflit
             </button>
           )}
+          {/* Badge incohérence horaire vs source (soft link). Sévère =
+              rouge (totalement hors plage artiste). Warn = orange. */}
+          {(() => {
+            const sourceCreneau = c.source_creneau_id && creneauxById
+              ? (typeof creneauxById.get === 'function'
+                  ? creneauxById.get(c.source_creneau_id)
+                  : creneauxById[c.source_creneau_id]) || null
+              : null
+            const issue = getSourceTimingIssue(c, sourceCreneau)
+            if (!issue) return null
+            const severity = sourceTimingIssueSeverity(issue)
+            const isSevere = severity === 'severe'
+            const bg = isSevere ? '#DC26261f' : '#F59E0B1f'
+            const fg = isSevere ? '#DC2626' : '#F59E0B'
+            return (
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1 rounded shrink-0"
+                style={{ background: bg, color: fg }}
+                title={`${SOURCE_TIMING_ISSUE_LABELS[issue]} (source : ${formatMinHHMM(sourceCreneau.heure_debut_min)}–${formatMinHHMM(sourceCreneau.heure_fin_min)})`}
+              >
+                <AlertTriangle className="w-2.5 h-2.5" />
+                {SOURCE_TIMING_ISSUE_LABELS[issue]}
+              </span>
+            )
+          })()}
         </div>
         {/* Détail des conflits — visible au tap sur le badge */}
         {hasConflict && conflictExpanded && (

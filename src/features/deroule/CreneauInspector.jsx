@@ -65,6 +65,9 @@ import {
   getSourceCreneau,
   validateLinkTarget,
   applySourceUpdate,
+  getSourceTimingIssue,
+  SOURCE_TIMING_ISSUE_LABELS,
+  sourceTimingIssueSeverity,
 } from '../../lib/derouleSoftLinks'
 import './CreneauInspector.css'
 
@@ -928,6 +931,53 @@ function CompactView({
       className="flex-1 overflow-y-auto"
       style={{ padding: '10px 14px' }}
     >
+      {/* Incohérence horaire vs créneau source.
+          Cas : un cadreur a son créneau hors de la plage de l'artiste source
+          (décalé manuellement, ou source raccourcie après coup). Banner
+          orange (warn) ou rouge (severe = complètement hors plage). */}
+      {(() => {
+        const issue = getSourceTimingIssue(draft, sourceCreneau)
+        if (!issue) return null
+        const severity = sourceTimingIssueSeverity(issue)
+        const isSevere = severity === 'severe'
+        const color = isSevere ? '#DC2626' : '#F59E0B'
+        const srcStart = formatMinHHMM(sourceCreneau.heure_debut_min)
+        const srcEnd = formatMinHHMM(sourceCreneau.heure_fin_min)
+        return (
+          <div
+            className="rounded flex items-start gap-2 mb-2"
+            style={{
+              background: `${color}1f`,
+              borderLeft: `3px solid ${color}`,
+              padding: '6px 10px',
+            }}
+          >
+            <AlertTriangle
+              size={14}
+              style={{ color, marginTop: 2, flexShrink: 0 }}
+            />
+            <div className="flex-1 min-w-0">
+              <div
+                className="text-xs font-semibold"
+                style={{ color }}
+              >
+                {SOURCE_TIMING_ISSUE_LABELS[issue]}
+                {isSevere ? ' — hors plage source' : ''}
+              </div>
+              <div
+                className="text-[10px] mt-0.5"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Créneau source ({sourceCreneau.titre || '—'}) :
+                <span style={{ color: 'var(--txt-2)' }}>
+                  {' '}{srcStart} – {srcEnd}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Alerte héritée du créneau source (read-only). Affichée seulement si
           le créneau courant n'a pas sa propre alerte ET son parent en a une.
           Permet au cadreur/coord de voir "il y a un point d'attention sur la

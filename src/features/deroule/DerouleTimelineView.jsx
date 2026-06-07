@@ -45,6 +45,11 @@ import {
   hasAlerte,
   ALERTE_COLORS,
 } from '../../lib/deroule'
+import {
+  getSourceTimingIssue,
+  SOURCE_TIMING_ISSUE_LABELS,
+  sourceTimingIssueSeverity,
+} from '../../lib/derouleSoftLinks'
 import { notify } from '../../lib/notify'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
@@ -164,6 +169,12 @@ export default function DerouleTimelineView({
     for (const c of creneauxMultiLane || []) arr.push(c)
     return arr
   }, [lanes, creneauxByLane, creneauxMultiLane])
+  // Index par id pour la lookup du créneau source (incohérence temporelle).
+  const allCreneauxById = useMemo(() => {
+    const m = new Map()
+    for (const c of allCreneaux) m.set(c.id, c)
+    return m
+  }, [allCreneaux])
 
   // FEST-5.2 : détecte si un nouveau créneau (ou un déplacement) chevauche
   // une plage d'indisponibilité (type='indispo') dans la lane cible. Si oui,
@@ -1033,6 +1044,14 @@ export default function DerouleTimelineView({
                       isDragging={isThisDragging && dragState.hasMoved}
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
+                      sourceTimingIssue={
+                        c.source_creneau_id
+                          ? getSourceTimingIssue(
+                              c,
+                              allCreneauxById.get(c.source_creneau_id),
+                            )
+                          : null
+                      }
                       laneType={lane.type}
                       laneWidth={laneBodyWidth}
                       onContextMenu={(e) => handleBlockContextMenu(e, c)}
@@ -2057,6 +2076,9 @@ function CreneauBlock({
   isDragging,
   conflicts = [],
   isLinked = false,
+  // Incohérence horaire vs créneau source (soft link). 'outside_*' = sévère
+  // (rouge, créneau hors plage artiste), autres = warning (orange).
+  sourceTimingIssue = null,
   laneType = null,
   // FEST-5.5.5 : largeur de la lane (utilisée pour rendu adaptatif)
   laneWidth = null,
@@ -2291,6 +2313,31 @@ function CreneauBlock({
           }}
         >
           {isLinked && <LinkIcon size={10} />}
+          {/* Badge incohérence horaire vs source. Visible si soft link
+              et que l'enfant déborde / sort de la plage source. */}
+          {sourceTimingIssue && (
+            <span
+              title={`${SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]} : ce créneau lié ne tient pas dans les horaires du créneau source.`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 2,
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '1px 5px',
+                borderRadius: 3,
+                background:
+                  sourceTimingIssueSeverity(sourceTimingIssue) === 'severe'
+                    ? '#DC2626'
+                    : '#F59E0B',
+                color: '#FFFFFF',
+                opacity: 1,
+              }}
+            >
+              <AlertTriangle size={9} strokeWidth={3} />
+              {SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]}
+            </span>
+          )}
           <span
             style={{
               fontSize: 9,
