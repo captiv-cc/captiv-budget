@@ -671,57 +671,145 @@ function ToggleBtn({ active, onClick, title, children }) {
 
 // ─── Export buttons (PDF / PNG) ─────────────────────────────────────────────
 //
-// Deux icônes empilées verticalement à côté du ViewToggle, dans le sticky bar.
-// PDF : déroulé complet (jour courant, toutes lanes).
-// PNG : fond d'écran cadreur (jour courant, 1 cadreur sélectionné).
-// Si on n'est pas en vue Cadreur, le bouton PNG est désactivé avec un hint
-// ("Bascule en vue Cadreur pour exporter ton fond d'écran").
+// V1 : 2 boutons empilés "PDF" + "PNG" prenaient ~100px de largeur. Sur
+// festival 5 jours, ça mangeait l'espace des chips jours.
+// V2 : un seul bouton icône Download (~36px) qui ouvre un petit menu
+// déroulant juste en-dessous avec les 2 options. Tap-out = close.
 
 function ExportButtons({ view, hasCadreur, onExport }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const containerRef = useRef(null)
   const pngDisabled = view !== 'cadreur' || !hasCadreur
-  const pngTitle = pngDisabled
-    ? 'Bascule en vue Cadreur et sélectionne un cadreur pour exporter le PNG'
-    : 'Télécharger en PNG (fond d\'écran cadreur)'
+
+  // Close au clic outside
+  useEffect(() => {
+    if (!menuOpen) return
+    function onPointer(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setMenuOpen(false)
+      }
+    }
+    const t = setTimeout(() => {
+      document.addEventListener('mousedown', onPointer)
+      document.addEventListener('touchstart', onPointer, { passive: true })
+    }, 0)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('touchstart', onPointer)
+    }
+  }, [menuOpen])
+
+  // Esc to close
+  useEffect(() => {
+    if (!menuOpen) return
+    function onKey(e) {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
   return (
-    <div
-      className="inline-flex flex-col rounded-md p-0.5 shrink-0"
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        title="Télécharger"
+        aria-label="Télécharger le déroulé"
+        aria-expanded={menuOpen}
+        className="rounded-md inline-flex items-center justify-center transition-colors"
+        style={{
+          width: 36,
+          height: '100%',
+          minHeight: 36,
+          background: menuOpen ? ACCENT : 'var(--bg-surf)',
+          border: '1px solid var(--brd-sub)',
+          color: menuOpen ? '#fff' : 'var(--txt-2)',
+        }}
+      >
+        <Download className="w-4 h-4" />
+      </button>
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute rounded-md shadow-2xl"
+          style={{
+            top: 'calc(100% + 4px)',
+            right: 0,
+            minWidth: 200,
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+            zIndex: 40,
+            padding: 4,
+          }}
+        >
+          <ExportMenuItem
+            icon={<FileText className="w-4 h-4" />}
+            label="PDF du déroulé"
+            sublabel="Tout le jour, toutes les lanes"
+            onClick={() => {
+              setMenuOpen(false)
+              onExport('pdf')
+            }}
+          />
+          <ExportMenuItem
+            icon={<ImageIcon className="w-4 h-4" />}
+            label="PNG fond d'écran cadreur"
+            sublabel={
+              pngDisabled
+                ? 'Bascule en vue Cadreur pour activer'
+                : 'Format mobile, 1 cadreur'
+            }
+            disabled={pngDisabled}
+            onClick={() => {
+              if (pngDisabled) return
+              setMenuOpen(false)
+              onExport('png')
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ExportMenuItem({ icon, label, sublabel, onClick, disabled = false }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full text-left flex items-start gap-2.5 rounded transition-colors"
       style={{
-        background: 'var(--bg-surf)',
-        border: '1px solid var(--brd-sub)',
+        padding: '8px 10px',
+        color: disabled ? 'var(--txt-3)' : 'var(--txt)',
+        background: 'transparent',
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        minHeight: 44,
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = 'var(--bg-hov)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
       }}
     >
-      <button
-        type="button"
-        onClick={() => onExport('pdf')}
-        title="Télécharger le déroulé en PDF"
-        className="px-2.5 py-1 text-xs rounded inline-flex items-center gap-1 transition-colors"
-        style={{
-          background: 'transparent',
-          color: 'var(--txt-2)',
-          fontWeight: 500,
-        }}
-      >
-        <FileText className="w-3.5 h-3.5" />
-        <span>PDF</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => !pngDisabled && onExport('png')}
-        title={pngTitle}
-        disabled={pngDisabled}
-        className="px-2.5 py-1 text-xs rounded inline-flex items-center gap-1 transition-colors"
-        style={{
-          background: 'transparent',
-          color: pngDisabled ? 'var(--txt-3)' : 'var(--txt-2)',
-          opacity: pngDisabled ? 0.5 : 1,
-          fontWeight: 500,
-          cursor: pngDisabled ? 'not-allowed' : 'pointer',
-        }}
-      >
-        <ImageIcon className="w-3.5 h-3.5" />
-        <span>PNG</span>
-      </button>
-    </div>
+      <div className="shrink-0 mt-0.5" style={{ color: disabled ? 'var(--txt-3)' : 'var(--txt-2)' }}>
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold truncate">{label}</div>
+        <div
+          className="text-[10px] truncate mt-0.5"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          {sublabel}
+        </div>
+      </div>
+    </button>
   )
 }
 
