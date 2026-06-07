@@ -553,8 +553,12 @@ export default function MusiquesTab() {
         projectId={projectId}
         onClose={() => setAddOpen(false)}
         onCreated={() => {
-          // Le Realtime refetch va catch la nouveauté de toute façon ;
-          // on évite un double refetch immédiat.
+          // Refetch immédiat pour ne pas dépendre du Realtime (au cas où
+          // la publication supabase_realtime n'est pas encore appliquée
+          // sur ce projet, ou si le delay subscription est lent).
+          // Le double refetch (immédiat + via Realtime quelques ms après)
+          // est sans conséquence — c'est idempotent.
+          refetch()
         }}
       />
     </div>
