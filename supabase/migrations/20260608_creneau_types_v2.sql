@@ -22,15 +22,17 @@
 
 BEGIN;
 
--- ── 1. Migration data ─────────────────────────────────────────────────────
-UPDATE projet_deroule_creneaux SET type = 'tournage' WHERE type = 'prise';
-UPDATE projet_deroule_creneaux SET type = 'show'     WHERE type = 'live';
-
--- ── 2. Drop l'ancien CHECK constraint (set fermé) ─────────────────────────
+-- ── 1. Drop l'ancien CHECK constraint AVANT la migration data ─────────────
+-- Important : l'UPDATE ci-dessous met type = 'tournage' / 'show' qui ne
+-- sont pas dans le set de l'ancien CHECK. Donc il FAUT drop avant.
 -- On ne remet pas de CHECK : la valeur peut être un type core OU un key
 -- custom défini dans projects.creneau_types. Validation côté frontend.
 ALTER TABLE projet_deroule_creneaux
   DROP CONSTRAINT IF EXISTS projet_deroule_creneaux_type_check;
+
+-- ── 2. Migration data ─────────────────────────────────────────────────────
+UPDATE projet_deroule_creneaux SET type = 'tournage' WHERE type = 'prise';
+UPDATE projet_deroule_creneaux SET type = 'show'     WHERE type = 'live';
 
 -- ── 3. Ajout colonne creneau_types JSONB sur projects ─────────────────────
 -- Structure : [{ key, libelle, couleur, sort_order }, ...]
