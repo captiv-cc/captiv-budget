@@ -1444,8 +1444,8 @@ export default function DerouleTab() {
             )
           }
           laneById={new Map((lanes || []).map((l) => [l.id, l]))}
+          allCreneaux={creneaux}
           onMarkCreneauDone={(id) => liveMode.markCreneauDone(id)}
-          onSkipFromCreneau={(id) => liveMode.skipFromCreneau(id)}
           onClose={() => setLiveFullscreen(false)}
         />
       )}
