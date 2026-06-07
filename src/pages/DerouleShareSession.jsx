@@ -755,7 +755,7 @@ function ExportButtons({ view, hasCadreur, onExport }) {
           />
           <ExportMenuItem
             icon={<ImageIcon className="w-4 h-4" />}
-            label="PNG fond d'écran cadreur"
+            label="Planning cadreur (PNG)"
             sublabel={
               pngDisabled
                 ? 'Bascule en vue Cadreur pour activer'
