@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   AlertTriangle,
+  Clock,
   Info as InfoIcon,
   MapPin,
   Camera,
@@ -2306,8 +2307,9 @@ function CreneauBlock({
       }
     >
       {/* Mini-icône d'incohérence horaire (toujours visible, même sur
-          les petits blocs). Le badge texte au-dessous prend le relais
-          quand height >= 40 et qu'on est en mode large. */}
+          les petits blocs). Icône Clock pour signaler "problème horaire"
+          et distinguer des alertes (AlertTriangle). Le badge texte
+          au-dessous prend le relais quand height >= 40 et mode large. */}
       {sourceTimingIssue && (height < 40 || hideBadges) && (
         <div
           title={`${SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]} : ce créneau lié est hors plage du créneau source.`}
@@ -2330,7 +2332,7 @@ function CreneauBlock({
             boxShadow: '0 0 0 1.5px rgba(0,0,0,0.25)',
           }}
         >
-          <AlertTriangle size={9} strokeWidth={3} />
+          <Clock size={9} strokeWidth={3} />
         </div>
       )}
 
@@ -2351,8 +2353,8 @@ function CreneauBlock({
           }}
         >
           {isLinked && <LinkIcon size={10} />}
-          {/* Badge incohérence horaire vs source. Visible si soft link
-              et que l'enfant déborde / sort de la plage source. */}
+          {/* Badge incohérence horaire vs source. Icône Clock pour
+              différencier des alertes (AlertTriangle). */}
           {sourceTimingIssue && (
             <span
               title={`${SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]} : ce créneau lié ne tient pas dans les horaires du créneau source.`}
@@ -2372,7 +2374,7 @@ function CreneauBlock({
                 opacity: 1,
               }}
             >
-              <AlertTriangle size={9} strokeWidth={3} />
+              <Clock size={9} strokeWidth={3} />
               {SOURCE_TIMING_ISSUE_LABELS[sourceTimingIssue]}
             </span>
           )}

@@ -933,8 +933,10 @@ function CompactView({
     >
       {/* Incohérence horaire vs créneau source.
           Cas : un cadreur a son créneau hors de la plage de l'artiste source
-          (décalé manuellement, ou source raccourcie après coup). Banner
-          orange (warn) ou rouge (severe = complètement hors plage). */}
+          (décalé manuellement, ou source raccourcie après coup). Style
+          visuel DIFFÉRENCIÉ des alertes (icône Clock + border dashed) pour
+          ne pas se confondre avec les alertes éditoriales (AlertTriangle +
+          border solid). Le dashed echo la bordure dashed du bloc timeline. */}
       {(() => {
         const issue = getSourceTimingIssue(draft, sourceCreneau)
         if (!issue) return null
@@ -947,12 +949,12 @@ function CompactView({
           <div
             className="rounded flex items-start gap-2 mb-2"
             style={{
-              background: `${color}1f`,
-              borderLeft: `3px solid ${color}`,
+              background: `${color}14`,
+              borderLeft: `3px dashed ${color}`,
               padding: '6px 10px',
             }}
           >
-            <AlertTriangle
+            <Clock
               size={14}
               style={{ color, marginTop: 2, flexShrink: 0 }}
             />

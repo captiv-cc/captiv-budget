@@ -26,6 +26,7 @@ import {
   Camera,
   Clipboard,
   AlertTriangle,
+  Clock,
   Inbox,
   Info,
   ChevronDown,
@@ -809,7 +810,8 @@ function MissionCard({
                 style={{ background: bg, color: fg }}
                 title={`${SOURCE_TIMING_ISSUE_LABELS[issue]} (source : ${formatMinHHMM(sourceCreneau.heure_debut_min)}–${formatMinHHMM(sourceCreneau.heure_fin_min)})`}
               >
-                <AlertTriangle className="w-2.5 h-2.5" />
+                {/* Clock pour distinguer des alertes (AlertTriangle) */}
+                <Clock className="w-2.5 h-2.5" />
                 {SOURCE_TIMING_ISSUE_LABELS[issue]}
               </span>
             )
