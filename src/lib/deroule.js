@@ -84,40 +84,51 @@ export function isCreneauUnavailable(creneau) {
  * Couleur hex par défaut par type de créneau (utilisée si `creneau.couleur`
  * est NULL — ce qui est le cas par défaut).
  *
- * Palette V2 alignée Tailwind 500-600 pour cohérence visuelle :
- *   install    = blue       (technique/setup)
- *   brief      = violet     (info/réflexion)
- *   tournage   = green      (action universel)
- *   captation  = red        (action live)
- *   show       = pink       (scène, lumière)
- *   interview  = cyan       (échange, conversation)
- *   drone      = teal       (aérien, technique distinct)
- *   ambiance   = purple    (atmosphère, B-roll — distinct du green tournage,
- *                            du violet brief plus bleuté, et du pink show plus chaud)
- *   repas      = orange     (chaud/convivial)
- *   pause      = gray       (neutre)
- *   transport  = red light  (mouvement)
- *   postprod   = yellow     (étape de prod)
- *   autre      = gray dark  (fallback)
- *   indispo    = gris       (bloc hachuré)
+ * Palette V3 — Tailwind 300/400 désaturée (Hugo : "pas flashy, ça fait mal
+ * aux yeux"). On regroupe les types par "famille" pour distribuer les hues
+ * de manière lisible sans avoir deux types côte à côte qui se ressemblent
+ * trop sur la timeline.
  *
- * Pour les types custom (projets.creneau_types), la couleur est portée
+ * COOL (technique / scène / cool topics) — du gris-bleu au violet :
+ *   install   = slate     (setup technique, neutre froid)
+ *   show      = blue pâle (scène — Hugo)
+ *   interview = cyan pâle (échange)
+ *   drone     = teal pâle (aérien)
+ *   postprod  = indigo    (étape post, distinct du blue show et du brief)
+ *   brief     = violet    (réflexion)
+ *   ambiance  = purple    (atmosphère, B-roll — pas de vert)
+ *
+ * WARM (action / chaud) — du jaune au rose :
+ *   tournage  = amber     (jaune pâle — Hugo)
+ *   repas     = orange    (convivial)
+ *   captation = red pâle  (live, distinct de transport par tonalité)
+ *   transport = rose      (mouvement)
+ *
+ * NEUTRAL :
+ *   pause     = gray clair (neutre repos)
+ *   autre     = gray moyen (fallback)
+ *   indispo   = gris hachuré
+ *
+ * Pour les types custom (projects.creneau_types), la couleur est portée
  * par le type lui-même. effectiveCouleurCreneau() fait le fallback.
  */
 export const CRENEAU_TYPE_COLORS = {
-  install: '#3B82F6',
-  brief: '#8B5CF6',
-  tournage: '#22C55E',
-  captation: '#EF4444',
-  show: '#EC4899',
-  interview: '#06B6D4',
-  drone: '#14B8A6',
-  ambiance: '#A855F7',
-  repas: '#F97316',
-  pause: '#9CA3AF',
-  transport: '#FCA5A5',
-  postprod: '#EAB308',
-  autre: '#6B7280',
+  // Cool
+  install: '#94A3B8',   // slate-400
+  show: '#93C5FD',      // blue-300 (bleu pâle, Hugo)
+  interview: '#67E8F9', // cyan-300
+  drone: '#5EEAD4',     // teal-300
+  postprod: '#A5B4FC',  // indigo-300
+  brief: '#C4B5FD',     // violet-300
+  ambiance: '#D8B4FE',  // purple-300
+  // Warm
+  tournage: '#FCD34D',  // amber-300 (jaune pâle, Hugo)
+  repas: '#FDBA74',     // orange-300
+  captation: '#FCA5A5', // red-300 (Live)
+  transport: '#FDA4AF', // rose-300
+  // Neutral
+  pause: '#D1D5DB',     // gray-300
+  autre: '#9CA3AF',     // gray-400
   indispo: '#888888',
 }
 
