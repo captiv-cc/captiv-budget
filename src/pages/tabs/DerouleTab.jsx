@@ -1020,6 +1020,10 @@ export default function DerouleTab() {
               ? (id, statut) => handleSavePartialForCreneau(id, { statut })
               : null
           }
+          /* Cohérence avec la vue share : single column (les ContextCards
+             "programme festival" à droite étaient verbeuses sur Festival
+             6+ lanes ; l'utilisateur a la vue Timeline pour le contexte). */
+          singleColumn
         />
       ) : view === 'timeline' && !isMobile ? (
         <DerouleTimelineView
