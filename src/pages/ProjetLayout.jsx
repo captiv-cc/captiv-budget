@@ -53,6 +53,7 @@ import {
   Map,
   Shield,
   Menu,
+  Music,
   Share2,
   Truck,
 } from 'lucide-react'
@@ -127,6 +128,14 @@ const ALL_TABS = [
     path: 'production',
     finance: false,
     outil: 'production',
+  },
+  {
+    key: 'musiques',
+    label: 'Musiques',
+    icon: Music,
+    path: 'musiques',
+    finance: false,
+    outil: 'musiques',
   },
   {
     key: 'livrables',

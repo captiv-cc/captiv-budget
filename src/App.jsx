@@ -51,6 +51,7 @@ import PlanningTab from './pages/tabs/PlanningTab'
 import DerouleTab from './pages/tabs/DerouleTab'
 import LogistiqueTab from './pages/tabs/LogistiqueTab'
 import ProductionTab from './pages/tabs/ProductionTab'
+import MusiquesTab from './pages/tabs/MusiquesTab'
 import LivrablesTab from './pages/tabs/LivrablesTab'
 import MaterielTab from './pages/tabs/MaterielTab'
 import PlansTab from './pages/tabs/PlansTab'
@@ -280,6 +281,7 @@ function AppRoutes() {
           <Route path="deroule" element={<DerouleTab />} />
           <Route path="planning" element={<PlanningTab />} />
           <Route path="production" element={<ProductionTab />} />
+          <Route path="musiques" element={<MusiquesTab />} />
           <Route path="livrables" element={<LivrablesTab />} />
           <Route path="materiel" element={<MaterielTab />} />
           <Route path="plans" element={<PlansTab />} />
