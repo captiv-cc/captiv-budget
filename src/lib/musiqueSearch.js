@@ -47,6 +47,8 @@ export async function searchDeezer(query, opts = {}) {
   const q = (query || '').trim()
   if (!q) return { tracks: [], total: 0, query: '' }
   const limit = opts.limit || 10
+  // Throw si infra KO. Le caller doit catch DeezerEdgeError pour
+  // distinguer un vrai zéro résultat d'un problème d'infra.
   const result = await callDeezerEdge('search', { q, limit })
   return result || { tracks: [], total: 0, query: q }
 }
@@ -67,15 +69,34 @@ export async function getDeezerTrack(deezerId) {
 }
 
 /**
+ * Erreur typée renvoyée par callDeezerEdge en cas de problème
+ * d'infrastructure (vs Deezer qui renvoie 0 résultats légitimement).
+ */
+export class DeezerEdgeError extends Error {
+  constructor(message, { code, status, body } = {}) {
+    super(message)
+    this.name = 'DeezerEdgeError'
+    this.code = code
+    this.status = status
+    this.body = body
+  }
+}
+
+/**
  * Appel direct à l'Edge Function avec query params GET.
+ *
+ * Throw DeezerEdgeError si problème d'infrastructure (function pas
+ * déployée, JWT invalide, etc.). Renvoie le body JSON sinon — même
+ * si tracks est vide (= 0 résultat légitime côté Deezer).
  */
 async function callDeezerEdge(action, params) {
-  // Build URL avec query params (Vite-only : import.meta.env)
   const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || ''
   const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || ''
   if (!supabaseUrl) {
-    console.warn('[musiqueSearch] VITE_SUPABASE_URL manquant')
-    return null
+    throw new DeezerEdgeError(
+      'VITE_SUPABASE_URL manquant — config front incomplète',
+      { code: 'NO_SUPABASE_URL' },
+    )
   }
   const url = new URL(
     `${supabaseUrl.replace(/\/$/, '')}/functions/v1/deezer-search`,
@@ -88,27 +109,52 @@ async function callDeezerEdge(action, params) {
   const { data: sessionResult } = await supabase.auth.getSession()
   const accessToken = sessionResult?.session?.access_token
   if (!accessToken) {
-    console.warn('[musiqueSearch] pas de session — non authentifié')
-    return null
+    throw new DeezerEdgeError(
+      'Non authentifié — reconnecte-toi pour utiliser la recherche',
+      { code: 'NO_SESSION' },
+    )
   }
+  let res
   try {
-    const res = await fetch(url.toString(), {
+    res = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         apikey: supabaseAnonKey,
       },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      console.warn(`[musiqueSearch] Edge Function HTTP ${res.status}`, text)
-      return null
-    }
-    return await res.json()
   } catch (err) {
-    console.warn('[musiqueSearch] fetch failed', err)
-    return null
+    throw new DeezerEdgeError(
+      'Erreur réseau — vérifie ta connexion ou le déploiement Supabase',
+      { code: 'NETWORK', body: err?.message },
+    )
   }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    if (res.status === 404) {
+      throw new DeezerEdgeError(
+        "Edge Function 'deezer-search' non déployée — exécute `supabase functions deploy deezer-search`",
+        { code: 'NOT_DEPLOYED', status: 404, body: text },
+      )
+    }
+    if (res.status === 401) {
+      throw new DeezerEdgeError(
+        'JWT invalide — reconnecte-toi',
+        { code: 'UNAUTHORIZED', status: 401, body: text },
+      )
+    }
+    if (res.status === 502) {
+      throw new DeezerEdgeError(
+        'Deezer ne répond pas (502) — réessaie dans quelques secondes',
+        { code: 'DEEZER_DOWN', status: 502, body: text },
+      )
+    }
+    throw new DeezerEdgeError(
+      `Edge Function HTTP ${res.status}`,
+      { code: 'HTTP_ERROR', status: res.status, body: text },
+    )
+  }
+  return await res.json()
 }
 
 // ─── Résolveur YouTube (proxy pour cohérence d'API) ────────────────────────
@@ -139,9 +185,25 @@ export async function resolveQuery(input) {
     }
     return { kind: 'youtube', ...data }
   }
-  // Sinon = texte libre Deezer
-  const data = await searchDeezer(text, { limit: 10 })
-  return { kind: 'deezer', ...(data || { tracks: [], total: 0 }) }
+  // Sinon = texte libre Deezer. On catch DeezerEdgeError pour pouvoir
+  // distinguer côté UI un vrai zéro résultat d'un problème d'infra.
+  try {
+    const data = await searchDeezer(text, { limit: 10 })
+    return { kind: 'deezer', ...(data || { tracks: [], total: 0 }) }
+  } catch (err) {
+    if (err instanceof DeezerEdgeError) {
+      return {
+        kind: 'error',
+        error: err.message,
+        code: err.code,
+        status: err.status,
+      }
+    }
+    return {
+      kind: 'error',
+      error: err?.message || 'Erreur de recherche Deezer',
+    }
+  }
 }
 
 // ─── Mappers : track Deezer → payload createProposition ────────────────────
