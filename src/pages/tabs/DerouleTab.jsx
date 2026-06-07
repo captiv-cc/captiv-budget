@@ -32,6 +32,8 @@ import {
   Eye,
   Sparkles,
   Sun,
+  Radio,
+  Maximize2,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -54,8 +56,10 @@ import DerouleShareModal from '../../features/deroule/DerouleShareModal'
 import ImportDerouleModal from '../../features/deroule/ImportDerouleModal'
 import ImportPreviewModal from '../../features/deroule/ImportPreviewModal'
 import ExportDerouleModal from '../../features/deroule/ExportDerouleModal'
+import LiveModeOverlay from '../../features/deroule/LiveModeOverlay'
 import * as DerouleLib from '../../lib/deroule'
 import useGoldenHour from '../../hooks/useGoldenHour'
+import { useLiveMode } from '../../hooks/useLiveMode'
 import {
   getLinkedChildren,
   applySourceUpdate,
@@ -151,6 +155,38 @@ export default function DerouleTab() {
     project?.lon ? Number(project.lon) : null,
   )
   const hasProjectGeoloc = Boolean(sunTimes)
+
+  // ─── Sprint A — Mode Régie live (FEST-live) ──────────────────────────
+  // Le hook gère :
+  //   - Détection du créneau en cours d'après l'heure (tick 30s)
+  //   - Auto-transition planifie → en_cours (heure_debut)
+  //   - Auto-transition en_cours → fait (heure_fin)
+  //   - Override manuel "Suivant" / "Marquer fait"
+  // Toggle persisté en localStorage par projet (vital si la régie ferme
+  // l'onglet par accident pendant le festival).
+  const liveMode = useLiveMode({
+    projectId,
+    creneaux,
+    deroule,
+    onUpdateStatut: (id, statut) => updateCreneau(id, { statut }),
+  })
+  // State du plein écran : ouvre LiveModeOverlay et requestFullscreen()
+  const [liveFullscreen, setLiveFullscreen] = useState(false)
+  useEffect(() => {
+    if (!liveFullscreen) return undefined
+    const el = document.documentElement
+    // Best-effort fullscreen — si l'utilisateur refuse ou si le browser
+    // ne supporte pas, on garde quand même l'overlay full-screen via CSS.
+    if (el?.requestFullscreen) {
+      el.requestFullscreen().catch(() => {})
+    }
+    // À la sortie : exit fullscreen + cleanup
+    return () => {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {})
+      }
+    }
+  }, [liveFullscreen])
 
   // Bascule auto vers liste sur mobile (sauf si on est explicitement en mode Cadreur)
   useEffect(() => {
@@ -1016,6 +1052,71 @@ export default function DerouleTab() {
               <span className="hidden sm:inline">Golden</span>
             </button>
           )}
+          {/* Sprint A — Mode Régie live : toggle + plein écran.
+              Le toggle est désactivé si le déroulé n'est pas aujourd'hui
+              (on n'auto-transitionne pas un déroulé du passé/futur). */}
+          {deroule && (
+            <>
+              <button
+                type="button"
+                onClick={() => liveMode.setEnabled((v) => !v)}
+                disabled={!liveMode.isToday}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+                style={{
+                  color: liveMode.enabled
+                    ? '#FFFFFF'
+                    : liveMode.isToday
+                    ? 'var(--txt-2)'
+                    : 'var(--txt-3)',
+                  background: liveMode.enabled
+                    ? '#E24B4A'
+                    : 'transparent',
+                  border: `1px solid ${
+                    liveMode.enabled
+                      ? '#E24B4A'
+                      : liveMode.isToday
+                      ? 'var(--brd)'
+                      : 'var(--brd-sub)'
+                  }`,
+                  cursor: liveMode.isToday ? 'pointer' : 'not-allowed',
+                  opacity: liveMode.isToday ? 1 : 0.55,
+                }}
+                title={
+                  !liveMode.isToday
+                    ? 'Mode live disponible uniquement le jour J'
+                    : liveMode.enabled
+                    ? 'Désactiver le mode régie live'
+                    : 'Activer le mode régie live (auto-transitions statut)'
+                }
+              >
+                <Radio
+                  className="w-3 h-3"
+                  style={{
+                    animation: liveMode.enabled
+                      ? 'live-radio-pulse 1.5s ease-in-out infinite'
+                      : 'none',
+                  }}
+                />
+                <span className="hidden sm:inline">Live</span>
+              </button>
+              {liveMode.enabled && liveMode.isToday && (
+                <button
+                  type="button"
+                  onClick={() => setLiveFullscreen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+                  style={{
+                    color: 'var(--txt-2)',
+                    background: 'transparent',
+                    border: '1px solid var(--brd)',
+                  }}
+                  title="Plein écran régie (écran de salle)"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                  <span className="hidden sm:inline">Plein écran</span>
+                </button>
+              )}
+            </>
+          )}
           {deroule && canEdit && (
             <button
               type="button"
@@ -1228,6 +1329,45 @@ export default function DerouleTab() {
         }}
         onConfirm={handleImportConfirm}
       />
+
+      {/* Sprint A — Mode Régie live : overlay plein écran */}
+      {liveFullscreen && liveMode.enabled && (
+        <LiveModeOverlay
+          currentCreneaux={liveMode.currentCreneaux}
+          nextCreneau={liveMode.nextCreneau}
+          nowMin={liveMode.nowMin}
+          membreById={
+            new Map(
+              (membres || []).map((m) => {
+                const prenom = m.contact?.prenom || m.prenom || ''
+                const nom = m.contact?.nom || m.nom || ''
+                return [
+                  m.id,
+                  {
+                    ...m,
+                    fullName: `${prenom} ${nom}`.trim() || '—',
+                    ini:
+                      `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() ||
+                      '?',
+                  },
+                ]
+              }),
+            )
+          }
+          laneById={new Map((lanes || []).map((l) => [l.id, l]))}
+          onSkipToNext={() => liveMode.skipToNext()}
+          onMarkDone={() => liveMode.markCurrentDone()}
+          onClose={() => setLiveFullscreen(false)}
+        />
+      )}
+
+      {/* CSS keyframes pour le pulse de l'icône Live dans la toolbar */}
+      <style>{`
+        @keyframes live-radio-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   )
 }
