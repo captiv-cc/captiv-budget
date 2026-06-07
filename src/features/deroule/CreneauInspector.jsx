@@ -49,6 +49,7 @@ import {
   formatMinTimeInput,
   formatMinHHMM,
   ALERTE_COLORS,
+  hasAlerte,
 } from '../../lib/deroule'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
@@ -927,6 +928,46 @@ function CompactView({
       className="flex-1 overflow-y-auto"
       style={{ padding: '10px 14px' }}
     >
+      {/* Alerte héritée du créneau source (read-only). Affichée seulement si
+          le créneau courant n'a pas sa propre alerte ET son parent en a une.
+          Permet au cadreur/coord de voir "il y a un point d'attention sur la
+          scène source" sans avoir à dupliquer. Cohérent avec le rendu share
+          via effectiveAlerte(). */}
+      {!hasAlerte(draft) && sourceCreneau && hasAlerte(sourceCreneau) && (() => {
+        const niveau = sourceCreneau.alerte_niveau || 'important'
+        const color = ALERTE_COLORS[niveau] || ALERTE_COLORS.important
+        const IconCmp = niveau === 'info' ? InfoIcon : AlertTriangle
+        return (
+          <div
+            className="rounded flex items-start gap-2 mb-2"
+            style={{
+              background: `${color}1f`,
+              borderLeft: `3px solid ${color}`,
+              padding: '6px 10px',
+            }}
+          >
+            <IconCmp
+              size={14}
+              style={{ color, marginTop: 2, flexShrink: 0 }}
+            />
+            <div className="flex-1 min-w-0">
+              <div
+                className="text-xs font-semibold"
+                style={{ color }}
+              >
+                {sourceCreneau.alerte_text}
+              </div>
+              <div
+                className="text-[10px] italic mt-0.5"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Hérité du créneau source
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* FEST-5.4 : ligne Alerte / point d'attention (toujours visible si
           alerte présente OU en mode édition). Édition inline du texte +
           toggle niveau info/important. */}
