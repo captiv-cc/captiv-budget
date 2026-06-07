@@ -195,11 +195,18 @@ export default function DerouleTab() {
   //   - Override manuel "Suivant" / "Marquer fait"
   // Toggle persisté en localStorage par projet (vital si la régie ferme
   // l'onglet par accident pendant le festival).
+  // Démo / test mode : bypass le check date_jour=today et injecte un
+  // nowMin custom dans le hook. Pas d'auto-write BDD en démo (le hook
+  // skip). Permet de valider l'UX live sans attendre le jour J réel.
+  const [demoActive, setDemoActive] = useState(false)
+  const [demoNowMin, setDemoNowMin] = useState(20 * 60) // 20:00 par défaut
   const liveMode = useLiveMode({
     projectId,
     creneaux,
     deroule,
     onUpdateStatut: (id, statut) => updateCreneau(id, { statut }),
+    simulationActive: demoActive,
+    simulatedNowMin: demoActive ? demoNowMin : null,
   })
   // State du plein écran : ouvre LiveModeOverlay et requestFullscreen()
   const [liveFullscreen, setLiveFullscreen] = useState(false)
@@ -1056,7 +1063,8 @@ export default function DerouleTab() {
           )}
           {/* Sprint A — Mode Régie live : toggle + plein écran.
               Le toggle est désactivé si le déroulé n'est pas aujourd'hui
-              (on n'auto-transitionne pas un déroulé du passé/futur). */}
+              (on n'auto-transitionne pas un déroulé du passé/futur).
+              Le mode Démo bypass ce check pour tester l'UX. */}
           {deroule && (
             <>
               <button
@@ -1085,7 +1093,7 @@ export default function DerouleTab() {
                 }}
                 title={
                   !liveMode.isToday
-                    ? 'Mode live disponible uniquement le jour J'
+                    ? 'Mode live disponible uniquement le jour J (utilise Démo pour tester)'
                     : liveMode.enabled
                     ? 'Désactiver le mode régie live'
                     : 'Activer le mode régie live (auto-transitions statut)'
@@ -1101,6 +1109,85 @@ export default function DerouleTab() {
                 />
                 <span className="hidden sm:inline">Live</span>
               </button>
+              {/* Démo : bypass date_jour=today + scrubber d'heure.
+                  Quand activé, Live devient cliquable et l'overlay PE
+                  reflète l'état au moment simulé. Pas d'écriture BDD. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDemoActive((v) => {
+                    const next = !v
+                    // Active aussi liveMode si on active Démo (sinon
+                    // tout reste OFF). Inverse : ne désactive PAS Live
+                    // en sortant de Démo (le user peut vouloir continuer
+                    // sur un déroulé réel du jour J).
+                    if (next) liveMode.setEnabled(true)
+                    return next
+                  })
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded transition-colors"
+                style={{
+                  color: demoActive ? '#8B5CF6' : 'var(--txt-3)',
+                  background: demoActive
+                    ? 'rgba(139,92,246,0.10)'
+                    : 'transparent',
+                  border: `1px dashed ${
+                    demoActive ? '#8B5CF6' : 'var(--brd-sub)'
+                  }`,
+                }}
+                title={
+                  demoActive
+                    ? 'Sortir du mode démo (simulation d\'heure)'
+                    : 'Activer le mode démo : simule l\'heure pour tester l\'UI live sans attendre le jour J'
+                }
+              >
+                <Sparkles className="w-3 h-3" />
+                <span className="hidden sm:inline">Démo</span>
+              </button>
+              {/* Scrubber d'heure en mode démo : -15 / chip HH:MM / +15 */}
+              {demoActive && (
+                <div
+                  className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded"
+                  style={{
+                    background: 'rgba(139,92,246,0.08)',
+                    border: '1px dashed rgba(139,92,246,0.4)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDemoNowMin((m) => Math.max(0, m - 15))
+                    }
+                    className="px-1.5 py-0.5 rounded text-xs"
+                    style={{ color: '#8B5CF6', cursor: 'pointer' }}
+                    title="-15 min"
+                  >
+                    −
+                  </button>
+                  <span
+                    className="px-1 text-[11px] font-mono font-semibold"
+                    style={{ color: '#8B5CF6', minWidth: 42, textAlign: 'center' }}
+                  >
+                    {String(Math.floor(demoNowMin / 60) % 24).padStart(2, '0')}
+                    :
+                    {String(demoNowMin % 60).padStart(2, '0')}
+                    {demoNowMin >= 24 * 60 && (
+                      <span className="text-[9px] opacity-70"> +1j</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDemoNowMin((m) => Math.min(28 * 60, m + 15))
+                    }
+                    className="px-1.5 py-0.5 rounded text-xs"
+                    style={{ color: '#8B5CF6', cursor: 'pointer' }}
+                    title="+15 min"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
               {liveMode.enabled && liveMode.isToday && (
                 <button
                   type="button"

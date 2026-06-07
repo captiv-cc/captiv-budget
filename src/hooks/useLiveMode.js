@@ -58,6 +58,12 @@ export function useLiveMode({
   creneaux = [],
   deroule,
   onUpdateStatut,
+  // Démo / test mode : si simulationActive=true, on bypass le check
+  // `date_jour === today` et on utilise simulatedNowMin comme heure
+  // courante au lieu du clock système. Pratique pour valider l'UI sans
+  // attendre le jour J réel.
+  simulationActive = false,
+  simulatedNowMin = null,
 }) {
   // ─── Toggle persistant en localStorage ────────────────────────────────
   const [enabled, _setEnabled] = useState(() => {
@@ -77,16 +83,30 @@ export function useLiveMode({
   )
 
   // ─── Tick toutes les 30s pour rafraîchir nowMin ───────────────────────
-  const [nowMin, setNowMin] = useState(() => getNowMin())
+  // En mode simulation, on suit simulatedNowMin (statique) au lieu du clock.
+  const [nowMin, setNowMin] = useState(() =>
+    simulationActive && typeof simulatedNowMin === 'number'
+      ? simulatedNowMin
+      : getNowMin(),
+  )
   useEffect(() => {
+    // Mode simulation : on synchronise quand simulatedNowMin change.
+    if (simulationActive) {
+      if (typeof simulatedNowMin === 'number') setNowMin(simulatedNowMin)
+      return undefined
+    }
+    // Mode normal : tick clock toutes les TICK_MS.
     if (!enabled) return undefined
     setNowMin(getNowMin())
     const t = setInterval(() => setNowMin(getNowMin()), TICK_MS)
     return () => clearInterval(t)
-  }, [enabled])
+  }, [enabled, simulationActive, simulatedNowMin])
 
   // ─── Sélection des créneaux du jour ───────────────────────────────────
-  const isToday = isTodayDeroule(deroule)
+  // En simulation, on bypass le check date_jour pour permettre de tester
+  // sur un déroulé non-courant. On reset aussi les triggers à chaque
+  // mouvement de simulatedNowMin pour permettre des allers-retours.
+  const isToday = isTodayDeroule(deroule) || simulationActive
 
   // ─── Détection des créneaux en cours d'après l'heure ──────────────────
   // Un créneau est "actuellement en cours d'horaire" si :
@@ -125,6 +145,10 @@ export function useLiveMode({
 
   useEffect(() => {
     if (!enabled || !isToday || !onUpdateStatut) return
+    // En simulation : pas d'auto-write BDD (sinon scrub temps = cascade
+    // de mises à jour irréversibles). Le visuel est porté par
+    // currentCreneaux + LiveModeOverlay qui ne dépendent pas de la BDD.
+    if (simulationActive) return
     // 1. Marquer 'en_cours' tous les créneaux dont l'heure_debut est passée
     //    et qui sont encore 'planifie'.
     for (const c of currentCreneaux) {
@@ -151,7 +175,15 @@ export function useLiveMode({
         triggeredRef.current.fait.delete(c.id)
       })
     }
-  }, [enabled, isToday, currentCreneaux, creneaux, nowMin, onUpdateStatut])
+  }, [
+    enabled,
+    isToday,
+    simulationActive,
+    currentCreneaux,
+    creneaux,
+    nowMin,
+    onUpdateStatut,
+  ])
 
   // Reset les triggers quand on désactive le mode live (sinon, si on
   // réactive plus tard, on penserait avoir déjà transitionné des créneaux
