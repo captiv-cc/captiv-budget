@@ -444,14 +444,30 @@ export default function MusiquesTab() {
         afterOrder = (targetIdx + 2) * 1000
       }
       const newOrder = calcSortOrderBetween(beforeOrder, afterOrder)
+      console.warn(
+        `[DnD] drop ${dragId} ${position} ${targetProp.id} ` +
+          `(before=${beforeOrder} after=${afterOrder} → newOrder=${newOrder})`,
+      )
       try {
         await updateSortOrder(dragId, newOrder)
+        // Optimistic update local sans attendre Realtime
+        refetch()
       } catch (e) {
         console.warn('[DnD] reorder failed', e)
-        notify.error('Réordonnancement impossible')
+        const msg = e?.message || String(e)
+        if (
+          /column.*sort_order.*does not exist/i.test(msg) ||
+          /sort_order/i.test(msg)
+        ) {
+          notify.error(
+            "Migration manquante : exécute 20260608g_musique_proposition_sort_order.sql",
+          )
+        } else {
+          notify.error(`Réordonnancement impossible : ${msg}`)
+        }
       }
     },
-    [draggingId, visiblePropositions],
+    [draggingId, visiblePropositions, refetch],
   )
 
   // Liste des proposeurs ayant filtré ce jour (pour le label du chip)
