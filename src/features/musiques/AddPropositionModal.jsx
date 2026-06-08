@@ -37,7 +37,7 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   X,
   Play,
@@ -48,6 +48,10 @@ import {
   Edit3,
   Youtube,
   ArrowLeft,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  Star,
 } from 'lucide-react'
 import UnifiedSearchBar from './UnifiedSearchBar'
 import {
@@ -65,6 +69,7 @@ import {
   findByNomFlou,
   searchSuggestions,
   normalizeNom,
+  listArtistes,
 } from '../../lib/projetArtistes'
 import { notify } from '../../lib/notify'
 
@@ -90,6 +95,35 @@ export default function AddPropositionModal({
   // { artiste, titre, exact: [...], similar: [...], onConfirm }
   const [duplicateWarning, setDuplicateWarning] = useState(null)
 
+  // MUS-4.8 : récap de la programmation (line-up importé via affiche IA).
+  // Toggleable, état persisté par projet dans localStorage. Quand ouvert,
+  // affiche les artistes en chips groupés par jour, triés par importance
+  // (headliner first puis alpha). Click un chip = préremplit la recherche.
+  const PROG_KEY = projectId ? `musiques.addProg.${projectId}` : null
+  const [progOpen, setProgOpen] = useState(() => {
+    if (!PROG_KEY) return false
+    try {
+      return localStorage.getItem(PROG_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const [progArtistes, setProgArtistes] = useState([])
+  const [progLoading, setProgLoading] = useState(false)
+  const toggleProg = useCallback(() => {
+    setProgOpen((v) => {
+      const next = !v
+      if (PROG_KEY) {
+        try {
+          localStorage.setItem(PROG_KEY, next ? '1' : '0')
+        } catch {
+          /* ignore */
+        }
+      }
+      return next
+    })
+  }, [PROG_KEY])
+
   // Reset à chaque ouverture
   useEffect(() => {
     if (open) {
@@ -107,6 +141,67 @@ export default function AddPropositionModal({
     // audioEl ne doit pas être dans deps (sinon boucle).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // MUS-4.8 : load le line-up à l'ouverture (déjà trié headliner desc + alpha
+  // par listArtistes). On ne re-fetch pas tant que le projet ne change pas.
+  useEffect(() => {
+    if (!open || !projectId) return
+    let cancelled = false
+    setProgLoading(true)
+    listArtistes(projectId, { limit: 500 })
+      .then((rows) => {
+        if (!cancelled) setProgArtistes(rows || [])
+      })
+      .catch((e) => {
+        console.warn('[AddProp] listArtistes failed', e)
+        if (!cancelled) setProgArtistes([])
+      })
+      .finally(() => {
+        if (!cancelled) setProgLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectId])
+
+  // MUS-4.8 : groupage par jour. On préserve l'ordre headliner desc + alpha
+  // déjà appliqué par listArtistes pour chaque groupe. Les artistes sans
+  // jour vont en "Sans jour" en fin de liste.
+  const progByJour = useMemo(() => {
+    if (!progArtistes.length) return []
+    const groups = new Map()
+    for (const a of progArtistes) {
+      const k = a.jour || '__none__'
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k).push(a)
+    }
+    // Tri des jours : on essaie un ordre canonique simple (Vendredi <
+    // Samedi < Dimanche), sinon ordre d'apparition. "Sans jour" toujours
+    // en dernier.
+    const dayOrder = [
+      'Mercredi',
+      'Jeudi',
+      'Vendredi',
+      'Samedi',
+      'Dimanche',
+      'Lundi',
+      'Mardi',
+    ]
+    const out = [...groups.entries()].sort(([a], [b]) => {
+      if (a === '__none__') return 1
+      if (b === '__none__') return -1
+      const ai = dayOrder.findIndex((d) => a.toLowerCase().includes(d.toLowerCase()))
+      const bi = dayOrder.findIndex((d) => b.toLowerCase().includes(d.toLowerCase()))
+      if (ai < 0 && bi < 0) return a.localeCompare(b, 'fr')
+      if (ai < 0) return 1
+      if (bi < 0) return -1
+      return ai - bi
+    })
+    return out.map(([jour, list]) => ({
+      jour: jour === '__none__' ? 'Sans jour' : jour,
+      list,
+    }))
+  }, [progArtistes])
 
   // Esc to close
   useEffect(() => {
@@ -446,6 +541,25 @@ export default function AddPropositionModal({
                 </button>
               </div>
 
+              {/* MUS-4.8 : Récap programmation (toggleable, persisté).
+                  Visible uniquement si au moins 1 artiste a été importé via
+                  l'affiche. Click sur un chip artiste = setQuery → trigger
+                  search Deezer automatique via UnifiedSearchBar debounce. */}
+              {progArtistes.length > 0 && (
+                <ProgRecap
+                  byJour={progByJour}
+                  totalCount={progArtistes.length}
+                  open={progOpen}
+                  onToggle={toggleProg}
+                  loading={progLoading}
+                  onPickArtiste={(nom) => {
+                    setQuery(nom)
+                    // Le UnifiedSearchBar va re-trigger le search via son
+                    // useEffect debounce (300ms).
+                  }}
+                />
+              )}
+
               {/* ─── Résultats Deezer ──────────────────────────────────────── */}
               {searchResult.kind === 'deezer' && (
                 <DeezerResults
@@ -669,6 +783,168 @@ function DuplicateWarning({ warning, onCancel, busy }) {
           Ajouter quand même
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─── ProgRecap : récap de la programmation par jour (MUS-4.8) ────────────
+// Section togglable. Chips compacts triés par importance (headliner first)
+// avec petit ★ pour les têtes d'affiche. Click chip → préremplit la
+// searchbar.
+function ProgRecap({
+  byJour,
+  totalCount,
+  open,
+  onToggle,
+  loading,
+  onPickArtiste,
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--brd-sub)',
+        borderRadius: 8,
+        background: 'var(--bg-elev)',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--txt-2)',
+          fontSize: 12,
+          fontWeight: 500,
+          textAlign: 'left',
+        }}
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        <Calendar size={12} style={{ opacity: 0.7 }} />
+        <span>Programmation</span>
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--txt-3)',
+            fontWeight: 400,
+          }}
+        >
+          ({totalCount} artiste{totalCount > 1 ? 's' : ''})
+        </span>
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 10,
+            color: 'var(--txt-3)',
+            fontStyle: 'italic',
+          }}
+        >
+          {open ? '— click pour rechercher' : ''}
+        </span>
+      </button>
+      {open && (
+        <div
+          style={{
+            padding: '0 12px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            maxHeight: 240,
+            overflowY: 'auto',
+          }}
+        >
+          {loading && (
+            <div style={{ fontSize: 11, color: 'var(--txt-3)' }}>
+              Chargement…
+            </div>
+          )}
+          {!loading &&
+            byJour.map(({ jour, list }) => (
+              <div key={jour}>
+                <div
+                  style={{
+                    fontSize: 9,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.8,
+                    color: 'var(--txt-3)',
+                    marginBottom: 4,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  {jour}
+                  <span style={{ opacity: 0.6 }}>· {list.length}</span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 4,
+                  }}
+                >
+                  {list.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => onPickArtiste(a.nom)}
+                      title={
+                        a.scene
+                          ? `Rechercher ${a.nom} (${a.scene}${
+                              a.headliner ? ' · tête d\'affiche' : ''
+                            })`
+                          : `Rechercher ${a.nom}${
+                              a.headliner ? ' (tête d\'affiche)' : ''
+                            }`
+                      }
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        background: a.headliner
+                          ? 'rgba(245,158,11,0.12)'
+                          : 'var(--bg-surf)',
+                        color: a.headliner ? '#D97706' : 'var(--txt-2)',
+                        border: `1px solid ${
+                          a.headliner
+                            ? 'rgba(245,158,11,0.35)'
+                            : 'var(--brd-sub)'
+                        }`,
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        transition: 'transform 60ms',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-1px)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)'
+                      }}
+                    >
+                      {a.headliner && (
+                        <Star
+                          size={9}
+                          style={{ fill: '#D97706', color: '#D97706' }}
+                        />
+                      )}
+                      {a.nom}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   )
 }
