@@ -70,6 +70,7 @@ import {
   searchSuggestions,
   normalizeNom,
   listArtistes,
+  setArtisteHeadliner,
 } from '../../lib/projetArtistes'
 import { notify } from '../../lib/notify'
 
@@ -123,6 +124,35 @@ export default function AddPropositionModal({
       return next
     })
   }, [PROG_KEY])
+
+  // MUS-4.9 : toggle headliner depuis le menu contextuel d'une chip
+  // (right-click). Update BDD + update local optimiste.
+  const handleToggleHeadliner = useCallback(async (artiste) => {
+    if (!artiste?.id) return
+    const next = !artiste.headliner
+    // Optimistic update
+    setProgArtistes((prev) =>
+      prev.map((a) => (a.id === artiste.id ? { ...a, headliner: next } : a)),
+    )
+    try {
+      await setArtisteHeadliner(artiste.id, next)
+      notify.success(
+        next
+          ? `${artiste.nom} marqué tête d'affiche`
+          : `${artiste.nom} retiré des têtes d'affiche`,
+        false,
+      )
+    } catch (e) {
+      console.warn('[AddProp] setHeadliner failed', e)
+      notify.error(e?.message || 'Update impossible')
+      // Rollback
+      setProgArtistes((prev) =>
+        prev.map((a) =>
+          a.id === artiste.id ? { ...a, headliner: !next } : a,
+        ),
+      )
+    }
+  }, [])
 
   // Reset à chaque ouverture
   useEffect(() => {
@@ -557,6 +587,7 @@ export default function AddPropositionModal({
                     // Le UnifiedSearchBar va re-trigger le search via son
                     // useEffect debounce (300ms).
                   }}
+                  onToggleHeadliner={handleToggleHeadliner}
                 />
               )}
 
@@ -798,7 +829,27 @@ function ProgRecap({
   onToggle,
   loading,
   onPickArtiste,
+  onToggleHeadliner,
 }) {
+  // MUS-4.9 : context menu state pour right-click sur les chips
+  // { artiste, x, y } | null
+  const [ctxMenu, setCtxMenu] = useState(null)
+  useEffect(() => {
+    if (!ctxMenu) return undefined
+    function onDocClick() {
+      setCtxMenu(null)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setCtxMenu(null)
+    }
+    document.addEventListener('click', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('click', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [ctxMenu])
+
   return (
     <div
       style={{
@@ -896,14 +947,24 @@ function ProgRecap({
                       key={a.id}
                       type="button"
                       onClick={() => onPickArtiste(a.nom)}
+                      onContextMenu={(e) => {
+                        if (!onToggleHeadliner) return
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setCtxMenu({
+                          artiste: a,
+                          x: e.clientX,
+                          y: e.clientY,
+                        })
+                      }}
                       title={
                         a.scene
                           ? `Rechercher ${a.nom} (${a.scene}${
                               a.headliner ? ' · tête d\'affiche' : ''
-                            })`
+                            }) — clic droit pour plus d'options`
                           : `Rechercher ${a.nom}${
                               a.headliner ? ' (tête d\'affiche)' : ''
-                            }`
+                            } — clic droit pour plus d'options`
                       }
                       style={{
                         display: 'inline-flex',
@@ -943,6 +1004,78 @@ function ProgRecap({
                 </div>
               </div>
             ))}
+        </div>
+      )}
+      {/* MUS-4.9 : context menu right-click pour toggle headliner.
+          position: fixed pour échapper aux scrollables, le doc-click
+          listener referme. */}
+      {ctxMenu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            zIndex: 100,
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+            borderRadius: 6,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            padding: 4,
+            minWidth: 200,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--txt-3)',
+              padding: '4px 8px',
+              textTransform: 'uppercase',
+              letterSpacing: 0.8,
+              borderBottom: '1px solid var(--brd-sub)',
+              marginBottom: 2,
+            }}
+          >
+            {ctxMenu.artiste.nom}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onToggleHeadliner(ctxMenu.artiste)
+              setCtxMenu(null)
+            }}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-2)',
+              fontSize: 12,
+              textAlign: 'left',
+              borderRadius: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <Star
+              size={12}
+              style={{
+                color: '#D97706',
+                fill: ctxMenu.artiste.headliner ? 'transparent' : '#D97706',
+              }}
+            />
+            {ctxMenu.artiste.headliner
+              ? 'Retirer le statut tête d\'affiche'
+              : 'Marquer tête d\'affiche'}
+          </button>
         </div>
       )}
     </div>

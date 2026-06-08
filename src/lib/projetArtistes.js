@@ -293,6 +293,29 @@ export async function enrichWithSpotify(artisteId, { spotify_artist_id, metadata
  * projet_musique_propositions a ON DELETE SET NULL, donc les rows liées
  * restent (juste artiste_id devient null).
  */
+/**
+ * MUS-4.9 — Toggle/set le flag headliner d'un artiste existant.
+ * Marque la source comme 'manuel' (priorité max) pour éviter qu'un
+ * ré-import affiche écrase la décision de l'utilisateur.
+ *
+ * @param {string} artisteId
+ * @param {boolean} headliner
+ * @returns {Promise<object>}
+ */
+export async function setArtisteHeadliner(artisteId, headliner) {
+  const { data, error } = await supabase
+    .from('projet_artistes')
+    .update({
+      headliner: Boolean(headliner),
+      source: 'manuel',
+    })
+    .eq('id', artisteId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function deleteArtiste(artisteId) {
   const { error } = await supabase
     .from('projet_artistes')

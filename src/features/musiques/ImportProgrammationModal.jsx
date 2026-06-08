@@ -50,6 +50,9 @@ export default function ImportProgrammationModal({
   const [dragOver, setDragOver] = useState(false)
   const [selected, setSelected] = useState(new Set()) // ids artiste cochés
   const [importing, setImporting] = useState(false)
+  // MUS-4.9 : overrides du flag headliner par idx, appliqués au commit.
+  // Map<idx, boolean> ; absent = on garde la valeur IA d'origine.
+  const [headlinerOverride, setHeadlinerOverride] = useState(new Map())
   const { extract, importing: extracting, error, result, reset } =
     useImportProgrammation()
 
@@ -61,9 +64,27 @@ export default function ImportProgrammationModal({
       setDragOver(false)
       setSelected(new Set())
       setImporting(false)
+      setHeadlinerOverride(new Map())
       reset()
     }
   }, [open, reset])
+
+  // MUS-4.9 : helpers headliner override
+  function getEffectiveHeadliner(a, idx) {
+    if (headlinerOverride.has(idx)) return headlinerOverride.get(idx)
+    return Boolean(a.headliner)
+  }
+  function toggleHeadliner(idx, current) {
+    setHeadlinerOverride((prev) => {
+      const next = new Map(prev)
+      // Si on revient à la valeur IA d'origine, on retire l'override
+      // (pour ne pas garder de trace inutile).
+      const original = Boolean(result?.artistes?.[idx]?.headliner)
+      if (!current === original) next.delete(idx)
+      else next.set(idx, !current)
+      return next
+    })
+  }
 
   // Cleanup blob URL
   useEffect(
@@ -145,7 +166,13 @@ export default function ImportProgrammationModal({
     if (!result?.artistes || selected.size === 0) return
     setImporting(true)
     try {
-      const toImport = result.artistes.filter((_, i) => selected.has(i))
+      // MUS-4.9 : applique les overrides headliner avant le commit
+      const toImport = result.artistes
+        .map((a, i) => ({
+          ...a,
+          headliner: getEffectiveHeadliner(a, i),
+        }))
+        .filter((_, i) => selected.has(i))
       const { created, updated, errors } = await bulkUpsertFromAffiche(
         projectId,
         toImport,
@@ -480,6 +507,10 @@ export default function ImportProgrammationModal({
               >
                 {result.artistes.map((a, idx) => {
                   const checked = selected.has(idx)
+                  const isHL = getEffectiveHeadliner(a, idx)
+                  const wasOverridden =
+                    headlinerOverride.has(idx) &&
+                    headlinerOverride.get(idx) !== Boolean(a.headliner)
                   return (
                     <label
                       key={idx}
@@ -509,7 +540,7 @@ export default function ImportProgrammationModal({
                       />
                       <span
                         style={{
-                          fontWeight: a.headliner ? 600 : 400,
+                          fontWeight: isHL ? 600 : 400,
                           color: 'var(--txt)',
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -517,12 +548,55 @@ export default function ImportProgrammationModal({
                         }}
                       >
                         {a.nom}
-                        {a.headliner && (
+                        {/* MUS-4.9 : étoile cliquable pour toggle headliner.
+                            Pleine ambrée pour HL, vide grise sinon (visible
+                            quand on hover toute la row pour discoverabilité). */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            toggleHeadliner(idx, isHL)
+                          }}
+                          disabled={importing}
+                          title={
+                            isHL
+                              ? 'Retirer le statut tête d\'affiche'
+                              : 'Marquer comme tête d\'affiche'
+                          }
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 0,
+                            display: 'inline-flex',
+                            cursor: importing ? 'not-allowed' : 'pointer',
+                            opacity: isHL ? 1 : 0.3,
+                            transition: 'opacity 80ms, transform 60ms',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = isHL ? '0.8' : '0.7'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = isHL ? '1' : '0.3'
+                          }}
+                        >
                           <Star
                             size={11}
                             style={{ color: '#D97706' }}
-                            fill="#D97706"
+                            fill={isHL ? '#D97706' : 'none'}
                           />
+                        </button>
+                        {wasOverridden && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              color: 'var(--txt-3)',
+                              fontStyle: 'italic',
+                            }}
+                            title="Override manuel (≠ IA)"
+                          >
+                            ·modifié
+                          </span>
                         )}
                       </span>
                       <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
