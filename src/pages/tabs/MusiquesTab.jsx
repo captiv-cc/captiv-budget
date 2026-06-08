@@ -44,6 +44,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
+import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
 import PropositionRow from '../../features/musiques/PropositionRow'
 
 const OUTIL_KEY = 'musiques'
@@ -70,6 +71,7 @@ export default function MusiquesTab() {
 
   // Modals
   const [addOpen, setAddOpen] = useState(false)
+  const [importProgOpen, setImportProgOpen] = useState(false)
 
   // Audio player partagé : un seul preview joue à la fois.
   const [playingId, setPlayingId] = useState(null)
@@ -267,7 +269,7 @@ export default function MusiquesTab() {
           <>
             <button
               type="button"
-              onClick={() => alert('ImportAffiche modal — MUS-1.10')}
+              onClick={() => setImportProgOpen(true)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -281,10 +283,10 @@ export default function MusiquesTab() {
                 fontSize: 12,
                 cursor: 'pointer',
               }}
-              title="Importer la programmation depuis une affiche (Claude Vision)"
+              title="Importer la programmation du festival (affiche, line-up) via Claude Vision"
             >
               <ImageUp size={13} />
-              Importer affiche
+              Importer prog.
             </button>
             <button
               type="button"
@@ -464,6 +466,16 @@ export default function MusiquesTab() {
           // Le double refetch (immédiat + via Realtime quelques ms après)
           // est sans conséquence — c'est idempotent.
           refetch()
+        }}
+      />
+      <ImportProgrammationModal
+        open={importProgOpen}
+        projectId={projectId}
+        onClose={() => setImportProgOpen(false)}
+        onImported={() => {
+          // Pas de refetch direct ici (les artistes ne sont pas dans
+          // propositions). L'annuaire sera utilisé au prochain ajout
+          // de proposition pour le matching.
         }}
       />
     </div>
