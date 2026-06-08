@@ -25,7 +25,14 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Play, Pause, Youtube } from 'lucide-react'
-import { STATUT_LABELS } from '../../lib/musiques'
+import {
+  STATUT_LABELS,
+  upsertMyNote,
+  removeMyNote,
+} from '../../lib/musiques'
+import { notify } from '../../lib/notify'
+import StarRating from './StarRating'
+import TagsEditor from './TagsEditor'
 
 // Couleurs pâles déterministes pour les initiales artiste (Tailwind 300
 // palette, cohérent avec la palette V3 des types de créneaux).
@@ -57,6 +64,11 @@ export default function PropositionRow({
   isPlaying = false,
   onTogglePlay,
   onClick,
+  // Permission + identité user pour les actions notes/tags
+  canEdit = true,
+  currentUserId = null,
+  projectId = null,
+  onMutated, // appelé après note/tag changes pour refetch optionnel
 }) {
   const agg = aggregate || {
     noteAvg: null,
@@ -65,6 +77,22 @@ export default function PropositionRow({
     tags: [],
   }
   const artistName = p.artiste?.nom || p.artiste_text || '—'
+
+  // Handler vote
+  async function handleSetNote(value) {
+    if (!canEdit) return
+    try {
+      if (value === 0) {
+        await removeMyNote(p.id)
+      } else {
+        await upsertMyNote(p.id, value)
+      }
+      onMutated?.()
+    } catch (e) {
+      console.warn('[PropositionRow] note failed', e)
+      notify.error(e?.message || 'Impossible de noter')
+    }
+  }
   const initials = (artistName.match(/[A-Za-zÀ-ÿ0-9]/)?.[0] || '?').toUpperCase()
   const color = hashColorFromName(artistName)
   const bpm = p.audio_features?.tempo
@@ -155,53 +183,40 @@ export default function PropositionRow({
           )}
         </div>
 
-        {/* Tags + audio-features badges */}
-        {(agg.tags.length > 0 || bpm) && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 4,
-              marginTop: 4,
-              flexWrap: 'wrap',
-              alignItems: 'center',
-            }}
-          >
-            {agg.tags.slice(0, 6).map((t) => (
-              <span
-                key={t.id}
-                style={{
-                  fontSize: 10,
-                  padding: '1px 6px',
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt-3)',
-                  borderRadius: 8,
-                }}
-              >
-                {t.tag}
-              </span>
-            ))}
-            {agg.tags.length > 6 && (
-              <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
-                + {agg.tags.length - 6}
-              </span>
-            )}
-            {bpm && (
-              <span
-                style={{
-                  fontSize: 10,
-                  padding: '1px 6px',
-                  background: 'rgba(245,158,11,0.10)',
-                  color: '#D97706',
-                  borderRadius: 8,
-                  fontWeight: 500,
-                }}
-                title="BPM (Deezer audio-features)"
-              >
-                {Math.round(bpm)} BPM
-              </span>
-            )}
-          </div>
-        )}
+        {/* Tags editor (collab) + audio-features badges sur la même ligne */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 4,
+            marginTop: 4,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
+          <TagsEditor
+            propositionId={p.id}
+            projectId={projectId}
+            currentUserId={currentUserId}
+            tags={agg.tags}
+            canEdit={canEdit}
+            onChange={onMutated}
+          />
+          {bpm && (
+            <span
+              style={{
+                fontSize: 10,
+                padding: '1px 6px',
+                background: 'rgba(245,158,11,0.10)',
+                color: '#D97706',
+                borderRadius: 8,
+                fontWeight: 500,
+              }}
+              title="BPM (Deezer audio-features)"
+            >
+              {Math.round(bpm)} BPM
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ─── Right : note + actions ─────────────────────────────────── */}
@@ -213,49 +228,51 @@ export default function PropositionRow({
           flexShrink: 0,
         }}
       >
-        {/* Note moyenne ou statut */}
+        {/* Note ★ cliquable + statut compact */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-end',
             gap: 2,
-            minWidth: 60,
+            minWidth: 90,
           }}
+          onClick={(e) => e.stopPropagation()}
         >
-          {agg.noteAvg ? (
-            <>
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: '#D97706',
-                }}
-              >
-                ★ {agg.noteAvg}
+          <StarRating
+            myValue={agg.myNote}
+            avgValue={agg.noteAvg}
+            count={agg.noteCount}
+            onChange={handleSetNote}
+            disabled={!canEdit}
+            size={13}
+          />
+          <span
+            style={{
+              fontSize: 10,
+              color: 'var(--txt-3)',
+              display: 'inline-flex',
+              gap: 4,
+              alignItems: 'center',
+            }}
+          >
+            {agg.noteCount > 0 ? (
+              <span>
+                {agg.noteAvg} · {agg.noteCount} vote{agg.noteCount > 1 ? 's' : ''}
               </span>
-              <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
-                {agg.noteCount} vote{agg.noteCount > 1 ? 's' : ''}
-              </span>
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>
-                — pas noté —
-              </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  padding: '0 5px',
-                  background: 'var(--bg-elev)',
-                  color: 'var(--txt-3)',
-                  borderRadius: 6,
-                }}
-              >
-                {STATUT_LABELS[p.statut] || p.statut}
-              </span>
-            </>
-          )}
+            ) : (
+              <span style={{ opacity: 0.7 }}>pas noté</span>
+            )}
+            <span
+              style={{
+                padding: '0 5px',
+                background: 'var(--bg-elev)',
+                borderRadius: 6,
+              }}
+            >
+              {STATUT_LABELS[p.statut] || p.statut}
+            </span>
+          </span>
         </div>
 
         {/* Bouton play preview */}

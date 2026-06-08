@@ -426,6 +426,10 @@ export default function MusiquesTab() {
                 aggregate={aggregates.get(p.id)}
                 isPlaying={playingId === p.id}
                 onTogglePlay={togglePlay}
+                canEdit={canEdit}
+                currentUserId={user?.id || null}
+                projectId={projectId}
+                onMutated={refetch}
               />
             </div>
           ))}
