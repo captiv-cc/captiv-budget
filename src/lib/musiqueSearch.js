@@ -206,6 +206,50 @@ export async function resolveQuery(input) {
   }
 }
 
+// ─── YouTube auto-find (post-création) ────────────────────────────────────
+
+/**
+ * Cherche automatiquement la vidéo YouTube correspondant à un track
+ * via l'Edge Function youtube-search. Renvoie null si rien trouvé.
+ *
+ * @param {string} artist
+ * @param {string} title
+ * @returns {Promise<{ video_id, video_url, thumbnail_url, channel } | null>}
+ */
+export async function findYouTubeForTrack(artist, title) {
+  const a = (artist || '').trim()
+  const t = (title || '').trim()
+  if (!a && !t) return null
+  const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || ''
+  const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || ''
+  if (!supabaseUrl) return null
+  const url = new URL(
+    `${supabaseUrl.replace(/\/$/, '')}/functions/v1/youtube-search`,
+  )
+  url.searchParams.set('q', `${a} ${t}`.trim())
+  const { data: sessionResult } = await supabase.auth.getSession()
+  const accessToken = sessionResult?.session?.access_token
+  if (!accessToken) return null
+  try {
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: supabaseAnonKey,
+      },
+    })
+    if (!res.ok) {
+      // Quota dépassé ou Edge Function pas déployée — silencieux
+      return null
+    }
+    const data = await res.json()
+    return data?.match || null
+  } catch (err) {
+    console.warn('[findYouTubeForTrack] failed', err)
+    return null
+  }
+}
+
 // ─── Mappers : track Deezer → payload createProposition ────────────────────
 
 /**

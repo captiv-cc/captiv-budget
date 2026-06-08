@@ -437,6 +437,147 @@ export function subscribeToProject(projectId, callbacks = {}) {
   }
 }
 
+// ─── Commentaires ──────────────────────────────────────────────────────────
+
+/**
+ * Liste les commentaires d'une proposition triés du plus ancien au plus
+ * récent (ordre de lecture naturel d'un fil de discussion).
+ */
+export async function listComments(propositionId) {
+  const { data, error } = await supabase
+    .from('projet_musique_comments')
+    .select(`
+      id, proposition_id, user_id, body, created_at, updated_at,
+      author:user_id (id, full_name, avatar_url, email)
+    `)
+    .eq('proposition_id', propositionId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Ajoute un commentaire signé du user courant.
+ */
+export async function addComment(propositionId, body) {
+  const trimmed = (body || '').trim()
+  if (!trimmed) throw new Error('Commentaire vide')
+  if (trimmed.length > 2000) throw new Error('Max 2000 caractères')
+  const userResult = await supabase.auth.getUser()
+  const userId = userResult.data?.user?.id
+  if (!userId) throw new Error('non authentifié')
+  const { data, error } = await supabase
+    .from('projet_musique_comments')
+    .insert({ proposition_id: propositionId, user_id: userId, body: trimmed })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Met à jour le body d'un commentaire (auteur uniquement, RLS protège).
+ */
+export async function updateComment(commentId, body) {
+  const trimmed = (body || '').trim()
+  if (!trimmed) throw new Error('Commentaire vide')
+  if (trimmed.length > 2000) throw new Error('Max 2000 caractères')
+  const { data, error } = await supabase
+    .from('projet_musique_comments')
+    .update({ body: trimmed })
+    .eq('id', commentId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Supprime un commentaire (auteur ou admin via RLS).
+ */
+export async function removeComment(commentId) {
+  const { error } = await supabase
+    .from('projet_musique_comments')
+    .delete()
+    .eq('id', commentId)
+  if (error) throw error
+}
+
+/**
+ * Subscribe aux changements de comments pour une proposition.
+ * Renvoie { unsubscribe() }.
+ */
+export function subscribeComments(propositionId, onChange) {
+  const channel = supabase
+    .channel(`musique_comments:${propositionId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'projet_musique_comments',
+        filter: `proposition_id=eq.${propositionId}`,
+      },
+      (payload) => onChange?.(payload),
+    )
+    .subscribe()
+  return {
+    unsubscribe: () => supabase.removeChannel(channel),
+  }
+}
+
+// ─── Détection de doublons à l'ajout ───────────────────────────────────────
+
+/**
+ * Cherche une proposition similaire dans le projet (matching flou sur
+ * artiste + titre normalisés).
+ *
+ * Algorithme :
+ *   1. Charge toutes les propositions du projet
+ *   2. Normalise titre et artiste (NFD + lowercase + sans ponctuation)
+ *   3. Match exact sur le couple (artiste_norm, titre_norm) →
+ *      considéré comme doublon certain
+ *   4. Match approximatif (titre identique mais artiste différent ou
+ *      vice-versa) → renvoyé en "possibles" pour info
+ *
+ * Renvoie { exact: [...], similar: [...] }
+ */
+export async function findSimilarProposition(projectId, artisteName, titre) {
+  const aNorm = normalizeForMatch(artisteName || '')
+  const tNorm = normalizeForMatch(titre || '')
+  if (!aNorm && !tNorm) return { exact: [], similar: [] }
+  const { data, error } = await supabase
+    .from('projet_musique_propositions')
+    .select(`
+      id, titre, artiste_text, artiste_id, statut, proposer_id, created_at,
+      artiste:artiste_id (id, nom)
+    `)
+    .eq('project_id', projectId)
+  if (error) throw error
+  const exact = []
+  const similar = []
+  for (const p of data || []) {
+    const pArtist = normalizeForMatch(p.artiste?.nom || p.artiste_text || '')
+    const pTitre = normalizeForMatch(p.titre || '')
+    if (pArtist === aNorm && pTitre === tNorm) {
+      exact.push(p)
+    } else if (pTitre === tNorm || (pArtist === aNorm && tNorm)) {
+      similar.push(p)
+    }
+  }
+  return { exact, similar }
+}
+
+function normalizeForMatch(s) {
+  if (typeof s !== 'string') return ''
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim()
+}
+
 // ─── Helpers d'agrégation (purs, testables) ────────────────────────────────
 
 /**
