@@ -488,9 +488,11 @@ export default function PropositionRow({
             }}
           >
             {agg.noteCount > 0 && (
-              <span style={{ color: '#D97706', fontWeight: 500 }}>
-                {agg.noteAvg} · {agg.noteCount}
-              </span>
+              <NoteSummary
+                myNote={agg.myNote}
+                noteAvg={agg.noteAvg}
+                noteCount={agg.noteCount}
+              />
             )}
             <span
               style={{
@@ -585,6 +587,65 @@ export default function PropositionRow({
         )}
       </div>
     </div>
+  )
+}
+
+// ─── NoteSummary : texte enrichi sous les étoiles ─────────────────────────
+// Distingue visuellement ma note vs la moyenne sans doubler les stars :
+//   - Si j'ai voté ET diffère de la moyenne : "Toi 5 · moy 4.2 · 5"
+//     avec "Toi 5" en bleu accent (ma valeur), "moy 4.2" en amber
+//   - Si j'ai voté et correspond à la moyenne (à 0.5 près) : "4 · 5"
+//     (le double affichage serait redondant)
+//   - Si je n'ai pas voté : "moy 4.2 · 5" (le préfixe "moy" indique
+//     implicitement qu'il s'agit de la moyenne communautaire)
+function NoteSummary({ myNote, noteAvg, noteCount }) {
+  const avgRounded = Math.round(noteAvg * 10) / 10
+  const countText = `${noteCount}`
+  const matchAvg =
+    myNote != null && Math.abs(myNote - noteAvg) < 0.5
+  if (myNote == null) {
+    // Pas de vote de moi : un seul indicateur "moy {X} · N"
+    return (
+      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'baseline' }}>
+        <span style={{ color: 'var(--txt-3)', fontSize: 9 }}>moy</span>
+        <span style={{ color: '#D97706', fontWeight: 500 }}>{avgRounded}</span>
+        <span style={{ color: 'var(--txt-3)' }}>·</span>
+        <span>{countText}</span>
+      </span>
+    )
+  }
+  if (matchAvg) {
+    // Vote = moyenne : pas la peine d'écrire 2 fois
+    return (
+      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'baseline' }}>
+        <span style={{ color: '#D97706', fontWeight: 500 }}>{avgRounded}</span>
+        <span style={{ color: 'var(--txt-3)' }}>·</span>
+        <span>{countText}</span>
+      </span>
+    )
+  }
+  // Distinct : on montre les deux
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        gap: 3,
+        alignItems: 'baseline',
+        flexWrap: 'wrap',
+      }}
+      title={`Ta note : ${myNote}/5 · Moyenne : ${avgRounded}/5 · ${noteCount} vote${
+        noteCount > 1 ? 's' : ''
+      }`}
+    >
+      <span style={{ color: 'var(--blue, #3B82F6)', fontWeight: 500 }}>
+        Toi {myNote}
+      </span>
+      <span style={{ color: 'var(--txt-3)' }}>·</span>
+      <span style={{ color: 'var(--txt-3)', fontSize: 9 }}>moy</span>
+      <span style={{ color: '#D97706', fontWeight: 500 }}>{avgRounded}</span>
+      <span style={{ color: 'var(--txt-3)' }}>·</span>
+      <span>{countText}</span>
+    </span>
   )
 }
 
