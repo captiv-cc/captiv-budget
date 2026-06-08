@@ -34,6 +34,9 @@ import {
   Check,
   Star,
   Tag as TagIcon,
+  Activity,
+  Clock,
+  Volume2,
 } from 'lucide-react'
 import {
   updateProposition,
@@ -566,35 +569,16 @@ export default function PropositionDetailDrawer({
               </select>
             </div>
             <div>
-              <FieldLabel>Audio features</FieldLabel>
-              <div
-                style={{
-                  padding: '5px 8px',
-                  background: 'var(--bg-elev)',
-                  border: '1px solid var(--brd-sub)',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  color: 'var(--txt-2)',
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  height: 26,
-                  flexWrap: 'wrap',
-                }}
-              >
-                {bpm ? (
-                  <span style={{ color: '#D97706', fontWeight: 500 }}>
-                    {bpm} BPM
-                  </span>
-                ) : (
-                  <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>
-                    BPM non détecté
-                  </span>
-                )}
-                {p.duration_ms && (
-                  <span>{formatDuration(p.duration_ms / 1000)}</span>
-                )}
-              </div>
+              <FieldLabel>
+                <Activity size={11} />
+                Audio features
+              </FieldLabel>
+              <AudioFeaturesPanel
+                bpm={bpm}
+                durationMs={p.duration_ms}
+                loudness={p.audio_features?.loudness}
+                source={p.audio_features?.source}
+              />
             </div>
           </div>
 
@@ -1087,6 +1071,115 @@ function InlineField({
         <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>
           {hint}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── AudioFeaturesPanel : mini panneau visuel BPM/durée/gain (MUS-4.3) ───
+// Remplace l'ancien rendu texte plat par des "pills" colorées + icônes
+// pour scanning rapide. Source Deezer/Spotify tagué discrètement à droite.
+function AudioFeaturesPanel({ bpm, durationMs, loudness, source }) {
+  const hasAny = Boolean(bpm || durationMs || loudness != null)
+  return (
+    <div
+      style={{
+        padding: '6px 8px',
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+        borderRadius: 4,
+        minHeight: 28,
+        display: 'flex',
+        gap: 6,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+      }}
+    >
+      {bpm ? (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 8px',
+            background: 'rgba(245,158,11,0.18)',
+            color: '#D97706',
+            borderRadius: 8,
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+          title="Tempo détecté (BPM)"
+        >
+          <Activity size={10} />
+          {bpm} BPM
+        </span>
+      ) : (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 8px',
+            background: 'transparent',
+            color: 'var(--txt-3)',
+            borderRadius: 8,
+            fontSize: 11,
+            fontStyle: 'italic',
+            border: '1px dashed var(--brd-sub)',
+          }}
+        >
+          BPM non détecté
+        </span>
+      )}
+      {durationMs > 0 && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 6px',
+            color: 'var(--txt-2)',
+            fontSize: 11,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+          title="Durée"
+        >
+          <Clock size={10} />
+          {formatDuration(durationMs / 1000)}
+        </span>
+      )}
+      {loudness != null && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            padding: '2px 6px',
+            color: 'var(--txt-2)',
+            fontSize: 11,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+          title="Loudness (dB) — sortie nominale du master"
+        >
+          <Volume2 size={10} />
+          {typeof loudness === 'number'
+            ? `${loudness > 0 ? '+' : ''}${loudness.toFixed(1)} dB`
+            : loudness}
+        </span>
+      )}
+      {hasAny && source && (
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 9,
+            color: 'var(--txt-3)',
+            textTransform: 'uppercase',
+            letterSpacing: 0.8,
+          }}
+          title="Source des audio features"
+        >
+          {source}
+        </span>
       )}
     </div>
   )
