@@ -101,7 +101,8 @@ export async function listPropositions(projectId, opts = {}) {
     .from('projet_musique_propositions')
     .select(`
       *,
-      artiste:artiste_id (id, nom, jour, scene, headliner, spotify_artist_id)
+      artiste:artiste_id (id, nom, jour, scene, headliner, spotify_artist_id),
+      proposer:proposer_id (id, full_name, avatar_url, email)
     `)
     .eq('project_id', projectId)
   if (opts.statut) {
@@ -137,7 +138,8 @@ export async function getProposition(id) {
     .from('projet_musique_propositions')
     .select(`
       *,
-      artiste:artiste_id (id, nom, jour, scene, headliner, spotify_artist_id)
+      artiste:artiste_id (id, nom, jour, scene, headliner, spotify_artist_id),
+      proposer:proposer_id (id, full_name, avatar_url, email)
     `)
     .eq('id', id)
     .single()

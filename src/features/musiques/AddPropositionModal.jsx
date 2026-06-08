@@ -57,6 +57,7 @@ import {
 } from '../../lib/musiqueSearch'
 import {
   createProposition,
+  findSimilarProposition,
 } from '../../lib/musiques'
 import {
   findByNomFlou,
@@ -83,6 +84,9 @@ export default function AddPropositionModal({
   // Pour le mode YouTube : on tente un match Deezer en arrière-plan
   // pour bénéficier de preview 30s + BPM.
   const [youtubeDeezerMatch, setYoutubeDeezerMatch] = useState(null)
+  // Détection doublons : warning à afficher avant la création
+  // { artiste, titre, exact: [...], similar: [...], onConfirm }
+  const [duplicateWarning, setDuplicateWarning] = useState(null)
 
   // Reset à chaque ouverture
   useEffect(() => {
@@ -93,6 +97,7 @@ export default function AddPropositionModal({
       setManualMode(false)
       setPlayingId(null)
       setYoutubeDeezerMatch(null)
+      setDuplicateWarning(null)
     } else {
       // Stop le preview audio si on ferme
       audioEl?.pause?.()
@@ -174,30 +179,71 @@ export default function AddPropositionModal({
     [audioEl],
   )
 
+  // ─── Helper : check doublons avant create ────────────────────────────────
+  // Renvoie true si on peut créer, false si on attend confirmation user.
+  const checkDuplicateAndProceed = useCallback(
+    async (artiste, titre, doCreate) => {
+      try {
+        const { exact } = await findSimilarProposition(
+          projectId,
+          artiste,
+          titre,
+        )
+        if (exact.length > 0) {
+          // Match certain → on stoppe et on demande confirmation
+          setDuplicateWarning({
+            artiste,
+            titre,
+            existing: exact,
+            onConfirmAdd: async () => {
+              setDuplicateWarning(null)
+              await doCreate()
+            },
+          })
+          return false
+        }
+        await doCreate()
+        return true
+      } catch (e) {
+        // Si la check de doublons fail, on ne bloque pas l'ajout
+        console.warn('[AddProposition] duplicate check failed', e)
+        await doCreate()
+        return true
+      }
+    },
+    [projectId],
+  )
+
   // ─── Action principale : Ajouter à partir d'un track Deezer ──────────────
   const handleAddFromDeezer = useCallback(
     async (track, opts = {}) => {
       if (!projectId) return
       setAdding(true)
       try {
-        // 1. Récupère les détails track (BPM + isrc) si on n'a pas déjà
-        const full = track.bpm != null ? track : await getDeezerTrack(track.deezer_id)
-        const t = full || track
-        // 2. Cherche un match dans l'annuaire (artiste connu déjà ?)
-        const existing = await findByNomFlou(projectId, t.artist)
-        // 3. Map vers payload createProposition
-        const payload = mapDeezerToProposition(t, {
-          artiste_id: existing?.id || null,
-        })
-        // Si l'utilisateur vient du flow YouTube et qu'il a aussi un lien
-        // YouTube saisi, on le préserve.
-        if (opts.lien_youtube) {
-          payload.lien_youtube = opts.lien_youtube
+        const doCreate = async () => {
+          // 1. Récupère les détails track (BPM + isrc) si on n'a pas déjà
+          const full = track.bpm != null ? track : await getDeezerTrack(track.deezer_id)
+          const t = full || track
+          // 2. Cherche un match dans l'annuaire (artiste connu déjà ?)
+          const existing = await findByNomFlou(projectId, t.artist)
+          // 3. Map vers payload createProposition
+          const payload = mapDeezerToProposition(t, {
+            artiste_id: existing?.id || null,
+          })
+          if (opts.lien_youtube) {
+            payload.lien_youtube = opts.lien_youtube
+          }
+          const created = await createProposition(projectId, payload)
+          notify.success(`"${t.artist} · ${t.title}" ajouté`, false)
+          onCreated?.(created)
+          onClose?.()
         }
-        const created = await createProposition(projectId, payload)
-        notify.success(`"${t.artist} · ${t.title}" ajouté`, false)
-        onCreated?.(created)
-        onClose?.()
+        // Check doublons avant create
+        if (opts.bypassDuplicateCheck) {
+          await doCreate()
+        } else {
+          await checkDuplicateAndProceed(track.artist, track.title, doCreate)
+        }
       } catch (e) {
         console.warn('[AddProposition] failed', e)
         notify.error(e?.message || 'Erreur de création')
@@ -205,7 +251,7 @@ export default function AddPropositionModal({
         setAdding(false)
       }
     },
-    [projectId, onCreated, onClose],
+    [projectId, onCreated, onClose, checkDuplicateAndProceed],
   )
 
   // ─── Action : Ajouter avec YouTube seul (pas de match Deezer) ────────────
@@ -214,19 +260,22 @@ export default function AddPropositionModal({
       if (!projectId) return
       setAdding(true)
       try {
-        const existing = ytData.artiste
-          ? await findByNomFlou(projectId, ytData.artiste)
-          : null
-        const created = await createProposition(projectId, {
-          artiste_id: existing?.id || null,
-          artiste_text: existing ? null : ytData.artiste,
-          titre: ytData.titre,
-          lien_youtube: ytData.canonical_url,
-          cover_url: ytData.thumbnail_url,
-        })
-        notify.success(`"${ytData.artiste} · ${ytData.titre}" ajouté`, false)
-        onCreated?.(created)
-        onClose?.()
+        const doCreate = async () => {
+          const existing = ytData.artiste
+            ? await findByNomFlou(projectId, ytData.artiste)
+            : null
+          const created = await createProposition(projectId, {
+            artiste_id: existing?.id || null,
+            artiste_text: existing ? null : ytData.artiste,
+            titre: ytData.titre,
+            lien_youtube: ytData.canonical_url,
+            cover_url: ytData.thumbnail_url,
+          })
+          notify.success(`"${ytData.artiste} · ${ytData.titre}" ajouté`, false)
+          onCreated?.(created)
+          onClose?.()
+        }
+        await checkDuplicateAndProceed(ytData.artiste, ytData.titre, doCreate)
       } catch (e) {
         console.warn('[AddProposition] yt failed', e)
         notify.error(e?.message || 'Erreur de création')
@@ -234,7 +283,7 @@ export default function AddPropositionModal({
         setAdding(false)
       }
     },
-    [projectId, onCreated, onClose],
+    [projectId, onCreated, onClose, checkDuplicateAndProceed],
   )
 
   if (!open) return null
@@ -325,7 +374,16 @@ export default function AddPropositionModal({
             overflow: 'auto',
           }}
         >
-          {!manualMode ? (
+          {/* Warning doublon — surcouche prioritaire si présent */}
+          {duplicateWarning && (
+            <DuplicateWarning
+              warning={duplicateWarning}
+              onCancel={() => setDuplicateWarning(null)}
+              busy={adding}
+            />
+          )}
+
+          {!manualMode && !duplicateWarning ? (
             <>
               <UnifiedSearchBar
                 value={query}
@@ -438,7 +496,7 @@ export default function AddPropositionModal({
                 </div>
               )}
             </>
-          ) : (
+          ) : manualMode && !duplicateWarning ? (
             <ManualForm
               projectId={projectId}
               onCancel={() => setManualMode(false)}
@@ -447,7 +505,7 @@ export default function AddPropositionModal({
                 onClose?.()
               }}
             />
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -457,6 +515,150 @@ export default function AddPropositionModal({
 // ═══════════════════════════════════════════════════════════════════════════
 // Sous-composants
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ─── DuplicateWarning : panneau anti-doublon ─────────────────────────────
+function DuplicateWarning({ warning, onCancel, busy }) {
+  const { artiste, titre, existing, onConfirmAdd } = warning
+  return (
+    <div
+      style={{
+        padding: 14,
+        background: 'rgba(245,158,11,0.06)',
+        border: '1px solid rgba(245,158,11,0.4)',
+        borderRadius: 8,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <AlertCircle
+          size={16}
+          style={{ color: '#F59E0B', marginTop: 1, flexShrink: 0 }}
+        />
+        <div style={{ flex: 1 }}>
+          <div
+            style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}
+          >
+            Doublon détecté
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--txt-2)',
+              marginTop: 3,
+            }}
+          >
+            <span style={{ fontWeight: 500 }}>
+              {artiste} · {titre}
+            </span>{' '}
+            est déjà dans la liste :
+          </div>
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          marginLeft: 24,
+        }}
+      >
+        {existing.map((p) => (
+          <div
+            key={p.id}
+            style={{
+              padding: '6px 10px',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+              borderRadius: 4,
+              fontSize: 12,
+              color: 'var(--txt-2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span style={{ flex: 1 }}>
+              {p.artiste?.nom || p.artiste_text || '—'} · {p.titre}
+            </span>
+            <span
+              style={{
+                fontSize: 9,
+                padding: '1px 5px',
+                background: 'var(--bg-surf)',
+                borderRadius: 6,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                color: 'var(--txt-3)',
+              }}
+            >
+              {p.statut}
+            </span>
+            {p.created_at && (
+              <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
+                {new Date(p.created_at).toLocaleDateString('fr-FR', {
+                  day: 'numeric',
+                  month: 'short',
+                })}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          justifyContent: 'flex-end',
+          marginTop: 4,
+        }}
+      >
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          style={{
+            padding: '7px 12px',
+            background: 'transparent',
+            border: '1px solid var(--brd-sub)',
+            color: 'var(--txt-2)',
+            borderRadius: 4,
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
+          Annuler — ne pas ajouter
+        </button>
+        <button
+          type="button"
+          onClick={onConfirmAdd}
+          disabled={busy}
+          style={{
+            padding: '7px 12px',
+            background: '#F59E0B',
+            color: 'white',
+            border: 'none',
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          {busy ? (
+            <Loader2 size={12} className="spin" />
+          ) : (
+            <Plus size={12} />
+          )}
+          Ajouter quand même
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function DeezerResults({ tracks, playingId, onPlay, onAdd, adding }) {
   if (tracks.length === 0) {

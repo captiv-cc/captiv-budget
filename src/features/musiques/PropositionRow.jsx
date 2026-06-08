@@ -58,6 +58,46 @@ function hashColorFromName(name) {
   return INITIAL_COLORS[h % INITIAL_COLORS.length]
 }
 
+// ─── ProposerAvatar : mini avatar du proposeur (initiales + tooltip) ──────
+function ProposerAvatar({ proposer, createdAt }) {
+  const name =
+    proposer?.full_name ||
+    proposer?.email?.split('@')[0] ||
+    'inconnu'
+  const initials = (name.match(/[A-Za-zÀ-ÿ0-9]/g) || ['?'])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const color = hashColorFromName(name)
+  const dateStr = createdAt
+    ? new Date(createdAt).toLocaleDateString('fr-FR', {
+        day: 'numeric',
+        month: 'short',
+      })
+    : ''
+  return (
+    <div
+      title={`Proposé par ${name}${dateStr ? ` le ${dateStr}` : ''}`}
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        background: color.bg,
+        color: color.fg,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 9,
+        fontWeight: 600,
+        flexShrink: 0,
+        cursor: 'help',
+      }}
+    >
+      {initials}
+    </div>
+  )
+}
+
 export default function PropositionRow({
   proposition: p,
   aggregate,
@@ -231,6 +271,11 @@ export default function PropositionRow({
           flexShrink: 0,
         }}
       >
+        {/* Avatar proposeur (mini, hover = tooltip nom) */}
+        {p.proposer && (
+          <ProposerAvatar proposer={p.proposer} createdAt={p.created_at} />
+        )}
+
         {/* Note ★ cliquable + statut compact */}
         <div
           style={{
