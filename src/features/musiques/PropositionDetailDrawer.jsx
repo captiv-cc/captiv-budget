@@ -34,7 +34,6 @@ import {
   Check,
   Star,
   Tag as TagIcon,
-  Activity,
   Clock,
   Volume2,
 } from 'lucide-react'
@@ -516,70 +515,46 @@ export default function PropositionDetailDrawer({
                     : null
                 }
               />
-              {p.artiste?.jour && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    padding: '1px 6px',
-                    background: 'rgba(59,130,246,0.12)',
-                    color: 'var(--blue, #3B82F6)',
-                    borderRadius: 6,
-                    display: 'inline-block',
-                    marginTop: 6,
-                  }}
-                >
-                  Joue {p.artiste.jour}
-                  {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Statut + YouTube + Deezer sur une ligne compacte 2-col */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 8,
-            }}
-          >
-            <div>
-              <FieldLabel>Statut</FieldLabel>
-              <select
-                value={p.statut}
-                onChange={(e) => handleStatutChange(e.target.value)}
-                disabled={!canEdit || saving}
-                style={{
-                  width: '100%',
-                  padding: '5px 8px',
-                  background: 'var(--bg-elev)',
-                  border: '1px solid var(--brd-sub)',
-                  color: 'var(--txt)',
-                  borderRadius: 4,
-                  fontSize: 12,
-                  outline: 'none',
-                  cursor: canEdit ? 'pointer' : 'default',
-                }}
-              >
-                {STATUTS.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUT_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <FieldLabel>
-                <Activity size={11} />
-                Audio features
-              </FieldLabel>
-              <AudioFeaturesPanel
+              {/* MUS-4.3 v2 : chips inline (BPM, durée, gain + Joue Jx)
+                  juste sous l'artiste, plus de section "Audio features"
+                  dédiée — c'est juste de la meta secondaire. */}
+              <InlineMetaChips
                 bpm={bpm}
                 durationMs={p.duration_ms}
                 loudness={p.audio_features?.loudness}
                 source={p.audio_features?.source}
+                jour={p.artiste?.jour}
+                scene={p.artiste?.scene}
               />
             </div>
+          </div>
+
+          {/* Statut — full row depuis que les audio features sont passées
+              inline en haut */}
+          <div>
+            <FieldLabel>Statut</FieldLabel>
+            <select
+              value={p.statut}
+              onChange={(e) => handleStatutChange(e.target.value)}
+              disabled={!canEdit || saving}
+              style={{
+                width: '100%',
+                padding: '5px 8px',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+                color: 'var(--txt)',
+                borderRadius: 4,
+                fontSize: 12,
+                outline: 'none',
+                cursor: canEdit ? 'pointer' : 'default',
+              }}
+            >
+              {STATUTS.map((s) => (
+                <option key={s} value={s}>
+                  {STATUT_LABELS[s]}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Lien YouTube — full row */}
@@ -1076,111 +1051,111 @@ function InlineField({
   )
 }
 
-// ─── AudioFeaturesPanel : mini panneau visuel BPM/durée/gain (MUS-4.3) ───
-// Remplace l'ancien rendu texte plat par des "pills" colorées + icônes
-// pour scanning rapide. Source Deezer/Spotify tagué discrètement à droite.
-function AudioFeaturesPanel({ bpm, durationMs, loudness, source }) {
-  const hasAny = Boolean(bpm || durationMs || loudness != null)
+// ─── InlineMetaChips : chips compactes (BPM, durée, gain, Joue Jx) ───────
+// MUS-4.3 v2 — Hugo a jugé l'ancien panneau "Audio features" trop lourd
+// pour la quantité d'info (3 valeurs). Au lieu d'un encadré dédié + label
+// + tag source, on intègre les infos comme petites chips inline juste
+// sous l'artiste, au même niveau que le badge "Joue Vendredi". Le tag
+// de provenance (Deezer / client-detected) est dégradé en tooltip sur
+// la pill BPM. Aucune chip = aucun rendu (placeholder discret).
+function InlineMetaChips({ bpm, durationMs, loudness, source, jour, scene }) {
+  const items = []
+  if (jour) {
+    items.push(
+      <span
+        key="jour"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          fontSize: 11,
+          padding: '1px 6px',
+          background: 'rgba(59,130,246,0.12)',
+          color: 'var(--blue, #3B82F6)',
+          borderRadius: 6,
+          fontWeight: 500,
+        }}
+      >
+        Joue {jour}
+        {scene ? ` · ${scene}` : ''}
+      </span>,
+    )
+  }
+  if (bpm) {
+    items.push(
+      <span
+        key="bpm"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          fontSize: 11,
+          padding: '1px 6px',
+          background: 'rgba(245,158,11,0.15)',
+          color: '#D97706',
+          borderRadius: 6,
+          fontWeight: 500,
+        }}
+        title={
+          source
+            ? `Tempo : ${bpm} BPM (source ${source})`
+            : `Tempo : ${bpm} BPM`
+        }
+      >
+        {bpm} BPM
+      </span>,
+    )
+  }
+  if (durationMs > 0) {
+    items.push(
+      <span
+        key="dur"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          fontSize: 11,
+          color: 'var(--txt-3)',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+        title="Durée"
+      >
+        <Clock size={10} />
+        {formatDuration(durationMs / 1000)}
+      </span>,
+    )
+  }
+  if (loudness != null && typeof loudness === 'number') {
+    items.push(
+      <span
+        key="loud"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          fontSize: 11,
+          color: 'var(--txt-3)',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+        title="Loudness — sortie nominale du master"
+      >
+        <Volume2 size={10} />
+        {loudness > 0 ? '+' : ''}
+        {loudness.toFixed(1)} dB
+      </span>,
+    )
+  }
+  if (items.length === 0) return null
   return (
     <div
       style={{
-        padding: '6px 8px',
-        background: 'var(--bg-elev)',
-        border: '1px solid var(--brd-sub)',
-        borderRadius: 4,
-        minHeight: 28,
         display: 'flex',
+        flexWrap: 'wrap',
         gap: 6,
         alignItems: 'center',
-        flexWrap: 'wrap',
+        marginTop: 6,
       }}
     >
-      {bpm ? (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 8px',
-            background: 'rgba(245,158,11,0.18)',
-            color: '#D97706',
-            borderRadius: 8,
-            fontSize: 11,
-            fontWeight: 600,
-          }}
-          title="Tempo détecté (BPM)"
-        >
-          <Activity size={10} />
-          {bpm} BPM
-        </span>
-      ) : (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 8px',
-            background: 'transparent',
-            color: 'var(--txt-3)',
-            borderRadius: 8,
-            fontSize: 11,
-            fontStyle: 'italic',
-            border: '1px dashed var(--brd-sub)',
-          }}
-        >
-          BPM non détecté
-        </span>
-      )}
-      {durationMs > 0 && (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 6px',
-            color: 'var(--txt-2)',
-            fontSize: 11,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-          title="Durée"
-        >
-          <Clock size={10} />
-          {formatDuration(durationMs / 1000)}
-        </span>
-      )}
-      {loudness != null && (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 3,
-            padding: '2px 6px',
-            color: 'var(--txt-2)',
-            fontSize: 11,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-          title="Loudness (dB) — sortie nominale du master"
-        >
-          <Volume2 size={10} />
-          {typeof loudness === 'number'
-            ? `${loudness > 0 ? '+' : ''}${loudness.toFixed(1)} dB`
-            : loudness}
-        </span>
-      )}
-      {hasAny && source && (
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontSize: 9,
-            color: 'var(--txt-3)',
-            textTransform: 'uppercase',
-            letterSpacing: 0.8,
-          }}
-          title="Source des audio features"
-        >
-          {source}
-        </span>
-      )}
+      {items}
     </div>
   )
 }
