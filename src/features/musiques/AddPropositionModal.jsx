@@ -582,6 +582,11 @@ export default function AddPropositionModal({
                   open={progOpen}
                   onToggle={toggleProg}
                   loading={progLoading}
+                  currentQuery={query}
+                  hasResults={
+                    searchResult.kind === 'deezer' ||
+                    searchResult.kind === 'youtube'
+                  }
                   onPickArtiste={(nom) => {
                     setQuery(nom)
                     // Le UnifiedSearchBar va re-trigger le search via son
@@ -830,6 +835,13 @@ function ProgRecap({
   loading,
   onPickArtiste,
   onToggleHeadliner,
+  // MUS-4.10 : nom de la recherche courante (= dernière chip cliquée).
+  // Permet de surligner l'artiste actif dans la prog pour qu'on s'y
+  // retrouve quand on veut switcher.
+  currentQuery = '',
+  // MUS-4.10 : si vrai, des résultats sont affichés en dessous → on réduit
+  // la maxHeight du panneau pour ne pas concurrencer les résultats.
+  hasResults = false,
 }) {
   // MUS-4.9 : context menu state pour right-click sur les chips
   // { artiste, x, y } | null
@@ -850,6 +862,17 @@ function ProgRecap({
     }
   }, [ctxMenu])
 
+  // MUS-4.10 : normalisation pour matcher la chip active à la recherche
+  // courante (insensible à la casse + on tente startsWith pour les noms
+  // composés tapés partiellement).
+  const norm = (s) => (s || '').trim().toLowerCase()
+  const q = norm(currentQuery)
+  const isCurrent = (nom) => {
+    const n = norm(nom)
+    if (!q || !n) return false
+    return n === q || q.startsWith(n) || n.startsWith(q)
+  }
+
   return (
     <div
       style={{
@@ -857,6 +880,9 @@ function ProgRecap({
         borderRadius: 8,
         background: 'var(--bg-elev)',
         overflow: 'hidden',
+        // MUS-4.10 : empêche le flex parent du modal body de squeezer le
+        // récap quand les résultats Deezer prennent toute la hauteur.
+        flexShrink: 0,
       }}
     >
       <button
@@ -908,7 +934,11 @@ function ProgRecap({
             display: 'flex',
             flexDirection: 'column',
             gap: 8,
-            maxHeight: 240,
+            // MUS-4.10 : réduit la maxHeight quand des résultats sont visibles
+            // pour ne pas écraser leur place. 240px en idle (pour scanner la
+            // prog), 160px quand on a déjà cliqué un artiste (le picker reste
+            // utilisable pour switcher).
+            maxHeight: hasResults ? 160 : 240,
             overflowY: 'auto',
           }}
         >
@@ -942,65 +972,82 @@ function ProgRecap({
                     gap: 4,
                   }}
                 >
-                  {list.map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={() => onPickArtiste(a.nom)}
-                      onContextMenu={(e) => {
-                        if (!onToggleHeadliner) return
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setCtxMenu({
-                          artiste: a,
-                          x: e.clientX,
-                          y: e.clientY,
-                        })
-                      }}
-                      title={
-                        a.scene
-                          ? `Rechercher ${a.nom} (${a.scene}${
-                              a.headliner ? ' · tête d\'affiche' : ''
-                            }) — clic droit pour plus d'options`
-                          : `Rechercher ${a.nom}${
-                              a.headliner ? ' (tête d\'affiche)' : ''
-                            } — clic droit pour plus d'options`
-                      }
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 3,
-                        padding: '2px 8px',
-                        fontSize: 11,
-                        background: a.headliner
-                          ? 'rgba(245,158,11,0.12)'
-                          : 'var(--bg-surf)',
-                        color: a.headliner ? '#D97706' : 'var(--txt-2)',
-                        border: `1px solid ${
-                          a.headliner
-                            ? 'rgba(245,158,11,0.35)'
-                            : 'var(--brd-sub)'
-                        }`,
-                        borderRadius: 10,
-                        cursor: 'pointer',
-                        transition: 'transform 60ms',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.transform = 'translateY(-1px)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = 'translateY(0)'
-                      }}
-                    >
-                      {a.headliner && (
-                        <Star
-                          size={9}
-                          style={{ fill: '#D97706', color: '#D97706' }}
-                        />
-                      )}
-                      {a.nom}
-                    </button>
-                  ))}
+                  {list.map((a) => {
+                    const active = isCurrent(a.nom)
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => onPickArtiste(a.nom)}
+                        onContextMenu={(e) => {
+                          if (!onToggleHeadliner) return
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setCtxMenu({
+                            artiste: a,
+                            x: e.clientX,
+                            y: e.clientY,
+                          })
+                        }}
+                        title={
+                          a.scene
+                            ? `Rechercher ${a.nom} (${a.scene}${
+                                a.headliner ? ' · tête d\'affiche' : ''
+                              }) — clic droit pour plus d'options`
+                            : `Rechercher ${a.nom}${
+                                a.headliner ? ' (tête d\'affiche)' : ''
+                              } — clic droit pour plus d'options`
+                        }
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          padding: '2px 8px',
+                          fontSize: 11,
+                          // MUS-4.10 : si chip courante → highlight bleu
+                          // (pour qu'on s'y retrouve même avec results visibles)
+                          background: active
+                            ? 'var(--blue-bg, rgba(59,130,246,0.18))'
+                            : a.headliner
+                              ? 'rgba(245,158,11,0.12)'
+                              : 'var(--bg-surf)',
+                          color: active
+                            ? 'var(--blue, #3B82F6)'
+                            : a.headliner
+                              ? '#D97706'
+                              : 'var(--txt-2)',
+                          border: `1px solid ${
+                            active
+                              ? 'var(--blue, #3B82F6)'
+                              : a.headliner
+                                ? 'rgba(245,158,11,0.35)'
+                                : 'var(--brd-sub)'
+                          }`,
+                          fontWeight: active ? 600 : 400,
+                          borderRadius: 10,
+                          cursor: 'pointer',
+                          transition: 'transform 60ms',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-1px)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                      >
+                        {a.headliner && (
+                          <Star
+                            size={9}
+                            style={{
+                              fill: active ? 'var(--blue, #3B82F6)' : '#D97706',
+                              color: active ? 'var(--blue, #3B82F6)' : '#D97706',
+                            }}
+                          />
+                        )}
+                        {a.nom}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))}
