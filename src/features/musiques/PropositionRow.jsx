@@ -374,6 +374,29 @@ export default function PropositionRow({
               {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
             </button>
           )}
+          {/* Badge statut : à côté des autres badges du titre,
+              car c'est une propriété de la proposition (pas un détail
+              du système de notation). */}
+          <span
+            style={{
+              fontSize: 9,
+              padding: '1px 6px',
+              background:
+                p.statut === 'vrac'
+                  ? 'var(--bg-elev)'
+                  : 'rgba(59,130,246,0.12)',
+              color:
+                p.statut === 'vrac'
+                  ? 'var(--txt-3)'
+                  : 'var(--blue, #3B82F6)',
+              borderRadius: 6,
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}
+          >
+            {STATUT_LABELS[p.statut] || p.statut}
+          </span>
         </div>
 
         {/* Tags editor (collab) + audio-features badges sur la même ligne */}
@@ -456,14 +479,18 @@ export default function PropositionRow({
           />
         )}
 
-        {/* Note ★ cliquable + statut compact */}
+        {/* Note ★ cliquable + statut compact.
+            Largeur FIXE pour que les étoiles soient toujours à la même
+            position quelle que soit la longueur du texte sous (qui peut
+            être "5 · 1" court ou "Toi 5 · moy 4.2 · 12" long). */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-end',
             gap: 2,
-            minWidth: 90,
+            width: 140,
+            flexShrink: 0,
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -475,46 +502,26 @@ export default function PropositionRow({
             disabled={!canEdit}
             size={13}
           />
-          {/* Sous les étoiles : soit la moyenne+count, soit juste le
-              badge statut (sans "pas noté" qui était redondant avec
-              les étoiles vides). */}
-          <span
-            style={{
-              fontSize: 10,
-              color: 'var(--txt-3)',
-              display: 'inline-flex',
-              gap: 4,
-              alignItems: 'center',
-            }}
-          >
-            {agg.noteCount > 0 && (
+          {/* Sous les étoiles : moyenne + count + différenciation
+              "Toi/moy" si pertinent. Le badge statut a été déplacé
+              sur la ligne du titre (sa vraie place). */}
+          {agg.noteCount > 0 && (
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--txt-3)',
+                display: 'inline-flex',
+                gap: 4,
+                alignItems: 'center',
+              }}
+            >
               <NoteSummary
                 myNote={agg.myNote}
                 noteAvg={agg.noteAvg}
                 noteCount={agg.noteCount}
               />
-            )}
-            <span
-              style={{
-                padding: '1px 6px',
-                background:
-                  p.statut === 'vrac'
-                    ? 'var(--bg-elev)'
-                    : 'rgba(59,130,246,0.12)',
-                color:
-                  p.statut === 'vrac'
-                    ? 'var(--txt-2)'
-                    : 'var(--blue, #3B82F6)',
-                borderRadius: 6,
-                fontWeight: 500,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                fontSize: 9,
-              }}
-            >
-              {STATUT_LABELS[p.statut] || p.statut}
             </span>
-          </span>
+          )}
         </div>
 
         {/* Bouton play preview */}
