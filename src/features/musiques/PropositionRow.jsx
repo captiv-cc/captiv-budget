@@ -49,6 +49,7 @@ import {
 import { notify } from '../../lib/notify'
 import StarRating from './StarRating'
 import TagsEditor from './TagsEditor'
+import PopoverFloat from '../livrables/components/PopoverFloat'
 
 // Couleurs pâles déterministes pour les initiales artiste (Tailwind 300
 // palette, cohérent avec la palette V3 des types de créneaux).
@@ -655,31 +656,18 @@ function NoteSummary({ myNote, noteAvg, noteCount }) {
 }
 
 // ─── QuickActionsMenu : "..." popover avec changer statut + supprimer ──────
+// MUS-4.7c : rendu via PopoverFloat (portal sur document.body) pour
+// échapper à l'overflow auto des conteneurs parents — sans ça, le menu
+// se faisait clipper sur la dernière row visible.
 function QuickActionsMenu({ proposition: p, onMutated }) {
   const [open, setOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
-  const ref = useRef(null)
+  const anchorRef = useRef(null)
 
+  // Reset confirmDelete dès qu'on ferme — sinon réouverture = state stale
   useEffect(() => {
-    if (!open) return undefined
-    function onDocClick(e) {
-      if (ref.current?.contains(e.target)) return
-      setOpen(false)
-      setConfirmDelete(false)
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') {
-        setOpen(false)
-        setConfirmDelete(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocClick)
-      document.removeEventListener('keydown', onKey)
-    }
+    if (!open) setConfirmDelete(false)
   }, [open])
 
   async function handleStatutChange(newStatut) {
@@ -717,11 +705,11 @@ function QuickActionsMenu({ proposition: p, onMutated }) {
 
   return (
     <div
-      ref={ref}
       style={{ position: 'relative', flexShrink: 0 }}
       onClick={(e) => e.stopPropagation()}
     >
       <button
+        ref={anchorRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation()
@@ -744,13 +732,14 @@ function QuickActionsMenu({ proposition: p, onMutated }) {
       >
         <MoreHorizontal size={16} />
       </button>
-      {open && (
+      <PopoverFloat
+        anchorRef={anchorRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        align="right"
+      >
         <div
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            right: 0,
-            zIndex: 50,
             background: 'var(--bg-surf)',
             border: '1px solid var(--brd)',
             borderRadius: 6,
@@ -894,7 +883,7 @@ function QuickActionsMenu({ proposition: p, onMutated }) {
             </button>
           )}
         </div>
-      )}
+      </PopoverFloat>
     </div>
   )
 }

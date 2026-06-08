@@ -73,6 +73,7 @@ import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
 import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
+import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 
 const OUTIL_KEY = 'musiques'
 
@@ -1479,25 +1480,7 @@ function ChipDropdown({
   hideClear = false,
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-
-  // Close au click outside
-  useEffect(() => {
-    if (!open) return undefined
-    function onDocClick(e) {
-      if (ref.current?.contains(e.target)) return
-      setOpen(false)
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const anchorRef = useRef(null)
 
   const selected = options.find((o) => o.key === value)
   // Le chip est "actif" si la valeur courante n'est pas la première
@@ -1506,8 +1489,9 @@ function ChipDropdown({
   const isActive = value != null && value !== defaultKey
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <>
       <button
+        ref={anchorRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors"
@@ -1532,16 +1516,22 @@ function ChipDropdown({
         )}
         <ChevronDown className="w-3 h-3 opacity-60" />
       </button>
-      {open && (
+      {/* MUS-4.7c : portal pour échapper à l'overflow-x-auto du parent
+          (filter bar). PopoverFloat gère position + click-outside + scroll. */}
+      <PopoverFloat
+        anchorRef={anchorRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        align="left"
+      >
         <div
-          className="absolute left-0 top-full mt-1 rounded-lg shadow-lg overflow-hidden"
+          className="rounded-lg shadow-lg overflow-hidden"
           style={{
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd)',
             minWidth: 200,
             maxHeight: 320,
             overflowY: 'auto',
-            zIndex: 40,
           }}
         >
           {options.map((opt) => {
@@ -1568,8 +1558,6 @@ function ChipDropdown({
                     e.currentTarget.style.background = 'transparent'
                 }}
               >
-                {/* Check icône à gauche pour l'item courant, sinon réserve
-                    de l'espace pour aligner */}
                 <span
                   className="w-3.5 h-3.5 inline-flex items-center justify-center shrink-0"
                   style={{ color: 'var(--blue)' }}
@@ -1613,8 +1601,8 @@ function ChipDropdown({
             </div>
           )}
         </div>
-      )}
-    </div>
+      </PopoverFloat>
+    </>
   )
 }
 
