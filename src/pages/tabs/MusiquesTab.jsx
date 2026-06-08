@@ -48,7 +48,6 @@ import {
   STATUT_LABELS,
   updateProposition,
   updateSortOrder,
-  calcSortOrderBetween,
   deleteProposition,
   setStatut,
 } from '../../lib/musiques'
@@ -425,46 +424,50 @@ export default function MusiquesTab() {
       setDropTargetId(null)
       setDropPosition(null)
       if (!dragId || dragId === targetProp.id) return
+      // Construit le nouveau ordre cible
+      const dragRow = visiblePropositions.find((p) => p.id === dragId)
+      if (!dragRow) return
       const ordered = visiblePropositions.filter((p) => p.id !== dragId)
       const targetIdx = ordered.findIndex((p) => p.id === targetProp.id)
       if (targetIdx < 0) return
-      let beforeOrder = null
-      let afterOrder = null
-      if (position === 'above') {
-        beforeOrder = ordered[targetIdx - 1]?.sort_order ?? null
-        afterOrder = ordered[targetIdx].sort_order ?? null
-      } else {
-        beforeOrder = ordered[targetIdx].sort_order ?? null
-        afterOrder = ordered[targetIdx + 1]?.sort_order ?? null
-      }
-      if (beforeOrder == null && ordered[targetIdx - 1]) {
-        beforeOrder = targetIdx * 1000
-      }
-      if (afterOrder == null && ordered[targetIdx + 1]) {
-        afterOrder = (targetIdx + 2) * 1000
-      }
-      const newOrder = calcSortOrderBetween(beforeOrder, afterOrder)
+      const insertIdx = position === 'above' ? targetIdx : targetIdx + 1
+      const newList = [...ordered]
+      newList.splice(insertIdx, 0, dragRow)
+
+      // Renumérote TOUTES les rows qui n'ont pas la bonne sort_order
+      // (= idx * 1000). C'est plus simple et fiable que d'essayer de
+      // calculer fractionnaire avec des voisins NULL. Pour 5-100 rows,
+      // c'est 5-100 UPDATEs en parallèle — acceptable.
+      const updates = []
+      newList.forEach((p, idx) => {
+        const expected = idx * 1000
+        if (p.sort_order !== expected) {
+          updates.push(updateSortOrder(p.id, expected))
+        }
+      })
       console.warn(
-        `[DnD] drop ${dragId} ${position} ${targetProp.id} ` +
-          `(before=${beforeOrder} after=${afterOrder} → newOrder=${newOrder})`,
+        `[DnD] drop ${dragId} ${position} ${targetProp.id} → ${updates.length} updates`,
       )
       try {
-        await updateSortOrder(dragId, newOrder)
-        // Optimistic update local sans attendre Realtime
+        const results = await Promise.allSettled(updates)
+        const failed = results.filter((r) => r.status === 'rejected')
+        if (failed.length > 0) {
+          console.warn('[DnD] some updates failed', failed)
+          const firstMsg = failed[0]?.reason?.message || ''
+          if (/sort_order/i.test(firstMsg)) {
+            notify.error(
+              "Migration manquante : exécute 20260608g_musique_proposition_sort_order.sql",
+            )
+          } else {
+            notify.error(
+              `${failed.length} échec${failed.length > 1 ? 's' : ''} sur le drop`,
+            )
+          }
+        }
         refetch()
       } catch (e) {
         console.warn('[DnD] reorder failed', e)
-        const msg = e?.message || String(e)
-        if (
-          /column.*sort_order.*does not exist/i.test(msg) ||
-          /sort_order/i.test(msg)
-        ) {
-          notify.error(
-            "Migration manquante : exécute 20260608g_musique_proposition_sort_order.sql",
-          )
-        } else {
-          notify.error(`Réordonnancement impossible : ${msg}`)
-        }
+        notify.error(e?.message || 'Réordonnancement impossible')
       }
     },
     [draggingId, visiblePropositions, refetch],
