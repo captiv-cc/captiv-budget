@@ -92,21 +92,37 @@ export default function MusiquesTab() {
   const [filterProposerId, setFilterProposerId] = useState(null)
 
   // MUS-3.2 : tri configurable, persisté localStorage par projet
+  // Stratégie de défaut :
+  //   - Si l'utilisateur a explicitement choisi un mode (localStorage)
+  //     → on respecte sa préférence
+  //   - Sinon : si la BDD a au moins une proposition avec sort_order
+  //     non-null (= quelqu'un a déjà réordonné le projet) → 'manual'
+  //     pour voir l'ordre partagé
+  //   - Sinon : 'created_desc' (les plus récentes d'abord)
   const SORT_KEY = `musiques.sort.${projectId || 'global'}`
-  const [sortMode, setSortMode] = useState(() => {
+  const [sortModeOverride, setSortModeOverride] = useState(() => {
     try {
-      return localStorage.getItem(SORT_KEY) || 'created_desc'
+      return localStorage.getItem(SORT_KEY) || null
     } catch {
-      return 'created_desc'
+      return null
     }
   })
-  useEffect(() => {
-    try {
-      localStorage.setItem(SORT_KEY, sortMode)
-    } catch {
-      /* ignore */
-    }
-  }, [SORT_KEY, sortMode])
+  const sortMode = useMemo(() => {
+    if (sortModeOverride) return sortModeOverride
+    const anyManual = propositions.some((p) => p.sort_order != null)
+    return anyManual ? 'manual' : 'created_desc'
+  }, [sortModeOverride, propositions])
+  const setSortMode = useCallback(
+    (mode) => {
+      setSortModeOverride(mode)
+      try {
+        localStorage.setItem(SORT_KEY, mode)
+      } catch {
+        /* ignore */
+      }
+    },
+    [SORT_KEY],
+  )
 
   // MUS-3.4 : groupBy "Organiser par..." (statut/artiste/jour/proposeur)
   const GROUPBY_KEY = `musiques.groupby.${projectId || 'global'}`
@@ -406,7 +422,7 @@ export default function MusiquesTab() {
       if (sortMode !== 'manual') setSortMode('manual')
       setDraggingId(prop.id)
     },
-    [sortMode],
+    [sortMode, setSortMode],
   )
   const handleDragOver = useCallback((prop, position) => {
     setDropTargetId(prop.id)
