@@ -18,7 +18,7 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   X,
   Trash2,
@@ -36,6 +36,9 @@ import {
   Tag as TagIcon,
   Clock,
   Volume2,
+  Film,
+  Search as SearchIcon,
+  Plus as PlusIcon,
 } from 'lucide-react'
 import {
   updateProposition,
@@ -52,7 +55,15 @@ import {
   listNotesForProposition,
   upsertMyNote,
   removeMyNote,
+  listLivrablesForProposition,
+  linkPropositionToLivrable,
+  updateLink,
+  removeLink,
+  STATUTS_LOCAL,
+  STATUT_LOCAL_LABELS,
+  STATUT_LOCAL_COLORS,
 } from '../../lib/musiques'
+import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 import { getDeezerTrack } from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
@@ -89,6 +100,10 @@ export default function PropositionDetailDrawer({
   // MUS-4.2 : Notes détail voteurs
   const [notesList, setNotesList] = useState([])
   const [notesLoading, setNotesLoading] = useState(false)
+
+  // MUS-6.3 : livrables liés à cette proposition
+  const [linksList, setLinksList] = useState([])
+  const [linksLoading, setLinksLoading] = useState(false)
 
   // Audio preview
   const [audioEl, setAudioEl] = useState(null)
@@ -130,6 +145,25 @@ export default function PropositionDetailDrawer({
     // → nouveau aggregate avec compteur différent).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proposition?.id, aggregate?.noteCount, aggregate?.noteAvg])
+
+  // MUS-6.3 : load des livrables liés à l'ouverture
+  const reloadLinks = useCallback(async () => {
+    if (!proposition?.id) return
+    setLinksLoading(true)
+    try {
+      const list = await listLivrablesForProposition(proposition.id)
+      setLinksList(list || [])
+    } catch (e) {
+      console.warn('[Drawer] loadLinks failed', e)
+    } finally {
+      setLinksLoading(false)
+    }
+  }, [proposition?.id])
+
+  useEffect(() => {
+    if (!open || !proposition?.id) return
+    reloadLinks()
+  }, [open, proposition?.id, reloadLinks])
 
   // Esc to close
   useEffect(() => {
@@ -831,6 +865,19 @@ export default function PropositionDetailDrawer({
             )}
           </div>
 
+          {/* ═══ Utilisée dans (MUS-6.3) — livrables liés ═══
+              Liste les livrables où cette track est dans la setlist, avec
+              statut local + remarque. Bouton "+ Lier" ouvre un picker
+              listant les livrables non-encore-liés. */}
+          <LivrablesUsedInSection
+            propositionId={proposition.id}
+            projectId={projectId}
+            canEdit={canEdit}
+            links={linksList}
+            loading={linksLoading}
+            onMutated={reloadLinks}
+          />
+
           {/* ═══ Commentaires (compacté MUS-4.5) ═══
               Header inline + plus de "aucun commentaire encore" (le
               placeholder de la textarea suffit). */}
@@ -1254,6 +1301,693 @@ function NoteVoterRow({ note, isMine }) {
       >
         <RelativeTime date={note.updated_at || note.created_at} />
       </span>
+    </div>
+  )
+}
+
+// ─── LivrablesUsedInSection : section "Utilisée dans" (MUS-6.3) ──────────
+// Affiche la liste des livrables où cette track est dans la setlist, avec
+// statut local + remarque. Bouton "+ Lier à un livrable" ouvre un picker
+// listant les livrables du projet (groupés par bloc) avec marquage des
+// déjà-liés (clic dessus → toggle remove).
+function LivrablesUsedInSection({
+  propositionId,
+  projectId,
+  canEdit,
+  links,
+  loading,
+  onMutated,
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [busyLinkId, setBusyLinkId] = useState(null)
+
+  async function handleStatutChange(linkId, newStatut) {
+    setBusyLinkId(linkId)
+    try {
+      await updateLink(linkId, { statut_local: newStatut })
+      onMutated?.()
+    } catch (e) {
+      console.warn('[Drawer] updateLink statut', e)
+      notify.error(e?.message || 'Update statut impossible')
+    } finally {
+      setBusyLinkId(null)
+    }
+  }
+
+  async function handleRemarqueChange(linkId, newRemarque) {
+    setBusyLinkId(linkId)
+    try {
+      await updateLink(linkId, { remarque: newRemarque || null })
+      onMutated?.()
+    } catch (e) {
+      console.warn('[Drawer] updateLink remarque', e)
+      notify.error(e?.message || 'Update remarque impossible')
+    } finally {
+      setBusyLinkId(null)
+    }
+  }
+
+  async function handleRemove(linkId) {
+    setBusyLinkId(linkId)
+    try {
+      await removeLink(linkId)
+      onMutated?.()
+    } catch (e) {
+      console.warn('[Drawer] removeLink', e)
+      notify.error(e?.message || 'Suppression impossible')
+    } finally {
+      setBusyLinkId(null)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--brd-sub)',
+        paddingTop: 8,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          fontWeight: 500,
+          color: 'var(--txt-2)',
+          marginBottom: 6,
+        }}
+      >
+        <Film size={13} />
+        Utilisée dans
+        {links.length > 0 && (
+          <span style={{ color: 'var(--txt-3)', fontWeight: 400 }}>
+            ({links.length})
+          </span>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            style={{
+              marginLeft: 'auto',
+              background: 'transparent',
+              border: '1px dashed var(--brd-sub)',
+              color: 'var(--txt-3)',
+              padding: '2px 8px',
+              fontSize: 10,
+              borderRadius: 8,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+            }}
+          >
+            <PlusIcon size={10} />
+            Lier
+          </button>
+        )}
+      </div>
+
+      {loading && links.length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--txt-3)' }}>
+          Chargement…
+        </div>
+      )}
+
+      {!loading && links.length === 0 && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--txt-3)',
+            fontStyle: 'italic',
+            padding: '4px 0',
+          }}
+        >
+          Pas encore attribuée à un livrable.
+        </div>
+      )}
+
+      {links.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          {links.map((lk) => (
+            <LivrableLinkRow
+              key={lk.id}
+              link={lk}
+              canEdit={canEdit}
+              busy={busyLinkId === lk.id}
+              onStatutChange={(s) => handleStatutChange(lk.id, s)}
+              onRemarqueChange={(r) => handleRemarqueChange(lk.id, r)}
+              onRemove={() => handleRemove(lk.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {pickerOpen && (
+        <LivrablesPickerModal
+          projectId={projectId}
+          propositionId={propositionId}
+          existingLinks={links}
+          onClose={() => setPickerOpen(false)}
+          onLinked={() => {
+            setPickerOpen(false)
+            onMutated?.()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── LivrableLinkRow : une row livrable lié ──────────────────────────────
+function LivrableLinkRow({
+  link,
+  canEdit,
+  busy,
+  onStatutChange,
+  onRemarqueChange,
+  onRemove,
+}) {
+  const liv = link.livrable
+  const [editRemarque, setEditRemarque] = useState(false)
+  const [remarque, setRemarque] = useState(link.remarque || '')
+  const palette = STATUT_LOCAL_COLORS[link.statut_local] || {
+    bg: 'var(--bg-elev)',
+    fg: 'var(--txt-3)',
+  }
+
+  if (!liv) return null
+
+  const blockColor = liv.block?.couleur || 'var(--brd-sub)'
+  const livrableLabel = liv.numero ? `${liv.numero} · ${liv.nom}` : liv.nom
+
+  return (
+    <div
+      style={{
+        padding: '6px 8px',
+        background: 'var(--bg-elev)',
+        border: '1px solid var(--brd-sub)',
+        borderRadius: 6,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {/* Dot couleur du block */}
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: blockColor,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 12,
+            color: 'var(--txt)',
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={liv.block?.nom ? `${liv.block.nom} · ${livrableLabel}` : livrableLabel}
+        >
+          {livrableLabel}
+          {liv.format && (
+            <span style={{ color: 'var(--txt-3)', marginLeft: 4 }}>
+              · {liv.format}
+            </span>
+          )}
+        </span>
+
+        {/* Statut local — dropdown si canEdit */}
+        {canEdit ? (
+          <select
+            value={link.statut_local}
+            onChange={(e) => onStatutChange(e.target.value)}
+            disabled={busy}
+            style={{
+              fontSize: 9,
+              padding: '2px 6px',
+              background: palette.bg,
+              color: palette.fg,
+              border: 'none',
+              borderRadius: 6,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              cursor: 'pointer',
+              outline: 'none',
+              flexShrink: 0,
+            }}
+          >
+            {STATUTS_LOCAL.map((s) => (
+              <option key={s} value={s}>
+                {STATUT_LOCAL_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span
+            style={{
+              fontSize: 9,
+              padding: '2px 6px',
+              background: palette.bg,
+              color: palette.fg,
+              borderRadius: 6,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              flexShrink: 0,
+            }}
+          >
+            {STATUT_LOCAL_LABELS[link.statut_local]}
+          </span>
+        )}
+
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+              padding: 0,
+              display: 'inline-flex',
+              opacity: 0.6,
+              flexShrink: 0,
+            }}
+            title="Retirer du livrable"
+          >
+            <X size={11} />
+          </button>
+        )}
+      </div>
+
+      {/* Remarque : éditable inline */}
+      {editRemarque ? (
+        <input
+          type="text"
+          value={remarque}
+          onChange={(e) => setRemarque(e.target.value)}
+          onBlur={() => {
+            setEditRemarque(false)
+            if ((remarque || '') !== (link.remarque || '')) {
+              onRemarqueChange(remarque)
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') {
+              setRemarque(link.remarque || '')
+              setEditRemarque(false)
+            }
+          }}
+          placeholder="ex: intro, drop final, version 30s…"
+          autoFocus
+          disabled={busy}
+          style={{
+            width: '100%',
+            padding: '3px 6px',
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--blue, #3B82F6)',
+            color: 'var(--txt)',
+            borderRadius: 4,
+            fontSize: 11,
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => canEdit && setEditRemarque(true)}
+          disabled={!canEdit}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: link.remarque ? 'var(--txt-2)' : 'var(--txt-3)',
+            cursor: canEdit ? 'text' : 'default',
+            fontSize: 11,
+            fontStyle: link.remarque ? 'normal' : 'italic',
+            padding: 0,
+            textAlign: 'left',
+            opacity: link.remarque ? 1 : 0.7,
+          }}
+          title={canEdit ? 'Cliquer pour éditer la remarque' : undefined}
+        >
+          {link.remarque || (canEdit ? '+ ajouter une remarque' : '—')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── LivrablesPickerModal : modal pour choisir un/des livrables (MUS-6.3) ─
+// Liste les livrables du projet groupés par bloc, marque les déjà liés
+// (clic = remove), permet de chercher par nom/numéro.
+function LivrablesPickerModal({
+  projectId,
+  propositionId,
+  existingLinks,
+  onClose,
+  onLinked,
+}) {
+  const [livrables, setLivrables] = useState([])
+  const [blocks, setBlocks] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [busyId, setBusyId] = useState(null)
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    setLoading(true)
+    Promise.all([fetchLivrables(projectId), fetchBlocks(projectId)])
+      .then(([livs, blks]) => {
+        if (cancelled) return
+        setLivrables(livs || [])
+        setBlocks(blks || [])
+      })
+      .catch((e) => {
+        console.warn('[Picker] load failed', e)
+        if (!cancelled) notify.error('Chargement des livrables KO')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  // Index des liens existants par livrable_id pour marquer "déjà lié"
+  const linkedByLivrable = useMemo(() => {
+    const m = new Map()
+    for (const lk of existingLinks || []) m.set(lk.livrable_id, lk)
+    return m
+  }, [existingLinks])
+
+  // Filtrage + groupage par bloc
+  const filteredByBlock = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const filtered = livrables.filter((l) => {
+      if (!q) return true
+      const text = `${l.numero || ''} ${l.nom || ''} ${l.format || ''}`.toLowerCase()
+      return text.includes(q)
+    })
+    const byBlock = new Map()
+    for (const l of filtered) {
+      if (!byBlock.has(l.block_id)) byBlock.set(l.block_id, [])
+      byBlock.get(l.block_id).push(l)
+    }
+    return blocks
+      .map((b) => ({ block: b, items: byBlock.get(b.id) || [] }))
+      .filter((g) => g.items.length > 0)
+  }, [livrables, blocks, search])
+
+  async function handleToggle(livrableId) {
+    setBusyId(livrableId)
+    const existing = linkedByLivrable.get(livrableId)
+    try {
+      if (existing) {
+        await removeLink(existing.id)
+      } else {
+        await linkPropositionToLivrable(propositionId, livrableId)
+      }
+      onLinked?.()
+    } catch (e) {
+      console.warn('[Picker] toggle failed', e)
+      notify.error(e?.message || 'Lien KO')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 80,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(480px, 100%)',
+          maxHeight: 'calc(100vh - 32px)',
+          background: 'var(--bg-surf)',
+          border: '1px solid var(--brd)',
+          borderRadius: 10,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 14px',
+            borderBottom: '1px solid var(--brd-sub)',
+            background: 'var(--bg-elev)',
+          }}
+        >
+          <Film size={14} style={{ color: 'var(--txt-2)' }} />
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt)' }}>
+            Lier à un livrable
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              marginLeft: 'auto',
+              background: 'transparent',
+              border: 'none',
+              padding: 4,
+              cursor: 'pointer',
+              color: 'var(--txt-3)',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div
+          style={{
+            padding: 10,
+            borderBottom: '1px solid var(--brd-sub)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 10px',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+              borderRadius: 6,
+            }}
+          >
+            <SearchIcon size={12} style={{ color: 'var(--txt-3)' }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filtrer par numéro, nom, format…"
+              autoFocus
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--txt)',
+                fontSize: 12,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Liste */}
+        <div
+          style={{
+            padding: 10,
+            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          {loading && (
+            <div style={{ fontSize: 12, color: 'var(--txt-3)' }}>
+              Chargement…
+            </div>
+          )}
+          {!loading && filteredByBlock.length === 0 && livrables.length === 0 && (
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--txt-3)',
+                fontStyle: 'italic',
+                padding: 8,
+              }}
+            >
+              Aucun livrable dans ce projet. Crée-en depuis l&apos;onglet
+              Livrables d&apos;abord.
+            </div>
+          )}
+          {!loading && filteredByBlock.length === 0 && livrables.length > 0 && (
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--txt-3)',
+                fontStyle: 'italic',
+                padding: 8,
+              }}
+            >
+              Aucun livrable ne matche &quot;{search}&quot;.
+            </div>
+          )}
+          {filteredByBlock.map(({ block, items }) => (
+            <div key={block.id}>
+              <div
+                style={{
+                  fontSize: 9,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
+                  color: 'var(--txt-3)',
+                  marginBottom: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: block.couleur || 'var(--brd-sub)',
+                  }}
+                />
+                {block.nom || 'Sans nom'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {items.map((l) => {
+                  const linked = linkedByLivrable.has(l.id)
+                  const busy = busyId === l.id
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => handleToggle(l.id)}
+                      disabled={busy}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '5px 8px',
+                        background: linked
+                          ? 'rgba(34,197,94,0.08)'
+                          : 'transparent',
+                        border: `1px solid ${
+                          linked ? 'rgba(34,197,94,0.35)' : 'var(--brd-sub)'
+                        }`,
+                        borderRadius: 4,
+                        color: 'var(--txt-2)',
+                        fontSize: 12,
+                        textAlign: 'left',
+                        cursor: busy ? 'wait' : 'pointer',
+                        opacity: busy ? 0.5 : 1,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!busy && !linked) {
+                          e.currentTarget.style.background = 'var(--bg-elev)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!linked) {
+                          e.currentTarget.style.background = 'transparent'
+                        }
+                      }}
+                    >
+                      {linked ? (
+                        <Check size={11} style={{ color: '#16A34A' }} />
+                      ) : (
+                        <PlusIcon size={11} style={{ color: 'var(--txt-3)' }} />
+                      )}
+                      <span style={{ flex: 1 }}>
+                        {l.numero && (
+                          <span
+                            style={{
+                              color: 'var(--txt-3)',
+                              marginRight: 6,
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {l.numero}
+                          </span>
+                        )}
+                        {l.nom}
+                        {l.format && (
+                          <span
+                            style={{ color: 'var(--txt-3)', marginLeft: 4 }}
+                          >
+                            · {l.format}
+                          </span>
+                        )}
+                      </span>
+                      {linked && (
+                        <span
+                          style={{
+                            fontSize: 9,
+                            color: '#16A34A',
+                            fontWeight: 500,
+                          }}
+                        >
+                          LIÉ
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
