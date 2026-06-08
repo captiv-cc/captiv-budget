@@ -42,6 +42,17 @@
 //     - STATUTS, STATUT_LABELS
 //     - computeAggregates(propositions, notes, tags)
 //
+//   MUS-6 Livrable links (N:M proposition ↔ livrable) :
+//     - listLivrablesForProposition(propositionId)
+//     - listMusiquesForLivrable(livrableId)
+//     - listAllLinks(projectId)
+//     - linkPropositionToLivrable(propId, livrableId, opts)
+//     - updateLink(linkId, patch)
+//     - removeLink(linkId)
+//     - reorderLinks(livrableId, orderedLinkIds)
+//     - subscribeLinks(projectId, onChange)
+//     - STATUTS_LOCAL, STATUT_LOCAL_LABELS, STATUT_LOCAL_COLORS
+//
 // ════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './supabase'
@@ -750,4 +761,300 @@ export function computeAggregates(notes, tags, currentUserId, comments = []) {
     ensure(c.proposition_id).commentCount += 1
   }
   return out
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MUS-6.2 — Helpers livrable_link (N:M proposition ↔ livrable)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Cycle de vie statut LOCAL (par couple track+livrable). Volontairement
+// minimal pour MUS-6 — le tunnel droits/labels viendra dans MUS-7.
+export const STATUTS_LOCAL = ['propose', 'valide_client', 'refuse_client']
+export const STATUT_LOCAL_LABELS = {
+  propose: 'Proposé',
+  valide_client: 'Validé client',
+  refuse_client: 'Refusé client',
+}
+// Palette cohérente avec STATUT_COLORS (vert pour OK, rouge pour KO,
+// neutre pour "en attente"). Permet le scanning rapide dans la setlist.
+export const STATUT_LOCAL_COLORS = {
+  propose: { bg: 'rgba(148,163,184,0.18)', fg: 'var(--txt-2)' },
+  valide_client: { bg: 'rgba(34,197,94,0.2)', fg: '#16A34A' },
+  refuse_client: { bg: 'rgba(239,68,68,0.18)', fg: '#EF4444' },
+}
+
+/**
+ * Liste les livrables où une proposition est utilisée.
+ * Pour la section "Utilisée dans" du drawer proposition.
+ *
+ * @param {string} propositionId
+ * @returns {Promise<Array<{ id, livrable_id, ordre, remarque, statut_local,
+ *   created_at, livrable: { id, numero, nom, statut, block: { nom, couleur } } }>>}
+ */
+export async function listLivrablesForProposition(propositionId) {
+  const { data, error } = await supabase
+    .from('projet_musique_livrable_link')
+    .select(`
+      id,
+      livrable_id,
+      proposition_id,
+      ordre,
+      remarque,
+      statut_local,
+      created_at,
+      updated_at,
+      livrable:livrable_id (
+        id,
+        numero,
+        nom,
+        statut,
+        format,
+        block:block_id (id, nom, couleur, prefixe)
+      )
+    `)
+    .eq('proposition_id', propositionId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Liste les musiques attachées à un livrable (setlist).
+ * Pour l'onglet Musiques du drawer livrable.
+ *
+ * Trie par ordre ASC NULLS LAST puis created_at ASC.
+ *
+ * @param {string} livrableId
+ * @returns {Promise<Array<{ id, proposition_id, ordre, remarque, statut_local,
+ *   proposition: <full proposition row> }>>}
+ */
+export async function listMusiquesForLivrable(livrableId) {
+  const { data, error } = await supabase
+    .from('projet_musique_livrable_link')
+    .select(`
+      id,
+      proposition_id,
+      livrable_id,
+      ordre,
+      remarque,
+      statut_local,
+      created_at,
+      updated_at,
+      proposition:proposition_id (
+        id,
+        titre,
+        artiste_text,
+        statut,
+        cover_url,
+        preview_url,
+        lien_youtube,
+        spotify_url,
+        spotify_id,
+        duration_ms,
+        audio_features,
+        explicit,
+        artiste:artiste_id (id, nom, jour, scene, headliner),
+        proposer:proposer_id (id, full_name, avatar_url, email)
+      )
+    `)
+    .eq('livrable_id', livrableId)
+    .order('ordre', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Liste TOUS les liens d'un projet (pour calcul des "déjà piockées"
+ * dans la liste vrac + couverture par livrable dans le dashboard).
+ *
+ * Renvoie une liste plate avec proposition_id + livrable_id + statut_local.
+ *
+ * @param {string} projectId
+ * @returns {Promise<Array<{ id, proposition_id, livrable_id, statut_local }>>}
+ */
+export async function listAllLinks(projectId) {
+  // On filtre via la jointure livrable.project_id (les RLS le valident
+  // déjà côté serveur, on ajoute le filtre côté requête pour scoper la
+  // pagination).
+  const { data, error } = await supabase
+    .from('projet_musique_livrable_link')
+    .select(`
+      id,
+      proposition_id,
+      livrable_id,
+      statut_local,
+      livrable:livrable_id!inner (id, project_id, numero, nom)
+    `)
+    .eq('livrable.project_id', projectId)
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Crée un lien proposition ↔ livrable.
+ *
+ * Si le lien existe déjà (UNIQUE constraint), on le récupère et on
+ * patche les champs fournis (idempotent : ré-ajouter une track au même
+ * livrable ne casse pas, ça update ordre/remarque/statut).
+ *
+ * @param {string} propositionId
+ * @param {string} livrableId
+ * @param {object} [opts]
+ * @param {number} [opts.ordre]    Fractional ordering. Si omis, append
+ *                                 (MAX(ordre) + 1000 dans le livrable).
+ * @param {string} [opts.remarque]
+ * @param {string} [opts.statut_local]  Défaut 'propose'.
+ * @returns {Promise<object>} Le lien (créé ou patché).
+ */
+export async function linkPropositionToLivrable(
+  propositionId,
+  livrableId,
+  opts = {},
+) {
+  const userResult = await supabase.auth.getUser()
+  const userId = userResult.data?.user?.id || null
+
+  // Tente d'abord l'INSERT. Si conflit (UNIQUE), on tombe sur l'update.
+  // On gère ça en 2 étapes pour pouvoir lire l'existant et update les
+  // champs fournis.
+  const existing = await supabase
+    .from('projet_musique_livrable_link')
+    .select('*')
+    .eq('proposition_id', propositionId)
+    .eq('livrable_id', livrableId)
+    .maybeSingle()
+  if (existing.error) throw existing.error
+  if (existing.data) {
+    // Update seulement les champs fournis (skip ordre si non fourni pour
+    // ne pas casser un drag manuel précédent).
+    const patch = {}
+    if (opts.ordre !== undefined) patch.ordre = opts.ordre
+    if (opts.remarque !== undefined) patch.remarque = opts.remarque
+    if (opts.statut_local !== undefined) patch.statut_local = opts.statut_local
+    if (Object.keys(patch).length === 0) return existing.data
+    const { data, error } = await supabase
+      .from('projet_musique_livrable_link')
+      .update(patch)
+      .eq('id', existing.data.id)
+      .select('*')
+      .single()
+    if (error) throw error
+    return data
+  }
+
+  // Pas d'existant → INSERT. Calcule ordre si pas fourni (append en fin
+  // de setlist du livrable).
+  let ordre = opts.ordre
+  if (ordre === undefined) {
+    const { data: maxRow } = await supabase
+      .from('projet_musique_livrable_link')
+      .select('ordre')
+      .eq('livrable_id', livrableId)
+      .order('ordre', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle()
+    ordre = (maxRow?.ordre ?? 0) + 1000
+  }
+
+  const { data, error } = await supabase
+    .from('projet_musique_livrable_link')
+    .insert({
+      proposition_id: propositionId,
+      livrable_id: livrableId,
+      ordre,
+      remarque: opts.remarque || null,
+      statut_local: opts.statut_local || 'propose',
+      created_by: userId,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Met à jour un lien (ordre, remarque, statut_local).
+ *
+ * @param {string} linkId
+ * @param {object} patch  { ordre?, remarque?, statut_local? }
+ */
+export async function updateLink(linkId, patch) {
+  const clean = {}
+  if (patch.ordre !== undefined) clean.ordre = patch.ordre
+  if (patch.remarque !== undefined) clean.remarque = patch.remarque
+  if (patch.statut_local !== undefined) clean.statut_local = patch.statut_local
+  if (Object.keys(clean).length === 0) return null
+  const { data, error } = await supabase
+    .from('projet_musique_livrable_link')
+    .update(clean)
+    .eq('id', linkId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Supprime un lien (= retire la track du livrable, sans toucher à la
+ * proposition globale).
+ */
+export async function removeLink(linkId) {
+  const { error } = await supabase
+    .from('projet_musique_livrable_link')
+    .delete()
+    .eq('id', linkId)
+  if (error) throw error
+}
+
+/**
+ * Réordonne les liens d'un livrable. Reçoit une liste d'IDs dans le
+ * nouvel ordre et écrit ordre = (index + 1) × 1000 pour chacun (pas de
+ * fractional, renumération complète — robuste contre les NULL et les
+ * conflits de drag concurrents, pattern aligné MUS-3.5).
+ *
+ * @param {string} livrableId
+ * @param {Array<string>} orderedLinkIds  IDs dans l'ordre cible
+ */
+export async function reorderLinks(livrableId, orderedLinkIds) {
+  const updates = orderedLinkIds.map((id, idx) =>
+    supabase
+      .from('projet_musique_livrable_link')
+      .update({ ordre: (idx + 1) * 1000 })
+      .eq('id', id)
+      .eq('livrable_id', livrableId), // garde-fou multi-projet
+  )
+  const results = await Promise.allSettled(updates)
+  const failed = results.filter((r) => r.status === 'rejected')
+  if (failed.length > 0) {
+    throw new Error(
+      `${failed.length}/${orderedLinkIds.length} updates échoués`,
+    )
+  }
+}
+
+/**
+ * S'abonne aux changements de la table link pour un projet (filtrage
+ * côté client via la jointure livrable.project_id côté payload).
+ *
+ * @param {string} projectId  (informational — utilisé pour le channel name)
+ * @param {(payload) => void} onChange
+ * @returns {{ unsubscribe: () => void }}
+ */
+export function subscribeLinks(projectId, onChange) {
+  const channel = supabase
+    .channel(`musique_links:${projectId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'projet_musique_livrable_link',
+      },
+      (payload) => onChange?.(payload),
+    )
+    .subscribe()
+  return {
+    unsubscribe: () => supabase.removeChannel(channel),
+  }
 }
