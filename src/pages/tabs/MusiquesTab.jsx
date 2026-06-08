@@ -36,6 +36,10 @@ import {
   CheckSquare,
   Trash2,
   AlertTriangle,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Eraser,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -46,6 +50,7 @@ import {
   subscribeToProject,
   STATUTS,
   STATUT_LABELS,
+  STATUT_COLORS,
   updateProposition,
   updateSortOrder,
   deleteProposition,
@@ -415,6 +420,56 @@ export default function MusiquesTab() {
     [visiblePropositions, groupBy],
   )
 
+  // MUS-4.7 : compteurs par statut (pour les stat pills du header).
+  // Calculés sur les propositions BRUTES (pas filtrées) — ce sont les
+  // totaux du projet, pas de la vue. C'est la logique attendue côté
+  // Livrables/Matériel : on filtre depuis le header, le compteur reste
+  // global.
+  const statutCounts = useMemo(() => {
+    const counts = { total: propositions.length }
+    for (const s of STATUTS) counts[s] = 0
+    let noted = 0
+    const seen = new Set()
+    for (const p of propositions) {
+      if (p.statut in counts) counts[p.statut] += 1
+    }
+    // Combien de propositions ont au moins une note (peu importe qui)
+    for (const n of notes || []) {
+      if (!seen.has(n.proposition_id)) {
+        seen.add(n.proposition_id)
+        noted += 1
+      }
+    }
+    counts.noted = noted
+    return counts
+  }, [propositions, notes])
+
+  // MUS-4.7 : indique si au moins un filtre est actif → permet à la pill
+  // "Total" de devenir un eraser (clic = clear all filters).
+  const anyFilterActive = Boolean(
+    filterStatut ||
+      filterTag ||
+      filterJour ||
+      filterProposerId ||
+      searchLocal.trim(),
+  )
+  const clearAllFilters = useCallback(() => {
+    setFilterStatut(null)
+    setFilterTag(null)
+    setFilterJour(null)
+    setFilterProposerId(null)
+    setSearchLocal('')
+  }, [])
+
+  // MUS-4.7 : toggle d'une stat pill statut. Click sur la pill = filtre
+  // sur ce statut, click sur la même pill = clear.
+  const toggleStatutFilter = useCallback(
+    (statut) => {
+      setFilterStatut((cur) => (cur === statut ? null : statut))
+    },
+    [],
+  )
+
   // MUS-3.5 : drag and drop handlers (déclarés ici car ils dépendent
   // de visiblePropositions qui doit être init avant).
   const handleDragStart = useCallback(
@@ -564,74 +619,199 @@ export default function MusiquesTab() {
   }
 
   return (
-    <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="flex flex-col">
 
-      {/* ─── Header : titre + actions ──────────────────────────────────── */}
+      {/* ─── Header : icon + titre + stats + CTAs (MUS-4.7) ───────────────
+          Pattern aligné Livrables/Matériel : icon box coloré + h1 +
+          subtitle dynamique + stat pills cliquables, CTA primaires à
+          droite. Bordure bas pour séparer du filtres bar. */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexWrap: 'wrap',
-        }}
+        className="flex flex-col gap-3 px-5 py-4"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Music size={18} style={{ color: 'var(--txt-2)' }} />
-          <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--txt)' }}>
-            Musiques
-          </span>
-          {!loading && (
-            <span
-              style={{
-                fontSize: 11,
-                background: 'var(--bg-elev)',
-                color: 'var(--txt-3)',
-                padding: '2px 8px',
-                borderRadius: 10,
-              }}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Icon block — violet pour matcher l'identité Musiques */}
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'var(--purple-bg)' }}
+          >
+            <Music className="w-5 h-5" style={{ color: 'var(--purple)' }} />
+          </div>
+          <div className="min-w-0">
+            <h1
+              className="text-lg font-bold"
+              style={{ color: 'var(--txt)' }}
             >
-              {propositions.length} proposition{propositions.length > 1 ? 's' : ''}
-            </span>
+              Musiques
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
+              {statutCounts.total}{' '}
+              {statutCounts.total > 1 ? 'propositions' : 'proposition'}
+              {statutCounts.noted > 0 && (
+                <>
+                  {' '}· {statutCounts.noted} notée
+                  {statutCounts.noted > 1 ? 's' : ''}
+                </>
+              )}
+              {statutCounts.accorde > 0 && (
+                <>
+                  {' '}· {statutCounts.accorde} accordée
+                  {statutCounts.accorde > 1 ? 's' : ''}
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* Stat pills cliquables — chaque pill toggle un filtre statut.
+              Total est un eraser quand au moins un filtre est actif. */}
+          <div className="flex items-center gap-2 flex-wrap ml-0 sm:ml-4">
+            <StatPill
+              label="Total"
+              value={statutCounts.total}
+              icon={anyFilterActive ? Eraser : Inbox}
+              color="var(--txt-2)"
+              bg="var(--bg-2, var(--bg-elev))"
+              active={false}
+              eraser={anyFilterActive}
+              onClick={anyFilterActive ? clearAllFilters : undefined}
+              title={
+                anyFilterActive
+                  ? 'Effacer tous les filtres'
+                  : `${statutCounts.total} proposition${
+                      statutCounts.total > 1 ? 's' : ''
+                    }`
+              }
+            />
+            <StatPill
+              label="Vrac"
+              value={statutCounts.vrac}
+              icon={Music}
+              color={STATUT_COLORS.vrac?.fg || 'var(--txt-3)'}
+              bg={STATUT_COLORS.vrac?.bg || 'var(--bg-elev)'}
+              active={filterStatut === 'vrac'}
+              onClick={() => toggleStatutFilter('vrac')}
+            />
+            <StatPill
+              label="En nego"
+              value={statutCounts.en_nego}
+              icon={Clock}
+              color={STATUT_COLORS.en_nego?.fg || '#D97706'}
+              bg={STATUT_COLORS.en_nego?.bg || 'rgba(245,158,11,0.18)'}
+              active={filterStatut === 'en_nego'}
+              onClick={() => toggleStatutFilter('en_nego')}
+              dim={statutCounts.en_nego === 0}
+            />
+            <StatPill
+              label="Accordés"
+              value={statutCounts.accorde}
+              icon={CheckCircle2}
+              color={STATUT_COLORS.accorde?.fg || '#16A34A'}
+              bg={STATUT_COLORS.accorde?.bg || 'rgba(34,197,94,0.18)'}
+              active={filterStatut === 'accorde'}
+              onClick={() => toggleStatutFilter('accorde')}
+              dim={statutCounts.accorde === 0}
+            />
+            {statutCounts.refuse > 0 && (
+              <StatPill
+                label="Refusés"
+                value={statutCounts.refuse}
+                icon={XCircle}
+                color={STATUT_COLORS.refuse?.fg || '#EF4444'}
+                bg={STATUT_COLORS.refuse?.bg || 'rgba(239,68,68,0.18)'}
+                active={filterStatut === 'refuse'}
+                onClick={() => toggleStatutFilter('refuse')}
+              />
+            )}
+          </div>
+
+          {/* CTAs primaires — pattern Mat/Liv : actions secondaires en
+              bg-elev borded, action principale en bleu solide. ml-auto
+              pousse à droite. */}
+          {canEdit && (
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <button
+                type="button"
+                onClick={() => setImportProgOpen(true)}
+                title="Importer la programmation du festival via Claude Vision"
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all shrink-0"
+                style={{
+                  background: 'var(--bg-elev)',
+                  color: 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                  e.currentTarget.style.color = 'var(--txt)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-elev)'
+                  e.currentTarget.style.color = 'var(--txt-2)'
+                }}
+              >
+                <ImageUp className="w-3 h-3" />
+                Importer prog.
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all shrink-0"
+                style={{
+                  background: 'var(--blue, #3B82F6)',
+                  color: 'white',
+                  border: '1px solid var(--blue, #3B82F6)',
+                }}
+              >
+                <Plus className="w-3 h-3" />
+                Ajouter
+              </button>
+            </div>
           )}
         </div>
+      </div>
 
-        {/* Search bar locale (typeahead sur propositions chargées).
-            La recherche externe Deezer/YouTube sera dans la modal d'ajout. */}
+      {/* ─── Filtres bar (MUS-4.7) ─────────────────────────────────────
+          Ligne 2 dédiée aux filtres : label FILTRES + recherche + 3
+          dropdowns (statut, tri, groupement). Pattern Livrables. */}
+      <div
+        className="flex items-center gap-2 px-5 py-2 overflow-x-auto"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <span
+          className="text-[10px] uppercase tracking-wider shrink-0 mr-1"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Filtres
+        </span>
+
+        {/* Search (typeahead local) */}
         <div
+          className="flex items-center gap-2 px-2.5 rounded-md shrink-0"
           style={{
-            flex: 1,
+            height: 30,
             minWidth: 220,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '0 10px',
-            height: 34,
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd-sub)',
-            borderRadius: 6,
           }}
         >
-          <Search size={14} style={{ color: 'var(--txt-3)' }} />
+          <Search size={13} style={{ color: 'var(--txt-3)' }} />
           <input
             type="text"
             value={searchLocal}
             onChange={(e) => setSearchLocal(e.target.value)}
-            placeholder="Filtrer par artiste ou titre…"
+            placeholder="Artiste ou titre…"
             style={{
               flex: 1,
               background: 'transparent',
               border: 'none',
               outline: 'none',
               color: 'var(--txt)',
-              fontSize: 13,
+              fontSize: 12,
+              minWidth: 100,
             }}
           />
           <Sparkles
-            size={13}
-            style={{
-              color: 'var(--txt-3)',
-              opacity: 0.4,
-            }}
+            size={12}
+            style={{ color: 'var(--txt-3)', opacity: 0.4 }}
             title="Recherche intelligente bientôt — pour ajouter, utilise +Ajouter"
           />
         </div>
@@ -640,12 +820,12 @@ export default function MusiquesTab() {
         <select
           value={filterStatut || ''}
           onChange={(e) => setFilterStatut(e.target.value || null)}
+          className="rounded-md shrink-0"
           style={{
-            height: 34,
-            padding: '0 10px',
+            height: 30,
+            padding: '0 8px',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd-sub)',
-            borderRadius: 6,
             color: 'var(--txt-2)',
             fontSize: 12,
             cursor: 'pointer',
@@ -659,17 +839,17 @@ export default function MusiquesTab() {
           ))}
         </select>
 
-        {/* Tri configurable (MUS-3.2) */}
+        {/* Tri */}
         <select
           value={sortMode}
           onChange={(e) => setSortMode(e.target.value)}
           title="Tri"
+          className="rounded-md shrink-0"
           style={{
-            height: 34,
-            padding: '0 8px 0 28px',
-            background: `var(--bg-elev) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3e%3cpath d='M3 6h13M3 12h9M3 18h5M19 18l-3-3m0 6l3-3M16 4l3 3m-3-3l3 3'/%3e%3c/svg%3e") no-repeat 8px center`,
+            height: 30,
+            padding: '0 8px',
+            background: 'var(--bg-elev)',
             border: '1px solid var(--brd-sub)',
-            borderRadius: 6,
             color: 'var(--txt-2)',
             fontSize: 12,
             cursor: 'pointer',
@@ -682,17 +862,17 @@ export default function MusiquesTab() {
           ))}
         </select>
 
-        {/* Organiser par... groupBy (MUS-3.4) */}
+        {/* Groupement */}
         <select
           value={groupBy}
           onChange={(e) => setGroupBy(e.target.value)}
           title="Organiser par"
+          className="rounded-md shrink-0"
           style={{
-            height: 34,
-            padding: '0 10px',
+            height: 30,
+            padding: '0 8px',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd-sub)',
-            borderRadius: 6,
             color: 'var(--txt-2)',
             fontSize: 12,
             cursor: 'pointer',
@@ -704,55 +884,10 @@ export default function MusiquesTab() {
           <option value="jour">Par jour</option>
           <option value="proposeur">Par proposeur</option>
         </select>
-
-        {/* Actions edit (gated canEdit) */}
-        {canEdit && (
-          <>
-            <button
-              type="button"
-              onClick={() => setImportProgOpen(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '0 10px',
-                height: 34,
-                background: 'transparent',
-                border: '1px solid var(--brd-sub)',
-                color: 'var(--txt-2)',
-                borderRadius: 6,
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-              title="Importer la programmation du festival (affiche, line-up) via Claude Vision"
-            >
-              <ImageUp size={13} />
-              Importer prog.
-            </button>
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '0 12px',
-                height: 34,
-                background: 'var(--blue, #3B82F6)',
-                color: 'white',
-                border: '1px solid var(--blue, #3B82F6)',
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <Plus size={13} />
-              Ajouter
-            </button>
-          </>
-        )}
       </div>
+
+      {/* ─── Content : body avec padding standard ────────────────────── */}
+      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ─── Chips filtres rapides actifs (MUS-3.1) ─────────────────────── */}
       {(filterTag || filterJour || filterProposerId) && (
@@ -1125,6 +1260,8 @@ export default function MusiquesTab() {
         </div>
       )}
 
+      </div>{/* /Content body wrapper */}
+
       {/* ─── Modals ────────────────────────────────────────────────────── */}
       <AddPropositionModal
         open={addOpen}
@@ -1276,6 +1413,64 @@ function FilterChip({ label, onClear }) {
         <X size={10} />
       </button>
     </span>
+  )
+}
+
+// ─── StatPill (MUS-4.7) ────────────────────────────────────────────────────
+// Pill compteur cliquable du header — pattern Livrables.
+// `dim=true` → pill grise atténuée pour count=0 (au lieu de hidden,
+// pour stabilité de layout). `eraser=true` → pill prend la couleur
+// d'accent + icône Eraser pour signifier "click = clear all filters".
+function StatPill({
+  label,
+  value,
+  icon: Icon,
+  color,
+  bg,
+  active = false,
+  eraser = false,
+  dim = false,
+  onClick,
+  title,
+}) {
+  const isInteractive = Boolean(onClick) && !dim
+  const isHighlight = active || eraser
+  return (
+    <button
+      type="button"
+      onClick={isInteractive ? onClick : undefined}
+      disabled={!isInteractive}
+      className="flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full shrink-0 transition-all"
+      style={{
+        background: isHighlight ? bg : 'var(--bg-elev)',
+        color: isHighlight ? color : dim ? 'var(--txt-3)' : 'var(--txt)',
+        border: `1px solid ${isHighlight ? color : 'var(--brd)'}`,
+        cursor: isInteractive ? 'pointer' : 'default',
+        opacity: dim ? 0.55 : 1,
+      }}
+      title={
+        title ||
+        (eraser
+          ? 'Effacer tous les filtres'
+          : active
+            ? `Désactiver le filtre ${label}`
+            : `${label} — cliquer pour filtrer`)
+      }
+    >
+      {Icon && (
+        <Icon
+          className="w-3 h-3"
+          style={{ color: isHighlight ? color : dim ? 'var(--txt-3)' : color }}
+        />
+      )}
+      <span className="tabular-nums">{value}</span>
+      <span
+        className="text-[11px] font-medium"
+        style={{ color: isHighlight ? color : 'var(--txt-3)' }}
+      >
+        {label}
+      </span>
+    </button>
   )
 }
 
