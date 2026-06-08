@@ -40,6 +40,11 @@ import {
   Clock,
   XCircle,
   Eraser,
+  ChevronDown,
+  Check,
+  Tag as TagIcon,
+  ArrowUpDown,
+  LayoutGrid,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -816,74 +821,48 @@ export default function MusiquesTab() {
           />
         </div>
 
-        {/* Filtre statut */}
-        <select
-          value={filterStatut || ''}
-          onChange={(e) => setFilterStatut(e.target.value || null)}
-          className="rounded-md shrink-0"
-          style={{
-            height: 30,
-            padding: '0 8px',
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-            color: 'var(--txt-2)',
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
-        >
-          <option value="">Tous les statuts</option>
-          {Object.entries(STATUT_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
+        {/* Filtre statut — chip dropdown au pattern Livrables */}
+        <ChipDropdown
+          icon={TagIcon}
+          label="Statut"
+          value={filterStatut}
+          options={[
+            { key: null, label: 'Tous les statuts' },
+            ...Object.entries(STATUT_LABELS).map(([key, label]) => ({
+              key,
+              label,
+              colorBg: STATUT_COLORS[key]?.bg,
+              colorFg: STATUT_COLORS[key]?.fg,
+            })),
+          ]}
+          onSelect={(k) => setFilterStatut(k)}
+        />
 
         {/* Tri */}
-        <select
+        <ChipDropdown
+          icon={ArrowUpDown}
+          label="Tri"
           value={sortMode}
-          onChange={(e) => setSortMode(e.target.value)}
-          title="Tri"
-          className="rounded-md shrink-0"
-          style={{
-            height: 30,
-            padding: '0 8px',
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-            color: 'var(--txt-2)',
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
-        >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          options={SORT_OPTIONS.map((o) => ({ key: o.key, label: o.label }))}
+          onSelect={(k) => setSortMode(k)}
+          hideClear
+        />
 
         {/* Groupement */}
-        <select
+        <ChipDropdown
+          icon={LayoutGrid}
+          label="Groupement"
           value={groupBy}
-          onChange={(e) => setGroupBy(e.target.value)}
-          title="Organiser par"
-          className="rounded-md shrink-0"
-          style={{
-            height: 30,
-            padding: '0 8px',
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-            color: 'var(--txt-2)',
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
-        >
-          <option value="none">Sans groupement</option>
-          <option value="statut">Par statut</option>
-          <option value="artiste">Par artiste</option>
-          <option value="jour">Par jour</option>
-          <option value="proposeur">Par proposeur</option>
-        </select>
+          options={[
+            { key: 'none', label: 'Sans groupement' },
+            { key: 'statut', label: 'Par statut' },
+            { key: 'artiste', label: 'Par artiste' },
+            { key: 'jour', label: 'Par jour' },
+            { key: 'proposeur', label: 'Par proposeur' },
+          ]}
+          onSelect={(k) => setGroupBy(k)}
+          hideClear
+        />
       </div>
 
       {/* ─── Content : body avec padding standard ────────────────────── */}
@@ -1471,6 +1450,171 @@ function StatPill({
         {label}
       </span>
     </button>
+  )
+}
+
+// ─── ChipDropdown (MUS-4.7) ────────────────────────────────────────────────
+// Bouton chip avec dropdown panel — pattern visuel aligné Livrables
+// (MultiSelectChip privée). Version single-select pour Statut, Tri,
+// Groupement de Musiques.
+//
+// Props :
+//   - icon                 : Lucide icon component (Tag, ArrowUpDown, …)
+//   - label                : string affiché en pill quand pas de sélection
+//   - value                : key courante (null = pas de sélection)
+//   - options              : Array<{ key, label, colorBg?, colorFg? }>
+//                            colorBg/colorFg → pour afficher le label en
+//                            pill colorée (utilisé par Statut pour
+//                            reprendre les couleurs STATUT_COLORS)
+//   - onSelect(key)        : callback sur sélection (null pour Tous)
+//   - hideClear            : si true, pas de footer "Effacer" (cas où
+//                            'none' / mode par défaut a déjà cette
+//                            sémantique)
+function ChipDropdown({
+  icon: Icon,
+  label,
+  value,
+  options,
+  onSelect,
+  hideClear = false,
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  // Close au click outside
+  useEffect(() => {
+    if (!open) return undefined
+    function onDocClick(e) {
+      if (ref.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const selected = options.find((o) => o.key === value)
+  // Le chip est "actif" si la valeur courante n'est pas la première
+  // option (par convention : Tous les statuts / Sans groupement → repos)
+  const defaultKey = options[0]?.key
+  const isActive = value != null && value !== defaultKey
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg shrink-0 transition-colors"
+        style={{
+          background: isActive ? 'var(--blue-bg)' : 'transparent',
+          color: isActive ? 'var(--blue)' : 'var(--txt-2)',
+          border: `1px solid ${isActive ? 'var(--blue)' : 'var(--brd-sub)'}`,
+        }}
+      >
+        {Icon && <Icon className="w-3.5 h-3.5" />}
+        <span>{label}</span>
+        {isActive && selected?.label && (
+          <span
+            className="text-[10px] px-1.5 rounded-full font-medium tabular-nums"
+            style={{
+              background: 'var(--blue)',
+              color: '#fff',
+            }}
+          >
+            {selected.label}
+          </span>
+        )}
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 rounded-lg shadow-lg overflow-hidden"
+          style={{
+            background: 'var(--bg-elev)',
+            border: '1px solid var(--brd)',
+            minWidth: 200,
+            maxHeight: 320,
+            overflowY: 'auto',
+            zIndex: 40,
+          }}
+        >
+          {options.map((opt) => {
+            const checked = opt.key === value
+            return (
+              <button
+                key={opt.key ?? '__null__'}
+                type="button"
+                onClick={() => {
+                  onSelect(opt.key)
+                  setOpen(false)
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs"
+                style={{
+                  background: checked ? 'var(--bg-hov)' : 'transparent',
+                  color: 'var(--txt)',
+                }}
+                onMouseEnter={(e) => {
+                  if (!checked)
+                    e.currentTarget.style.background = 'var(--bg-hov)'
+                }}
+                onMouseLeave={(e) => {
+                  if (!checked)
+                    e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                {/* Check icône à gauche pour l'item courant, sinon réserve
+                    de l'espace pour aligner */}
+                <span
+                  className="w-3.5 h-3.5 inline-flex items-center justify-center shrink-0"
+                  style={{ color: 'var(--blue)' }}
+                >
+                  {checked && <Check className="w-3 h-3" />}
+                </span>
+                {opt.colorBg ? (
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[11px] font-medium"
+                    style={{ background: opt.colorBg, color: opt.colorFg }}
+                  >
+                    {opt.label}
+                  </span>
+                ) : (
+                  <span className="truncate" style={{ color: 'var(--txt)' }}>
+                    {opt.label}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {!hideClear && isActive && (
+            <div style={{ borderTop: '1px solid var(--brd-sub)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(defaultKey ?? null)
+                  setOpen(false)
+                }}
+                className="w-full px-3 py-2 text-left text-[11px]"
+                style={{ color: 'var(--txt-3)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                Effacer la sélection
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
