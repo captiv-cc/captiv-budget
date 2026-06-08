@@ -48,6 +48,7 @@ import {
   List as ListIcon,
   Columns as ColumnsIcon,
   LayoutDashboard,
+  Film,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -63,6 +64,8 @@ import {
   updateSortOrder,
   deleteProposition,
   setStatut,
+  listAllLinks,
+  subscribeLinks,
 } from '../../lib/musiques'
 import { detectBpmFromUrl } from '../../lib/bpmDetect'
 import {
@@ -78,7 +81,9 @@ import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
 import PipelineView from '../../features/musiques/PipelineView'
 import DashboardView from '../../features/musiques/DashboardView'
+import AttributionView from '../../features/musiques/AttributionView'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
+import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 
 const OUTIL_KEY = 'musiques'
 
@@ -115,12 +120,19 @@ export default function MusiquesTab() {
   //     non-null (= quelqu'un a déjà réordonné le projet) → 'manual'
   //     pour voir l'ordre partagé
   //   - Sinon : 'created_desc' (les plus récentes d'abord)
-  // MUS-5.1 : view mode (list/pipeline/dashboard) persisté par projet
+  // MUS-5.1 / MUS-6.4 : view mode (list/pipeline/dashboard/attribution)
+  // persisté par projet
   const VIEW_KEY = `musiques.view.${projectId || 'global'}`
   const [viewMode, setViewModeRaw] = useState(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY)
-      if (v === 'pipeline' || v === 'dashboard') return v
+      if (
+        v === 'pipeline' ||
+        v === 'dashboard' ||
+        v === 'attribution'
+      ) {
+        return v
+      }
       return 'list'
     } catch {
       return 'list'
@@ -211,6 +223,27 @@ export default function MusiquesTab() {
     () => propositions.find((p) => p.id === detailPropId) || null,
     [propositions, detailPropId],
   )
+
+  // MUS-6.4 : données livrables + blocks + links pour la vue Attribution.
+  // Fetch séparément (ne perturbe pas le chargement initial des propositions).
+  const [livrablesList, setLivrablesList] = useState([])
+  const [blocksList, setBlocksList] = useState([])
+  const [linksList, setLinksList] = useState([])
+  const refetchAttribution = useCallback(async () => {
+    if (!projectId) return
+    try {
+      const [livs, blks, lks] = await Promise.all([
+        fetchLivrables(projectId),
+        fetchBlocks(projectId),
+        listAllLinks(projectId),
+      ])
+      setLivrablesList(livs || [])
+      setBlocksList(blks || [])
+      setLinksList(lks || [])
+    } catch (e) {
+      console.warn('[MusiquesTab] attribution fetch failed', e)
+    }
+  }, [projectId])
 
   // Audio player partagé : un seul preview joue à la fois.
   const [playingId, setPlayingId] = useState(null)
@@ -349,6 +382,18 @@ export default function MusiquesTab() {
   useEffect(() => {
     refetch()
   }, [refetch])
+
+  // MUS-6.4 : fetch livrables/blocks/links au mount + Realtime sur les
+  // liens (changements d'autres users → on rafraîchit)
+  useEffect(() => {
+    refetchAttribution()
+  }, [refetchAttribution])
+
+  useEffect(() => {
+    if (!projectId) return undefined
+    const sub = subscribeLinks(projectId, () => refetchAttribution())
+    return () => sub.unsubscribe()
+  }, [projectId, refetchAttribution])
 
   // ─── Realtime subscriptions (MUS-1.14 partiel) ─────────────────────────────
   useEffect(() => {
@@ -919,6 +964,12 @@ export default function MusiquesTab() {
           onClick={() => setViewMode('pipeline')}
         />
         <ViewToggle
+          active={viewMode === 'attribution'}
+          icon={Film}
+          label="Attribution"
+          onClick={() => setViewMode('attribution')}
+        />
+        <ViewToggle
           active={viewMode === 'dashboard'}
           icon={LayoutDashboard}
           label="Dashboard"
@@ -1167,7 +1218,7 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Empty state filtres (a des propositions mais filtres masquent) ── */}
-      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && viewMode !== 'dashboard' && (
+      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && viewMode !== 'dashboard' && viewMode !== 'attribution' && (
         <div
           style={{
             padding: '32px 12px',
@@ -1206,6 +1257,23 @@ export default function MusiquesTab() {
           canEdit={canEdit}
           currentUserId={user?.id || null}
           onMutated={refetch}
+          onOpenDetail={(p) => setDetailPropId(p.id)}
+        />
+      )}
+
+      {/* ─── Attribution view (MUS-6.4) ──────────────────────────────── */}
+      {!loading && viewMode === 'attribution' && (
+        <AttributionView
+          propositions={propositions}
+          aggregates={aggregates}
+          livrables={livrablesList}
+          blocks={blocksList}
+          links={linksList}
+          canEdit={canEdit}
+          onMutated={() => {
+            refetchAttribution()
+            refetch()
+          }}
           onOpenDetail={(p) => setDetailPropId(p.id)}
         />
       )}
