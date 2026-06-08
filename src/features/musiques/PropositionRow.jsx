@@ -479,17 +479,19 @@ export default function PropositionRow({
           />
         )}
 
-        {/* Note ★ cliquable + statut compact.
-            Largeur FIXE pour que les étoiles soient toujours à la même
-            position quelle que soit la longueur du texte sous (qui peut
-            être "5 · 1" court ou "Toi 5 · moy 4.2 · 12" long). */}
+        {/* Note ★ cliquable.
+            Largeur FIXE pour aligner les éléments suivants (play/YT/...)
+            entre les rows. Stars + texte LEFT-alignés pour rester
+            proches de l'avatar (Hugo : "rapprocher les nb comments +
+            avatar"). Empty space éventuel se met à droite, moins
+            visible parce qu'il sert de marge avec le bouton play. */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'flex-end',
+            alignItems: 'flex-start',
             gap: 2,
-            width: 140,
+            width: 100,
             flexShrink: 0,
           }}
           onClick={(e) => e.stopPropagation()}
