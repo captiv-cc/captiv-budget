@@ -373,6 +373,34 @@ export async function setStatut(id, statut) {
   return updateProposition(id, { statut })
 }
 
+/**
+ * Liste les notes d'une proposition avec détails voteurs (full_name,
+ * email, avatar_url) pour afficher la liste "qui a noté quoi" dans le
+ * détail drawer. Trié par created_at DESC (plus récent en haut).
+ *
+ * MUSIQUES MUS-4.2 — détail voteurs visible dans le drawer comme on
+ * affiche les commentaires.
+ *
+ * @param {string} propositionId
+ * @returns {Promise<Array<{ user_id, note, created_at, updated_at, voter }>>}
+ */
+export async function listNotesForProposition(propositionId) {
+  const { data, error } = await supabase
+    .from('projet_musique_notes')
+    .select(`
+      proposition_id,
+      user_id,
+      note,
+      created_at,
+      updated_at,
+      voter:user_id (id, full_name, avatar_url, email)
+    `)
+    .eq('proposition_id', propositionId)
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
 // ─── Écritures notes (utilisateur courant uniquement) ──────────────────────
 
 /**

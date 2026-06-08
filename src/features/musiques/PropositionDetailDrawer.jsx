@@ -32,6 +32,8 @@ import {
   AlertTriangle,
   Edit3,
   Check,
+  Star,
+  Tag as TagIcon,
 } from 'lucide-react'
 import {
   updateProposition,
@@ -45,21 +47,30 @@ import {
   updateComment,
   removeComment,
   subscribeComments,
+  listNotesForProposition,
+  upsertMyNote,
+  removeMyNote,
 } from '../../lib/musiques'
 import { getDeezerTrack } from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
+import StarRating from './StarRating'
+import TagsEditor from './TagsEditor'
 
 
 export default function PropositionDetailDrawer({
   open,
   proposition,
   canEdit = true,
+  // MUS-4.2 : nouveaux props pour wiring Notes + Tags
+  projectId = null,
+  currentUserId: currentUserIdProp = null,
+  aggregate = null,
   onClose,
   onMutated,
 }) {
   const { user } = useAuth() || {}
-  const currentUserId = user?.id || null
+  const currentUserId = currentUserIdProp || user?.id || null
 
   // Local state pour l'édition optimiste
   const [draft, setDraft] = useState({})
@@ -72,6 +83,10 @@ export default function PropositionDetailDrawer({
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [newComment, setNewComment] = useState('')
   const [postingComment, setPostingComment] = useState(false)
+
+  // MUS-4.2 : Notes détail voteurs
+  const [notesList, setNotesList] = useState([])
+  const [notesLoading, setNotesLoading] = useState(false)
 
   // Audio preview
   const [audioEl, setAudioEl] = useState(null)
@@ -90,6 +105,29 @@ export default function PropositionDetailDrawer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proposition?.id])
+
+  // MUS-4.2 : reload notes détaillées (avec voteurs) à chaque open et à
+  // chaque mutation parent (qui touche `aggregate.noteCount`).
+  const reloadNotes = useCallback(async () => {
+    if (!proposition?.id) return
+    setNotesLoading(true)
+    try {
+      const list = await listNotesForProposition(proposition.id)
+      setNotesList(list || [])
+    } catch (e) {
+      console.warn('[Drawer] loadNotes failed', e)
+    } finally {
+      setNotesLoading(false)
+    }
+  }, [proposition?.id])
+
+  useEffect(() => {
+    if (!open || !proposition?.id) return
+    reloadNotes()
+    // Re-trigger quand aggregate.noteCount change (Realtime parent → refetch
+    // → nouveau aggregate avec compteur différent).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, proposition?.id, aggregate?.noteCount, aggregate?.noteAvg])
 
   // Esc to close
   useEffect(() => {
@@ -166,6 +204,20 @@ export default function PropositionDetailDrawer({
       notify.error(e?.message || 'Erreur sauvegarde')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // MUS-4.2 : note de l'utilisateur courant dans le drawer
+  async function handleSetMyNote(value) {
+    if (!canEdit) return
+    try {
+      if (value === 0) await removeMyNote(p.id)
+      else await upsertMyNote(p.id, value)
+      onMutated?.()
+      reloadNotes()
+    } catch (e) {
+      console.warn('[Drawer] note failed', e)
+      notify.error(e?.message || 'Impossible de noter')
     }
   }
 
@@ -304,45 +356,78 @@ export default function PropositionDetailDrawer({
           overflow: 'hidden',
         }}
       >
-        {/* ─── Header ─────────────────────────────────────────────────── */}
+        {/* ─── Header amélioré (MUS-4.2) ──────────────────────────────────
+            Titre + artiste plus lisibles, badge statut bien visible à
+            gauche, fermeture à droite. */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '8px 12px',
+            padding: '10px 14px',
             borderBottom: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
+            gap: 10,
           }}
         >
           <div
             style={{
-              fontSize: 14,
-              fontWeight: 500,
-              color: 'var(--txt)',
-              display: 'inline-flex',
+              display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 10,
+              minWidth: 0,
+              flex: 1,
             }}
           >
             <span
               style={{
                 fontSize: 10,
-                padding: '2px 8px',
-                borderRadius: 8,
+                padding: '3px 9px',
+                borderRadius: 10,
                 textTransform: 'uppercase',
-                letterSpacing: 0.5,
+                letterSpacing: 0.6,
                 background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
                 color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-2)',
-                fontWeight: 600,
+                fontWeight: 700,
+                flexShrink: 0,
               }}
             >
               {STATUT_LABELS[p.statut]}
             </span>
-            <span style={{ opacity: 0.5 }}>·</span>
-            <span style={{ fontSize: 12, color: 'var(--txt-3)' }}>
-              {artistName} · {p.titre}
-            </span>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: 0,
+                lineHeight: 1.2,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--txt)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                title={p.titre}
+              >
+                {p.titre || '—'}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--txt-3)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                title={artistName}
+              >
+                {artistName}
+              </span>
+            </div>
           </div>
           <button
             type="button"
@@ -353,7 +438,9 @@ export default function PropositionDetailDrawer({
               padding: 4,
               cursor: 'pointer',
               color: 'var(--txt-3)',
+              flexShrink: 0,
             }}
+            aria-label="Fermer"
           >
             <X size={16} />
           </button>
@@ -365,7 +452,7 @@ export default function PropositionDetailDrawer({
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
-            gap: 10,
+            gap: 8,
             overflow: 'auto',
           }}
         >
@@ -577,6 +664,153 @@ export default function PropositionDetailDrawer({
               rows={2}
               style={{ ...inputStyleCompact(), resize: 'vertical' }}
             />
+          </div>
+
+          {/* ═══ Tags (MUS-4.2) ═══ */}
+          <div>
+            <FieldLabel>
+              <TagIcon size={11} />
+              Tags
+            </FieldLabel>
+            <div
+              style={{
+                padding: '6px 8px',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 4,
+                minHeight: 28,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <TagsEditor
+                propositionId={p.id}
+                projectId={projectId}
+                currentUserId={currentUserId}
+                tags={aggregate?.tags || []}
+                canEdit={canEdit}
+                onChange={onMutated}
+              />
+            </div>
+          </div>
+
+          {/* ═══ Notes ★ + détail voteurs (MUS-4.2) ═══
+              Affiche ma note (éditable) et la liste des voteurs comme
+              les commentaires : avatar + nom + ★ + horodatage. */}
+          <div
+            style={{
+              borderTop: '1px solid var(--brd-sub)',
+              paddingTop: 10,
+              marginTop: 2,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--txt-2)',
+                marginBottom: 8,
+              }}
+            >
+              <Star size={13} />
+              Notes
+              {(aggregate?.noteCount || 0) > 0 && (
+                <span style={{ color: 'var(--txt-3)', fontWeight: 400 }}>
+                  ({aggregate.noteCount})
+                </span>
+              )}
+            </div>
+
+            {/* Ma note (éditable) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 8px',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 4,
+                marginBottom: notesList.length > 0 ? 8 : 0,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--txt-3)',
+                  flexShrink: 0,
+                }}
+              >
+                Ta note :
+              </span>
+              <StarRating
+                myValue={aggregate?.myNote ?? null}
+                avgValue={aggregate?.noteAvg ?? null}
+                count={aggregate?.noteCount || 0}
+                onChange={handleSetMyNote}
+                disabled={!canEdit}
+                size={15}
+              />
+              {aggregate?.myNote != null && canEdit && (
+                <button
+                  type="button"
+                  onClick={() => handleSetMyNote(0)}
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--txt-3)',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                  title="Retirer ma note"
+                >
+                  Retirer
+                </button>
+              )}
+              {aggregate?.noteAvg != null && (
+                <span
+                  style={{
+                    marginLeft: aggregate?.myNote != null && canEdit ? 0 : 'auto',
+                    fontSize: 11,
+                    color: '#D97706',
+                    fontWeight: 500,
+                    flexShrink: 0,
+                  }}
+                  title={`Moyenne ${Math.round(aggregate.noteAvg * 10) / 10}/5`}
+                >
+                  moy {Math.round(aggregate.noteAvg * 10) / 10}
+                </span>
+              )}
+            </div>
+
+            {/* Liste voteurs (détail comme commentaires) */}
+            {notesLoading && notesList.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--txt-3)' }}>
+                Chargement…
+              </div>
+            )}
+            {notesList.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                {notesList.map((n) => (
+                  <NoteVoterRow
+                    key={n.user_id}
+                    note={n}
+                    isMine={n.user_id === currentUserId}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ═══ Commentaires ═══ */}
@@ -854,6 +1088,80 @@ function InlineField({
           {hint}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── NoteVoterRow : une ligne par voteur (MUS-4.2) ───────────────────────
+// Pattern visuel calqué sur CommentRow : avatar circulaire + nom + ★ +
+// horodatage. Plus compact (pas de body texte). "Toi" en gras si c'est
+// ma propre note.
+function NoteVoterRow({ note, isMine }) {
+  const v = note.voter || {}
+  const name = v.full_name || v.email?.split('@')[0] || 'inconnu'
+  const initials = (name.match(/[A-Za-zÀ-ÿ0-9]/g) || ['?'])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const color = hashColorFromName(name)
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '4px 6px',
+        borderRadius: 4,
+        background: isMine ? 'rgba(59,130,246,0.06)' : 'transparent',
+      }}
+    >
+      <div
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: color.bg,
+          color: color.fg,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 9,
+          fontWeight: 600,
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </div>
+      <span
+        style={{
+          fontSize: 12,
+          color: 'var(--txt-2)',
+          fontWeight: isMine ? 600 : 400,
+        }}
+      >
+        {isMine ? 'Toi' : name}
+      </span>
+      <span style={{ display: 'inline-flex', gap: 1, alignItems: 'center' }}>
+        {[1, 2, 3, 4, 5].map((s) => (
+          <Star
+            key={s}
+            size={11}
+            style={{
+              color: s <= note.note ? '#D97706' : 'var(--brd-sub)',
+              fill: s <= note.note ? '#D97706' : 'transparent',
+            }}
+          />
+        ))}
+      </span>
+      <span
+        style={{
+          marginLeft: 'auto',
+          fontSize: 10,
+          color: 'var(--txt-3)',
+        }}
+      >
+        <RelativeTime date={note.updated_at || note.created_at} />
+      </span>
     </div>
   )
 }

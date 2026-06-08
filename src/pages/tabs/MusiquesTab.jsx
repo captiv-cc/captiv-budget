@@ -1153,6 +1153,9 @@ export default function MusiquesTab() {
         open={Boolean(detailProp)}
         proposition={detailProp}
         canEdit={canEdit}
+        projectId={projectId}
+        currentUserId={user?.id || null}
+        aggregate={detailProp ? aggregates.get(detailProp.id) : null}
         onClose={() => setDetailPropId(null)}
         onMutated={refetch}
       />
