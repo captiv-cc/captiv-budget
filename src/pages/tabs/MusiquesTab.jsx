@@ -23,7 +23,7 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useOutletContext } from 'react-router-dom'
 import {
   Music,
@@ -40,7 +40,9 @@ import {
   computeAggregates,
   subscribeToProject,
   STATUT_LABELS,
+  updateProposition,
 } from '../../lib/musiques'
+import { detectBpmFromUrl } from '../../lib/bpmDetect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
@@ -84,6 +86,33 @@ export default function MusiquesTab() {
   // Audio player partagé : un seul preview joue à la fois.
   const [playingId, setPlayingId] = useState(null)
   const [audioEl, setAudioEl] = useState(null)
+  // Set des propositions déjà analysées en BPM cette session (évite de
+  // re-déclencher la détection au re-play).
+  const bpmDetectedRef = useRef(new Set())
+
+  // MUS-2.7 : si BPM null/0, déclenche la détection client-side en
+  // arrière-plan (n'attend pas le résultat, joue tout de suite).
+  const maybeDetectBpm = useCallback(async (prop) => {
+    if (!prop?.preview_url) return
+    if (bpmDetectedRef.current.has(prop.id)) return
+    const currentBpm = prop.audio_features?.tempo
+    if (currentBpm > 0) return
+    bpmDetectedRef.current.add(prop.id)
+    try {
+      const detected = await detectBpmFromUrl(prop.preview_url)
+      if (!detected) return
+      const newFeatures = {
+        ...(prop.audio_features || {}),
+        tempo: detected,
+        source: 'client-detected',
+      }
+      await updateProposition(prop.id, { audio_features: newFeatures })
+      // Realtime + refetch global vont catch
+    } catch (e) {
+      console.warn('[BPM detect] failed for', prop.id, e)
+    }
+  }, [])
+
   const togglePlay = useCallback(
     (prop) => {
       if (playingId === prop.id) {
@@ -99,8 +128,10 @@ export default function MusiquesTab() {
       audio.addEventListener('ended', () => setPlayingId(null))
       setAudioEl(audio)
       setPlayingId(prop.id)
+      // Déclenche la détection BPM en parallèle si nécessaire
+      maybeDetectBpm(prop)
     },
-    [audioEl, playingId],
+    [audioEl, playingId, maybeDetectBpm],
   )
   // Cleanup audio à l'unmount du tab
   useEffect(() => () => audioEl?.pause?.(), [audioEl])

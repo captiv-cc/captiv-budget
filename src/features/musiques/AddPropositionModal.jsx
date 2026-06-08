@@ -54,9 +54,11 @@ import {
   getDeezerTrack,
   searchDeezer,
   mapDeezerToProposition,
+  findYouTubeForTrack,
 } from '../../lib/musiqueSearch'
 import {
   createProposition,
+  updateProposition,
   findSimilarProposition,
 } from '../../lib/musiques'
 import {
@@ -235,6 +237,17 @@ export default function AddPropositionModal({
           }
           const created = await createProposition(projectId, payload)
           notify.success(`"${t.artist} · ${t.title}" ajouté`, false)
+          // Si pas de lien YouTube, on lance la recherche en background.
+          // Fire-and-forget : ne bloque pas la fermeture de la modal.
+          if (!payload.lien_youtube && created?.id) {
+            findYouTubeForTrack(t.artist, t.title).then((match) => {
+              if (match?.video_url) {
+                updateProposition(created.id, {
+                  lien_youtube: match.video_url,
+                }).catch((e) => console.warn('[YT autofind] update', e))
+              }
+            })
+          }
           onCreated?.(created)
           onClose?.()
         }
@@ -1000,6 +1013,17 @@ function ManualForm({ projectId, onCancel, onCreated }) {
       }
       const created = await createProposition(projectId, payload)
       notify.success(`"${artisteText} · ${titre}" ajouté`, false)
+      // YouTube auto-find si pas de lien fourni
+      if (!payload.lien_youtube && created?.id) {
+        const displayArtiste = matchedArtiste?.nom || artisteText.trim()
+        findYouTubeForTrack(displayArtiste, titre.trim()).then((match) => {
+          if (match?.video_url) {
+            updateProposition(created.id, {
+              lien_youtube: match.video_url,
+            }).catch((e) => console.warn('[YT autofind] update', e))
+          }
+        })
+      }
       onCreated?.(created)
     } catch (e) {
       console.warn('[ManualForm] failed', e)
