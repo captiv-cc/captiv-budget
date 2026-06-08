@@ -46,6 +46,7 @@ import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
 import PropositionRow from '../../features/musiques/PropositionRow'
+import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
 
 const OUTIL_KEY = 'musiques'
 
@@ -72,6 +73,13 @@ export default function MusiquesTab() {
   // Modals
   const [addOpen, setAddOpen] = useState(false)
   const [importProgOpen, setImportProgOpen] = useState(false)
+  const [detailPropId, setDetailPropId] = useState(null) // ID de la prop ouverte
+  // On dérive detailProp depuis l'array propositions pour avoir toujours
+  // la version fraîche après refetch (sinon stale state au save inline).
+  const detailProp = useMemo(
+    () => propositions.find((p) => p.id === detailPropId) || null,
+    [propositions, detailPropId],
+  )
 
   // Audio player partagé : un seul preview joue à la fois.
   const [playingId, setPlayingId] = useState(null)
@@ -432,6 +440,7 @@ export default function MusiquesTab() {
                 currentUserId={user?.id || null}
                 projectId={projectId}
                 onMutated={refetch}
+                onClick={() => setDetailPropId(p.id)}
               />
             </div>
           ))}
@@ -477,6 +486,13 @@ export default function MusiquesTab() {
           // propositions). L'annuaire sera utilisé au prochain ajout
           // de proposition pour le matching.
         }}
+      />
+      <PropositionDetailDrawer
+        open={Boolean(detailProp)}
+        proposition={detailProp}
+        canEdit={canEdit}
+        onClose={() => setDetailPropId(null)}
+        onMutated={refetch}
       />
     </div>
   )
