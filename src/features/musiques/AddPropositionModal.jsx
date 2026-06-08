@@ -752,16 +752,48 @@ function DeezerRow({ track, isBest, isPlaying, onPlay, onAdd, adding }) {
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
           }}
         >
-          {track.artist} · {track.title}
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+            }}
+          >
+            {track.artist} · {track.title}
+          </span>
+          {/* MUS-4.4 : explicit badge en mini-pill rouge (au lieu d'un
+              "· explicit" gris noyé dans la ligne meta). */}
+          {track.explicit && (
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '1px 5px',
+                background: 'rgba(239,68,68,0.15)',
+                color: '#EF4444',
+                borderRadius: 4,
+                letterSpacing: 0.5,
+                flexShrink: 0,
+              }}
+              title="Paroles explicites"
+            >
+              E
+            </span>
+          )}
           {isBest && (
             <span
               style={{
-                marginLeft: 6,
+                marginLeft: 'auto',
                 fontSize: 10,
                 color: 'var(--blue, #3B82F6)',
-                fontWeight: 400,
+                fontWeight: 500,
+                flexShrink: 0,
               }}
             >
               Meilleur match
@@ -773,7 +805,6 @@ function DeezerRow({ track, isBest, isPlaying, onPlay, onAdd, adding }) {
           {formatDuration(track.duration_sec)}
           {track.bpm ? ` · ${track.bpm} BPM` : ''}
           {track.rank ? ` · ${formatRank(track.rank)}` : ''}
-          {track.explicit ? ' · explicit' : ''}
         </div>
       </div>
       <button
@@ -804,27 +835,47 @@ function DeezerRow({ track, isBest, isPlaying, onPlay, onAdd, adding }) {
       >
         {isPlaying ? <Loader2 size={12} className="spin" /> : <Play size={12} />}
       </button>
+      {/* MUS-4.4 : bouton "+ Ajouter" plus présent visuellement (Hugo a
+          souligné qu'il fallait au contraire le rendre plus visible).
+          Plus grand, padding plus généreux, ombre légère, font 12, +
+          icône plus visible. */}
       <button
         type="button"
         onClick={onAdd}
         disabled={adding}
         style={{
-          padding: '6px 12px',
-          fontSize: 11,
-          fontWeight: 500,
+          padding: '8px 14px',
+          fontSize: 12,
+          fontWeight: 600,
           background: 'var(--blue, #3B82F6)',
           color: 'white',
           border: 'none',
-          borderRadius: 4,
+          borderRadius: 6,
           cursor: adding ? 'not-allowed' : 'pointer',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 4,
+          gap: 5,
           opacity: adding ? 0.6 : 1,
           flexShrink: 0,
+          boxShadow: adding
+            ? 'none'
+            : '0 1px 3px rgba(59,130,246,0.25), inset 0 -1px 0 rgba(0,0,0,0.08)',
+          transition: 'transform 80ms, box-shadow 80ms',
+        }}
+        onMouseEnter={(e) => {
+          if (!adding) {
+            e.currentTarget.style.boxShadow =
+              '0 2px 6px rgba(59,130,246,0.35), inset 0 -1px 0 rgba(0,0,0,0.08)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!adding) {
+            e.currentTarget.style.boxShadow =
+              '0 1px 3px rgba(59,130,246,0.25), inset 0 -1px 0 rgba(0,0,0,0.08)'
+          }
         }}
       >
-        {adding ? <Loader2 size={11} className="spin" /> : <Plus size={11} />}
+        {adding ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}
         Ajouter
       </button>
     </div>
