@@ -47,6 +47,8 @@ import {
   STATUTS,
   STATUT_LABELS,
   updateProposition,
+  updateSortOrder,
+  calcSortOrderBetween,
   deleteProposition,
   setStatut,
 } from '../../lib/musiques'
@@ -123,6 +125,72 @@ export default function MusiquesTab() {
       /* ignore */
     }
   }, [GROUPBY_KEY, groupBy])
+
+  // MUS-3.5 : drag and drop state
+  const [draggingId, setDraggingId] = useState(null)
+  const [dropTargetId, setDropTargetId] = useState(null)
+  const [dropPosition, setDropPosition] = useState(null) // 'above' | 'below'
+
+  const handleDragStart = useCallback(
+    (prop) => {
+      // Auto-switch en mode 'manual' au start (sinon le drop n'aurait
+      // aucun effet visible — l'utilisateur réordonne mais la liste se
+      // re-trierait par created_at).
+      if (sortMode !== 'manual') setSortMode('manual')
+      setDraggingId(prop.id)
+    },
+    [sortMode],
+  )
+  const handleDragOver = useCallback((prop, position) => {
+    setDropTargetId(prop.id)
+    setDropPosition(position)
+  }, [])
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null)
+    setDropTargetId(null)
+    setDropPosition(null)
+  }, [])
+  const handleDrop = useCallback(
+    async (targetProp, position) => {
+      const dragId = draggingId
+      setDraggingId(null)
+      setDropTargetId(null)
+      setDropPosition(null)
+      if (!dragId || dragId === targetProp.id) return
+      // Calcule l'orderBefore / orderAfter en fonction de la position
+      // (above ou below targetProp) dans la liste actuellement triée.
+      const ordered = visiblePropositions.filter((p) => p.id !== dragId)
+      const targetIdx = ordered.findIndex((p) => p.id === targetProp.id)
+      if (targetIdx < 0) return
+      let beforeOrder = null
+      let afterOrder = null
+      if (position === 'above') {
+        beforeOrder = ordered[targetIdx - 1]?.sort_order ?? null
+        afterOrder = ordered[targetIdx].sort_order ?? null
+      } else {
+        beforeOrder = ordered[targetIdx].sort_order ?? null
+        afterOrder = ordered[targetIdx + 1]?.sort_order ?? null
+      }
+      // Si les voisins n'ont pas de sort_order défini, on initialise
+      // à partir de leur index dans la liste (×1000 pour avoir de la
+      // marge à la prochaine insertion fractionnaire).
+      if (beforeOrder == null && ordered[targetIdx - 1]) {
+        beforeOrder = targetIdx * 1000
+      }
+      if (afterOrder == null && ordered[targetIdx + 1]) {
+        afterOrder = (targetIdx + 2) * 1000
+      }
+      const newOrder = calcSortOrderBetween(beforeOrder, afterOrder)
+      try {
+        await updateSortOrder(dragId, newOrder)
+        // Realtime refetch catch
+      } catch (e) {
+        console.warn('[DnD] reorder failed', e)
+        notify.error('Réordonnancement impossible')
+      }
+    },
+    [draggingId, visiblePropositions],
+  )
 
   // MUS-3.3 : multi-sélection pour actions bulk
   const [selectedIds, setSelectedIds] = useState(() => new Set())
@@ -995,6 +1063,14 @@ export default function MusiquesTab() {
                     selected={selectedIds.has(p.id)}
                     onToggleSelected={() => toggleSelected(p.id)}
                     anySelected={selectedIds.size > 0}
+                    // Drag and drop (MUS-3.5)
+                    enableDnD={canEdit && groupBy === 'none'}
+                    isDragging={draggingId === p.id}
+                    dropTarget={dropTargetId === p.id ? dropPosition : null}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDragEnd={handleDragEnd}
+                    onDrop={handleDrop}
                   />
                 </div>
               ))}
@@ -1173,6 +1249,7 @@ function FilterChip({ label, onClear }) {
 // ─── Tri (MUS-3.2) ──────────────────────────────────────────────────────────
 
 const SORT_OPTIONS = [
+  { key: 'manual', label: 'Ordre manuel (drag)' },
   { key: 'created_desc', label: 'Ajout récent' },
   { key: 'created_asc', label: 'Ajout ancien' },
   { key: 'note_desc', label: 'Note ★ desc' },
@@ -1195,6 +1272,19 @@ function sortPropositions(list, mode, aggregates) {
   const artistName = (p) => p.artiste?.nom || p.artiste_text || '~'
   const bpm = (p) => p.audio_features?.tempo || 0
   switch (mode) {
+    case 'manual':
+      // sort_order ASC (rows avec NULL tombent à la fin par created_at desc)
+      arr.sort((a, b) => {
+        const ao = a.sort_order ?? null
+        const bo = b.sort_order ?? null
+        if (ao == null && bo == null) {
+          return new Date(b.created_at) - new Date(a.created_at)
+        }
+        if (ao == null) return 1
+        if (bo == null) return -1
+        return ao - bo
+      })
+      break
     case 'created_asc':
       arr.sort(
         (a, b) =>

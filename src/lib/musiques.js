@@ -293,6 +293,36 @@ export async function deleteProposition(id) {
 }
 
 /**
+ * Met à jour le sort_order custom (drag and drop) d'une proposition.
+ * Pas de validation (peut être positif/négatif/fractionnaire).
+ */
+export async function updateSortOrder(id, sortOrder) {
+  return updateProposition(id, { sort_order: sortOrder })
+}
+
+/**
+ * Calcule un sort_order pour insérer entre deux rows existantes.
+ *
+ * Cas :
+ *   - Si beforeOrder + afterOrder sont définis : moyenne
+ *   - Si afterOrder seul (drag tout en haut) : afterOrder - 1
+ *   - Si beforeOrder seul (drag tout en bas) : beforeOrder + 1
+ *   - Si rien : 0
+ *
+ * @param {number|null} beforeOrder sort_order de la row juste avant
+ * @param {number|null} afterOrder sort_order de la row juste après
+ * @returns {number}
+ */
+export function calcSortOrderBetween(beforeOrder, afterOrder) {
+  const b = typeof beforeOrder === 'number' && !Number.isNaN(beforeOrder) ? beforeOrder : null
+  const a = typeof afterOrder === 'number' && !Number.isNaN(afterOrder) ? afterOrder : null
+  if (b == null && a == null) return 0
+  if (b == null) return a - 1
+  if (a == null) return b + 1
+  return (b + a) / 2
+}
+
+/**
  * Change le statut. Pas de validation transition (le front peut sauter
  * d'étape — utile pour le Kanban drag-drop).
  */

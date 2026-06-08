@@ -35,6 +35,7 @@ import {
   MessageCircle,
   CheckSquare,
   Square,
+  GripVertical,
 } from 'lucide-react'
 import {
   STATUTS,
@@ -147,6 +148,14 @@ export default function PropositionRow({
   selected = false,
   onToggleSelected,
   anySelected = false,
+  // MUS-3.5 : drag and drop
+  enableDnD = false,
+  isDragging = false,
+  dropTarget = null, // 'above' | 'below' | null
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
 }) {
   const agg = aggregate || {
     noteAvg: null,
@@ -185,11 +194,46 @@ export default function PropositionRow({
   // le shift horizontal au hover. On joue juste sur la visibilité.
   const showCheckboxCol = canEdit
   const checkboxVisible = canEdit && (anySelected || hovered || selected)
+  const showDnDCol = enableDnD
+  const dndVisible = enableDnD && (hovered || isDragging)
+
+  // DnD handlers (HTML5)
+  function handleNativeDragStart(e) {
+    if (!enableDnD) return
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', p.id)
+    onDragStart?.(p)
+  }
+  function handleNativeDragOver(e) {
+    if (!enableDnD) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const rect = e.currentTarget.getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    const position = e.clientY < midY ? 'above' : 'below'
+    onDragOver?.(p, position)
+  }
+  function handleNativeDrop(e) {
+    if (!enableDnD) return
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    const position = e.clientY < midY ? 'above' : 'below'
+    onDrop?.(p, position)
+  }
+  function handleNativeDragEnd() {
+    onDragEnd?.()
+  }
 
   return (
     <div
       onClick={onClick}
       role={onClick ? 'button' : undefined}
+      draggable={enableDnD}
+      onDragStart={handleNativeDragStart}
+      onDragOver={handleNativeDragOver}
+      onDrop={handleNativeDrop}
+      onDragEnd={handleNativeDragEnd}
       onMouseEnter={(e) => {
         setHovered(true)
         e.currentTarget.style.background = 'var(--bg-elev)'
@@ -200,14 +244,41 @@ export default function PropositionRow({
       }}
       style={{
         display: 'grid',
-        gridTemplateColumns: `${showCheckboxCol ? '22px ' : ''}40px 1fr auto`,
+        gridTemplateColumns: `${showDnDCol ? '14px ' : ''}${showCheckboxCol ? '22px ' : ''}40px 1fr auto`,
         gap: 12,
         padding: '8px 14px',
         alignItems: 'center',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'background 80ms',
+        transition: 'background 80ms, opacity 80ms',
+        opacity: isDragging ? 0.4 : 1,
+        // Indicateur drop : bordure haut/bas selon position
+        borderTop: dropTarget === 'above'
+          ? '2px solid var(--blue, #3B82F6)'
+          : '2px solid transparent',
+        borderBottom: dropTarget === 'below'
+          ? '2px solid var(--blue, #3B82F6)'
+          : '2px solid transparent',
+        marginTop: dropTarget === 'above' ? -2 : 0,
+        marginBottom: dropTarget === 'below' ? -2 : 0,
       }}
     >
+      {/* Drag handle (MUS-3.5) — col toujours réservée si enableDnD */}
+      {showDnDCol && (
+        <span
+          style={{
+            display: 'inline-flex',
+            color: 'var(--txt-3)',
+            cursor: 'grab',
+            opacity: dndVisible ? 0.6 : 0,
+            visibility: dndVisible ? 'visible' : 'hidden',
+            transition: 'opacity 80ms',
+          }}
+          title="Glisser pour réordonner"
+          aria-hidden={!dndVisible}
+        >
+          <GripVertical size={12} />
+        </span>
+      )}
       {/* Checkbox sélection (MUS-3.3) — col toujours réservée si canEdit */}
       {showCheckboxCol && (
         <button
