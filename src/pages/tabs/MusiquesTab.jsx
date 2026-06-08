@@ -126,71 +126,12 @@ export default function MusiquesTab() {
     }
   }, [GROUPBY_KEY, groupBy])
 
-  // MUS-3.5 : drag and drop state
+  // MUS-3.5 : drag and drop state (les handlers sont définis plus bas
+  // car ils dépendent de visiblePropositions, déclaré plus loin dans
+  // le composant — sinon TDZ ReferenceError).
   const [draggingId, setDraggingId] = useState(null)
   const [dropTargetId, setDropTargetId] = useState(null)
   const [dropPosition, setDropPosition] = useState(null) // 'above' | 'below'
-
-  const handleDragStart = useCallback(
-    (prop) => {
-      // Auto-switch en mode 'manual' au start (sinon le drop n'aurait
-      // aucun effet visible — l'utilisateur réordonne mais la liste se
-      // re-trierait par created_at).
-      if (sortMode !== 'manual') setSortMode('manual')
-      setDraggingId(prop.id)
-    },
-    [sortMode],
-  )
-  const handleDragOver = useCallback((prop, position) => {
-    setDropTargetId(prop.id)
-    setDropPosition(position)
-  }, [])
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null)
-    setDropTargetId(null)
-    setDropPosition(null)
-  }, [])
-  const handleDrop = useCallback(
-    async (targetProp, position) => {
-      const dragId = draggingId
-      setDraggingId(null)
-      setDropTargetId(null)
-      setDropPosition(null)
-      if (!dragId || dragId === targetProp.id) return
-      // Calcule l'orderBefore / orderAfter en fonction de la position
-      // (above ou below targetProp) dans la liste actuellement triée.
-      const ordered = visiblePropositions.filter((p) => p.id !== dragId)
-      const targetIdx = ordered.findIndex((p) => p.id === targetProp.id)
-      if (targetIdx < 0) return
-      let beforeOrder = null
-      let afterOrder = null
-      if (position === 'above') {
-        beforeOrder = ordered[targetIdx - 1]?.sort_order ?? null
-        afterOrder = ordered[targetIdx].sort_order ?? null
-      } else {
-        beforeOrder = ordered[targetIdx].sort_order ?? null
-        afterOrder = ordered[targetIdx + 1]?.sort_order ?? null
-      }
-      // Si les voisins n'ont pas de sort_order défini, on initialise
-      // à partir de leur index dans la liste (×1000 pour avoir de la
-      // marge à la prochaine insertion fractionnaire).
-      if (beforeOrder == null && ordered[targetIdx - 1]) {
-        beforeOrder = targetIdx * 1000
-      }
-      if (afterOrder == null && ordered[targetIdx + 1]) {
-        afterOrder = (targetIdx + 2) * 1000
-      }
-      const newOrder = calcSortOrderBetween(beforeOrder, afterOrder)
-      try {
-        await updateSortOrder(dragId, newOrder)
-        // Realtime refetch catch
-      } catch (e) {
-        console.warn('[DnD] reorder failed', e)
-        notify.error('Réordonnancement impossible')
-      }
-    },
-    [draggingId, visiblePropositions],
-  )
 
   // MUS-3.3 : multi-sélection pour actions bulk
   const [selectedIds, setSelectedIds] = useState(() => new Set())
@@ -457,6 +398,60 @@ export default function MusiquesTab() {
   const groupedView = useMemo(
     () => groupPropositions(visiblePropositions, groupBy),
     [visiblePropositions, groupBy],
+  )
+
+  // MUS-3.5 : drag and drop handlers (déclarés ici car ils dépendent
+  // de visiblePropositions qui doit être init avant).
+  const handleDragStart = useCallback(
+    (prop) => {
+      if (sortMode !== 'manual') setSortMode('manual')
+      setDraggingId(prop.id)
+    },
+    [sortMode],
+  )
+  const handleDragOver = useCallback((prop, position) => {
+    setDropTargetId(prop.id)
+    setDropPosition(position)
+  }, [])
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null)
+    setDropTargetId(null)
+    setDropPosition(null)
+  }, [])
+  const handleDrop = useCallback(
+    async (targetProp, position) => {
+      const dragId = draggingId
+      setDraggingId(null)
+      setDropTargetId(null)
+      setDropPosition(null)
+      if (!dragId || dragId === targetProp.id) return
+      const ordered = visiblePropositions.filter((p) => p.id !== dragId)
+      const targetIdx = ordered.findIndex((p) => p.id === targetProp.id)
+      if (targetIdx < 0) return
+      let beforeOrder = null
+      let afterOrder = null
+      if (position === 'above') {
+        beforeOrder = ordered[targetIdx - 1]?.sort_order ?? null
+        afterOrder = ordered[targetIdx].sort_order ?? null
+      } else {
+        beforeOrder = ordered[targetIdx].sort_order ?? null
+        afterOrder = ordered[targetIdx + 1]?.sort_order ?? null
+      }
+      if (beforeOrder == null && ordered[targetIdx - 1]) {
+        beforeOrder = targetIdx * 1000
+      }
+      if (afterOrder == null && ordered[targetIdx + 1]) {
+        afterOrder = (targetIdx + 2) * 1000
+      }
+      const newOrder = calcSortOrderBetween(beforeOrder, afterOrder)
+      try {
+        await updateSortOrder(dragId, newOrder)
+      } catch (e) {
+        console.warn('[DnD] reorder failed', e)
+        notify.error('Réordonnancement impossible')
+      }
+    },
+    [draggingId, visiblePropositions],
   )
 
   // Liste des proposeurs ayant filtré ce jour (pour le label du chip)
