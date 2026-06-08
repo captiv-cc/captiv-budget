@@ -454,7 +454,7 @@ export default function PropositionDetailDrawer({
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
+            gap: 6,
             overflow: 'auto',
           }}
         >
@@ -494,30 +494,39 @@ export default function PropositionDetailDrawer({
                 </button>
               )}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <InlineField
-                label="Titre"
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* MUS-4.5 : labels Titre/Artiste supprimés (déjà présents dans
+                  le header). Placeholders + tooltip suffisent. */}
+              <input
+                type="text"
                 value={titreValue}
-                onChange={(v) => setField('titre', v)}
-                onCommit={() => commitField('titre')}
+                onChange={(e) => setField('titre', e.target.value)}
+                onBlur={() => commitField('titre')}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                 disabled={!canEdit || saving}
-                big
+                placeholder="Titre du morceau"
+                title="Titre"
+                style={{
+                  ...inputStyleCompact(),
+                  fontSize: 14,
+                  fontWeight: 500,
+                }}
               />
-              <InlineField
-                label="Artiste"
+              <input
+                type="text"
                 value={artisteValue}
-                onChange={(v) => setField('artiste_text', v)}
-                onCommit={() => commitField('artiste_text')}
+                onChange={(e) => setField('artiste_text', e.target.value)}
+                onBlur={() => commitField('artiste_text')}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                 disabled={!canEdit || saving || Boolean(p.artiste?.nom)}
-                hint={
+                placeholder="Artiste"
+                title={
                   p.artiste?.nom
-                    ? 'Lié à l\'annuaire (clic supprime le lien pour saisir libre)'
-                    : null
+                    ? 'Lié à l\'annuaire — clic = supprime le lien pour saisir libre'
+                    : 'Artiste'
                 }
+                style={inputStyleCompact()}
               />
-              {/* MUS-4.3 v2 : chips inline (BPM, durée, gain + Joue Jx)
-                  juste sous l'artiste, plus de section "Audio features"
-                  dédiée — c'est juste de la meta secondaire. */}
               <InlineMetaChips
                 bpm={bpm}
                 durationMs={p.duration_ms}
@@ -529,89 +538,98 @@ export default function PropositionDetailDrawer({
             </div>
           </div>
 
-          {/* Statut — full row depuis que les audio features sont passées
-              inline en haut */}
-          <div>
-            <FieldLabel>Statut</FieldLabel>
-            <select
-              value={p.statut}
-              onChange={(e) => handleStatutChange(e.target.value)}
-              disabled={!canEdit || saving}
-              style={{
-                width: '100%',
-                padding: '5px 8px',
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--brd-sub)',
-                color: 'var(--txt)',
-                borderRadius: 4,
-                fontSize: 12,
-                outline: 'none',
-                cursor: canEdit ? 'pointer' : 'default',
-              }}
-            >
-              {STATUTS.map((s) => (
-                <option key={s} value={s}>
-                  {STATUT_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Lien YouTube — full row */}
-          <div>
-            <FieldLabel>Lien YouTube</FieldLabel>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input
-                type="text"
-                value={youtubeValue}
-                onChange={(e) => setField('lien_youtube', e.target.value)}
-                onBlur={() => commitField('lien_youtube')}
-                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                placeholder="https://youtu.be/…"
+          {/* MUS-4.5 : Statut + Lien YouTube en 2-col compacte. Le Statut
+              est court (select) et le lien tient sur une input compacte —
+              les 2 sur une ligne libèrent ~50px de hauteur. */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(140px, 1fr) 2fr',
+              gap: 8,
+            }}
+          >
+            <div>
+              <FieldLabel>Statut</FieldLabel>
+              <select
+                value={p.statut}
+                onChange={(e) => handleStatutChange(e.target.value)}
                 disabled={!canEdit || saving}
-                style={inputStyleCompact()}
-              />
-              {p.lien_youtube && (
-                <a
-                  href={p.lien_youtube}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: 5,
-                    color: '#FF0000',
-                    display: 'inline-flex',
-                  }}
-                  title="Ouvrir dans YouTube"
-                >
-                  <Youtube size={14} />
-                </a>
-              )}
-              {p.spotify_url && (
-                <a
-                  href={p.spotify_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: '4px 8px',
-                    fontSize: 11,
-                    color: '#FF6E37',
-                    textDecoration: 'none',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 3,
-                    border: '1px solid var(--brd-sub)',
-                    borderRadius: 4,
-                  }}
-                  title="Ouvrir sur Deezer"
-                >
-                  Deezer
-                  <ExternalLink size={10} />
-                </a>
-              )}
+                style={{
+                  width: '100%',
+                  padding: '5px 8px',
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd-sub)',
+                  color: 'var(--txt)',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: canEdit ? 'pointer' : 'default',
+                }}
+              >
+                {STATUTS.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Lien YouTube</FieldLabel>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={youtubeValue}
+                  onChange={(e) => setField('lien_youtube', e.target.value)}
+                  onBlur={() => commitField('lien_youtube')}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  placeholder="https://youtu.be/…"
+                  disabled={!canEdit || saving}
+                  style={inputStyleCompact()}
+                />
+                {p.lien_youtube && (
+                  <a
+                    href={p.lien_youtube}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: 5,
+                      color: '#FF0000',
+                      display: 'inline-flex',
+                      flexShrink: 0,
+                    }}
+                    title="Ouvrir dans YouTube"
+                  >
+                    <Youtube size={14} />
+                  </a>
+                )}
+                {p.spotify_url && (
+                  <a
+                    href={p.spotify_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      color: '#FF6E37',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      border: '1px solid var(--brd-sub)',
+                      borderRadius: 4,
+                      flexShrink: 0,
+                    }}
+                    title="Ouvrir sur Deezer"
+                  >
+                    Deezer
+                    <ExternalLink size={10} />
+                  </a>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Remarques */}
+          {/* Remarques — 1 row par défaut (resize si besoin) */}
           <div>
             <FieldLabel>Remarques</FieldLabel>
             <textarea
@@ -620,26 +638,40 @@ export default function PropositionDetailDrawer({
               onBlur={() => commitField('remarques')}
               placeholder="Timecode précis, contexte, conditions…"
               disabled={!canEdit || saving}
-              rows={2}
-              style={{ ...inputStyleCompact(), resize: 'vertical' }}
+              rows={1}
+              style={{ ...inputStyleCompact(), resize: 'vertical', minHeight: 28 }}
             />
           </div>
 
-          {/* ═══ Tags (MUS-4.2) ═══ */}
-          <div>
-            <FieldLabel>
+          {/* ═══ Tags (MUS-4.5) — label inline dans la même row ═══ */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 0',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--txt-3)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                flexShrink: 0,
+                width: 50,
+              }}
+            >
               <TagIcon size={11} />
               Tags
-            </FieldLabel>
+            </span>
             <div
               style={{
-                padding: '6px 8px',
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--brd-sub)',
-                borderRadius: 4,
-                minHeight: 28,
+                flex: 1,
                 display: 'flex',
                 alignItems: 'center',
+                minHeight: 22,
               }}
             >
               <TagsEditor
@@ -653,37 +685,15 @@ export default function PropositionDetailDrawer({
             </div>
           </div>
 
-          {/* ═══ Notes ★ + détail voteurs (MUS-4.2) ═══
-              Affiche ma note (éditable) et la liste des voteurs comme
-              les commentaires : avatar + nom + ★ + horodatage. */}
+          {/* ═══ Notes ★ + détail voteurs (MUS-4.2 / compacté MUS-4.5) ═══
+              Header inline avec la rating row pour gagner de la hauteur :
+              ★ Notes (1)    [Ta note ★★★★☆]  moy 4    Retirer */}
           <div
             style={{
               borderTop: '1px solid var(--brd-sub)',
-              paddingTop: 10,
-              marginTop: 2,
+              paddingTop: 8,
             }}
           >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 500,
-                color: 'var(--txt-2)',
-                marginBottom: 8,
-              }}
-            >
-              <Star size={13} />
-              Notes
-              {(aggregate?.noteCount || 0) > 0 && (
-                <span style={{ color: 'var(--txt-3)', fontWeight: 400 }}>
-                  ({aggregate.noteCount})
-                </span>
-              )}
-            </div>
-
-            {/* Ma note (éditable) */}
             <div
               style={{
                 display: 'flex',
@@ -693,18 +703,36 @@ export default function PropositionDetailDrawer({
                 background: 'var(--bg-elev)',
                 border: '1px solid var(--brd-sub)',
                 borderRadius: 4,
-                marginBottom: notesList.length > 0 ? 8 : 0,
+                marginBottom: notesList.length > 0 ? 6 : 0,
               }}
             >
               <span
                 style={{
-                  fontSize: 11,
-                  color: 'var(--txt-3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--txt-2)',
                   flexShrink: 0,
                 }}
               >
-                Ta note :
+                <Star size={12} />
+                Notes
+                {(aggregate?.noteCount || 0) > 0 && (
+                  <span style={{ color: 'var(--txt-3)', fontWeight: 400 }}>
+                    ({aggregate.noteCount})
+                  </span>
+                )}
               </span>
+              <span
+                style={{
+                  width: 1,
+                  height: 14,
+                  background: 'var(--brd-sub)',
+                  flexShrink: 0,
+                }}
+              />
               <StarRating
                 myValue={aggregate?.myNote ?? null}
                 avgValue={aggregate?.noteAvg ?? null}
@@ -713,6 +741,19 @@ export default function PropositionDetailDrawer({
                 disabled={!canEdit}
                 size={15}
               />
+              {aggregate?.noteAvg != null && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#D97706',
+                    fontWeight: 500,
+                    flexShrink: 0,
+                  }}
+                  title={`Moyenne ${Math.round(aggregate.noteAvg * 10) / 10}/5`}
+                >
+                  moy {Math.round(aggregate.noteAvg * 10) / 10}
+                </span>
+              )}
               {aggregate?.myNote != null && canEdit && (
                 <button
                   type="button"
@@ -730,20 +771,6 @@ export default function PropositionDetailDrawer({
                 >
                   Retirer
                 </button>
-              )}
-              {aggregate?.noteAvg != null && (
-                <span
-                  style={{
-                    marginLeft: aggregate?.myNote != null && canEdit ? 0 : 'auto',
-                    fontSize: 11,
-                    color: '#D97706',
-                    fontWeight: 500,
-                    flexShrink: 0,
-                  }}
-                  title={`Moyenne ${Math.round(aggregate.noteAvg * 10) / 10}/5`}
-                >
-                  moy {Math.round(aggregate.noteAvg * 10) / 10}
-                </span>
               )}
             </div>
 
@@ -772,12 +799,13 @@ export default function PropositionDetailDrawer({
             )}
           </div>
 
-          {/* ═══ Commentaires ═══ */}
+          {/* ═══ Commentaires (compacté MUS-4.5) ═══
+              Header inline + plus de "aucun commentaire encore" (le
+              placeholder de la textarea suffit). */}
           <div
             style={{
               borderTop: '1px solid var(--brd-sub)',
-              paddingTop: 10,
-              marginTop: 2,
+              paddingTop: 8,
             }}
           >
             <div
@@ -788,10 +816,10 @@ export default function PropositionDetailDrawer({
                 fontSize: 12,
                 fontWeight: 500,
                 color: 'var(--txt-2)',
-                marginBottom: 10,
+                marginBottom: comments.length > 0 ? 6 : 4,
               }}
             >
-              <MessageCircle size={14} />
+              <MessageCircle size={13} />
               Commentaires
               {comments.length > 0 && (
                 <span style={{ color: 'var(--txt-3)', fontWeight: 400 }}>
@@ -800,22 +828,10 @@ export default function PropositionDetailDrawer({
               )}
             </div>
 
-            {/* Liste comments */}
+            {/* Liste comments — skeleton seulement si loading */}
             {commentsLoading && comments.length === 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-3)' }}>
                 Chargement…
-              </div>
-            )}
-            {!commentsLoading && comments.length === 0 && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: 'var(--txt-3)',
-                  fontStyle: 'italic',
-                  padding: '8px 0',
-                }}
-              >
-                Aucun commentaire encore. Lance la discussion ↓
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -843,11 +859,13 @@ export default function PropositionDetailDrawer({
               ))}
             </div>
 
-            {/* Input nouveau commentaire */}
+            {/* Input nouveau commentaire — 1 row par défaut (expand
+                naturellement quand on tape). Placeholder fait office de
+                CTA d'empty state pour les propositions sans commentaire. */}
             {canEdit && (
               <div
                 style={{
-                  marginTop: 12,
+                  marginTop: comments.length > 0 ? 8 : 4,
                   display: 'flex',
                   gap: 6,
                   alignItems: 'flex-end',
@@ -861,13 +879,18 @@ export default function PropositionDetailDrawer({
                       handleAddComment()
                     }
                   }}
-                  placeholder="Écris un commentaire…  (⌘/Ctrl+Enter pour envoyer)"
-                  rows={2}
+                  placeholder={
+                    comments.length === 0
+                      ? 'Lance la discussion… (⌘/Ctrl+Enter pour envoyer)'
+                      : 'Écris un commentaire… (⌘/Ctrl+Enter)'
+                  }
+                  rows={1}
                   disabled={postingComment}
                   style={{
                     ...inputStyle(),
                     resize: 'vertical',
                     flex: 1,
+                    minHeight: 32,
                   }}
                 />
                 <button
@@ -1017,39 +1040,8 @@ export default function PropositionDetailDrawer({
 // Sub-components
 // ═══════════════════════════════════════════════════════════════════════════
 
-function InlineField({
-  label,
-  value,
-  onChange,
-  onCommit,
-  disabled,
-  hint,
-  big,
-}) {
-  return (
-    <div style={{ marginBottom: 6 }}>
-      <FieldLabel>{label}</FieldLabel>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onCommit}
-        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        disabled={disabled}
-        style={{
-          ...inputStyleCompact(),
-          fontSize: big ? 14 : 12,
-          fontWeight: big ? 500 : 400,
-        }}
-      />
-      {hint && (
-        <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>
-          {hint}
-        </div>
-      )}
-    </div>
-  )
-}
+// InlineField : retiré dans MUS-4.5 (labels Titre/Artiste supprimés au
+// profit de placeholders + tooltip pour économiser de la hauteur).
 
 // ─── InlineMetaChips : chips compactes (BPM, durée, gain, Joue Jx) ───────
 // MUS-4.3 v2 — Hugo a jugé l'ancien panneau "Audio features" trop lourd
