@@ -37,6 +37,12 @@ export default function TagsEditor({
   onChange,
   // MUS-3.1 : si fourni, click sur un chip tag = filtre par ce tag
   onTagClick,
+  // MUS-4.1 : si true, le bouton "+ tag" n'est visible que quand le parent
+  // est hovered ET qu'il y a déjà au moins un tag (pour ne pas polluer la
+  // liste visuellement). Si pas de tag, le bouton reste toujours visible
+  // pour permettre d'ajouter le premier.
+  addButtonHoverOnly = false,
+  parentHovered = false,
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -206,29 +212,42 @@ export default function TagsEditor({
         )
       })}
 
-      {/* Bouton "+ tag" ou input édition */}
-      {canEdit && !editing && (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          disabled={busy}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 2,
-            fontSize: 10,
-            padding: '1px 6px',
-            background: 'transparent',
-            color: 'var(--txt-3)',
-            border: '1px dashed var(--brd-sub)',
-            borderRadius: 8,
-            cursor: 'pointer',
-          }}
-        >
-          <Plus size={9} />
-          tag
-        </button>
-      )}
+      {/* Bouton "+ tag" ou input édition.
+          MUS-4.1 : si addButtonHoverOnly + des tags existent + parent pas
+          hovered → on rend le bouton invisible (opacity 0 + pointer-events
+          none) pour réduire le bruit visuel. On garde l'élément en DOM
+          pour éviter le layout shift au hover. */}
+      {canEdit && !editing && (() => {
+        const hideForNow =
+          addButtonHoverOnly && tags.length > 0 && !parentHovered
+        return (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={busy}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 2,
+              fontSize: 10,
+              padding: '1px 6px',
+              background: 'transparent',
+              color: 'var(--txt-3)',
+              border: '1px dashed var(--brd-sub)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              opacity: hideForNow ? 0 : 1,
+              pointerEvents: hideForNow ? 'none' : 'auto',
+              transition: 'opacity 80ms',
+            }}
+            aria-hidden={hideForNow}
+            tabIndex={hideForNow ? -1 : 0}
+          >
+            <Plus size={9} />
+            tag
+          </button>
+        )
+      })()}
 
       {canEdit && editing && (
         <div

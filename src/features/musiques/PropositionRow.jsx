@@ -40,6 +40,7 @@ import {
 import {
   STATUTS,
   STATUT_LABELS,
+  STATUT_COLORS,
   upsertMyNote,
   removeMyNote,
   setStatut,
@@ -374,21 +375,14 @@ export default function PropositionRow({
               {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
             </button>
           )}
-          {/* Badge statut : à côté des autres badges du titre,
-              car c'est une propriété de la proposition (pas un détail
-              du système de notation). */}
+          {/* Badge statut : palette dédiée par valeur du workflow,
+              pour permettre le scanning rapide à l'œil. */}
           <span
             style={{
               fontSize: 9,
               padding: '1px 6px',
-              background:
-                p.statut === 'vrac'
-                  ? 'var(--bg-elev)'
-                  : 'rgba(59,130,246,0.12)',
-              color:
-                p.statut === 'vrac'
-                  ? 'var(--txt-3)'
-                  : 'var(--blue, #3B82F6)',
+              background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
+              color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-3)',
               borderRadius: 6,
               fontWeight: 500,
               textTransform: 'uppercase',
@@ -417,6 +411,8 @@ export default function PropositionRow({
             canEdit={canEdit}
             onChange={onMutated}
             onTagClick={onTagClick}
+            addButtonHoverOnly
+            parentHovered={hovered}
           />
           {bpm && (
             <span

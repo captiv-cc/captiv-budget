@@ -66,6 +66,46 @@ export const STATUT_LABELS = {
   refuse: 'Refusé',
 }
 
+/**
+ * Palette statuts pour les badges UI. Chaque statut a une couleur
+ * distincte pour le scanning rapide. Format : { bg, fg } avec couleurs
+ * pâles/transparentes pour le fond et plus saturées pour le texte.
+ *
+ * Workflow visuel :
+ *   vrac          → gris (neutre, à trier)
+ *   selectionne   → bleu (choisi par équipe créa)
+ *   valide_festival → vert clair (validé côté festival)
+ *   en_nego       → amber (en cours de négociation label)
+ *   accorde       → vert foncé (accord final, autorisé)
+ *   refuse        → rouge (refusé soit festival soit label)
+ */
+export const STATUT_COLORS = {
+  vrac: {
+    bg: 'rgba(148,163,184,0.18)',  // slate
+    fg: 'var(--txt-2)',
+  },
+  selectionne: {
+    bg: 'rgba(59,130,246,0.18)',   // blue
+    fg: 'var(--blue, #3B82F6)',
+  },
+  valide_festival: {
+    bg: 'rgba(94,234,212,0.18)',   // teal-300
+    fg: '#0F766E',
+  },
+  en_nego: {
+    bg: 'rgba(245,158,11,0.18)',   // amber
+    fg: '#D97706',
+  },
+  accorde: {
+    bg: 'rgba(34,197,94,0.2)',     // green saturé
+    fg: '#16A34A',
+  },
+  refuse: {
+    bg: 'rgba(239,68,68,0.18)',    // red
+    fg: '#EF4444',
+  },
+}
+
 // ─── Normalisation tag ─────────────────────────────────────────────────────
 
 /**

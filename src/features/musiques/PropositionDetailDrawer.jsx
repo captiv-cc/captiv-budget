@@ -39,6 +39,7 @@ import {
   setStatut,
   STATUTS,
   STATUT_LABELS,
+  STATUT_COLORS,
   listComments,
   addComment,
   updateComment,
@@ -49,14 +50,6 @@ import { getDeezerTrack } from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 
-const STATUT_COLORS = {
-  vrac: 'rgba(148,163,184,0.2)',           // slate
-  selectionne: 'rgba(59,130,246,0.2)',     // blue
-  valide_festival: 'rgba(34,197,94,0.2)',  // green
-  en_nego: 'rgba(217,119,6,0.2)',          // amber
-  accorde: 'rgba(34,197,94,0.3)',          // green plus saturé
-  refuse: 'rgba(239,68,68,0.2)',           // red
-}
 
 export default function PropositionDetailDrawer({
   open,
@@ -339,8 +332,8 @@ export default function PropositionDetailDrawer({
                 borderRadius: 8,
                 textTransform: 'uppercase',
                 letterSpacing: 0.5,
-                background: STATUT_COLORS[p.statut] || 'var(--bg-elev)',
-                color: 'var(--txt-2)',
+                background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
+                color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-2)',
                 fontWeight: 600,
               }}
             >
