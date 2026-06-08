@@ -219,17 +219,27 @@ export async function resolveQuery(input) {
 export async function findYouTubeForTrack(artist, title) {
   const a = (artist || '').trim()
   const t = (title || '').trim()
-  if (!a && !t) return null
+  if (!a && !t) {
+    console.warn('[YT search] artist+title vides — skip')
+    return null
+  }
+  const q = `${a} ${t}`.trim()
   const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || ''
   const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || ''
-  if (!supabaseUrl) return null
+  if (!supabaseUrl) {
+    console.warn('[YT search] VITE_SUPABASE_URL manquant')
+    return null
+  }
   const url = new URL(
     `${supabaseUrl.replace(/\/$/, '')}/functions/v1/youtube-search`,
   )
-  url.searchParams.set('q', `${a} ${t}`.trim())
+  url.searchParams.set('q', q)
   const { data: sessionResult } = await supabase.auth.getSession()
   const accessToken = sessionResult?.session?.access_token
-  if (!accessToken) return null
+  if (!accessToken) {
+    console.warn('[YT search] pas de session — déconnecté ?')
+    return null
+  }
   try {
     const res = await fetch(url.toString(), {
       method: 'GET',
@@ -239,13 +249,32 @@ export async function findYouTubeForTrack(artist, title) {
       },
     })
     if (!res.ok) {
-      // Quota dépassé ou Edge Function pas déployée — silencieux
+      const body = await res.text().catch(() => '')
+      if (res.status === 404) {
+        console.warn(
+          `[YT search] Edge Function youtube-search non déployée (404). ` +
+            `Exécute : supabase functions deploy youtube-search`,
+        )
+      } else if (res.status === 401) {
+        console.warn('[YT search] JWT invalide')
+      } else {
+        console.warn(`[YT search] HTTP ${res.status} :`, body)
+      }
       return null
     }
     const data = await res.json()
-    return data?.match || null
+    if (!data?.match) {
+      console.warn(
+        `[YT search] aucun match pour "${q}" (source: ${data?.source || 'none'})`,
+      )
+      return null
+    }
+    console.warn(
+      `[YT search] match "${q}" → ${data.match.video_url} (source: ${data.source})`,
+    )
+    return data.match
   } catch (err) {
-    console.warn('[findYouTubeForTrack] failed', err)
+    console.warn('[YT search] fetch failed', err)
     return null
   }
 }
