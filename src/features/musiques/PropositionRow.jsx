@@ -24,11 +24,15 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Play, Pause, Youtube } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Play, Pause, Youtube, MoreHorizontal, Trash2, AlertTriangle } from 'lucide-react'
 import {
+  STATUTS,
   STATUT_LABELS,
   upsertMyNote,
   removeMyNote,
+  setStatut,
+  deleteProposition,
 } from '../../lib/musiques'
 import { notify } from '../../lib/notify'
 import StarRating from './StarRating'
@@ -395,7 +399,260 @@ export default function PropositionRow({
         >
           <Youtube size={15} style={{ color: hasYoutube ? '#FF0000' : 'var(--txt-3)' }} />
         </button>
+
+        {/* Menu actions rapides (statut + supprimer) */}
+        {canEdit && (
+          <QuickActionsMenu
+            proposition={p}
+            onMutated={onMutated}
+          />
+        )}
       </div>
+    </div>
+  )
+}
+
+// ─── QuickActionsMenu : "..." popover avec changer statut + supprimer ──────
+function QuickActionsMenu({ proposition: p, onMutated }) {
+  const [open, setOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    function onDocClick(e) {
+      if (ref.current?.contains(e.target)) return
+      setOpen(false)
+      setConfirmDelete(false)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setConfirmDelete(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  async function handleStatutChange(newStatut) {
+    if (newStatut === p.statut) {
+      setOpen(false)
+      return
+    }
+    setBusy(true)
+    try {
+      await setStatut(p.id, newStatut)
+      onMutated?.()
+      setOpen(false)
+    } catch (e) {
+      console.warn('[QuickActions] statut', e)
+      notify.error(e?.message || 'Changement statut KO')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDelete() {
+    setBusy(true)
+    try {
+      await deleteProposition(p.id)
+      notify.success('Proposition supprimée', false)
+      onMutated?.()
+      setOpen(false)
+    } catch (e) {
+      console.warn('[QuickActions] delete', e)
+      notify.error(e?.message || 'Suppression KO')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: 'relative', flexShrink: 0 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+        title="Actions rapides"
+        style={{
+          width: 28,
+          height: 28,
+          padding: 0,
+          borderRadius: '50%',
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--txt-3)',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            zIndex: 50,
+            background: 'var(--bg-surf)',
+            border: '1px solid var(--brd)',
+            borderRadius: 6,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+            minWidth: 180,
+            padding: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {/* Section statut */}
+          <div
+            style={{
+              fontSize: 9,
+              padding: '4px 8px',
+              color: 'var(--txt-3)',
+              textTransform: 'uppercase',
+              letterSpacing: 1,
+            }}
+          >
+            Changer le statut
+          </div>
+          {STATUTS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => handleStatutChange(s)}
+              disabled={busy}
+              style={{
+                padding: '6px 10px',
+                background:
+                  s === p.statut ? 'var(--bg-elev)' : 'transparent',
+                border: 'none',
+                color: 'var(--txt-2)',
+                fontSize: 12,
+                textAlign: 'left',
+                borderRadius: 4,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              onMouseEnter={(e) => {
+                if (!busy) e.currentTarget.style.background = 'var(--bg-elev)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background =
+                  s === p.statut ? 'var(--bg-elev)' : 'transparent'
+              }}
+            >
+              {s === p.statut && (
+                <span style={{ fontSize: 10, color: 'var(--blue, #3B82F6)' }}>
+                  ✓
+                </span>
+              )}
+              <span style={{ flex: 1 }}>{STATUT_LABELS[s]}</span>
+            </button>
+          ))}
+          <div
+            style={{
+              borderTop: '1px solid var(--brd-sub)',
+              margin: '4px 0',
+            }}
+          />
+          {/* Supprimer */}
+          {confirmDelete ? (
+            <div
+              style={{
+                padding: '6px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <AlertTriangle size={12} style={{ color: '#EF4444' }} />
+              <span style={{ fontSize: 11, color: '#EF4444', flex: 1 }}>
+                Sûr ?
+              </span>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={busy}
+                style={{
+                  padding: '3px 8px',
+                  background: '#EF4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 3,
+                  fontSize: 10,
+                  cursor: 'pointer',
+                }}
+              >
+                Supprimer
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={busy}
+                style={{
+                  padding: '3px 6px',
+                  background: 'transparent',
+                  border: '1px solid var(--brd-sub)',
+                  color: 'var(--txt-2)',
+                  borderRadius: 3,
+                  fontSize: 10,
+                  cursor: 'pointer',
+                }}
+              >
+                Annuler
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              disabled={busy}
+              style={{
+                padding: '6px 10px',
+                background: 'transparent',
+                border: 'none',
+                color: '#EF4444',
+                fontSize: 12,
+                textAlign: 'left',
+                borderRadius: 4,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              onMouseEnter={(e) => {
+                if (!busy)
+                  e.currentTarget.style.background = 'rgba(239,68,68,0.08)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <Trash2 size={11} />
+              Supprimer la proposition
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

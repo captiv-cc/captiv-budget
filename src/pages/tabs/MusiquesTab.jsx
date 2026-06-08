@@ -43,6 +43,7 @@ import {
   updateProposition,
 } from '../../lib/musiques'
 import { detectBpmFromUrl } from '../../lib/bpmDetect'
+import { findYouTubeForTrack } from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
@@ -89,6 +90,8 @@ export default function MusiquesTab() {
   // Set des propositions déjà analysées en BPM cette session (évite de
   // re-déclencher la détection au re-play).
   const bpmDetectedRef = useRef(new Set())
+  // Idem pour YouTube auto-find rétroactif (1 essai par session par prop).
+  const ytFetchedRef = useRef(new Set())
 
   // MUS-2.7 : si BPM null/0, déclenche la détection client-side en
   // arrière-plan (n'attend pas le résultat, joue tout de suite).
@@ -171,6 +174,49 @@ export default function MusiquesTab() {
     })
     return () => sub.unsubscribe()
   }, [projectId, refetch])
+
+  // ─── Backfill YouTube rétroactif ──────────────────────────────────────────
+  // Pour les propositions ajoutées AVANT MUS-2.8 (qui n'avaient pas
+  // l'auto-find), on lance une recherche en background au load. Throttle
+  // 1 req/s pour ne pas spammer YouTube API (quota 100/jour).
+  useEffect(() => {
+    if (!propositions.length) return undefined
+    let cancelled = false
+    const missing = propositions.filter(
+      (p) =>
+        !p.lien_youtube &&
+        !ytFetchedRef.current.has(p.id) &&
+        (p.artiste?.nom || p.artiste_text) &&
+        p.titre,
+    )
+    if (missing.length === 0) return undefined
+
+    async function backfillSequential() {
+      for (const p of missing) {
+        if (cancelled) break
+        ytFetchedRef.current.add(p.id)
+        const artistName = p.artiste?.nom || p.artiste_text
+        try {
+          const match = await findYouTubeForTrack(artistName, p.titre)
+          if (cancelled) break
+          if (match?.video_url) {
+            await updateProposition(p.id, { lien_youtube: match.video_url })
+            // Realtime + refetch catch
+          }
+        } catch (e) {
+          console.warn('[YT backfill] failed for', p.id, e)
+        }
+        // Throttle 1s entre 2 calls (anti-quota)
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+    }
+    backfillSequential()
+    return () => {
+      cancelled = true
+    }
+    // propositions change quand on refetch → re-trigger sans relancer les
+    // déjà essayés (grâce au ytFetchedRef).
+  }, [propositions])
 
   // ─── Agrégats (note moyenne + tags) côté front ────────────────────────────
   const aggregates = useMemo(

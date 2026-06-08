@@ -483,19 +483,7 @@ export default function PropositionDetailDrawer({
             </div>
             {p.spotify_url && (
               <div>
-                <FieldLabel>
-                  Lien Deezer
-                  <span
-                    style={{
-                      fontSize: 9,
-                      color: 'var(--txt-3)',
-                      marginLeft: 6,
-                      opacity: 0.7,
-                    }}
-                  >
-                    (champ spotify_url = external_track_id, voir CHANTIER)
-                  </span>
-                </FieldLabel>
+                <FieldLabel>Lien Deezer</FieldLabel>
                 <a
                   href={p.spotify_url}
                   target="_blank"
@@ -713,7 +701,16 @@ export default function PropositionDetailDrawer({
             <div>
               Proposé{' '}
               <RelativeTime date={p.created_at} />
-              {p.proposer_id ? ` · par ${p.proposer_id.slice(0, 8)}…` : ''}
+              {p.proposer && (
+                <>
+                  {' '}· par{' '}
+                  <span style={{ color: 'var(--txt-2)' }}>
+                    {p.proposer.full_name ||
+                      p.proposer.email?.split('@')[0] ||
+                      'inconnu'}
+                  </span>
+                </>
+              )}
             </div>
             {canEdit && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
