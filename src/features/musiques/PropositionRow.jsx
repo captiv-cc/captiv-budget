@@ -181,7 +181,10 @@ export default function PropositionRow({
   const hasYoutube = Boolean(p.lien_youtube)
 
   const [hovered, setHovered] = useState(false)
-  const showCheckbox = canEdit && (anySelected || hovered || selected)
+  // Réservation TOUJOURS de la col checkbox quand canEdit, pour éviter
+  // le shift horizontal au hover. On joue juste sur la visibilité.
+  const showCheckboxCol = canEdit
+  const checkboxVisible = canEdit && (anySelected || hovered || selected)
 
   return (
     <div
@@ -197,7 +200,7 @@ export default function PropositionRow({
       }}
       style={{
         display: 'grid',
-        gridTemplateColumns: `${showCheckbox ? '22px ' : ''}40px 1fr auto`,
+        gridTemplateColumns: `${showCheckboxCol ? '22px ' : ''}40px 1fr auto`,
         gap: 12,
         padding: '8px 14px',
         alignItems: 'center',
@@ -205,8 +208,8 @@ export default function PropositionRow({
         transition: 'background 80ms',
       }}
     >
-      {/* Checkbox sélection (MUS-3.3) */}
-      {showCheckbox && (
+      {/* Checkbox sélection (MUS-3.3) — col toujours réservée si canEdit */}
+      {showCheckboxCol && (
         <button
           type="button"
           onClick={(e) => {
@@ -220,9 +223,12 @@ export default function PropositionRow({
             cursor: 'pointer',
             color: selected ? 'var(--blue, #3B82F6)' : 'var(--txt-3)',
             display: 'inline-flex',
-            opacity: selected ? 1 : 0.6,
+            opacity: selected ? 1 : checkboxVisible ? 0.6 : 0,
+            visibility: checkboxVisible ? 'visible' : 'hidden',
+            transition: 'opacity 80ms',
           }}
           aria-label={selected ? 'Désélectionner' : 'Sélectionner'}
+          tabIndex={checkboxVisible ? 0 : -1}
         >
           {selected ? <CheckSquare size={16} /> : <Square size={16} />}
         </button>
