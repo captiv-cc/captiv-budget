@@ -35,6 +35,8 @@ export default function TagsEditor({
   tags = [],
   canEdit = true,
   onChange,
+  // MUS-3.1 : si fourni, click sur un chip tag = filtre par ce tag
+  onTagClick,
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -152,13 +154,39 @@ export default function TagsEditor({
               borderRadius: 8,
               border: isMine ? '1px solid rgba(59,130,246,0.3)' : 'none',
             }}
-            title={isMine ? 'Ton tag · clique X pour retirer' : undefined}
+            title={
+              isMine
+                ? 'Ton tag · clique X pour retirer, click chip pour filtrer'
+                : onTagClick
+                ? `Filtrer par "${t.tag}"`
+                : undefined
+            }
           >
-            {t.tag}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onTagClick?.(t.tag)
+              }}
+              disabled={!onTagClick}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                color: 'inherit',
+                font: 'inherit',
+                cursor: onTagClick ? 'pointer' : 'default',
+              }}
+            >
+              {t.tag}
+            </button>
             {canEdit && isMine && (
               <button
                 type="button"
-                onClick={() => handleRemove(t.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRemove(t.id)
+                }}
                 disabled={busy}
                 style={{
                   background: 'transparent',

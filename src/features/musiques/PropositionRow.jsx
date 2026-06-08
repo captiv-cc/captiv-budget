@@ -33,6 +33,8 @@ import {
   Trash2,
   AlertTriangle,
   MessageCircle,
+  CheckSquare,
+  Square,
 } from 'lucide-react'
 import {
   STATUTS,
@@ -71,7 +73,7 @@ function hashColorFromName(name) {
 }
 
 // ─── ProposerAvatar : mini avatar du proposeur (initiales + tooltip) ──────
-function ProposerAvatar({ proposer, createdAt }) {
+function ProposerAvatar({ proposer, createdAt, onClick }) {
   const name =
     proposer?.full_name ||
     proposer?.email?.split('@')[0] ||
@@ -87,9 +89,22 @@ function ProposerAvatar({ proposer, createdAt }) {
         month: 'short',
       })
     : ''
+  const Comp = onClick ? 'button' : 'div'
   return (
-    <div
-      title={`Proposé par ${name}${dateStr ? ` le ${dateStr}` : ''}`}
+    <Comp
+      onClick={
+        onClick
+          ? (e) => {
+              e.stopPropagation()
+              onClick()
+            }
+          : undefined
+      }
+      title={
+        onClick
+          ? `Filtrer les propositions de ${name}${dateStr ? ` (ajoutée le ${dateStr})` : ''}`
+          : `Proposé par ${name}${dateStr ? ` le ${dateStr}` : ''}`
+      }
       style={{
         width: 18,
         height: 18,
@@ -102,12 +117,14 @@ function ProposerAvatar({ proposer, createdAt }) {
         fontSize: 8,
         fontWeight: 600,
         flexShrink: 0,
-        cursor: 'help',
+        cursor: onClick ? 'pointer' : 'help',
         opacity: 0.75,
+        border: 'none',
+        padding: 0,
       }}
     >
       {initials}
-    </div>
+    </Comp>
   )
 }
 
@@ -122,6 +139,14 @@ export default function PropositionRow({
   currentUserId = null,
   projectId = null,
   onMutated, // appelé après note/tag changes pour refetch optionnel
+  // MUS-3.1 : filtres rapides
+  onTagClick,
+  onJourClick,
+  onProposerClick,
+  // MUS-3.3 : multi-sélection
+  selected = false,
+  onToggleSelected,
+  anySelected = false,
 }) {
   const agg = aggregate || {
     noteAvg: null,
@@ -155,26 +180,54 @@ export default function PropositionRow({
   const hasPreview = Boolean(p.preview_url)
   const hasYoutube = Boolean(p.lien_youtube)
 
+  const [hovered, setHovered] = useState(false)
+  const showCheckbox = canEdit && (anySelected || hovered || selected)
+
   return (
     <div
       onClick={onClick}
       role={onClick ? 'button' : undefined}
+      onMouseEnter={(e) => {
+        setHovered(true)
+        e.currentTarget.style.background = 'var(--bg-elev)'
+      }}
+      onMouseLeave={(e) => {
+        setHovered(false)
+        e.currentTarget.style.background = 'transparent'
+      }}
       style={{
         display: 'grid',
-        gridTemplateColumns: '40px 1fr auto',
+        gridTemplateColumns: `${showCheckbox ? '22px ' : ''}40px 1fr auto`,
         gap: 12,
         padding: '8px 14px',
         alignItems: 'center',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'background 80ms',
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--bg-elev)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'transparent'
-      }}
     >
+      {/* Checkbox sélection (MUS-3.3) */}
+      {showCheckbox && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSelected?.()
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            color: selected ? 'var(--blue, #3B82F6)' : 'var(--txt-3)',
+            display: 'inline-flex',
+            opacity: selected ? 1 : 0.6,
+          }}
+          aria-label={selected ? 'Désélectionner' : 'Sélectionner'}
+        >
+          {selected ? <CheckSquare size={16} /> : <Square size={16} />}
+        </button>
+      )}
+
       {/* ─── Cover ──────────────────────────────────────────────────── */}
       <div
         style={{
@@ -219,23 +272,30 @@ export default function PropositionRow({
           <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>·</span>
           <span style={{ fontSize: 13, color: 'var(--txt-2)' }}>{p.titre}</span>
           {p.artiste?.jour && (
-            <span
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onJourClick?.(p.artiste.jour)
+              }}
               style={{
                 fontSize: 10,
                 padding: '1px 5px',
                 background: 'rgba(59,130,246,0.12)',
                 color: 'var(--blue, #3B82F6)',
                 borderRadius: 6,
+                border: 'none',
+                cursor: onJourClick ? 'pointer' : 'default',
               }}
               title={
                 p.artiste.scene
-                  ? `Joue ${p.artiste.jour} sur ${p.artiste.scene}`
-                  : `Joue ${p.artiste.jour}`
+                  ? `Filtrer Joue ${p.artiste.jour} sur ${p.artiste.scene}`
+                  : `Filtrer Joue ${p.artiste.jour}`
               }
             >
               Joue {p.artiste.jour}
               {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
-            </span>
+            </button>
           )}
         </div>
 
@@ -256,6 +316,7 @@ export default function PropositionRow({
             tags={agg.tags}
             canEdit={canEdit}
             onChange={onMutated}
+            onTagClick={onTagClick}
           />
           {bpm && (
             <span
@@ -305,9 +366,17 @@ export default function PropositionRow({
           </div>
         )}
 
-        {/* Avatar proposeur (très discret, tooltip clair) */}
+        {/* Avatar proposeur (très discret, tooltip clair, click = filtre) */}
         {p.proposer && (
-          <ProposerAvatar proposer={p.proposer} createdAt={p.created_at} />
+          <ProposerAvatar
+            proposer={p.proposer}
+            createdAt={p.created_at}
+            onClick={
+              onProposerClick
+                ? () => onProposerClick(p.proposer.id)
+                : null
+            }
+          />
         )}
 
         {/* Note ★ cliquable + statut compact */}

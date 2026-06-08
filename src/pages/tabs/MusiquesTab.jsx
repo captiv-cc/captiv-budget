@@ -32,6 +32,10 @@ import {
   Sparkles,
   ImageUp,
   Inbox,
+  X,
+  CheckSquare,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -40,8 +44,11 @@ import {
   listAllComments,
   computeAggregates,
   subscribeToProject,
+  STATUTS,
   STATUT_LABELS,
   updateProposition,
+  deleteProposition,
+  setStatut,
 } from '../../lib/musiques'
 import { detectBpmFromUrl } from '../../lib/bpmDetect'
 import {
@@ -78,6 +85,41 @@ export default function MusiquesTab() {
   // Filtres locaux (recherche, statut)
   const [searchLocal, setSearchLocal] = useState('')
   const [filterStatut, setFilterStatut] = useState(null)
+  // MUS-3.1 : filtres rapides additionnels (click sur tag/jour/proposeur)
+  const [filterTag, setFilterTag] = useState(null)
+  const [filterJour, setFilterJour] = useState(null)
+  const [filterProposerId, setFilterProposerId] = useState(null)
+
+  // MUS-3.2 : tri configurable, persisté localStorage par projet
+  const SORT_KEY = `musiques.sort.${projectId || 'global'}`
+  const [sortMode, setSortMode] = useState(() => {
+    try {
+      return localStorage.getItem(SORT_KEY) || 'created_desc'
+    } catch {
+      return 'created_desc'
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_KEY, sortMode)
+    } catch {
+      /* ignore */
+    }
+  }, [SORT_KEY, sortMode])
+
+  // MUS-3.3 : multi-sélection pour actions bulk
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const toggleSelected = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkConfirmDelete, setBulkConfirmDelete] = useState(false)
 
   // Modals
   const [addOpen, setAddOpen] = useState(false)
@@ -288,11 +330,17 @@ export default function MusiquesTab() {
     [notes, tags, user?.id, commentsList],
   )
 
-  // ─── Filtrage local (search + statut) ─────────────────────────────────────
+  // ─── Filtrage local (search + statut + filtres rapides) ──────────────────
   const visiblePropositions = useMemo(() => {
     const s = searchLocal.trim().toLowerCase()
-    return propositions.filter((p) => {
+    const filtered = propositions.filter((p) => {
       if (filterStatut && p.statut !== filterStatut) return false
+      if (filterJour && p.artiste?.jour !== filterJour) return false
+      if (filterProposerId && p.proposer_id !== filterProposerId) return false
+      if (filterTag) {
+        const ptags = aggregates.get(p.id)?.tags || []
+        if (!ptags.some((t) => t.tag === filterTag)) return false
+      }
       if (s) {
         const artist = (p.artiste?.nom || p.artiste_text || '').toLowerCase()
         const title = (p.titre || '').toLowerCase()
@@ -300,7 +348,84 @@ export default function MusiquesTab() {
       }
       return true
     })
-  }, [propositions, searchLocal, filterStatut])
+    // Tri configurable (MUS-3.2)
+    return sortPropositions(filtered, sortMode, aggregates)
+  }, [
+    propositions,
+    searchLocal,
+    filterStatut,
+    filterTag,
+    filterJour,
+    filterProposerId,
+    sortMode,
+    aggregates,
+  ])
+
+  // Clear tous les filtres rapides
+  const clearQuickFilters = useCallback(() => {
+    setFilterTag(null)
+    setFilterJour(null)
+    setFilterProposerId(null)
+  }, [])
+
+  // Liste des proposeurs ayant filtré ce jour (pour le label du chip)
+  const proposerNameLookup = useMemo(() => {
+    const m = new Map()
+    for (const p of propositions) {
+      if (p.proposer_id && !m.has(p.proposer_id)) {
+        m.set(
+          p.proposer_id,
+          p.proposer?.full_name || p.proposer?.email?.split('@')[0] || '—',
+        )
+      }
+    }
+    return m
+  }, [propositions])
+
+  // ─── Bulk actions (MUS-3.3) ───────────────────────────────────────────────
+  async function bulkSetStatut(newStatut) {
+    if (selectedIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        [...selectedIds].map((id) => setStatut(id, newStatut)),
+      )
+      const ok = results.filter((r) => r.status === 'fulfilled').length
+      const ko = results.length - ok
+      if (ok > 0) {
+        notify.success(
+          `${ok} proposition${ok > 1 ? 's' : ''} → ${STATUT_LABELS[newStatut]}`,
+          false,
+        )
+      }
+      if (ko > 0) {
+        notify.error(`${ko} échec${ko > 1 ? 's' : ''} sur le bulk`)
+      }
+      clearSelection()
+      refetch()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        [...selectedIds].map((id) => deleteProposition(id)),
+      )
+      const ok = results.filter((r) => r.status === 'fulfilled').length
+      const ko = results.length - ok
+      if (ok > 0) notify.success(`${ok} supprimée${ok > 1 ? 's' : ''}`, false)
+      if (ko > 0) notify.error(`${ko} échec${ko > 1 ? 's' : ''}`)
+      clearSelection()
+      setBulkConfirmDelete(false)
+      refetch()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   // ─── Permission denied ────────────────────────────────────────────────────
   if (!canRead) {
@@ -413,6 +538,29 @@ export default function MusiquesTab() {
           ))}
         </select>
 
+        {/* Tri configurable (MUS-3.2) */}
+        <select
+          value={sortMode}
+          onChange={(e) => setSortMode(e.target.value)}
+          title="Tri"
+          style={{
+            height: 34,
+            padding: '0 8px 0 28px',
+            background: `var(--bg-elev) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3e%3cpath d='M3 6h13M3 12h9M3 18h5M19 18l-3-3m0 6l3-3M16 4l3 3m-3-3l3 3'/%3e%3c/svg%3e") no-repeat 8px center`,
+            border: '1px solid var(--brd-sub)',
+            borderRadius: 6,
+            color: 'var(--txt-2)',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+
         {/* Actions edit (gated canEdit) */}
         {canEdit && (
           <>
@@ -461,6 +609,179 @@ export default function MusiquesTab() {
           </>
         )}
       </div>
+
+      {/* ─── Chips filtres rapides actifs (MUS-3.1) ─────────────────────── */}
+      {(filterTag || filterJour || filterProposerId) && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            alignItems: 'center',
+            padding: '6px 10px',
+            background: 'rgba(59,130,246,0.06)',
+            border: '1px solid rgba(59,130,246,0.2)',
+            borderRadius: 6,
+          }}
+        >
+          <span style={{ fontSize: 11, color: 'var(--txt-3)', marginRight: 4 }}>
+            Filtres actifs :
+          </span>
+          {filterTag && (
+            <FilterChip
+              label={`tag: ${filterTag}`}
+              onClear={() => setFilterTag(null)}
+            />
+          )}
+          {filterJour && (
+            <FilterChip
+              label={`Joue ${filterJour}`}
+              onClear={() => setFilterJour(null)}
+            />
+          )}
+          {filterProposerId && (
+            <FilterChip
+              label={`Par ${proposerNameLookup.get(filterProposerId) || '—'}`}
+              onClear={() => setFilterProposerId(null)}
+            />
+          )}
+          <button
+            type="button"
+            onClick={clearQuickFilters}
+            style={{
+              fontSize: 11,
+              color: 'var(--blue, #3B82F6)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              marginLeft: 'auto',
+            }}
+          >
+            Tout effacer
+          </button>
+        </div>
+      )}
+
+      {/* ─── Bulk action bar (MUS-3.3) ─────────────────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 12px',
+            background: 'rgba(217,119,6,0.08)',
+            border: '1px solid rgba(217,119,6,0.3)',
+            borderRadius: 6,
+            flexWrap: 'wrap',
+          }}
+        >
+          <CheckSquare size={14} style={{ color: '#D97706' }} />
+          <span style={{ fontSize: 12, color: 'var(--txt-2)', fontWeight: 500 }}>
+            {selectedIds.size} sélectionnée{selectedIds.size > 1 ? 's' : ''}
+          </span>
+          <span style={{ color: 'var(--txt-3)' }}>·</span>
+          <span style={{ fontSize: 11, color: 'var(--txt-3)' }}>
+            Changer le statut :
+          </span>
+          {STATUTS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => bulkSetStatut(s)}
+              disabled={bulkBusy}
+              style={{
+                padding: '3px 8px',
+                fontSize: 10,
+                background: 'var(--bg-surf)',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 10,
+                cursor: bulkBusy ? 'not-allowed' : 'pointer',
+                color: 'var(--txt-2)',
+              }}
+            >
+              {STATUT_LABELS[s]}
+            </button>
+          ))}
+          <span style={{ color: 'var(--txt-3)' }}>·</span>
+          {bulkConfirmDelete ? (
+            <>
+              <AlertTriangle size={12} style={{ color: '#EF4444' }} />
+              <span style={{ fontSize: 11, color: '#EF4444' }}>Sûr ?</span>
+              <button
+                type="button"
+                onClick={bulkDelete}
+                disabled={bulkBusy}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 10,
+                  background: '#EF4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                Confirmer
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkConfirmDelete(false)}
+                disabled={bulkBusy}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 10,
+                  background: 'transparent',
+                  border: '1px solid var(--brd-sub)',
+                  color: 'var(--txt-2)',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+              >
+                Annuler
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setBulkConfirmDelete(true)}
+              disabled={bulkBusy}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '3px 8px',
+                fontSize: 11,
+                background: 'transparent',
+                border: '1px solid var(--brd-sub)',
+                color: '#EF4444',
+                borderRadius: 4,
+                cursor: 'pointer',
+              }}
+            >
+              <Trash2 size={11} />
+              Supprimer
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearSelection}
+            style={{
+              marginLeft: 'auto',
+              fontSize: 11,
+              color: 'var(--txt-3)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            Tout désélectionner
+          </button>
+        </div>
+      )}
 
       {/* ─── Erreur ────────────────────────────────────────────────────── */}
       {error && (
@@ -582,6 +903,14 @@ export default function MusiquesTab() {
                 projectId={projectId}
                 onMutated={refetch}
                 onClick={() => setDetailPropId(p.id)}
+                // Filtres rapides (MUS-3.1)
+                onTagClick={(tag) => setFilterTag(tag)}
+                onJourClick={(jour) => setFilterJour(jour)}
+                onProposerClick={(uid) => setFilterProposerId(uid)}
+                // Multi-sélection (MUS-3.3)
+                selected={selectedIds.has(p.id)}
+                onToggleSelected={() => toggleSelected(p.id)}
+                anySelected={selectedIds.size > 0}
               />
             </div>
           ))}
@@ -637,4 +966,127 @@ export default function MusiquesTab() {
       />
     </div>
   )
+}
+
+// ─── FilterChip (MUS-3.1) ─────────────────────────────────────────────────
+
+function FilterChip({ label, onClear }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 4px 2px 8px',
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd-sub)',
+        borderRadius: 10,
+        fontSize: 11,
+        color: 'var(--txt-2)',
+      }}
+    >
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--txt-3)',
+          cursor: 'pointer',
+          padding: 2,
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+        aria-label={`Retirer le filtre ${label}`}
+      >
+        <X size={10} />
+      </button>
+    </span>
+  )
+}
+
+// ─── Tri (MUS-3.2) ──────────────────────────────────────────────────────────
+
+const SORT_OPTIONS = [
+  { key: 'created_desc', label: 'Ajout récent' },
+  { key: 'created_asc', label: 'Ajout ancien' },
+  { key: 'note_desc', label: 'Note ★ desc' },
+  { key: 'bpm_asc', label: 'BPM croissant' },
+  { key: 'bpm_desc', label: 'BPM décroissant' },
+  { key: 'titre_asc', label: 'Titre A→Z' },
+  { key: 'artiste_asc', label: 'Artiste A→Z' },
+  { key: 'comments_desc', label: 'Plus commenté' },
+  { key: 'statut', label: 'Par statut' },
+]
+
+function sortPropositions(list, mode, aggregates) {
+  const arr = [...list]
+  const getAgg = (p) =>
+    aggregates.get(p.id) || {
+      noteAvg: null,
+      noteCount: 0,
+      commentCount: 0,
+    }
+  const artistName = (p) => p.artiste?.nom || p.artiste_text || '~'
+  const bpm = (p) => p.audio_features?.tempo || 0
+  switch (mode) {
+    case 'created_asc':
+      arr.sort(
+        (a, b) =>
+          new Date(a.created_at) - new Date(b.created_at),
+      )
+      break
+    case 'note_desc':
+      arr.sort((a, b) => (getAgg(b).noteAvg ?? -1) - (getAgg(a).noteAvg ?? -1))
+      break
+    case 'bpm_asc':
+      arr.sort((a, b) => (bpm(a) || 999) - (bpm(b) || 999))
+      break
+    case 'bpm_desc':
+      arr.sort((a, b) => (bpm(b) || 0) - (bpm(a) || 0))
+      break
+    case 'titre_asc':
+      arr.sort((a, b) =>
+        (a.titre || '').localeCompare(b.titre || '', 'fr', {
+          sensitivity: 'base',
+        }),
+      )
+      break
+    case 'artiste_asc':
+      arr.sort((a, b) =>
+        artistName(a).localeCompare(artistName(b), 'fr', {
+          sensitivity: 'base',
+        }),
+      )
+      break
+    case 'comments_desc':
+      arr.sort(
+        (a, b) => getAgg(b).commentCount - getAgg(a).commentCount,
+      )
+      break
+    case 'statut': {
+      const order = [
+        'accorde',
+        'en_nego',
+        'valide_festival',
+        'selectionne',
+        'vrac',
+        'refuse',
+      ]
+      arr.sort(
+        (a, b) =>
+          order.indexOf(a.statut) - order.indexOf(b.statut) ||
+          new Date(b.created_at) - new Date(a.created_at),
+      )
+      break
+    }
+    case 'created_desc':
+    default:
+      arr.sort(
+        (a, b) =>
+          new Date(b.created_at) - new Date(a.created_at),
+      )
+  }
+  return arr
 }
