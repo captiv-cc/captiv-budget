@@ -45,6 +45,9 @@ import {
   Tag as TagIcon,
   ArrowUpDown,
   LayoutGrid,
+  List as ListIcon,
+  Columns as ColumnsIcon,
+  LayoutDashboard,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -73,6 +76,8 @@ import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
 import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
+import PipelineView from '../../features/musiques/PipelineView'
+import DashboardView from '../../features/musiques/DashboardView'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 
 const OUTIL_KEY = 'musiques'
@@ -110,6 +115,29 @@ export default function MusiquesTab() {
   //     non-null (= quelqu'un a déjà réordonné le projet) → 'manual'
   //     pour voir l'ordre partagé
   //   - Sinon : 'created_desc' (les plus récentes d'abord)
+  // MUS-5.1 : view mode (list/pipeline/dashboard) persisté par projet
+  const VIEW_KEY = `musiques.view.${projectId || 'global'}`
+  const [viewMode, setViewModeRaw] = useState(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY)
+      if (v === 'pipeline' || v === 'dashboard') return v
+      return 'list'
+    } catch {
+      return 'list'
+    }
+  })
+  const setViewMode = useCallback(
+    (m) => {
+      setViewModeRaw(m)
+      try {
+        localStorage.setItem(VIEW_KEY, m)
+      } catch {
+        /* ignore */
+      }
+    },
+    [VIEW_KEY],
+  )
+
   const SORT_KEY = `musiques.sort.${projectId || 'global'}`
   const [sortModeOverride, setSortModeOverride] = useState(() => {
     try {
@@ -866,6 +894,38 @@ export default function MusiquesTab() {
         />
       </div>
 
+      {/* ─── View switcher (MUS-5.1) ────────────────────────────────────
+          Toggle Liste / Pipeline / Dashboard, pattern Livrables. */}
+      <div
+        className="flex items-center gap-1 px-5 py-2 flex-wrap"
+        style={{ borderBottom: '1px solid var(--brd-sub)' }}
+      >
+        <span
+          className="hidden sm:inline text-[10px] uppercase tracking-wider mr-2"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Vue
+        </span>
+        <ViewToggle
+          active={viewMode === 'list'}
+          icon={ListIcon}
+          label="Liste"
+          onClick={() => setViewMode('list')}
+        />
+        <ViewToggle
+          active={viewMode === 'pipeline'}
+          icon={ColumnsIcon}
+          label="Pipeline"
+          onClick={() => setViewMode('pipeline')}
+        />
+        <ViewToggle
+          active={viewMode === 'dashboard'}
+          icon={LayoutDashboard}
+          label="Dashboard"
+          onClick={() => setViewMode('dashboard')}
+        />
+      </div>
+
       {/* ─── Content : body avec padding standard ────────────────────── */}
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
@@ -923,7 +983,7 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Bulk action bar (MUS-3.3) — sticky overlay (MUS-3.4) ─────── */}
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 && viewMode === 'list' && (
         <div
           style={{
             position: 'sticky',
@@ -1107,7 +1167,7 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Empty state filtres (a des propositions mais filtres masquent) ── */}
-      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && (
+      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && viewMode !== 'dashboard' && (
         <div
           style={{
             padding: '32px 12px',
@@ -1138,8 +1198,33 @@ export default function MusiquesTab() {
         </div>
       )}
 
+      {/* ─── Pipeline view (MUS-5.2) ──────────────────────────────────── */}
+      {!loading && visiblePropositions.length > 0 && viewMode === 'pipeline' && (
+        <PipelineView
+          propositions={visiblePropositions}
+          aggregates={aggregates}
+          canEdit={canEdit}
+          currentUserId={user?.id || null}
+          onMutated={refetch}
+          onOpenDetail={(p) => setDetailPropId(p.id)}
+        />
+      )}
+
+      {/* ─── Dashboard view (MUS-5.3) ─────────────────────────────────── */}
+      {!loading && propositions.length > 0 && viewMode === 'dashboard' && (
+        <DashboardView
+          propositions={propositions}
+          aggregates={aggregates}
+          onOpenDetail={(p) => setDetailPropId(p.id)}
+          onClickStatut={(s) => {
+            setFilterStatut(s)
+            setViewMode('list')
+          }}
+        />
+      )}
+
       {/* ─── Liste propositions (PropositionRow — MUS-1.11) ──────────── */}
-      {!loading && visiblePropositions.length > 0 && (
+      {!loading && visiblePropositions.length > 0 && viewMode === 'list' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {groupedView.map((group) => (
             <div
@@ -1450,6 +1535,27 @@ function StatPill({
       >
         {label}
       </span>
+    </button>
+  )
+}
+
+// ─── ViewToggle (MUS-5.1) — bouton onglet de vue ─────────────────────────
+// Pattern aligné Livrables : pill compact avec icône + label, accent
+// bleu quand actif.
+function ViewToggle({ active, icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md shrink-0 transition-all focus:outline-none"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'var(--bg-elev)',
+        color: active ? 'var(--blue)' : 'var(--txt-2)',
+        border: `1px solid ${active ? 'var(--blue)' : 'var(--brd)'}`,
+      }}
+    >
+      {Icon && <Icon className="w-3.5 h-3.5" />}
+      <span>{label}</span>
     </button>
   )
 }
