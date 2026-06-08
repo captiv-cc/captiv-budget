@@ -44,8 +44,12 @@ import {
   updateProposition,
 } from '../../lib/musiques'
 import { detectBpmFromUrl } from '../../lib/bpmDetect'
-import { findYouTubeForTrack } from '../../lib/musiqueSearch'
+import {
+  findYouTubeForTrack,
+  getDeezerTrack,
+} from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
+import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
@@ -118,25 +122,81 @@ export default function MusiquesTab() {
     }
   }, [])
 
+  // playWithRefresh — tente de jouer le preview_url, et si ça foire (URL
+  // Deezer expirée, CDN refusé), refetch via getDeezerTrack pour une URL
+  // fraîche. Met à jour la BDD en passant. Idempotent.
+  const playWithRefresh = useCallback(
+    async (prop) => {
+      const tryPlay = (url) => {
+        const audio = new Audio(url)
+        audio.volume = 0.7
+        audio.addEventListener('ended', () => setPlayingId(null))
+        const playPromise = audio.play()
+        return { audio, playPromise }
+      }
+
+      let url = prop.preview_url
+      let audio = null
+      let played = false
+
+      if (url) {
+        try {
+          const r = tryPlay(url)
+          await r.playPromise
+          audio = r.audio
+          played = true
+        } catch (e) {
+          console.warn('[preview] première lecture KO, on refresh', e)
+        }
+      }
+
+      // Si pas d'URL OU lecture initiale KO → tente refresh via Deezer
+      if (!played && prop.spotify_id) {
+        try {
+          const fresh = await getDeezerTrack(prop.spotify_id)
+          if (fresh?.preview_url && fresh.preview_url !== url) {
+            url = fresh.preview_url
+            // Persiste la nouvelle URL pour les prochains play
+            updateProposition(prop.id, { preview_url: url }).catch((e) =>
+              console.warn('[preview] save fresh URL failed', e),
+            )
+            const r = tryPlay(url)
+            audio = r.audio
+            await r.playPromise
+            played = true
+          }
+        } catch (e) {
+          console.warn('[preview] refresh KO', e)
+        }
+      }
+
+      return { audio, played }
+    },
+    [],
+  )
+
   const togglePlay = useCallback(
-    (prop) => {
+    async (prop) => {
       if (playingId === prop.id) {
         audioEl?.pause?.()
         setPlayingId(null)
         return
       }
       if (audioEl) audioEl.pause()
-      if (!prop.preview_url) return
-      const audio = new Audio(prop.preview_url)
-      audio.volume = 0.7
-      audio.play().catch((e) => console.warn('[preview] play failed', e))
-      audio.addEventListener('ended', () => setPlayingId(null))
-      setAudioEl(audio)
+      if (!prop.preview_url && !prop.spotify_id) return
+      // Optimistic UI : on indique playing tout de suite, on revert si échec
       setPlayingId(prop.id)
+      const { audio, played } = await playWithRefresh(prop)
+      if (!played) {
+        notify.error('Lecture impossible (preview Deezer indisponible)')
+        setPlayingId(null)
+        return
+      }
+      setAudioEl(audio)
       // Déclenche la détection BPM en parallèle si nécessaire
       maybeDetectBpm(prop)
     },
-    [audioEl, playingId, maybeDetectBpm],
+    [audioEl, playingId, maybeDetectBpm, playWithRefresh],
   )
   // Cleanup audio à l'unmount du tab
   useEffect(() => () => audioEl?.pause?.(), [audioEl])

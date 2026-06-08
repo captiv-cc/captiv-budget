@@ -45,6 +45,7 @@ import {
   removeComment,
   subscribeComments,
 } from '../../lib/musiques'
+import { getDeezerTrack } from '../../lib/musiqueSearch'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 
@@ -205,19 +206,54 @@ export default function PropositionDetailDrawer({
     }
   }
 
-  function togglePlay() {
+  async function togglePlay() {
     if (isPlaying) {
       audioEl?.pause?.()
       setIsPlaying(false)
       return
     }
-    if (!p.preview_url) return
-    const audio = new Audio(p.preview_url)
-    audio.volume = 0.7
-    audio.play().catch(() => {})
-    audio.addEventListener('ended', () => setIsPlaying(false))
-    setAudioEl(audio)
+    if (!p.preview_url && !p.spotify_id) return
     setIsPlaying(true)
+    let url = p.preview_url
+    let audio = null
+    const tryPlay = (u) => {
+      const a = new Audio(u)
+      a.volume = 0.7
+      a.addEventListener('ended', () => setIsPlaying(false))
+      return { a, pp: a.play() }
+    }
+    let played = false
+    if (url) {
+      try {
+        const r = tryPlay(url)
+        await r.pp
+        audio = r.a
+        played = true
+      } catch {
+        /* refresh below */
+      }
+    }
+    if (!played && p.spotify_id) {
+      try {
+        const fresh = await getDeezerTrack(p.spotify_id)
+        if (fresh?.preview_url && fresh.preview_url !== url) {
+          url = fresh.preview_url
+          updateProposition(p.id, { preview_url: url }).catch(() => {})
+          const r = tryPlay(url)
+          audio = r.a
+          await r.pp
+          played = true
+        }
+      } catch {
+        /* abort */
+      }
+    }
+    if (!played) {
+      setIsPlaying(false)
+      notify.error('Lecture impossible (preview Deezer indisponible)')
+      return
+    }
+    setAudioEl(audio)
   }
 
   async function handleAddComment() {
