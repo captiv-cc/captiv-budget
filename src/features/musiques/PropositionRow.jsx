@@ -95,7 +95,10 @@ export default function PropositionRow({
   }
   const initials = (artistName.match(/[A-Za-zÀ-ÿ0-9]/)?.[0] || '?').toUpperCase()
   const color = hashColorFromName(artistName)
-  const bpm = p.audio_features?.tempo
+  // Filtre bpm > 0 : Deezer renvoie parfois bpm=0 pour les tracks sans
+  // tempo détecté. Sans ce filtre, React rend littéralement "0" à
+  // l'écran (parce que `{bpm && ...}` avec bpm=0 retourne 0).
+  const bpm = p.audio_features?.tempo > 0 ? p.audio_features.tempo : null
   const hasPreview = Boolean(p.preview_url)
   const hasYoutube = Boolean(p.lien_youtube)
 
@@ -107,7 +110,7 @@ export default function PropositionRow({
         display: 'grid',
         gridTemplateColumns: '40px 1fr auto',
         gap: 12,
-        padding: '10px 14px',
+        padding: '8px 14px',
         alignItems: 'center',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'background 80ms',
@@ -247,6 +250,9 @@ export default function PropositionRow({
             disabled={!canEdit}
             size={13}
           />
+          {/* Sous les étoiles : soit la moyenne+count, soit juste le
+              badge statut (sans "pas noté" qui était redondant avec
+              les étoiles vides). */}
           <span
             style={{
               fontSize: 10,
@@ -256,18 +262,27 @@ export default function PropositionRow({
               alignItems: 'center',
             }}
           >
-            {agg.noteCount > 0 ? (
-              <span>
-                {agg.noteAvg} · {agg.noteCount} vote{agg.noteCount > 1 ? 's' : ''}
+            {agg.noteCount > 0 && (
+              <span style={{ color: '#D97706', fontWeight: 500 }}>
+                {agg.noteAvg} · {agg.noteCount}
               </span>
-            ) : (
-              <span style={{ opacity: 0.7 }}>pas noté</span>
             )}
             <span
               style={{
-                padding: '0 5px',
-                background: 'var(--bg-elev)',
+                padding: '1px 6px',
+                background:
+                  p.statut === 'vrac'
+                    ? 'var(--bg-elev)'
+                    : 'rgba(59,130,246,0.12)',
+                color:
+                  p.statut === 'vrac'
+                    ? 'var(--txt-2)'
+                    : 'var(--blue, #3B82F6)',
                 borderRadius: 6,
+                fontWeight: 500,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                fontSize: 9,
               }}
             >
               {STATUT_LABELS[p.statut] || p.statut}

@@ -25,7 +25,10 @@
 import { useState } from 'react'
 
 const COLOR_FILLED = '#D97706'      // amber-600
-const COLOR_EMPTY_DARK = 'rgba(255,255,255,0.18)' // dark mode empty
+// On veut que les étoiles vides soient visibles sans être agressives :
+// 0.18 était trop discret sur dark, 0.35 donne un repère clair que la
+// note est cliquable.
+const COLOR_EMPTY_DARK = 'rgba(255,255,255,0.35)'
 const COLOR_PREVIEW = '#FCD34D'     // amber-300 (preview hover, plus pâle)
 
 export default function StarRating({
