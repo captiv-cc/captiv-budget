@@ -25,7 +25,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react'
-import { Play, Pause, Youtube, MoreHorizontal, Trash2, AlertTriangle } from 'lucide-react'
+import {
+  Play,
+  Pause,
+  Youtube,
+  MoreHorizontal,
+  Trash2,
+  AlertTriangle,
+  MessageCircle,
+} from 'lucide-react'
 import {
   STATUTS,
   STATUT_LABELS,
@@ -83,18 +91,19 @@ function ProposerAvatar({ proposer, createdAt }) {
     <div
       title={`Proposé par ${name}${dateStr ? ` le ${dateStr}` : ''}`}
       style={{
-        width: 22,
-        height: 22,
+        width: 18,
+        height: 18,
         borderRadius: '50%',
         background: color.bg,
         color: color.fg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 9,
+        fontSize: 8,
         fontWeight: 600,
         flexShrink: 0,
         cursor: 'help',
+        opacity: 0.75,
       }}
     >
       {initials}
@@ -275,7 +284,28 @@ export default function PropositionRow({
           flexShrink: 0,
         }}
       >
-        {/* Avatar proposeur (mini, hover = tooltip nom) */}
+        {/* Compteur commentaires (visible si > 0) */}
+        {agg.commentCount > 0 && (
+          <div
+            title={`${agg.commentCount} commentaire${agg.commentCount > 1 ? 's' : ''}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              padding: '2px 6px',
+              background: 'var(--bg-elev)',
+              borderRadius: 10,
+              color: 'var(--txt-3)',
+              fontSize: 10,
+              fontWeight: 500,
+            }}
+          >
+            <MessageCircle size={11} />
+            {agg.commentCount}
+          </div>
+        )}
+
+        {/* Avatar proposeur (très discret, tooltip clair) */}
         {p.proposer && (
           <ProposerAvatar proposer={p.proposer} createdAt={p.created_at} />
         )}

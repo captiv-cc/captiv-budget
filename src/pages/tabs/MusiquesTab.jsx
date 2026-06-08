@@ -37,6 +37,7 @@ import {
   listPropositions,
   listAllNotes,
   listAllTags,
+  listAllComments,
   computeAggregates,
   subscribeToProject,
   STATUT_LABELS,
@@ -66,6 +67,7 @@ export default function MusiquesTab() {
   const [propositions, setPropositions] = useState([])
   const [notes, setNotes] = useState([])
   const [tags, setTags] = useState([])
+  const [commentsList, setCommentsList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -144,14 +146,16 @@ export default function MusiquesTab() {
     if (!projectId) return
     setError(null)
     try {
-      const [propsData, notesData, tagsData] = await Promise.all([
+      const [propsData, notesData, tagsData, commentsData] = await Promise.all([
         listPropositions(projectId, { sort: 'created_at_desc' }),
         listAllNotes(projectId),
         listAllTags(projectId),
+        listAllComments(projectId),
       ])
       setPropositions(propsData)
       setNotes(notesData)
       setTags(tagsData)
+      setCommentsList(commentsData)
     } catch (e) {
       console.warn('[MusiquesTab] fetch failed', e)
       setError(e.message || 'Erreur de chargement')
@@ -220,8 +224,8 @@ export default function MusiquesTab() {
 
   // ─── Agrégats (note moyenne + tags) côté front ────────────────────────────
   const aggregates = useMemo(
-    () => computeAggregates(notes, tags, user?.id || null),
-    [notes, tags, user?.id],
+    () => computeAggregates(notes, tags, user?.id || null, commentsList),
+    [notes, tags, user?.id, commentsList],
   )
 
   // ─── Filtrage local (search + statut) ─────────────────────────────────────

@@ -442,6 +442,22 @@ export function subscribeToProject(projectId, callbacks = {}) {
 // ─── Commentaires ──────────────────────────────────────────────────────────
 
 /**
+ * Liste tous les commentaires d'un projet (jointure pour scope).
+ * Utilisé par la vue liste pour afficher le compteur 💬 sur chaque row.
+ */
+export async function listAllComments(projectId) {
+  const { data, error } = await supabase
+    .from('projet_musique_comments')
+    .select(`
+      id, proposition_id, user_id, created_at,
+      proposition:proposition_id!inner (project_id)
+    `)
+    .eq('proposition.project_id', projectId)
+  if (error) throw error
+  return data || []
+}
+
+/**
  * Liste les commentaires d'une proposition triés du plus ancien au plus
  * récent (ordre de lecture naturel d'un fil de discussion).
  */
@@ -592,22 +608,31 @@ function normalizeForMatch(s) {
  * @param {string|null} currentUserId ID du user courant pour identifier sa note
  * @returns {Map<string, { noteAvg: number|null, noteCount: number, myNote: number|null, tags: Array<{id, tag, user_id}> }>}
  */
-export function computeAggregates(notes, tags, currentUserId) {
+export function computeAggregates(notes, tags, currentUserId, comments = []) {
   const out = new Map()
+  function ensure(key) {
+    if (!out.has(key)) {
+      out.set(key, {
+        noteAvg: null,
+        noteCount: 0,
+        _sum: 0,
+        myNote: null,
+        tags: [],
+        commentCount: 0,
+      })
+    }
+    return out.get(key)
+  }
   // Notes
   for (const n of notes || []) {
-    const key = n.proposition_id
-    if (!out.has(key)) {
-      out.set(key, { noteAvg: null, noteCount: 0, _sum: 0, myNote: null, tags: [] })
-    }
-    const agg = out.get(key)
+    const agg = ensure(n.proposition_id)
     agg._sum += n.note
     agg.noteCount += 1
     if (currentUserId && n.user_id === currentUserId) {
       agg.myNote = n.note
     }
   }
-  // Calcule moyennes (arrondies à 1 décimale pour affichage)
+  // Moyennes
   for (const agg of out.values()) {
     if (agg.noteCount > 0) {
       agg.noteAvg = Math.round((agg._sum / agg.noteCount) * 10) / 10
@@ -616,11 +641,15 @@ export function computeAggregates(notes, tags, currentUserId) {
   }
   // Tags
   for (const t of tags || []) {
-    const key = t.proposition_id
-    if (!out.has(key)) {
-      out.set(key, { noteAvg: null, noteCount: 0, myNote: null, tags: [] })
-    }
-    out.get(key).tags.push({ id: t.id, tag: t.tag, user_id: t.user_id })
+    ensure(t.proposition_id).tags.push({
+      id: t.id,
+      tag: t.tag,
+      user_id: t.user_id,
+    })
+  }
+  // Comments count (juste le nombre, pas le détail)
+  for (const c of comments || []) {
+    ensure(c.proposition_id).commentCount += 1
   }
   return out
 }

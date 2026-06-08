@@ -264,7 +264,7 @@ export default function PropositionDetailDrawer({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 'min(680px, 100%)',
+          width: 'min(560px, 100%)',
           maxHeight: 'calc(100vh - 32px)',
           background: 'var(--bg-surf)',
           border: '1px solid var(--brd)',
@@ -281,7 +281,7 @@ export default function PropositionDetailDrawer({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '12px 16px',
+            padding: '8px 12px',
             borderBottom: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
           }}
@@ -333,20 +333,20 @@ export default function PropositionDetailDrawer({
         {/* ─── Body ───────────────────────────────────────────────────── */}
         <div
           style={{
-            padding: 16,
+            padding: 12,
             display: 'flex',
             flexDirection: 'column',
-            gap: 14,
+            gap: 10,
             overflow: 'auto',
           }}
         >
           {/* Cover + titre + artiste */}
-          <div style={{ display: 'flex', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 10 }}>
             <div
               style={{
-                width: 84,
-                height: 84,
-                borderRadius: 6,
+                width: 56,
+                height: 56,
+                borderRadius: 5,
                 background: p.cover_url ? 'transparent' : 'var(--bg-elev)',
                 backgroundImage: p.cover_url ? `url(${p.cover_url})` : 'none',
                 backgroundSize: 'cover',
@@ -364,7 +364,7 @@ export default function PropositionDetailDrawer({
                     inset: 0,
                     background: 'rgba(0,0,0,0.35)',
                     border: 'none',
-                    borderRadius: 6,
+                    borderRadius: 5,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -372,7 +372,7 @@ export default function PropositionDetailDrawer({
                     color: '#FF6E37',
                   }}
                 >
-                  {isPlaying ? <Pause size={26} /> : <Play size={26} />}
+                  {isPlaying ? <Pause size={20} /> : <Play size={20} />}
                 </button>
               )}
             </div>
@@ -416,130 +416,125 @@ export default function PropositionDetailDrawer({
             </div>
           </div>
 
-          {/* Statut */}
-          <div>
-            <FieldLabel>Statut</FieldLabel>
-            <select
-              value={p.statut}
-              onChange={(e) => handleStatutChange(e.target.value)}
-              disabled={!canEdit || saving}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--brd-sub)',
-                color: 'var(--txt)',
-                borderRadius: 4,
-                fontSize: 13,
-                outline: 'none',
-                cursor: canEdit ? 'pointer' : 'default',
-              }}
-            >
-              {STATUTS.map((s) => (
-                <option key={s} value={s}>
-                  {STATUT_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Liens externes */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Statut + YouTube + Deezer sur une ligne compacte 2-col */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+            }}
+          >
             <div>
-              <FieldLabel>Lien YouTube</FieldLabel>
-              <div
+              <FieldLabel>Statut</FieldLabel>
+              <select
+                value={p.statut}
+                onChange={(e) => handleStatutChange(e.target.value)}
+                disabled={!canEdit || saving}
                 style={{
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
+                  width: '100%',
+                  padding: '5px 8px',
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd-sub)',
+                  color: 'var(--txt)',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: canEdit ? 'pointer' : 'default',
                 }}
               >
-                <input
-                  type="text"
-                  value={youtubeValue}
-                  onChange={(e) => setField('lien_youtube', e.target.value)}
-                  onBlur={() => commitField('lien_youtube')}
-                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                  placeholder="https://youtu.be/…"
-                  disabled={!canEdit || saving}
-                  style={inputStyle()}
-                />
-                {p.lien_youtube && (
-                  <a
-                    href={p.lien_youtube}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      padding: 6,
-                      color: '#FF0000',
-                      display: 'inline-flex',
-                    }}
-                    title="Ouvrir dans YouTube"
-                  >
-                    <Youtube size={16} />
-                  </a>
+                {STATUTS.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUT_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Audio features</FieldLabel>
+              <div
+                style={{
+                  padding: '5px 8px',
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--brd-sub)',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  color: 'var(--txt-2)',
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  height: 26,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {bpm ? (
+                  <span style={{ color: '#D97706', fontWeight: 500 }}>
+                    {bpm} BPM
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>
+                    BPM non détecté
+                  </span>
+                )}
+                {p.duration_ms && (
+                  <span>{formatDuration(p.duration_ms / 1000)}</span>
                 )}
               </div>
             </div>
-            {p.spotify_url && (
-              <div>
-                <FieldLabel>Lien Deezer</FieldLabel>
+          </div>
+
+          {/* Lien YouTube — full row */}
+          <div>
+            <FieldLabel>Lien YouTube</FieldLabel>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="text"
+                value={youtubeValue}
+                onChange={(e) => setField('lien_youtube', e.target.value)}
+                onBlur={() => commitField('lien_youtube')}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                placeholder="https://youtu.be/…"
+                disabled={!canEdit || saving}
+                style={inputStyleCompact()}
+              />
+              {p.lien_youtube && (
+                <a
+                  href={p.lien_youtube}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: 5,
+                    color: '#FF0000',
+                    display: 'inline-flex',
+                  }}
+                  title="Ouvrir dans YouTube"
+                >
+                  <Youtube size={14} />
+                </a>
+              )}
+              {p.spotify_url && (
                 <a
                   href={p.spotify_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    fontSize: 12,
+                    padding: '4px 8px',
+                    fontSize: 11,
                     color: '#FF6E37',
-                    textDecoration: 'underline',
+                    textDecoration: 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
+                    gap: 3,
+                    border: '1px solid var(--brd-sub)',
+                    borderRadius: 4,
                   }}
+                  title="Ouvrir sur Deezer"
                 >
-                  Ouvrir sur Deezer
-                  <ExternalLink size={11} />
+                  Deezer
+                  <ExternalLink size={10} />
                 </a>
-              </div>
-            )}
-          </div>
-
-          {/* Audio features */}
-          {(bpm || p.duration_ms) && (
-            <div
-              style={{
-                padding: '8px 12px',
-                background: 'var(--bg-elev)',
-                border: '1px solid var(--brd-sub)',
-                borderRadius: 6,
-                display: 'flex',
-                gap: 12,
-                fontSize: 11,
-                color: 'var(--txt-2)',
-                flexWrap: 'wrap',
-              }}
-            >
-              {bpm && (
-                <span>
-                  <span style={{ color: 'var(--txt-3)' }}>BPM : </span>
-                  <span style={{ fontWeight: 500, color: '#D97706' }}>{bpm}</span>
-                </span>
-              )}
-              {p.duration_ms && (
-                <span>
-                  <span style={{ color: 'var(--txt-3)' }}>Durée : </span>
-                  <span style={{ fontWeight: 500 }}>
-                    {formatDuration(p.duration_ms / 1000)}
-                  </span>
-                </span>
-              )}
-              {p.audio_features?.source && (
-                <span style={{ opacity: 0.6 }}>
-                  source {p.audio_features.source}
-                </span>
               )}
             </div>
-          )}
+          </div>
 
           {/* Remarques */}
           <div>
@@ -548,10 +543,10 @@ export default function PropositionDetailDrawer({
               value={remarquesValue}
               onChange={(e) => setField('remarques', e.target.value)}
               onBlur={() => commitField('remarques')}
-              placeholder="Timecode précis, contexte, conditions, à utiliser pour SEQ X…"
+              placeholder="Timecode précis, contexte, conditions…"
               disabled={!canEdit || saving}
               rows={2}
-              style={{ ...inputStyle(), resize: 'vertical' }}
+              style={{ ...inputStyleCompact(), resize: 'vertical' }}
             />
           </div>
 
@@ -559,8 +554,8 @@ export default function PropositionDetailDrawer({
           <div
             style={{
               borderTop: '1px solid var(--brd-sub)',
-              paddingTop: 14,
-              marginTop: 4,
+              paddingTop: 10,
+              marginTop: 2,
             }}
           >
             <div
@@ -689,8 +684,8 @@ export default function PropositionDetailDrawer({
           <div
             style={{
               borderTop: '1px solid var(--brd-sub)',
-              paddingTop: 12,
-              marginTop: 4,
+              paddingTop: 8,
+              marginTop: 2,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -810,7 +805,7 @@ function InlineField({
   big,
 }) {
   return (
-    <div>
+    <div style={{ marginBottom: 6 }}>
       <FieldLabel>{label}</FieldLabel>
       <input
         type="text"
@@ -820,13 +815,13 @@ function InlineField({
         onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         disabled={disabled}
         style={{
-          ...inputStyle(),
-          fontSize: big ? 16 : 13,
+          ...inputStyleCompact(),
+          fontSize: big ? 14 : 12,
           fontWeight: big ? 500 : 400,
         }}
       />
       {hint && (
-        <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 3 }}>
+        <div style={{ fontSize: 10, color: 'var(--txt-3)', marginTop: 2 }}>
           {hint}
         </div>
       )}
@@ -1055,12 +1050,26 @@ function hashColorFromName(name) {
 function inputStyle() {
   return {
     width: '100%',
-    padding: '7px 10px',
+    padding: '6px 10px',
     background: 'var(--bg-elev)',
     border: '1px solid var(--brd-sub)',
     borderRadius: 4,
     color: 'var(--txt)',
     fontSize: 13,
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
+}
+
+function inputStyleCompact() {
+  return {
+    width: '100%',
+    padding: '5px 8px',
+    background: 'var(--bg-elev)',
+    border: '1px solid var(--brd-sub)',
+    borderRadius: 4,
+    color: 'var(--txt)',
+    fontSize: 12,
     outline: 'none',
     boxSizing: 'border-box',
   }
