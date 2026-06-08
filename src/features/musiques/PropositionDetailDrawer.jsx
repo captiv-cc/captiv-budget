@@ -477,20 +477,52 @@ export default function PropositionDetailDrawer({
                 <button
                   type="button"
                   onClick={togglePlay}
+                  title={isPlaying ? 'Mettre en pause' : 'Écouter le preview 30s'}
+                  aria-label={isPlaying ? 'Pause' : 'Play'}
                   style={{
                     position: 'absolute',
                     inset: 0,
-                    background: 'rgba(0,0,0,0.35)',
+                    // Voile sombre subtil pour faire ressortir le bouton
+                    background:
+                      'linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.4))',
                     border: 'none',
                     borderRadius: 5,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#FF6E37',
+                    padding: 0,
                   }}
                 >
-                  {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                  {/* Pastille play visible quelle que soit la cover :
+                      pill orange + icône blanche, ombre marquée. */}
+                  <span
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      background: '#FF6E37',
+                      color: 'white',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow:
+                        '0 2px 8px rgba(0,0,0,0.45), 0 0 0 2px rgba(255,255,255,0.85)',
+                      transition: 'transform 80ms',
+                    }}
+                  >
+                    {isPlaying ? (
+                      <Pause size={14} fill="white" />
+                    ) : (
+                      <Play
+                        size={14}
+                        fill="white"
+                        // Décale le triangle d'1px à droite pour qu'il soit
+                        // optiquement centré (le glyphe Play est lourd à gauche).
+                        style={{ marginLeft: 1 }}
+                      />
+                    )}
+                  </span>
                 </button>
               )}
             </div>
