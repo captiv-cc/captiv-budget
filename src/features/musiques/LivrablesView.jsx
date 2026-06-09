@@ -869,10 +869,11 @@ function LinkItem({
         )}
       </div>
 
-      {/* Remarque (inline editable). Si la remarque existe, on l'affiche
-          TOUJOURS en bien visible (encadré subtil, accent border-left).
-          Si vide, on affiche un bouton "+ remarque" discret seulement au
-          hover pour ne pas polluer. */}
+      {/* Remarque visible uniquement quand elle existe OU en mode édition.
+          MUS-6.8 v3 : on retire le bouton "+ remarque" hover-only qui
+          poussait les tracks dessous. L'utilisateur ajoute une remarque
+          via le drawer prop (click sur la track → section "Utilisée dans").
+          Aucun décalage de hauteur ne se produit donc au hover. */}
       {editRemarque ? (
         <div style={{ paddingLeft: 27 }}>
           <input
@@ -931,31 +932,7 @@ function LinkItem({
         >
           {link.remarque}
         </button>
-      ) : (
-        hover && canEdit && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              setEditRemarque(true)
-            }}
-            style={{
-              marginLeft: 27,
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--txt-3)',
-              cursor: 'text',
-              fontSize: 10,
-              fontStyle: 'italic',
-              padding: 0,
-              textAlign: 'left',
-              opacity: 0.7,
-            }}
-          >
-            + remarque
-          </button>
-        )
-      )}
+      ) : null}
     </div>
   )
 }
