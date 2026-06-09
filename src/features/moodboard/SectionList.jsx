@@ -48,10 +48,13 @@ export default function SectionList({
   cardsBySection,
   commentsByCard,
   reactionsByCard,
+  tagsByCard,
+  visibleCardIds,
   canEdit,
   projectId,
   onMutated,
   onOpenCard,
+  onTagClick,
 }) {
   // État du drag en cours (cardId + sourceSectionId).
   // `dragging` = drag en cours, `over` = cible survolée.
@@ -162,6 +165,18 @@ export default function SectionList({
         onMutated?.()
       } catch (e) {
         notify.error(e?.message || 'Renommage impossible')
+      }
+    },
+    [onMutated],
+  )
+
+  const handleSetSectionColor = useCallback(
+    async (section, color) => {
+      try {
+        await updateSection(section.id, { color })
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Changement couleur impossible')
       }
     },
     [onMutated],
@@ -314,9 +329,17 @@ export default function SectionList({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {sections.map((section) => {
-        const sectionCards = cardsBySection.get(section.id) || []
+        const allSectionCards = cardsBySection.get(section.id) || []
+        // Filtre par tag : si visibleCardIds est défini (null = pas de
+        // filtre), on garde uniquement les cartes incluses.
+        const sectionCards = visibleCardIds
+          ? allSectionCards.filter((c) => visibleCardIds.has(c.id))
+          : allSectionCards
         const isCollapsed = collapsed.has(section.id)
         const isOver = overSection === section.id
+
+        // Skip section si filtre actif et aucune carte ne matche
+        if (visibleCardIds && sectionCards.length === 0) return null
 
         return (
           <div
@@ -326,6 +349,12 @@ export default function SectionList({
               border: `1px solid ${
                 isOver ? 'var(--blue, #3B82F6)' : 'var(--brd-sub)'
               }`,
+              // Bordure gauche colorée si la section a une couleur set
+              borderLeft: section.color
+                ? `4px solid ${section.color}`
+                : `1px solid ${
+                    isOver ? 'var(--blue, #3B82F6)' : 'var(--brd-sub)'
+                  }`,
               borderRadius: 8,
               overflow: 'hidden',
               transition: 'border-color 100ms',
@@ -345,6 +374,7 @@ export default function SectionList({
               canEdit={canEdit}
               onRename={(name) => handleRenameSection(section, name)}
               onDelete={() => handleDeleteSection(section)}
+              onSetColor={(color) => handleSetSectionColor(section, color)}
               onAddLink={(url) => handleAddLink(section.id, url)}
               onAddUploads={(files) => handleAddUploads(section.id, files)}
               onAddNote={() => handleAddNote(section.id)}
@@ -394,9 +424,11 @@ export default function SectionList({
                           card={card}
                           comments={commentsByCard.get(card.id) || []}
                           reactionAgg={reactionsByCard.get(card.id) || null}
+                          tags={tagsByCard?.get(card.id) || []}
                           canEdit={canEdit}
                           onOpen={onOpenCard}
                           onDelete={canEdit ? handleDeleteCard : null}
+                          onTagClick={onTagClick}
                           draggable={canEdit}
                           onDragStart={() => handleCardDragStart(card)}
                           onDragEnd={handleCardDragEnd}
@@ -415,6 +447,19 @@ export default function SectionList({
 }
 
 // ─── SectionHeader ──────────────────────────────────────────────────────────
+// Palette de couleurs prédéfinies pour les sections (cohérence visuelle).
+// L'utilisateur peut customiser via le menu Couleur dans le "..." de la
+// section. "Aucune" → null en BDD = couleur neutre.
+const SECTION_COLORS = [
+  { label: 'Aucune', value: null },
+  { label: 'Bleu', value: '#3B82F6' },
+  { label: 'Violet', value: '#8B5CF6' },
+  { label: 'Rose', value: '#EC4899' },
+  { label: 'Vert', value: '#10B981' },
+  { label: 'Jaune', value: '#F59E0B' },
+  { label: 'Rouge', value: '#EF4444' },
+]
+
 function SectionHeader({
   section,
   count,
@@ -423,6 +468,7 @@ function SectionHeader({
   canEdit,
   onRename,
   onDelete,
+  onSetColor,
   onAddLink,
   onAddUploads,
   onAddNote,
@@ -471,6 +517,11 @@ function SectionHeader({
         padding: '8px 12px',
         background: 'var(--bg-elev)',
         borderBottom: '1px solid var(--brd-sub)',
+        // Sticky : le header reste visible quand on scroll dans une longue
+        // section. Z-index pour passer au-dessus des cartes en hover.
+        position: 'sticky',
+        top: 0,
+        zIndex: 3,
       }}
     >
       <button
@@ -823,6 +874,89 @@ function SectionHeader({
                 >
                   Renommer
                 </button>
+                {/* Couleur — palette inline directement dans le menu */}
+                <div
+                  style={{
+                    padding: '6px 10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--txt-3)',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    Couleur
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 4,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    {SECTION_COLORS.map((c) => {
+                      const isActive =
+                        (section.color || null) === c.value
+                      return (
+                        <button
+                          key={c.label}
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onSetColor?.(c.value)
+                          }}
+                          title={c.label}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: '50%',
+                            background:
+                              c.value ||
+                              'transparent',
+                            border: c.value
+                              ? `2px solid ${
+                                  isActive ? 'var(--txt)' : 'transparent'
+                                }`
+                              : `1px dashed ${
+                                  isActive
+                                    ? 'var(--txt)'
+                                    : 'var(--brd)'
+                                }`,
+                            cursor: 'pointer',
+                            padding: 0,
+                            position: 'relative',
+                          }}
+                        >
+                          {c.value === null && (
+                            <X
+                              size={10}
+                              style={{
+                                color: 'var(--txt-3)',
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform:
+                                  'translate(-50%, -50%)',
+                              }}
+                            />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    borderTop: '1px solid var(--brd-sub)',
+                    margin: '4px 0',
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() => {

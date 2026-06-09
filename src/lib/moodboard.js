@@ -579,6 +579,113 @@ export function aggregateReactions(rows, currentUserId) {
   return out
 }
 
+// ─── Tags transversaux ─────────────────────────────────────────────────────
+
+/**
+ * Normalise un tag pour le stockage : trim + lowercase + slice 40.
+ * Garde les accents (l'utilisateur peut taper "lumière naturelle").
+ */
+export function normalizeTag(tag) {
+  if (typeof tag !== 'string') return ''
+  return tag.trim().toLowerCase().slice(0, 40)
+}
+
+/**
+ * Liste TOUS les tags du projet, jointure cards → sections pour scope.
+ * Utilisé pour calcul des chips + filtres + autocomplete.
+ */
+export async function listAllTags(projectId) {
+  const { data, error } = await supabase
+    .from('projet_moodboard_tags')
+    .select(`
+      id, card_id, tag, user_id, created_at,
+      card:card_id!inner (
+        id,
+        section:section_id!inner (project_id)
+      )
+    `)
+    .eq('card.section.project_id', projectId)
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Liste les tags distincts du projet, pour l'autocomplete picker.
+ * Filtre côté front sur les premiers caractères.
+ */
+export async function listDistinctTagsForProject(projectId, query = '', limit = 12) {
+  const { data, error } = await supabase
+    .from('projet_moodboard_tags')
+    .select(`
+      tag,
+      card:card_id!inner (
+        section:section_id!inner (project_id)
+      )
+    `)
+    .eq('card.section.project_id', projectId)
+    .limit(200)
+  if (error) throw error
+  const q = normalizeTag(query)
+  const seen = new Set()
+  const out = []
+  for (const row of data || []) {
+    if (q && !row.tag.startsWith(q)) continue
+    if (!seen.has(row.tag)) {
+      seen.add(row.tag)
+      out.push(row.tag)
+      if (out.length >= limit) break
+    }
+  }
+  return out.sort()
+}
+
+/**
+ * Ajoute un tag à une carte. Idempotent (UNIQUE(card_id, tag) côté BDD).
+ * Renvoie null si le tag existe déjà.
+ */
+export async function addTagToCard(cardId, rawTag) {
+  const tag = normalizeTag(rawTag)
+  if (!tag) throw new Error('Tag vide')
+  if (tag.length > 40) throw new Error('Tag trop long (max 40)')
+  const userResult = await supabase.auth.getUser()
+  const userId = userResult.data?.user?.id || null
+  const { data, error } = await supabase
+    .from('projet_moodboard_tags')
+    .insert({ card_id: cardId, tag, user_id: userId })
+    .select('*')
+    .maybeSingle()
+  if (error) {
+    // Code 23505 = UNIQUE violation (tag déjà présent sur cette carte)
+    if (error.code === '23505') return null
+    throw error
+  }
+  return data
+}
+
+/**
+ * Supprime un tag par son ID. La RLS vérifie que c'est l'auteur ou un
+ * admin/charge_prod.
+ */
+export async function removeTagFromCard(tagId) {
+  const { error } = await supabase
+    .from('projet_moodboard_tags')
+    .delete()
+    .eq('id', tagId)
+  if (error) throw error
+}
+
+/**
+ * Agrège les tags par carte. Renvoie une Map<cardId, [tagRow]>.
+ */
+export function tagsByCard(tagRows) {
+  const m = new Map()
+  for (const t of tagRows || []) {
+    if (!m.has(t.card_id)) m.set(t.card_id, [])
+    m.get(t.card_id).push(t)
+  }
+  return m
+}
+
 // ─── Storage upload ────────────────────────────────────────────────────────
 
 /**
@@ -827,6 +934,15 @@ export function subscribeToProject(projectId, callbacks = {}) {
         table: 'projet_moodboard_reactions',
       },
       (payload) => callbacks.onReactionChange?.(payload),
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'projet_moodboard_tags',
+      },
+      (payload) => callbacks.onTagChange?.(payload),
     )
     .subscribe()
   return {

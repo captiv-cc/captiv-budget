@@ -21,6 +21,7 @@ import {
   Send,
   Loader2,
   RefreshCw,
+  Plus,
 } from 'lucide-react'
 import {
   updateCard,
@@ -29,6 +30,9 @@ import {
   removeComment,
   toggleReaction,
   refreshLinkCard,
+  addTagToCard,
+  removeTagFromCard,
+  listDistinctTagsForProject,
   REACTIONS,
   REACTION_EMOJI,
   REACTION_LABELS,
@@ -44,6 +48,8 @@ export default function CardDrawer({
   card,
   comments = [],
   reactionAgg = null,
+  tags = [],
+  projectId = null,
   canEdit = true,
   currentUserId = null,
   onClose,
@@ -157,6 +163,26 @@ export default function CardDrawer({
     if (!ok) return
     try {
       await removeComment(commentId)
+      onMutated?.()
+    } catch (e) {
+      notify.error(e?.message || 'Suppression KO')
+    }
+  }
+
+  async function handleAddTag(tag) {
+    if (!canEdit) return
+    try {
+      await addTagToCard(card.id, tag)
+      onMutated?.()
+    } catch (e) {
+      notify.error(e?.message || 'Tag KO')
+    }
+  }
+
+  async function handleRemoveTag(tagId) {
+    if (!canEdit) return
+    try {
+      await removeTagFromCard(tagId)
       onMutated?.()
     } catch (e) {
       notify.error(e?.message || 'Suppression KO')
@@ -423,6 +449,18 @@ export default function CardDrawer({
               </div>
             </div>
           )}
+
+          {/* ─── Tags ─── */}
+          <div>
+            <FieldLabel>Tags</FieldLabel>
+            <TagsEditor
+              cardTags={tags}
+              projectId={projectId}
+              canEdit={canEdit}
+              onAdd={handleAddTag}
+              onRemove={handleRemoveTag}
+            />
+          </div>
 
           {/* ─── Réactions ─── */}
           <div>
@@ -901,6 +939,200 @@ function CreatorInfo({ card }) {
         {dateStr && <span>{dateStr}</span>}
       </span>
     </span>
+  )
+}
+
+// ─── TagsEditor : chips + bouton + Ajouter avec autocomplete simple ─────
+function TagsEditor({ cardTags, projectId, canEdit, onAdd, onRemove }) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [suggestions, setSuggestions] = useState([])
+
+  async function refreshSuggestions(query) {
+    if (!projectId) return
+    try {
+      const list = await listDistinctTagsForProject(projectId, query, 8)
+      // Filtre les tags déjà présents sur la carte
+      const existing = new Set(cardTags.map((t) => t.tag))
+      setSuggestions(list.filter((t) => !existing.has(t)))
+    } catch (e) {
+      console.warn('[TagsEditor] autocomplete KO', e)
+      setSuggestions([])
+    }
+  }
+
+  async function commit(value) {
+    const v = (value ?? draft).trim()
+    if (!v) {
+      setAdding(false)
+      setDraft('')
+      return
+    }
+    await onAdd?.(v)
+    setDraft('')
+    setSuggestions([])
+    // On garde le mode ajout actif pour saisir plusieurs tags d'affilée
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 5,
+          alignItems: 'center',
+        }}
+      >
+        {cardTags.map((t) => (
+          <span
+            key={t.id}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              padding: '2px 4px 2px 8px',
+              fontSize: 11,
+              background: 'rgba(99,102,241,0.12)',
+              color: 'var(--indigo, #6366F1)',
+              border: '1px solid rgba(99,102,241,0.25)',
+              borderRadius: 10,
+              fontWeight: 500,
+            }}
+          >
+            {t.tag}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => onRemove?.(t.id)}
+                title={`Retirer "${t.tag}"`}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: '1px 2px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  opacity: 0.7,
+                }}
+              >
+                <X size={10} />
+              </button>
+            )}
+          </span>
+        ))}
+        {canEdit && !adding && (
+          <button
+            type="button"
+            onClick={() => {
+              setAdding(true)
+              refreshSuggestions('')
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              padding: '2px 8px',
+              fontSize: 11,
+              background: 'transparent',
+              color: 'var(--txt-3)',
+              border: '1px dashed var(--brd)',
+              borderRadius: 10,
+              cursor: 'pointer',
+            }}
+          >
+            <Plus size={10} />
+            Ajouter un tag
+          </button>
+        )}
+        {canEdit && adding && (
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              refreshSuggestions(e.target.value)
+            }}
+            onBlur={() => {
+              // Petit délai pour permettre le clic sur une suggestion
+              setTimeout(() => {
+                setAdding(false)
+                setDraft('')
+                setSuggestions([])
+              }, 150)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commit()
+              } else if (e.key === 'Escape') {
+                setAdding(false)
+                setDraft('')
+                setSuggestions([])
+              }
+            }}
+            placeholder="ex: lumière, concept…"
+            autoFocus
+            style={{
+              fontSize: 11,
+              padding: '2px 8px',
+              width: 160,
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--blue, #3B82F6)',
+              borderRadius: 10,
+              color: 'var(--txt)',
+              outline: 'none',
+            }}
+          />
+        )}
+      </div>
+      {/* Suggestions autocomplete */}
+      {adding && suggestions.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginTop: 6,
+          }}
+        >
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                commit(s)
+              }}
+              style={{
+                fontSize: 10,
+                padding: '2px 6px',
+                background: 'var(--bg-elev)',
+                color: 'var(--txt-2)',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+      {cardTags.length === 0 && !adding && (
+        <div
+          style={{
+            fontSize: 10,
+            color: 'var(--txt-3)',
+            fontStyle: 'italic',
+            marginTop: 4,
+          }}
+        >
+          Aucun tag — clique sur + pour organiser cette carte
+        </div>
+      )}
+    </div>
   )
 }
 

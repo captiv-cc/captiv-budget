@@ -26,16 +26,20 @@ import {
   StickyNote,
   MessageCircle,
   Sparkles,
+  Tag as TagIcon,
+  X as XIcon,
 } from 'lucide-react'
 import {
   listSections,
   listCardsForProject,
   listAllComments,
   listAllReactions,
+  listAllTags,
   ensureDefaultSection,
   createSection,
   createCard,
   aggregateReactions,
+  tagsByCard as buildTagsByCard,
   subscribeToProject,
 } from '../../lib/moodboard'
 import { useAuth } from '../../contexts/AuthContext'
@@ -46,6 +50,7 @@ import CardDrawer from '../../features/moodboard/CardDrawer'
 import PasteHandler from '../../features/moodboard/PasteHandler'
 
 const OUTIL_KEY = 'moodboard'
+const TIP_KEY = 'moodboard.tip.paste.dismissed'
 
 export default function MoodboardTab() {
   const { id: projectId } = useParams()
@@ -59,8 +64,21 @@ export default function MoodboardTab() {
   const [cards, setCards] = useState([])
   const [comments, setComments] = useState([])
   const [reactions, setReactions] = useState([])
+  const [tags, setTags] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Filtre par tag (null = pas de filtre, sinon string = nom du tag)
+  const [filterTag, setFilterTag] = useState(null)
+
+  // Astuce paste — dismissible (persiste en localStorage)
+  const [tipDismissed, setTipDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(TIP_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
 
   // Drawer detail : ID de la carte ouverte (null = fermé)
   const [drawerCardId, setDrawerCardId] = useState(null)
@@ -70,16 +88,18 @@ export default function MoodboardTab() {
     if (!projectId) return
     try {
       setError(null)
-      const [sec, crd, cmt, rea] = await Promise.all([
+      const [sec, crd, cmt, rea, tag] = await Promise.all([
         listSections(projectId),
         listCardsForProject(projectId),
         listAllComments(projectId),
         listAllReactions(projectId),
+        listAllTags(projectId),
       ])
       setSections(sec)
       setCards(crd)
       setComments(cmt)
       setReactions(rea)
+      setTags(tag)
     } catch (e) {
       console.warn('[MoodboardTab] fetch failed', e)
       setError(e?.message || 'Erreur de chargement')
@@ -121,6 +141,7 @@ export default function MoodboardTab() {
       onCardChange: () => refetch(),
       onCommentChange: () => refetch(),
       onReactionChange: () => refetch(),
+      onTagChange: () => refetch(),
     })
     return () => sub.unsubscribe()
   }, [projectId, refetch])
@@ -157,6 +178,30 @@ export default function MoodboardTab() {
     () => aggregateReactions(reactions, user?.id || null),
     [reactions, user?.id],
   )
+
+  // Tags par carte + chips de tags du projet (pour la barre de filtres)
+  const tagsByCardMap = useMemo(() => buildTagsByCard(tags), [tags])
+  const allDistinctTags = useMemo(() => {
+    const counts = new Map()
+    for (const t of tags) {
+      counts.set(t.tag, (counts.get(t.tag) || 0) + 1)
+    }
+    return Array.from(counts.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+  }, [tags])
+
+  // Cartes visibles après filtre tag : on filtre sur les cardsByCard avec
+  // au moins un tag correspondant. Le filtre s'applique au render des
+  // sections (cartes invisibles → masquées).
+  const visibleCardIds = useMemo(() => {
+    if (!filterTag) return null // null = pas de filtre → toutes visibles
+    const ids = new Set()
+    for (const t of tags) {
+      if (t.tag === filterTag) ids.add(t.card_id)
+    }
+    return ids
+  }, [filterTag, tags])
 
   // Compteurs header
   const stats = useMemo(
@@ -349,15 +394,45 @@ export default function MoodboardTab() {
           )}
         </div>
 
-        {/* Sous-titre d'aide pour le paste */}
-        {canEdit && (
-          <p
-            className="text-[11px]"
-            style={{ color: 'var(--txt-3)' }}
+        {/* Astuce paste — dismissible. Persiste en localStorage. */}
+        {canEdit && !tipDismissed && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8,
+              fontSize: 11,
+              color: 'var(--txt-3)',
+            }}
           >
-            Astuce — colle (Ctrl+V) une URL, une image, ou glisse un
-            fichier n&apos;importe où sur la page pour ajouter une carte.
-          </p>
+            <span style={{ flex: 1 }}>
+              Astuce — colle (Ctrl+V) une URL, une image, ou glisse un
+              fichier n&apos;importe où sur la page pour ajouter une carte.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTipDismissed(true)
+                try {
+                  localStorage.setItem(TIP_KEY, '1')
+                } catch {
+                  /* ignore */
+                }
+              }}
+              title="Masquer cette astuce"
+              style={{
+                padding: 2,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--txt-3)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                flexShrink: 0,
+              }}
+            >
+              <XIcon size={12} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -436,16 +511,109 @@ export default function MoodboardTab() {
           </div>
         )}
 
+        {/* Barre de chips tags + filtre actif (visible si au moins 1 tag dans le projet) */}
+        {!loading && allDistinctTags.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 0 8px',
+              borderBottom: filterTag ? '1px solid var(--brd-sub)' : 'none',
+            }}
+          >
+            <TagIcon
+              size={12}
+              style={{ color: 'var(--txt-3)', marginRight: 2 }}
+            />
+            {allDistinctTags.slice(0, 20).map(({ tag, count }) => {
+              const active = filterTag === tag
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() =>
+                    setFilterTag((cur) => (cur === tag ? null : tag))
+                  }
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    background: active
+                      ? 'var(--blue-bg, rgba(59,130,246,0.18))'
+                      : 'var(--bg-elev)',
+                    color: active
+                      ? 'var(--blue, #3B82F6)'
+                      : 'var(--txt-2)',
+                    border: `1px solid ${
+                      active ? 'var(--blue, #3B82F6)' : 'var(--brd-sub)'
+                    }`,
+                    borderRadius: 12,
+                    cursor: 'pointer',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                  title={
+                    active
+                      ? `Désactiver le filtre ${tag}`
+                      : `Filtrer les cartes avec le tag "${tag}"`
+                  }
+                >
+                  {tag}
+                  <span
+                    style={{
+                      fontSize: 9,
+                      opacity: 0.7,
+                      fontWeight: 400,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+            {filterTag && (
+              <button
+                type="button"
+                onClick={() => setFilterTag(null)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  background: 'transparent',
+                  color: 'var(--blue, #3B82F6)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  marginLeft: 4,
+                }}
+              >
+                <XIcon size={10} />
+                Effacer le filtre
+              </button>
+            )}
+          </div>
+        )}
+
         {!loading && sections.length > 0 && (
           <SectionList
             sections={sections}
             cardsBySection={cardsBySection}
             commentsByCard={commentsByCard}
             reactionsByCard={reactionsByCard}
+            tagsByCard={tagsByCardMap}
+            visibleCardIds={visibleCardIds}
             canEdit={canEdit}
             projectId={projectId}
             onMutated={refetch}
             onOpenCard={(card) => setDrawerCardId(card.id)}
+            onTagClick={(tag) =>
+              setFilterTag((cur) => (cur === tag ? null : tag))
+            }
           />
         )}
       </div>
@@ -463,6 +631,8 @@ export default function MoodboardTab() {
               }
             : null
         }
+        tags={drawerCard ? tagsByCardMap.get(drawerCard.id) || [] : []}
+        projectId={projectId}
         canEdit={canEdit}
         currentUserId={user?.id || null}
         onClose={() => setDrawerCardId(null)}

@@ -54,9 +54,11 @@ export default function Card({
   card,
   comments = [],
   reactionAgg = null,
+  tags = [],
   canEdit = true,
   onOpen,
   onDelete,
+  onTagClick,
   // Drag-drop (intégration parent Section)
   draggable = false,
   onDragStart,
@@ -209,6 +211,42 @@ export default function Card({
           >
             <LinkIcon size={9} />
             {domain}
+          </div>
+        )}
+
+        {/* Tags chips (cliquables → filtrent au niveau page) */}
+        {tags.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 3,
+              marginTop: 5,
+            }}
+          >
+            {tags.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTagClick?.(t.tag)
+                }}
+                title={`Filtrer par tag "${t.tag}"`}
+                style={{
+                  fontSize: 9,
+                  padding: '1px 5px',
+                  background: 'rgba(99,102,241,0.10)',
+                  color: 'var(--indigo, #6366F1)',
+                  border: '1px solid rgba(99,102,241,0.25)',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                {t.tag}
+              </button>
+            ))}
           </div>
         )}
 
@@ -508,8 +546,16 @@ function NoteBody({ card }) {
         }}
       >
         {preview || (
-          <span style={{ color: 'var(--txt-3)', fontStyle: 'italic' }}>
-            Note vide
+          <span
+            style={{
+              color: 'var(--txt-3)',
+              fontStyle: 'italic',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            ✎ Clique pour écrire…
           </span>
         )}
       </div>
