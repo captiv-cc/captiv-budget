@@ -30,6 +30,7 @@ import {
   Link as LinkIcon,
 } from 'lucide-react'
 import { REACTION_EMOJI } from '../../lib/moodboard'
+import { confirm } from '../../lib/confirm'
 
 // Couleurs par provider connu pour le badge dans le coin
 const PROVIDER_COLORS = {
@@ -324,9 +325,15 @@ export default function Card({
           {canEdit && onDelete && (
             <button
               type="button"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation()
-                if (window.confirm('Supprimer cette carte ?')) onDelete(card)
+                const ok = await confirm({
+                  title: 'Supprimer la carte',
+                  message: 'Cette carte sera supprimée définitivement (avec ses commentaires et réactions).',
+                  confirmLabel: 'Supprimer',
+                  danger: true,
+                })
+                if (ok) onDelete(card)
               }}
               title="Supprimer"
               style={{

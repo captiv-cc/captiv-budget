@@ -40,6 +40,7 @@ import {
   calcSortOrderBetween,
 } from '../../lib/moodboard'
 import { notify } from '../../lib/notify'
+import { confirm } from '../../lib/confirm'
 import Card from './Card'
 
 export default function SectionList({
@@ -169,10 +170,19 @@ export default function SectionList({
   const handleDeleteSection = useCallback(
     async (section) => {
       const cardCount = (cardsBySection.get(section.id) || []).length
-      const msg = cardCount > 0
-        ? `Supprimer "${section.nom}" et ses ${cardCount} carte(s) ?`
-        : `Supprimer la section "${section.nom}" ?`
-      if (!window.confirm(msg)) return
+      const message =
+        cardCount > 0
+          ? `La section "${section.nom}" et ses ${cardCount} carte${
+              cardCount > 1 ? 's' : ''
+            } seront supprimées définitivement.`
+          : `La section "${section.nom}" sera supprimée.`
+      const ok = await confirm({
+        title: 'Supprimer la section',
+        message,
+        confirmLabel: 'Supprimer',
+        danger: true,
+      })
+      if (!ok) return
       try {
         await deleteSection(section.id)
         onMutated?.()

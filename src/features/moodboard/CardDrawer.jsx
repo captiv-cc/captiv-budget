@@ -34,6 +34,7 @@ import {
   REACTION_LABELS,
 } from '../../lib/moodboard'
 import { notify } from '../../lib/notify'
+import { confirm } from '../../lib/confirm'
 import RichEditor from '../../components/rich-editor'
 import { OembedFrame } from './Card'
 
@@ -110,7 +111,14 @@ export default function CardDrawer({
 
   async function handleDelete() {
     if (!canEdit) return
-    if (!window.confirm('Supprimer cette carte ?')) return
+    const ok = await confirm({
+      title: 'Supprimer la carte',
+      message:
+        'Cette carte sera supprimée définitivement (avec ses commentaires et réactions).',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     setDeleting(true)
     try {
       await deleteCard(card.id, { removeFile: true })
@@ -140,7 +148,12 @@ export default function CardDrawer({
   }
 
   async function handleRemoveComment(commentId) {
-    if (!window.confirm('Supprimer ce commentaire ?')) return
+    const ok = await confirm({
+      message: 'Supprimer ce commentaire ?',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await removeComment(commentId)
       onMutated?.()
