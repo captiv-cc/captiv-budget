@@ -858,7 +858,6 @@ export async function listMusiquesForLivrable(livrableId) {
         spotify_id,
         duration_ms,
         audio_features,
-        explicit,
         artiste:artiste_id (id, nom, jour, scene, headliner),
         proposer:proposer_id (id, full_name, avatar_url, email)
       )

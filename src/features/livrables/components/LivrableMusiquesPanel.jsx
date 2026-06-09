@@ -643,22 +643,8 @@ function LinkItem({
           flexShrink: 0,
         }}
       >
-        {/* On n'a pas la note moyenne ici (pas chargé), donc on l'omet pour V1 */}
-        {p.explicit && (
-          <span
-            style={{
-              fontSize: 8,
-              padding: '1px 4px',
-              background: 'rgba(239,68,68,0.15)',
-              color: '#EF4444',
-              borderRadius: 3,
-              fontWeight: 700,
-            }}
-            title="Paroles explicites"
-          >
-            E
-          </span>
-        )}
+        {/* On n'a pas la note moyenne ni 'explicit' ici (pas en BDD pour
+            l'instant — viendra en V2 du module Musiques si besoin). */}
         {canEdit && (
           <button
             type="button"
