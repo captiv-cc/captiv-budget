@@ -16,7 +16,7 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   Play,
   Pause,
@@ -357,30 +357,13 @@ export default function Card({
 
 function LinkBody({ card, embedOpen }) {
   if (embedOpen && card.oembed_html) {
-    // Injection HTML embed. DOMPurify n'est pas dispo ici en V1 — on fait
-    // confiance aux providers connus (oembed_html n'est rempli QUE pour
-    // youtube/tiktok/vimeo/twitter via leur API officielle).
-    return (
-      <div
-        style={{
-          aspectRatio: '16/9',
-          background: '#000',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          dangerouslySetInnerHTML={{ __html: card.oembed_html }}
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        />
-      </div>
-    )
+    // Aspect ratio adapté au provider : 9:16 pour Insta/TikTok (format
+    // vertical) sinon 16:9 (YouTube, Vimeo, Twitter).
+    const aspect =
+      card.provider === 'instagram' || card.provider === 'tiktok'
+        ? '9 / 16'
+        : '16 / 9'
+    return <OembedFrame html={card.oembed_html} aspectRatio={aspect} />
   }
   if (card.image_url) {
     return (
@@ -512,6 +495,45 @@ function NoteBody({ card }) {
           </span>
         )}
       </div>
+    </div>
+  )
+}
+
+// Exporté pour réutilisation dans CardDrawer.
+// OembedFrame — wrapper qui force l'iframe à 100% de son container.
+// Nécessaire parce que les providers oEmbed (notamment YouTube) renvoient
+// des iframes avec des attributs width/height fixes (200x113) qui priment
+// sur le CSS. On les override en JS imperatively après injection.
+export function OembedFrame({ html, aspectRatio = '16 / 9' }) {
+  const wrapperRef = useRef(null)
+  useEffect(() => {
+    const iframe = wrapperRef.current?.querySelector('iframe')
+    if (iframe) {
+      iframe.removeAttribute('width')
+      iframe.removeAttribute('height')
+      iframe.style.width = '100%'
+      iframe.style.height = '100%'
+      iframe.style.border = '0'
+    }
+  }, [html])
+  return (
+    <div
+      style={{
+        aspectRatio,
+        width: '100%',
+        background: '#000',
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
+      <div
+        ref={wrapperRef}
+        dangerouslySetInnerHTML={{ __html: html }}
+        style={{
+          width: '100%',
+          height: '100%',
+        }}
+      />
     </div>
   )
 }

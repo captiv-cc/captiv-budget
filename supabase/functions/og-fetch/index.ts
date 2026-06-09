@@ -140,6 +140,48 @@ async function fetchWithTimeout(
   }
 }
 
+// ─── Embed direct via URL /embed/ (Instagram + TikTok) ─────────────────────
+//
+// Pour Instagram et TikTok, l'oEmbed officiel est inaccessible sans token
+// (IG Business token requis) ou retourne du HTML avec scripts (blockquote +
+// widgets.js) qui ne s'exécutent pas via dangerouslySetInnerHTML côté front.
+//
+// Les deux providers exposent en revanche des URLs d'embed directes qui
+// rendent un iframe interactif SANS auth :
+//   - Instagram : https://www.instagram.com/p/SHORTCODE/embed/captioned/
+//                 Marche aussi avec /reel/SHORTCODE et /tv/SHORTCODE
+//   - TikTok    : https://www.tiktok.com/embed/v2/VIDEO_ID
+//
+// On extrait l'ID de l'URL et on construit l'iframe nous-mêmes.
+//
+// Renvoie { oembed_html, title? } ou null si l'URL ne match pas le pattern.
+function buildDirectEmbed(
+  provider: Provider,
+  targetUrl: string,
+): { oembed_html: string; title?: string } | null {
+  if (provider === 'instagram') {
+    // /p/SHORTCODE/, /reel/SHORTCODE/, /tv/SHORTCODE/
+    const m = targetUrl.match(
+      /instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/,
+    )
+    if (!m) return null
+    const shortcode = m[1]
+    // /embed/captioned/ ajoute la légende sous le post. Évite les scripts.
+    const oembed_html = `<iframe src="https://www.instagram.com/p/${shortcode}/embed/captioned/" frameborder="0" scrolling="no" allowtransparency="true" allowfullscreen="true" style="width:100%;height:100%;border:0;background:#fff"></iframe>`
+    return { oembed_html }
+  }
+  if (provider === 'tiktok') {
+    // URL canonique : tiktok.com/@user/video/VIDEO_ID
+    // Fallback : ID dans l'URL vm.tiktok.com (raccourci) — non géré ici
+    const m = targetUrl.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/)
+    if (!m) return null
+    const videoId = m[1]
+    const oembed_html = `<iframe src="https://www.tiktok.com/embed/v2/${videoId}" frameborder="0" allowfullscreen="true" allow="encrypted-media" style="width:100%;height:100%;border:0;background:#000"></iframe>`
+    return { oembed_html }
+  }
+  return null
+}
+
 // ─── oEmbed officiel (providers connus) ─────────────────────────────────────
 
 interface OembedResponse {
@@ -405,16 +447,33 @@ Deno.serve(async (req: Request) => {
     }
 
     if (provider) {
-      const oembed = await fetchOembed(provider, url)
-      if (oembed) {
+      // 1. Priorité aux embeds directs pour les providers qui n'ont pas
+      //    d'oEmbed exploitable côté front (Instagram pas d'oEmbed public,
+      //    TikTok renvoie du HTML avec scripts).
+      const direct = buildDirectEmbed(provider, url)
+      if (direct) {
         result = {
           url,
-          title: oembed.title || oembed.author_name || url,
+          title: url,
           description: null,
-          image_url: oembed.thumbnail_url || null,
+          image_url: null,
           provider,
-          oembed_html: oembed.html || null,
+          oembed_html: direct.oembed_html,
           source: 'oembed',
+        }
+      } else {
+        // 2. Sinon oEmbed officiel (YouTube/Vimeo/Twitter)
+        const oembed = await fetchOembed(provider, url)
+        if (oembed) {
+          result = {
+            url,
+            title: oembed.title || oembed.author_name || url,
+            description: null,
+            image_url: oembed.thumbnail_url || null,
+            provider,
+            oembed_html: oembed.html || null,
+            source: 'oembed',
+          }
         }
       }
     }
@@ -424,7 +483,8 @@ Deno.serve(async (req: Request) => {
     //     n'a pas renvoyé d'image (rare mais possible).
     const needsScrape =
       result.source === 'fallback' ||
-      (result.source === 'oembed' && !result.image_url)
+      (result.source === 'oembed' &&
+        (!result.image_url || result.title === url))
     if (needsScrape) {
       const og = await scrapeOgTags(url)
       if (og) {

@@ -23,12 +23,20 @@ import {
   Check,
   X,
   Trash2,
+  Plus,
+  Link as LinkIcon,
+  Upload,
+  StickyNote,
+  Loader2,
 } from 'lucide-react'
 import {
   updateSection,
   deleteSection,
   updateCard,
   deleteCard,
+  createCard,
+  fetchUrlMetadata,
+  uploadCardFile,
   calcSortOrderBetween,
 } from '../../lib/moodboard'
 import { notify } from '../../lib/notify'
@@ -40,6 +48,7 @@ export default function SectionList({
   commentsByCard,
   reactionsByCard,
   canEdit,
+  projectId,
   onMutated,
   onOpenCard,
 }) {
@@ -186,6 +195,107 @@ export default function SectionList({
     [onMutated],
   )
 
+  // ─── Add card actions (bouton "+" par section) ─────────────────────────
+  const handleAddLink = useCallback(
+    async (sectionId, url) => {
+      const clean = url.trim()
+      if (!clean) return
+      try {
+        let meta = null
+        try {
+          meta = await fetchUrlMetadata(clean)
+        } catch (e) {
+          console.warn('[SectionList] og-fetch KO', e)
+        }
+        await createCard(sectionId, {
+          type: 'link',
+          url: clean,
+          title: meta?.title || clean,
+          description: meta?.description || null,
+          image_url: meta?.image_url || null,
+          oembed_html: meta?.oembed_html || null,
+          provider: meta?.provider || null,
+        })
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Création carte impossible')
+      }
+    },
+    [onMutated],
+  )
+
+  const handleAddUploads = useCallback(
+    async (sectionId, files) => {
+      if (!projectId) {
+        notify.error('Projet introuvable')
+        return
+      }
+      const MAX = 50 * 1024 * 1024
+      let ok = 0
+      for (const file of files) {
+        const mime = (file.type || '').toLowerCase()
+        const isImage = mime.startsWith('image/')
+        const isVideo = mime.startsWith('video/')
+        if (!isImage && !isVideo) {
+          notify.error(`Type non supporté : ${mime || 'inconnu'}`)
+          continue
+        }
+        if (file.size > MAX) {
+          notify.error(
+            `${file.name} trop gros (${Math.round(file.size / 1024 / 1024)} Mo, max 50)`,
+          )
+          continue
+        }
+        try {
+          const tmpId = crypto.randomUUID()
+          const { file_path, public_url } = await uploadCardFile(
+            projectId,
+            tmpId,
+            file,
+          )
+          await createCard(sectionId, {
+            type: isImage ? 'image' : 'video',
+            title: file.name || null,
+            file_path,
+            image_url: public_url,
+          })
+          ok += 1
+        } catch (e) {
+          notify.error(e?.message || 'Upload KO')
+        }
+      }
+      if (ok > 0) {
+        notify.success(
+          `${ok} carte${ok > 1 ? 's' : ''} ajoutée${ok > 1 ? 's' : ''}`,
+          false,
+        )
+        onMutated?.()
+      }
+    },
+    [projectId, onMutated],
+  )
+
+  const handleAddNote = useCallback(
+    async (sectionId) => {
+      try {
+        const card = await createCard(sectionId, {
+          type: 'note',
+          title: 'Nouvelle note',
+          content_json: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [] }],
+          },
+        })
+        // Ouvre le drawer pour édition directe
+        onOpenCard?.(card)
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Création note impossible')
+      }
+    },
+    [onMutated, onOpenCard],
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {sections.map((section) => {
@@ -220,6 +330,9 @@ export default function SectionList({
               canEdit={canEdit}
               onRename={(name) => handleRenameSection(section, name)}
               onDelete={() => handleDeleteSection(section)}
+              onAddLink={(url) => handleAddLink(section.id, url)}
+              onAddUploads={(files) => handleAddUploads(section.id, files)}
+              onAddNote={() => handleAddNote(section.id)}
             />
 
             {!isCollapsed && (
@@ -295,10 +408,39 @@ function SectionHeader({
   canEdit,
   onRename,
   onDelete,
+  onAddLink,
+  onAddUploads,
+  onAddNote,
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(section.nom)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [linkInputOpen, setLinkInputOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkLoading, setLinkLoading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  async function handleSubmitLink(e) {
+    e?.preventDefault?.()
+    const trimmed = linkUrl.trim()
+    if (!trimmed) return
+    setLinkLoading(true)
+    try {
+      await onAddLink?.(trimmed)
+      setLinkUrl('')
+      setLinkInputOpen(false)
+    } finally {
+      setLinkLoading(false)
+    }
+  }
+
+  function handleFilesChosen(e) {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) onAddUploads?.(files)
+    e.target.value = '' // reset pour re-trigger sur le même fichier
+    setAddOpen(false)
+  }
 
   const commit = () => {
     setEditing(false)
@@ -436,6 +578,181 @@ function SectionHeader({
       </span>
 
       <div style={{ flex: 1 }} />
+
+      {/* Bouton + avec menu d'ajout (lien / upload / note) */}
+      {canEdit && (
+        <div style={{ position: 'relative' }}>
+          {/* Hidden file input réutilisable */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            onChange={handleFilesChosen}
+            style={{ display: 'none' }}
+          />
+
+          {/* Bouton + (cache derrière le menu Lien si l'input est ouvert) */}
+          {!linkInputOpen && (
+            <button
+              type="button"
+              onClick={() => setAddOpen((v) => !v)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                padding: '3px 8px 3px 6px',
+                background: addOpen
+                  ? 'var(--blue-bg, rgba(59,130,246,0.18))'
+                  : 'rgba(59,130,246,0.10)',
+                border: '1px solid var(--blue, #3B82F6)',
+                borderRadius: 4,
+                color: 'var(--blue, #3B82F6)',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+              title="Ajouter une carte"
+            >
+              <Plus size={12} />
+              Ajouter
+            </button>
+          )}
+
+          {/* Input "coller un lien" en place du bouton */}
+          {linkInputOpen && (
+            <form
+              onSubmit={handleSubmitLink}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <input
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setLinkUrl('')
+                    setLinkInputOpen(false)
+                  }
+                }}
+                placeholder="https://…"
+                autoFocus
+                disabled={linkLoading}
+                style={{
+                  fontSize: 12,
+                  padding: '3px 8px',
+                  width: 240,
+                  background: 'var(--bg-surf)',
+                  border: '1px solid var(--blue, #3B82F6)',
+                  borderRadius: 4,
+                  color: 'var(--txt)',
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={linkLoading || !linkUrl.trim()}
+                style={{
+                  padding: '3px 8px',
+                  background: 'var(--blue, #3B82F6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: linkLoading ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: !linkUrl.trim() ? 0.5 : 1,
+                }}
+                title="Ajouter (Entrée)"
+              >
+                {linkLoading ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Check size={12} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLinkUrl('')
+                  setLinkInputOpen(false)
+                }}
+                disabled={linkLoading}
+                style={{
+                  padding: 3,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--txt-3)',
+                  cursor: 'pointer',
+                }}
+                title="Annuler (Esc)"
+              >
+                <X size={12} />
+              </button>
+            </form>
+          )}
+
+          {addOpen && (
+            <>
+              <div
+                onClick={() => setAddOpen(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  zIndex: 11,
+                  background: 'var(--bg-surf)',
+                  border: '1px solid var(--brd)',
+                  borderRadius: 6,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                  minWidth: 180,
+                  padding: 4,
+                  marginTop: 4,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen(false)
+                    setLinkInputOpen(true)
+                  }}
+                  style={menuItemStyle()}
+                >
+                  <LinkIcon size={12} style={{ marginRight: 6 }} />
+                  Coller un lien
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={menuItemStyle()}
+                >
+                  <Upload size={12} style={{ marginRight: 6 }} />
+                  Uploader image / vidéo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen(false)
+                    onAddNote?.()
+                  }}
+                  style={menuItemStyle()}
+                >
+                  <StickyNote size={12} style={{ marginRight: 6 }} />
+                  Note
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <div style={{ position: 'relative' }}>

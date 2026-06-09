@@ -33,6 +33,7 @@ import {
 } from '../../lib/moodboard'
 import { notify } from '../../lib/notify'
 import RichEditor from '../../components/rich-editor'
+import { OembedFrame } from './Card'
 
 export default function CardDrawer({
   open,
@@ -613,16 +614,25 @@ function HeroMedia({ card }) {
     )
   }
   if (card.type === 'link' && card.oembed_html) {
+    // Aspect ratio adapté au provider : 9:16 pour les formats verticaux
+    // (Instagram reel/post, TikTok), 16:9 pour YouTube/Vimeo/Twitter.
+    const aspect =
+      card.provider === 'instagram' || card.provider === 'tiktok'
+        ? '9 / 16'
+        : '16 / 9'
     return (
       <div
         style={{
-          aspectRatio: '16/9',
-          background: '#000',
+          maxWidth: card.provider === 'instagram' || card.provider === 'tiktok'
+            ? 360
+            : '100%',
+          margin: '0 auto',
           borderRadius: 6,
           overflow: 'hidden',
         }}
-        dangerouslySetInnerHTML={{ __html: card.oembed_html }}
-      />
+      >
+        <OembedFrame html={card.oembed_html} aspectRatio={aspect} />
+      </div>
     )
   }
   if (card.type === 'link' && card.image_url) {
