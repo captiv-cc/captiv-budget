@@ -43,6 +43,7 @@ import {
 } from '../lib/globalNav'
 import GlobalNavDrawer from './GlobalNavDrawer'
 import ICalExportDrawer from '../features/planning/ICalExportDrawer'
+import FloatingFeedbackButton from '../features/feedback/FloatingFeedbackButton'
 
 const ROLE_LABELS = {
   admin: 'Admin',
@@ -492,6 +493,11 @@ export default function Layout() {
         userId={profile?.id}
         orgId={profile?.org_id}
       />
+
+      {/* FAB persistant "Signaler" (FBK-1) — visible sur toutes les pages
+          (sauf /feedback elle-même). Clic ouvre directement la modale de
+          création de ticket avec auto-fill de la page courante. */}
+      <FloatingFeedbackButton />
     </div>
   )
 }
