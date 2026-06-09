@@ -646,9 +646,14 @@ function LinkItem({
       }}
       style={{
         padding: '4px 6px',
+        // MUS-6.8 v5 : layout sur UNE seule ligne horizontale.
+        // Cover + texte block (titre+meta) + remarque + X retire.
+        // Tout aligné verticalement. La remarque utilise l'espace
+        // restant à droite (flex grow).
         display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
         background: hover ? 'var(--bg-elev)' : 'transparent',
         borderRadius: 4,
         cursor: canEdit ? 'grab' : 'pointer',
@@ -656,10 +661,14 @@ function LinkItem({
         transition: 'background 80ms',
       }}
     >
-      {/* Ligne principale */}
+      {/* Cover + texte (titre + meta) — pris en un seul groupe.
+          Ce wrapper reste compact selon le contenu, la remarque à
+          droite consomme le reste. */}
       <div
         style={{
           display: 'flex',
+          flex: '0 1 auto',
+          minWidth: 0,
           alignItems: 'center',
           gap: 5,
         }}
@@ -841,12 +850,87 @@ function LinkItem({
                 <Youtube size={10} />
               </a>
             )}
-            {/* MUS-6.8 v4 : bouton "+ remarque" inline dans la ligne meta
-                (pas en dessous = pas de décalage layout). Opacity 0 au
-                repos, 0.7 au hover. Click ouvre l'input en dessous (le
-                push à ce moment-là est attendu, c'est une action explicite).
-                On ne le rend QUE si pas de remarque déjà présente. */}
-            {canEdit && !link.remarque && !editRemarque && (
+          </div>
+        </div>
+      </div>{/* /Cover + texte wrapper */}
+
+      {/* MUS-6.8 v5 : zone remarque INLINE à droite (plus en dessous).
+          La zone occupe l'espace restant horizontal grâce à flex 1 1 0
+          avec minWidth 120 → réserve toujours sa place donc pas de
+          décalage au hover. 3 états dans la zone :
+            - editRemarque : input
+            - link.remarque : pill amber visible toujours
+            - vide : bouton "+ remarque" opacity 0→0.7 au hover */}
+        <div
+          style={{
+            flex: '1 1 0',
+            minWidth: 120,
+            maxWidth: 360,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {editRemarque ? (
+            <input
+              type="text"
+              value={remarque}
+              onChange={(e) => setRemarque(e.target.value)}
+              onBlur={handleSaveRemarque}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+                if (e.key === 'Escape') {
+                  setRemarque(link.remarque || '')
+                  setEditRemarque(false)
+                }
+              }}
+              placeholder="ex: intro, drop final, version 30s…"
+              autoFocus
+              disabled={busy}
+              style={{
+                width: '100%',
+                padding: '3px 6px',
+                background: 'var(--bg-surf)',
+                border: '1px solid var(--blue, #3B82F6)',
+                color: 'var(--txt)',
+                borderRadius: 3,
+                fontSize: 11,
+                outline: 'none',
+              }}
+            />
+          ) : link.remarque ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (canEdit) setEditRemarque(true)
+              }}
+              disabled={!canEdit}
+              style={{
+                width: '100%',
+                padding: '3px 7px',
+                background: 'rgba(245,158,11,0.08)',
+                border: '1px solid rgba(245,158,11,0.25)',
+                borderLeft: '2px solid #D97706',
+                borderRadius: 3,
+                color: 'var(--txt-2)',
+                cursor: canEdit ? 'text' : 'default',
+                fontSize: 10,
+                textAlign: 'left',
+                lineHeight: 1.35,
+                whiteSpace: 'normal',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+              }}
+              title={canEdit ? `${link.remarque} (cliquer pour éditer)` : link.remarque}
+            >
+              {link.remarque}
+            </button>
+          ) : (
+            canEdit && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -855,28 +939,29 @@ function LinkItem({
                 }}
                 disabled={busy}
                 style={{
-                  marginLeft: 'auto',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 2,
+                  width: '100%',
+                  padding: '3px 7px',
                   background: 'transparent',
-                  border: 'none',
+                  border: '1px dashed var(--brd-sub)',
                   color: 'var(--txt-3)',
                   cursor: 'text',
-                  fontSize: 9,
+                  fontSize: 10,
                   fontStyle: 'italic',
-                  padding: 0,
+                  borderRadius: 3,
+                  textAlign: 'left',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
                   opacity: hover ? 0.7 : 0,
                   transition: 'opacity 80ms',
-                  flexShrink: 0,
                 }}
                 title="Ajouter une remarque"
               >
                 <MessageSquarePlus size={9} />
                 remarque
               </button>
-            )}
-          </div>
+            )
+          )}
         </div>
 
         {/* Remove (hover only) */}
@@ -903,72 +988,6 @@ function LinkItem({
             <X size={11} />
           </button>
         )}
-      </div>
-
-      {/* Remarque visible uniquement quand elle existe OU en mode édition.
-          MUS-6.8 v3 : on retire le bouton "+ remarque" hover-only qui
-          poussait les tracks dessous. L'utilisateur ajoute une remarque
-          via le drawer prop (click sur la track → section "Utilisée dans").
-          Aucun décalage de hauteur ne se produit donc au hover. */}
-      {editRemarque ? (
-        <div style={{ paddingLeft: 27 }}>
-          <input
-            type="text"
-            value={remarque}
-            onChange={(e) => setRemarque(e.target.value)}
-            onBlur={handleSaveRemarque}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur()
-              if (e.key === 'Escape') {
-                setRemarque(link.remarque || '')
-                setEditRemarque(false)
-              }
-            }}
-            placeholder="ex: intro, drop final, version 30s…"
-            autoFocus
-            disabled={busy}
-            style={{
-              width: '100%',
-              padding: '3px 6px',
-              background: 'var(--bg-surf)',
-              border: '1px solid var(--blue, #3B82F6)',
-              color: 'var(--txt)',
-              borderRadius: 3,
-              fontSize: 11,
-              outline: 'none',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      ) : link.remarque ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            if (canEdit) setEditRemarque(true)
-          }}
-          disabled={!canEdit}
-          style={{
-            marginLeft: 27,
-            marginTop: 1,
-            padding: '3px 7px',
-            background: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.25)',
-            borderLeft: '2px solid #D97706',
-            borderRadius: 3,
-            color: 'var(--txt-2)',
-            cursor: canEdit ? 'text' : 'default',
-            fontSize: 10,
-            textAlign: 'left',
-            display: 'block',
-            lineHeight: 1.35,
-            whiteSpace: 'normal',
-          }}
-          title={canEdit ? 'Cliquer pour éditer' : undefined}
-        >
-          {link.remarque}
-        </button>
-      ) : null}
     </div>
   )
 }
