@@ -52,7 +52,22 @@ import {
   Star,
   X,
   Plus,
+  MessageCircle,
+  Youtube,
 } from 'lucide-react'
+
+// Helper : format compact jour ("Vendredi 21 août" → "Ven 21")
+function formatJourShort(jour) {
+  if (!jour) return null
+  const trimmed = jour.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(/\s+/)
+  const first = parts[0] || ''
+  const second = parts[1] || ''
+  const day = first.length <= 4 ? first : first.slice(0, 3)
+  if (second && /^\d+/.test(second)) return `${day} ${second.match(/^\d+/)[0]}`
+  return day
+}
 import {
   STATUTS_LOCAL,
   STATUT_LOCAL_LABELS,
@@ -104,10 +119,13 @@ export default function LivrablesView({
     return m
   }, [links])
 
-  // Livrables groupés par bloc
+  // Livrables groupés par bloc — on filtre les masqués (cohérence avec
+  // la vue Attribution : hidden_in_musique cache le livrable de toute
+  // la chaîne musique).
   const livrablesByBlock = useMemo(() => {
     const m = new Map()
     for (const l of livrables) {
+      if (l.hidden_in_musique) continue
       if (!m.has(l.block_id)) m.set(l.block_id, [])
       m.get(l.block_id).push(l)
     }
@@ -550,8 +568,9 @@ function LinkItem({
   const [editRemarque, setEditRemarque] = useState(false)
   const [remarque, setRemarque] = useState(link.remarque || '')
   const [busy, setBusy] = useState(false)
-  const agg = aggregate || { noteAvg: null, noteCount: 0 }
+  const agg = aggregate || { noteAvg: null, noteCount: 0, commentCount: 0 }
   const artistName = p.artiste?.nom || p.artiste_text || '—'
+  const bpm = p.audio_features?.tempo > 0 ? Math.round(p.audio_features.tempo) : null
 
   async function handleSaveRemarque() {
     setEditRemarque(false)
@@ -687,44 +706,118 @@ function LinkItem({
           )}
         </div>
 
-        {/* Texte */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 11,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <span style={{ fontWeight: 500, color: 'var(--txt)' }}>
-            {artistName}
-          </span>
-          <span style={{ color: 'var(--txt-3)' }}> · {p.titre}</span>
+        {/* Texte + meta sur 2 lignes (artiste·titre puis chips meta) */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 11,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ fontWeight: 500, color: 'var(--txt)' }}>
+              {artistName}
+            </span>
+            <span style={{ color: 'var(--txt-3)' }}> · {p.titre}</span>
+          </div>
+          {/* Ligne meta : note, jour, BPM, commentaires, YouTube */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              alignItems: 'center',
+              fontSize: 9,
+              color: 'var(--txt-3)',
+              marginTop: 1,
+              flexWrap: 'wrap',
+            }}
+          >
+            {agg.noteCount > 0 && (
+              <span
+                style={{
+                  color: '#D97706',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+                title={`Moyenne ${
+                  Math.round((agg.noteAvg || 0) * 10) / 10
+                }/5 · ${agg.noteCount} vote${agg.noteCount > 1 ? 's' : ''}`}
+              >
+                <Star size={8} style={{ fill: '#D97706', color: '#D97706' }} />
+                {Math.round((agg.noteAvg || 0) * 10) / 10}
+                <span style={{ color: 'var(--txt-3)' }}>·{agg.noteCount}</span>
+              </span>
+            )}
+            {p.artiste?.jour && (
+              <span
+                style={{
+                  padding: '0 3px',
+                  background: 'rgba(59,130,246,0.14)',
+                  color: 'var(--blue, #3B82F6)',
+                  borderRadius: 2,
+                  fontWeight: 600,
+                  fontSize: 8,
+                  lineHeight: '12px',
+                }}
+                title={
+                  p.artiste.scene
+                    ? `Joue ${p.artiste.jour} · ${p.artiste.scene}`
+                    : `Joue ${p.artiste.jour}`
+                }
+              >
+                {formatJourShort(p.artiste.jour)}
+              </span>
+            )}
+            {bpm && (
+              <span
+                style={{
+                  color: '#D97706',
+                  fontWeight: 500,
+                }}
+                title="BPM"
+              >
+                {bpm}
+              </span>
+            )}
+            {agg.commentCount > 0 && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  color: 'var(--txt-3)',
+                }}
+                title={`${agg.commentCount} commentaire${
+                  agg.commentCount > 1 ? 's' : ''
+                }`}
+              >
+                <MessageCircle size={8} />
+                {agg.commentCount}
+              </span>
+            )}
+            {p.lien_youtube && (
+              <a
+                href={p.lien_youtube}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  color: '#FF0000',
+                  display: 'inline-flex',
+                  opacity: 0.75,
+                  flexShrink: 0,
+                }}
+                title="Voir sur YouTube"
+              >
+                <Youtube size={10} />
+              </a>
+            )}
+          </div>
         </div>
 
-        {/* Note */}
-        {agg.noteCount > 0 && (
-          <span
-            style={{
-              fontSize: 10,
-              color: '#D97706',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              flexShrink: 0,
-            }}
-            title={`Moyenne ${
-              Math.round((agg.noteAvg || 0) * 10) / 10
-            }/5 · ${agg.noteCount} vote${agg.noteCount > 1 ? 's' : ''}`}
-          >
-            <Star size={9} style={{ fill: '#D97706', color: '#D97706' }} />
-            {Math.round((agg.noteAvg || 0) * 10) / 10}
-          </span>
-        )}
-
-        {/* Remove */}
+        {/* Remove (hover only) */}
         {canEdit && (
           <button
             type="button"
@@ -740,6 +833,7 @@ function LinkItem({
               opacity: hover ? 0.7 : 0,
               transition: 'opacity 80ms',
               flexShrink: 0,
+              alignSelf: 'center',
             }}
             title="Retirer ce lien"
             aria-label="Retirer"
@@ -749,62 +843,92 @@ function LinkItem({
         )}
       </div>
 
-      {/* Remarque (inline editable). Si vide ET non hover ET non édition,
-          on n'affiche rien pour gagner de la place. */}
-      {(editRemarque || link.remarque || hover) && (
+      {/* Remarque (inline editable). Si la remarque existe, on l'affiche
+          TOUJOURS en bien visible (encadré subtil, accent border-left).
+          Si vide, on affiche un bouton "+ remarque" discret seulement au
+          hover pour ne pas polluer. */}
+      {editRemarque ? (
         <div style={{ paddingLeft: 27 }}>
-          {editRemarque ? (
-            <input
-              type="text"
-              value={remarque}
-              onChange={(e) => setRemarque(e.target.value)}
-              onBlur={handleSaveRemarque}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') {
-                  setRemarque(link.remarque || '')
-                  setEditRemarque(false)
-                }
-              }}
-              placeholder="ex: intro, drop final…"
-              autoFocus
-              disabled={busy}
-              style={{
-                width: '100%',
-                padding: '2px 5px',
-                background: 'var(--bg-surf)',
-                border: '1px solid var(--blue, #3B82F6)',
-                color: 'var(--txt)',
-                borderRadius: 3,
-                fontSize: 10,
-                outline: 'none',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                if (canEdit) setEditRemarque(true)
-              }}
-              disabled={!canEdit}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: link.remarque ? 'var(--txt-2)' : 'var(--txt-3)',
-                cursor: canEdit ? 'text' : 'default',
-                fontSize: 10,
-                fontStyle: link.remarque ? 'normal' : 'italic',
-                padding: 0,
-                textAlign: 'left',
-                opacity: link.remarque ? 0.85 : 0.5,
-              }}
-            >
-              {link.remarque || (canEdit ? '+ remarque' : '')}
-            </button>
-          )}
+          <input
+            type="text"
+            value={remarque}
+            onChange={(e) => setRemarque(e.target.value)}
+            onBlur={handleSaveRemarque}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') {
+                setRemarque(link.remarque || '')
+                setEditRemarque(false)
+              }
+            }}
+            placeholder="ex: intro, drop final, version 30s…"
+            autoFocus
+            disabled={busy}
+            style={{
+              width: '100%',
+              padding: '3px 6px',
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--blue, #3B82F6)',
+              color: 'var(--txt)',
+              borderRadius: 3,
+              fontSize: 11,
+              outline: 'none',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
+      ) : link.remarque ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (canEdit) setEditRemarque(true)
+          }}
+          disabled={!canEdit}
+          style={{
+            marginLeft: 27,
+            marginTop: 1,
+            padding: '3px 7px',
+            background: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.25)',
+            borderLeft: '2px solid #D97706',
+            borderRadius: 3,
+            color: 'var(--txt-2)',
+            cursor: canEdit ? 'text' : 'default',
+            fontSize: 10,
+            textAlign: 'left',
+            display: 'block',
+            lineHeight: 1.35,
+            whiteSpace: 'normal',
+          }}
+          title={canEdit ? 'Cliquer pour éditer' : undefined}
+        >
+          {link.remarque}
+        </button>
+      ) : (
+        hover && canEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditRemarque(true)
+            }}
+            style={{
+              marginLeft: 27,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'text',
+              fontSize: 10,
+              fontStyle: 'italic',
+              padding: 0,
+              textAlign: 'left',
+              opacity: 0.7,
+            }}
+          >
+            + remarque
+          </button>
+        )
       )}
     </div>
   )
