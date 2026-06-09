@@ -378,16 +378,11 @@ function LivrableCard({
         </span>
       </div>
 
-      {/* 3 sections en grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 0,
-        }}
-      >
-        {STATUTS_LOCAL.map((s, idx) => (
-          <SectionColumn
+      {/* MUS-6.8 v2 : 3 sections empilées VERTICALEMENT pour plus de
+          largeur sur chaque track (meta + remarque visibles en ligne). */}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {STATUTS_LOCAL.map((s) => (
+          <SectionRow
             key={s}
             statut={s}
             links={linksByStatut(s)}
@@ -399,8 +394,6 @@ function LivrableCard({
             isHover={
               hoverDrop?.livrableId === l.id && hoverDrop?.statut === s
             }
-            // Border-right entre colonnes (sauf la dernière)
-            withRightBorder={idx < STATUTS_LOCAL.length - 1}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragOver={(e) => onDragOver?.(e, s)}
@@ -416,8 +409,11 @@ function LivrableCard({
   )
 }
 
-// ─── SectionColumn : une colonne (Proposition / Choix / Validé) ──────────
-function SectionColumn({
+// ─── SectionRow : une bande horizontale (Proposition / Choix / Validé) ──
+// Layout vertical : les 3 sections d'un livrable sont empilées les unes
+// sous les autres. Chaque section = bandeau header + liste de tracks
+// pleine largeur de la card. Plus de place pour les meta + remarques.
+function SectionRow({
   statut,
   links,
   propositionsById,
@@ -426,7 +422,6 @@ function SectionColumn({
   playingId,
   draggingLinkId,
   isHover,
-  withRightBorder,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -440,6 +435,14 @@ function SectionColumn({
     bg: 'var(--bg-elev)',
     fg: 'var(--txt-3)',
   }
+  // MUS-6.8 v2 : sections vides en CHOIX / VALIDÉ pliables au démarrage
+  // pour densifier la vue. Proposition reste toujours ouverte (la plus
+  // utilisée). On déplie automatiquement quand on drop dessus.
+  const [collapsed, setCollapsed] = useState(
+    statut !== 'proposition' && links.length === 0,
+  )
+  // Déplie en cas de hover drop (UX : on doit voir où ça va atterrir)
+  const effectiveCollapsed = collapsed && !isHover && links.length === 0
   return (
     <div
       onDragOver={onDragOver}
@@ -449,24 +452,29 @@ function SectionColumn({
         onDrop?.()
       }}
       style={{
-        borderRight: withRightBorder ? '1px solid var(--brd-sub)' : 'none',
+        borderTop: '1px solid var(--brd-sub)',
         background: isHover
-          ? `linear-gradient(180deg, ${palette.bg}, var(--bg-surf))`
+          ? `linear-gradient(90deg, ${palette.bg}, transparent 60%)`
           : 'transparent',
         transition: 'background 80ms',
-        minHeight: 100,
-        display: 'flex',
-        flexDirection: 'column',
       }}
     >
       {/* Section header */}
-      <div
+      <button
+        type="button"
+        onClick={() => {
+          if (links.length > 0) return // pas de toggle si contenu
+          setCollapsed((v) => !v)
+        }}
         style={{
-          padding: '6px 10px',
-          borderBottom: '1px solid var(--brd-sub)',
+          width: '100%',
+          padding: '6px 12px',
+          background: 'transparent',
+          border: 'none',
           display: 'flex',
           alignItems: 'center',
-          gap: 5,
+          gap: 6,
+          cursor: links.length > 0 ? 'default' : 'pointer',
         }}
       >
         <span
@@ -487,65 +495,83 @@ function SectionColumn({
           style={{
             fontSize: 11,
             color: 'var(--txt-3)',
-            marginLeft: 'auto',
             fontVariantNumeric: 'tabular-nums',
           }}
         >
           {links.length}
         </span>
-      </div>
-
-      {/* Setlist de cette section */}
-      <div
-        style={{
-          padding: 4,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 3,
-          flex: 1,
-        }}
-      >
-        {links.length === 0 ? (
-          <div
+        {effectiveCollapsed && (
+          <span
             style={{
-              padding: '10px 6px',
-              textAlign: 'center',
+              marginLeft: 'auto',
               fontSize: 10,
-              color: isHover ? palette.fg : 'var(--txt-3)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 3,
-              opacity: isHover ? 1 : 0.6,
-              transition: 'opacity 80ms, color 80ms',
+              color: 'var(--txt-3)',
+              fontStyle: 'italic',
             }}
           >
-            <Plus size={12} style={{ opacity: 0.6 }} />
-            <span>{isHover ? 'Lâcher ici' : 'Vide'}</span>
-          </div>
-        ) : (
-          links.map((lk) => {
-            const p = propositionsById.get(lk.proposition_id)
-            if (!p) return null
-            return (
-              <LinkItem
-                key={lk.id}
-                link={lk}
-                proposition={p}
-                aggregate={aggregates?.get?.(p.id)}
-                canEdit={canEdit}
-                isDragging={draggingLinkId === lk.id}
-                isPlaying={playingId === p.id}
-                onDragStart={() => onDragStart(lk.id)}
-                onDragEnd={onDragEnd}
-                onTogglePlay={() => onTogglePlay?.(p)}
-                onClick={() => onOpenDetail?.(p)}
-                onMutated={onMutated}
-              />
-            )
-          })
+            vide
+          </span>
         )}
-      </div>
+      </button>
+
+      {/* Setlist de cette section */}
+      {!effectiveCollapsed && (
+        <div
+          style={{
+            padding: '0 6px 6px 6px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+          }}
+        >
+          {links.length === 0 ? (
+            <div
+              style={{
+                padding: '10px 12px',
+                textAlign: 'center',
+                fontSize: 11,
+                color: isHover ? palette.fg : 'var(--txt-3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                opacity: isHover ? 1 : 0.6,
+                transition: 'opacity 80ms, color 80ms',
+                border: `1px dashed ${
+                  isHover ? palette.fg : 'var(--brd-sub)'
+                }`,
+                borderRadius: 4,
+              }}
+            >
+              <Plus size={12} style={{ opacity: 0.7 }} />
+              <span>
+                {isHover ? `Lâcher dans ${STATUT_LOCAL_LABELS[statut]}` : 'Glisser une track ici'}
+              </span>
+            </div>
+          ) : (
+            links.map((lk) => {
+              const p = propositionsById.get(lk.proposition_id)
+              if (!p) return null
+              return (
+                <LinkItem
+                  key={lk.id}
+                  link={lk}
+                  proposition={p}
+                  aggregate={aggregates?.get?.(p.id)}
+                  canEdit={canEdit}
+                  isDragging={draggingLinkId === lk.id}
+                  isPlaying={playingId === p.id}
+                  onDragStart={() => onDragStart(lk.id)}
+                  onDragEnd={onDragEnd}
+                  onTogglePlay={() => onTogglePlay?.(p)}
+                  onClick={() => onOpenDetail?.(p)}
+                  onMutated={onMutated}
+                />
+              )
+            })
+          )}
+        </div>
+      )}
     </div>
   )
 }

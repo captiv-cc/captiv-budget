@@ -844,99 +844,11 @@ export default function MusiquesTab() {
         </div>
       </div>
 
-      {/* ─── Filtres bar (MUS-4.7) ─────────────────────────────────────
-          Ligne 2 dédiée aux filtres : label FILTRES + recherche + 3
-          dropdowns (statut, tri, groupement). Pattern Livrables. */}
-      <div
-        className="flex items-center gap-2 px-5 py-2 overflow-x-auto"
-        style={{ borderBottom: '1px solid var(--brd-sub)' }}
-      >
-        <span
-          className="text-[10px] uppercase tracking-wider shrink-0 mr-1"
-          style={{ color: 'var(--txt-3)' }}
-        >
-          Filtres
-        </span>
-
-        {/* Search (typeahead local) */}
-        <div
-          className="flex items-center gap-2 px-2.5 rounded-md shrink-0"
-          style={{
-            height: 30,
-            minWidth: 220,
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-          }}
-        >
-          <Search size={13} style={{ color: 'var(--txt-3)' }} />
-          <input
-            type="text"
-            value={searchLocal}
-            onChange={(e) => setSearchLocal(e.target.value)}
-            placeholder="Artiste ou titre…"
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: 'var(--txt)',
-              fontSize: 12,
-              minWidth: 100,
-            }}
-          />
-          <Sparkles
-            size={12}
-            style={{ color: 'var(--txt-3)', opacity: 0.4 }}
-            title="Recherche intelligente bientôt — pour ajouter, utilise +Ajouter"
-          />
-        </div>
-
-        {/* Filtre statut — chip dropdown au pattern Livrables */}
-        <ChipDropdown
-          icon={TagIcon}
-          label="Statut"
-          value={filterStatut}
-          options={[
-            { key: null, label: 'Tous les statuts' },
-            ...Object.entries(STATUT_LABELS).map(([key, label]) => ({
-              key,
-              label,
-              colorBg: STATUT_COLORS[key]?.bg,
-              colorFg: STATUT_COLORS[key]?.fg,
-            })),
-          ]}
-          onSelect={(k) => setFilterStatut(k)}
-        />
-
-        {/* Tri */}
-        <ChipDropdown
-          icon={ArrowUpDown}
-          label="Tri"
-          value={sortMode}
-          options={SORT_OPTIONS.map((o) => ({ key: o.key, label: o.label }))}
-          onSelect={(k) => setSortMode(k)}
-          hideClear
-        />
-
-        {/* Groupement */}
-        <ChipDropdown
-          icon={LayoutGrid}
-          label="Groupement"
-          value={groupBy}
-          options={[
-            { key: 'none', label: 'Sans groupement' },
-            { key: 'statut', label: 'Par statut' },
-            { key: 'artiste', label: 'Par artiste' },
-            { key: 'jour', label: 'Par jour' },
-            { key: 'proposeur', label: 'Par proposeur' },
-          ]}
-          onSelect={(k) => setGroupBy(k)}
-          hideClear
-        />
-      </div>
-
-      {/* ─── View switcher (MUS-5.1) ────────────────────────────────────
-          Toggle Liste / Pipeline / Dashboard, pattern Livrables. */}
+      {/* ─── View switcher ──────────────────────────────────────────────
+          Toggle Vrac / Attribution / Livrables / Autorisations. La barre
+          FILTRES est positionnée APRÈS (MUS-6.8 polish : Hugo demande
+          que les filtres soient pertinents — n'apparaissent que pour
+          la vue Vrac qu'ils servent réellement). */}
       <div
         className="flex items-center gap-1 px-5 py-2 flex-wrap"
         style={{ borderBottom: '1px solid var(--brd-sub)' }}
@@ -973,6 +885,100 @@ export default function MusiquesTab() {
           badge="à venir"
         />
       </div>
+
+      {/* ─── Filtres bar — visible uniquement pour Vrac ─────────────────
+          Les filtres (recherche, statut, tri, groupement) ne s'appliquent
+          qu'à la liste Vrac. Les autres vues (Attribution, Livrables)
+          ont leurs propres contrôles internes. */}
+      {viewMode === 'vrac' && (
+        <div
+          className="flex items-center gap-2 px-5 py-2 overflow-x-auto"
+          style={{ borderBottom: '1px solid var(--brd-sub)' }}
+        >
+          <span
+            className="text-[10px] uppercase tracking-wider shrink-0 mr-1"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Filtres
+          </span>
+
+          {/* Search (typeahead local) */}
+          <div
+            className="flex items-center gap-2 px-2.5 rounded-md shrink-0"
+            style={{
+              height: 30,
+              minWidth: 220,
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+            }}
+          >
+            <Search size={13} style={{ color: 'var(--txt-3)' }} />
+            <input
+              type="text"
+              value={searchLocal}
+              onChange={(e) => setSearchLocal(e.target.value)}
+              placeholder="Artiste ou titre…"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--txt)',
+                fontSize: 12,
+                minWidth: 100,
+              }}
+            />
+            <Sparkles
+              size={12}
+              style={{ color: 'var(--txt-3)', opacity: 0.4 }}
+              title="Recherche intelligente bientôt — pour ajouter, utilise +Ajouter"
+            />
+          </div>
+
+          {/* Filtre statut — chip dropdown au pattern Livrables */}
+          <ChipDropdown
+            icon={TagIcon}
+            label="Statut"
+            value={filterStatut}
+            options={[
+              { key: null, label: 'Tous les statuts' },
+              ...Object.entries(STATUT_LABELS).map(([key, label]) => ({
+                key,
+                label,
+                colorBg: STATUT_COLORS[key]?.bg,
+                colorFg: STATUT_COLORS[key]?.fg,
+              })),
+            ]}
+            onSelect={(k) => setFilterStatut(k)}
+          />
+
+          {/* Tri */}
+          <ChipDropdown
+            icon={ArrowUpDown}
+            label="Tri"
+            value={sortMode}
+            options={SORT_OPTIONS.map((o) => ({ key: o.key, label: o.label }))}
+            onSelect={(k) => setSortMode(k)}
+            hideClear
+          />
+
+          {/* Groupement */}
+          <ChipDropdown
+            icon={LayoutGrid}
+            label="Groupement"
+            value={groupBy}
+            options={[
+              { key: 'none', label: 'Sans groupement' },
+              { key: 'statut', label: 'Par statut' },
+              { key: 'artiste', label: 'Par artiste' },
+              { key: 'jour', label: 'Par jour' },
+              { key: 'proposeur', label: 'Par proposeur' },
+            ]}
+            onSelect={(k) => setGroupBy(k)}
+            hideClear
+          />
+        </div>
+      )}
 
       {/* ─── Content : body avec padding standard ────────────────────── */}
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
