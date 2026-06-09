@@ -33,7 +33,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAppTheme } from '../hooks/useAppTheme'
 import { pickOrgLogo } from '../lib/branding'
 import { notify } from '../lib/notify'
-import { LogOut, Menu, Search, Share2 } from 'lucide-react'
+import { LogOut, Menu, Search, Share2, MessageSquare } from 'lucide-react'
 import {
   NAV_MAIN,
   NAV_BDD,
@@ -338,6 +338,43 @@ export default function Layout() {
                 }}
               >
                 Mon planning iCal
+              </span>
+            </div>
+
+            {/* Bouton "Signaler / Retours" (FBK-1.6) — navigation vers la page
+                feedback globale. Visible pour tous les users connectés. */}
+            <div className="relative group">
+              <button
+                onClick={() => navigate('/feedback')}
+                aria-label="Signaler un bug ou proposer une idée"
+                className="flex items-center justify-center rounded-md transition-all"
+                style={{
+                  width: '32px',
+                  height: '28px',
+                  color: 'var(--txt-3)',
+                  background: 'transparent',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#F59E0B'
+                  e.currentTarget.style.background = 'var(--bg-hov)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--txt-3)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+              </button>
+              <span
+                className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+                style={{
+                  background: 'var(--bg-elev)',
+                  color: 'var(--txt)',
+                  border: '1px solid var(--brd)',
+                  zIndex: 50,
+                }}
+              >
+                Signaler un bug / une idée
               </span>
             </div>
 

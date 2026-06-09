@@ -53,6 +53,7 @@ import LogistiqueTab from './pages/tabs/LogistiqueTab'
 import ProductionTab from './pages/tabs/ProductionTab'
 import MusiquesTab from './pages/tabs/MusiquesTab'
 import MoodboardTab from './pages/tabs/MoodboardTab'
+import FeedbackPage from './pages/FeedbackPage'
 import LivrablesTab from './pages/tabs/LivrablesTab'
 import MaterielTab from './pages/tabs/MaterielTab'
 import PlansTab from './pages/tabs/PlansTab'
@@ -270,6 +271,9 @@ function AppRoutes() {
             </RequireRole>
           }
         />
+
+        {/* Retours / Idées — accessible à tous les users connectés */}
+        <Route path="feedback" element={<FeedbackPage />} />
 
         {/* ── Layout projet avec onglets ─────────────────────────────────── */}
         <Route path="projets/:id" element={<ProjetLayout />}>
