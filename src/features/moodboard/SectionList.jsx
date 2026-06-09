@@ -210,6 +210,9 @@ export default function SectionList({
     async (sectionId, url) => {
       const clean = url.trim()
       if (!clean) return
+      const toastId = notify.info('Récupération du preview…', {
+        duration: 15000,
+      })
       try {
         let meta = null
         try {
@@ -226,8 +229,10 @@ export default function SectionList({
           oembed_html: meta?.oembed_html || null,
           provider: meta?.provider || null,
         })
+        notify.dismiss(toastId)
         onMutated?.()
       } catch (e) {
+        notify.dismiss(toastId)
         notify.error(e?.message || 'Création carte impossible')
       }
     },

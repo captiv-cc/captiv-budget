@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import { REACTION_EMOJI } from '../../lib/moodboard'
 import { confirm } from '../../lib/confirm'
+import UserAvatar, { userDisplayName } from './UserAvatar'
 
 // Couleurs par provider connu pour le badge dans le coin
 const PROVIDER_COLORS = {
@@ -211,8 +212,10 @@ export default function Card({
           </div>
         )}
 
-        {/* Réactions + commentaires en bas */}
-        {(commentCount > 0 || reactionEntries.length > 0) && (
+        {/* Bottom row : réactions + commentaires (à gauche) + avatar créateur (à droite) */}
+        {(commentCount > 0 ||
+          reactionEntries.length > 0 ||
+          card.creator) && (
           <div
             style={{
               display: 'flex',
@@ -256,6 +259,16 @@ export default function Card({
                 <MessageCircle size={10} />
                 {commentCount}
               </span>
+            )}
+            {/* Avatar créateur poussé à droite */}
+            {card.creator && (
+              <div style={{ marginLeft: 'auto', opacity: 0.85 }}>
+                <UserAvatar
+                  user={card.creator}
+                  size={16}
+                  title={`Ajouté par ${userDisplayName(card.creator)}`}
+                />
+              </div>
             )}
           </div>
         )}

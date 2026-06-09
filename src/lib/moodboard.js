@@ -405,12 +405,16 @@ export async function listCommentsForCard(cardId) {
 /**
  * Liste TOUS les commentaires d'un projet via 2 JOIN. Utile pour les
  * compteurs agrégés "N commentaires" affichés sur les cartes en vue liste.
+ *
+ * Inclut le profil de l'auteur (full_name, avatar_url, email) pour
+ * pouvoir afficher l'avatar + nom dans le drawer sans refetch ciblé.
  */
 export async function listAllComments(projectId) {
   const { data, error } = await supabase
     .from('projet_moodboard_comments')
     .select(`
-      id, card_id, user_id, body, created_at,
+      id, card_id, user_id, body, created_at, updated_at,
+      author:user_id (id, full_name, avatar_url, email),
       card:card_id!inner (
         id,
         section:section_id!inner (project_id)
@@ -478,12 +482,15 @@ export async function listReactionsForCard(cardId) {
 
 /**
  * Liste TOUTES les réactions d'un projet pour l'agrégation par carte.
+ * Inclut le profil des users (pour le tooltip "qui a réagi avec quoi"
+ * dans le drawer).
  */
 export async function listAllReactions(projectId) {
   const { data, error } = await supabase
     .from('projet_moodboard_reactions')
     .select(`
-      id, card_id, user_id, emoji,
+      id, card_id, user_id, emoji, created_at,
+      user:user_id (id, full_name, avatar_url, email),
       card:card_id!inner (
         id,
         section:section_id!inner (project_id)
@@ -533,13 +540,17 @@ export async function toggleReaction(cardId, emoji) {
 }
 
 /**
- * Agrège les réactions par carte. Renvoie une Map<cardId, { counts, mine }>
- * où counts est { thumbs_up: N, heart: N, ... } et mine est un Set des
- * emojis posés par l'utilisateur courant.
+ * Agrège les réactions par carte. Renvoie une Map<cardId, { counts, mine,
+ * usersByEmoji }> où :
+ *   - counts        : { thumbs_up: N, heart: N, ... }
+ *   - mine          : Set des emojis posés par l'utilisateur courant
+ *   - usersByEmoji  : { thumbs_up: [user1, user2], heart: [user3], ... }
+ *     pour les tooltips "qui a réagi avec quoi"
  *
- * @param {Array} rows Toutes les rows de projet_moodboard_reactions du projet
+ * @param {Array} rows Toutes les rows de projet_moodboard_reactions du
+ *   projet, idéalement avec user:user_id (full_name, avatar_url, email)
  * @param {string|null} currentUserId
- * @returns {Map<string, { counts: object, mine: Set<string> }>}
+ * @returns {Map<string, { counts: object, mine: Set<string>, usersByEmoji: object }>}
  */
 export function aggregateReactions(rows, currentUserId) {
   const out = new Map()
@@ -548,6 +559,7 @@ export function aggregateReactions(rows, currentUserId) {
       out.set(cardId, {
         counts: { thumbs_up: 0, heart: 0, fire: 0, zap: 0 },
         mine: new Set(),
+        usersByEmoji: { thumbs_up: [], heart: [], fire: [], zap: [] },
       })
     }
     return out.get(cardId)
@@ -556,8 +568,10 @@ export function aggregateReactions(rows, currentUserId) {
     const agg = ensure(r.card_id)
     if (agg.counts[r.emoji] === undefined) {
       agg.counts[r.emoji] = 0
+      agg.usersByEmoji[r.emoji] = []
     }
     agg.counts[r.emoji] += 1
+    if (r.user) agg.usersByEmoji[r.emoji].push(r.user)
     if (currentUserId && r.user_id === currentUserId) {
       agg.mine.add(r.emoji)
     }

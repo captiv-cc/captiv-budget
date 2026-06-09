@@ -48,12 +48,17 @@ export default function PasteHandler({ projectId, sections, onCreated }) {
   }
 
   // Crée 1 carte link en fetchant les metadata (best-effort).
+  // Affiche un toast de progression pour que l'utilisateur sache que
+  // ça travaille (og-fetch peut prendre 1-3s).
   async function createLinkCard(url) {
     const target = defaultSection()
     if (!target) {
       notify.error('Aucune section disponible — crée-en une d\'abord')
       return null
     }
+    const toastId = notify.info(`Récupération du preview…`, {
+      duration: 15000,
+    })
     let meta = null
     try {
       meta = await fetchUrlMetadata(url)
@@ -71,8 +76,10 @@ export default function PasteHandler({ projectId, sections, onCreated }) {
         oembed_html: meta?.oembed_html || null,
         provider: meta?.provider || null,
       })
+      notify.dismiss(toastId)
       return card
     } catch (e) {
+      notify.dismiss(toastId)
       notify.error(e?.message || 'Création carte impossible')
       return null
     }

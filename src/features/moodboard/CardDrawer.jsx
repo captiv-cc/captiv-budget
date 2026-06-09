@@ -37,6 +37,7 @@ import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import RichEditor from '../../components/rich-editor'
 import { OembedFrame } from './Card'
+import UserAvatar, { userDisplayName } from './UserAvatar'
 
 export default function CardDrawer({
   open,
@@ -193,6 +194,22 @@ export default function CardDrawer({
     zap: 0,
   }
   const mine = reactionAgg?.mine || new Set()
+  const usersByEmoji = reactionAgg?.usersByEmoji || {
+    thumbs_up: [],
+    heart: [],
+    fire: [],
+    zap: [],
+  }
+  // Construit le tooltip "Hugo, Marie ont réagi" pour chaque emoji
+  function reactionTooltip(emoji) {
+    const users = usersByEmoji[emoji] || []
+    if (users.length === 0) {
+      return `${REACTION_LABELS[emoji]} — clique pour réagir`
+    }
+    const names = users.map((u) => userDisplayName(u))
+    const verb = users.length > 1 ? 'ont réagi' : 'a réagi'
+    return `${REACTION_LABELS[emoji]}\n${names.join(', ')} ${verb}`
+  }
 
   return (
     <div
@@ -222,35 +239,76 @@ export default function CardDrawer({
           overflow: 'hidden',
         }}
       >
-        {/* ─── Header ─── */}
+        {/* ─── Header — badge type + titre + URL/contexte ─── */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
             padding: '10px 14px',
             borderBottom: '1px solid var(--brd-sub)',
             background: 'var(--bg-elev)',
             gap: 10,
           }}
         >
-          <div
+          <span
             style={{
-              fontSize: 11,
-              padding: '2px 8px',
+              fontSize: 10,
+              padding: '2px 7px',
               background: typeBadgeBg(card.type),
               color: typeBadgeFg(card.type),
               borderRadius: 4,
               textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              fontWeight: 600,
+              letterSpacing: 0.6,
+              fontWeight: 700,
+              flexShrink: 0,
             }}
           >
-            {card.type}
+            {typeBadgeLabel(card.type, card.provider)}
+          </span>
+          {/* Titre tronqué + provenance discrète sous le titre */}
+          <div
+            style={{
+              minWidth: 0,
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              lineHeight: 1.2,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--txt)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={card.title || ''}
+            >
+              {card.title || (card.type === 'note' ? 'Note' : 'Sans titre')}
+            </div>
+            {card.type === 'link' && card.url && (
+              <div
+                style={{
+                  fontSize: 10,
+                  color: 'var(--txt-3)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={card.url}
+              >
+                {linkDomain(card.url)}
+              </div>
+            )}
           </div>
-          <div style={{ flex: 1 }} />
           {saving && (
-            <Loader2 size={14} className="animate-spin" style={{ color: 'var(--txt-3)' }} />
+            <Loader2
+              size={14}
+              className="animate-spin"
+              style={{ color: 'var(--txt-3)', flexShrink: 0 }}
+            />
           )}
           <button
             type="button"
@@ -263,6 +321,7 @@ export default function CardDrawer({
               color: 'var(--txt-3)',
               cursor: 'pointer',
               display: 'inline-flex',
+              flexShrink: 0,
             }}
           >
             <X size={16} />
@@ -378,7 +437,7 @@ export default function CardDrawer({
                     type="button"
                     onClick={() => handleToggleReaction(emoji)}
                     disabled={!canEdit}
-                    title={REACTION_LABELS[emoji]}
+                    title={reactionTooltip(emoji)}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -725,8 +784,7 @@ function HeroMedia({ card }) {
 function CommentRow({ comment, currentUserId, onRemove }) {
   const isAuthor = comment.user_id === currentUserId
   const author = comment.author || null
-  const displayName =
-    author?.full_name || author?.email?.split('@')[0] || '—'
+  const displayName = userDisplayName(author)
   const dateStr = comment.created_at
     ? new Date(comment.created_at).toLocaleDateString('fr-FR', {
         day: 'numeric',
@@ -743,53 +801,71 @@ function CommentRow({ comment, currentUserId, onRemove }) {
         border: '1px solid var(--brd-sub)',
         borderRadius: 4,
         fontSize: 12,
+        display: 'flex',
+        gap: 8,
+        alignItems: 'flex-start',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 4,
-        }}
-      >
+      <UserAvatar user={author} size={22} />
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: 'var(--txt)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 3,
+            gap: 6,
           }}
         >
-          {displayName}
-          <span style={{ fontWeight: 400, color: 'var(--txt-3)', marginLeft: 6 }}>
-            {dateStr}
-          </span>
-        </div>
-        {isAuthor && onRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            title="Supprimer"
+          <div
             style={{
-              padding: 2,
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--txt-3)',
-              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--txt)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
             }}
           >
-            <Trash2 size={11} />
-          </button>
-        )}
-      </div>
-      <div
-        style={{
-          color: 'var(--txt-2)',
-          whiteSpace: 'pre-wrap',
-          lineHeight: 1.4,
-        }}
-      >
-        {comment.body}
+            {displayName}
+            <span
+              style={{
+                fontWeight: 400,
+                color: 'var(--txt-3)',
+                marginLeft: 6,
+              }}
+            >
+              {dateStr}
+            </span>
+          </div>
+          {isAuthor && onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              title="Supprimer"
+              style={{
+                padding: 2,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--txt-3)',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+        </div>
+        <div
+          style={{
+            color: 'var(--txt-2)',
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.4,
+          }}
+        >
+          {comment.body}
+        </div>
       </div>
     </div>
   )
@@ -797,8 +873,7 @@ function CommentRow({ comment, currentUserId, onRemove }) {
 
 function CreatorInfo({ card }) {
   const author = card.creator || null
-  const name =
-    author?.full_name || author?.email?.split('@')[0] || null
+  const name = author ? userDisplayName(author) : null
   const dateStr = card.created_at
     ? new Date(card.created_at).toLocaleDateString('fr-FR', {
         day: 'numeric',
@@ -808,10 +883,23 @@ function CreatorInfo({ card }) {
     : ''
   if (!name && !dateStr) return null
   return (
-    <span>
-      {name && <>Ajouté par <strong style={{ color: 'var(--txt-2)' }}>{name}</strong></>}
-      {name && dateStr && ' · '}
-      {dateStr && <span>{dateStr}</span>}
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      {author && <UserAvatar user={author} size={18} />}
+      <span>
+        {name && (
+          <>
+            <strong style={{ color: 'var(--txt-2)' }}>{name}</strong>
+          </>
+        )}
+        {name && dateStr && ' · '}
+        {dateStr && <span>{dateStr}</span>}
+      </span>
     </span>
   )
 }
@@ -831,5 +919,35 @@ function typeBadgeFg(type) {
     video: '#EF4444',
     note: '#A16207',
   }[type] || 'var(--txt-2)'
+}
+// Libellé court pour le badge : si lien avec provider connu, on affiche
+// le provider (plus parlant que "LINK").
+function typeBadgeLabel(type, provider) {
+  if (type === 'link' && provider) {
+    return (
+      {
+        youtube: 'YOUTUBE',
+        tiktok: 'TIKTOK',
+        vimeo: 'VIMEO',
+        twitter: 'X',
+        instagram: 'INSTAGRAM',
+      }[provider] || 'LIEN'
+    )
+  }
+  return (
+    {
+      link: 'LIEN',
+      image: 'IMAGE',
+      video: 'VIDÉO',
+      note: 'NOTE',
+    }[type] || type
+  )
+}
+function linkDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
 }
 
