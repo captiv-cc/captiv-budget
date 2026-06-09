@@ -47,12 +47,11 @@ import {
   ArrowUpDown,
   EyeOff,
   Eye,
+  PlusCircle,
 } from 'lucide-react'
 import {
   linkPropositionToLivrable,
   removeLink,
-  STATUT_LABELS,
-  STATUT_COLORS,
   STATUT_LOCAL_COLORS,
 } from '../../lib/musiques'
 import { setLivrableHiddenInMusique } from '../../lib/livrables'
@@ -668,7 +667,7 @@ function VracItem({
       }}
       style={{
         display: 'grid',
-        gridTemplateColumns: '18px 28px 1fr auto',
+        gridTemplateColumns: '18px 28px 1fr',
         gap: 6,
         alignItems: 'center',
         padding: '4px 6px',
@@ -854,22 +853,9 @@ function VracItem({
         </div>
       </div>
 
-      {/* Mini badge statut global */}
-      <span
-        style={{
-          fontSize: 8,
-          padding: '1px 4px',
-          background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
-          color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-3)',
-          borderRadius: 3,
-          fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: 0.3,
-          flexShrink: 0,
-        }}
-      >
-        {(STATUT_LABELS[p.statut] || p.statut).slice(0, 3)}
-      </span>
+      {/* MUS-6.4 polish : badge statut global retiré du vrac — peu utile
+          ici (on filtre déjà par statut dans la barre du haut) et libère
+          de la place pour les autres meta. */}
     </div>
   )
 }
@@ -1269,13 +1255,19 @@ function LivrableColumn({
           <div
             style={{
               fontSize: 10,
-              color: 'var(--txt-3)',
-              fontStyle: 'italic',
-              padding: '6px 4px',
+              color: hover ? 'var(--blue, #3B82F6)' : 'var(--txt-3)',
+              padding: '8px 4px',
               textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 3,
+              opacity: hover ? 1 : 0.7,
+              transition: 'opacity 80ms, color 80ms',
             }}
           >
-            {hover ? '→ Lâcher ici' : 'Glisse une track ici'}
+            <PlusCircle size={14} style={{ opacity: 0.6 }} />
+            <span>{hover ? 'Lâcher ici' : 'Glisse une track'}</span>
           </div>
         ) : (
           links.map((lk) => {
@@ -1287,6 +1279,10 @@ function LivrableColumn({
               fg: 'var(--txt-3)',
             }
             return (
+              // MUS-6.4 polish v2 : aplatissement — plus de background +
+              // border par track. Juste un mini-dot couleur statut_local à
+              // gauche (3px) qui sert d'indicateur sans alourdir le visuel.
+              // Hover discret pour signaler la cliquabilité.
               <div
                 key={lk.id}
                 draggable={canEdit}
@@ -1301,13 +1297,18 @@ function LivrableColumn({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 4,
-                  padding: '2px 4px',
-                  background: palette.bg,
-                  borderRadius: 3,
+                  gap: 5,
+                  padding: '2px 4px 2px 2px',
                   cursor: canEdit ? 'grab' : 'pointer',
                   fontSize: 10,
-                  border: `1px solid ${palette.fg}33`,
+                  borderRadius: 3,
+                  transition: 'background 80ms',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-surf)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
                 }}
                 title={
                   lk.remarque
@@ -1315,14 +1316,24 @@ function LivrableColumn({
                     : `${artistName} · ${p.titre}`
                 }
               >
+                {/* Dot couleur statut_local (3px barre verticale) */}
+                <span
+                  style={{
+                    width: 3,
+                    height: 14,
+                    background: palette.fg,
+                    borderRadius: 2,
+                    flexShrink: 0,
+                  }}
+                />
                 <div
                   style={{
-                    width: 16,
-                    height: 16,
+                    width: 14,
+                    height: 14,
                     borderRadius: 2,
                     background: p.cover_url
                       ? 'transparent'
-                      : 'var(--bg-elev)',
+                      : 'var(--bg-surf)',
                     backgroundImage: p.cover_url
                       ? `url(${p.cover_url})`
                       : 'none',
@@ -1344,14 +1355,13 @@ function LivrableColumn({
                   <span style={{ fontWeight: 500 }}>{artistName}</span>
                   <span style={{ color: 'var(--txt-3)' }}> · {p.titre}</span>
                 </span>
-                {/* MUS-6.4 polish : mini-pill jour cohérent avec le vrac */}
                 {p.artiste?.jour && (
                   <span
                     style={{
-                      padding: '0 4px',
+                      padding: '0 3px',
                       background: 'rgba(59,130,246,0.14)',
                       color: 'var(--blue, #3B82F6)',
-                      borderRadius: 3,
+                      borderRadius: 2,
                       fontWeight: 600,
                       fontSize: 8,
                       lineHeight: '12px',

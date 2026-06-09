@@ -1014,17 +1014,24 @@ export default function PropositionDetailDrawer({
               color: 'var(--txt-3)',
             }}
           >
-            <div>
-              Proposé{' '}
-              <RelativeTime date={p.created_at} />
+            {/* MUS-6.4 polish : avatar proposeur visible dans le footer
+                à côté du nom (cohérence avec la liste classique qui montre
+                déjà l'avatar). */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span>
+                Proposé{' '}
+                <RelativeTime date={p.created_at} />
+              </span>
               {p.proposer && (
                 <>
-                  {' '}· par{' '}
-                  <span style={{ color: 'var(--txt-2)' }}>
-                    {p.proposer.full_name ||
-                      p.proposer.email?.split('@')[0] ||
-                      'inconnu'}
-                  </span>
+                  <span style={{ opacity: 0.5 }}>·</span>
+                  <ProposerAvatarInline proposer={p.proposer} />
                 </>
               )}
             </div>
@@ -2169,6 +2176,51 @@ function FieldLabel({ children }) {
     >
       {children}
     </div>
+  )
+}
+
+// ─── ProposerAvatarInline : mini avatar + nom pour le footer drawer ──────
+// Pattern aligné avec celui de PropositionRow (cohérence visuelle).
+// Avatar 16px + initiales + nom à droite.
+function ProposerAvatarInline({ proposer }) {
+  if (!proposer) return null
+  const name =
+    proposer.full_name ||
+    proposer.email?.split('@')[0] ||
+    'inconnu'
+  const initials = (name.match(/[A-Za-zÀ-ÿ0-9]/g) || ['?'])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const color = hashColorFromName(name)
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+    >
+      <span
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: '50%',
+          background: color.bg,
+          color: color.fg,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 8,
+          fontWeight: 600,
+          flexShrink: 0,
+        }}
+        aria-hidden="true"
+      >
+        {initials}
+      </span>
+      <span style={{ color: 'var(--txt-2)' }}>{name}</span>
+    </span>
   )
 }
 
