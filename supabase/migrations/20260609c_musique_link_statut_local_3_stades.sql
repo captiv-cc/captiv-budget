@@ -25,7 +25,14 @@
 
 BEGIN;
 
--- ── 1. Migrate les données ──────────────────────────────────────────────
+-- ── 1. DROP l'ancien CHECK ──────────────────────────────────────────────
+-- IMPORTANT : on doit dropper l'ancien avant l'UPDATE, sinon les nouvelles
+-- valeurs ('proposition', 'choix', 'valide') violent l'ancien check qui
+-- attend ('propose', 'valide_client', 'refuse_client').
+ALTER TABLE projet_musique_livrable_link
+  DROP CONSTRAINT IF EXISTS projet_musique_livrable_link_statut_local_check;
+
+-- ── 2. Migrate les données ──────────────────────────────────────────────
 UPDATE projet_musique_livrable_link
    SET statut_local = CASE statut_local
                         WHEN 'valide_client' THEN 'valide'
@@ -34,18 +41,15 @@ UPDATE projet_musique_livrable_link
                         ELSE 'proposition'
                       END;
 
--- ── 2. Remplace le CHECK constraint ─────────────────────────────────────
--- On droppe l'ancien (nom dérivé de Postgres) puis on ajoute le nouveau.
+-- ── 3. Remet le default AVANT le CHECK (sinon DEFAULT 'propose' fait
+--      échouer les futurs INSERT sans valeur explicite) ────────────────
 ALTER TABLE projet_musique_livrable_link
-  DROP CONSTRAINT IF EXISTS projet_musique_livrable_link_statut_local_check;
+  ALTER COLUMN statut_local SET DEFAULT 'proposition';
 
+-- ── 4. Ajoute le nouveau CHECK ──────────────────────────────────────────
 ALTER TABLE projet_musique_livrable_link
   ADD CONSTRAINT projet_musique_livrable_link_statut_local_check
   CHECK (statut_local IN ('proposition', 'choix', 'valide'));
-
--- ── 3. Remet le default à la nouvelle valeur ────────────────────────────
-ALTER TABLE projet_musique_livrable_link
-  ALTER COLUMN statut_local SET DEFAULT 'proposition';
 
 COMMENT ON COLUMN projet_musique_livrable_link.statut_local IS
   'MUSIQUES MUS-6.8 — Stade interne de sélection pour ce couple track+livrable. '
