@@ -19,7 +19,7 @@ import {
   Search,
   Bug,
   Lightbulb,
-  MessageSquare,
+  Megaphone,
   Inbox,
   Eye,
   EyeOff,
@@ -127,7 +127,7 @@ export default function FeedbackPage() {
             className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
             style={{ background: 'rgba(245,158,11,0.15)' }}
           >
-            <MessageSquare className="w-5 h-5" style={{ color: '#F59E0B' }} />
+            <Megaphone className="w-5 h-5" style={{ color: '#F59E0B' }} />
           </div>
           <div className="min-w-0">
             <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
@@ -641,7 +641,7 @@ function EmptyState({ isAdmin, totalTickets, onCreate }) {
           gap: 10,
         }}
       >
-        <MessageSquare size={32} style={{ opacity: 0.5 }} />
+        <Megaphone size={32} style={{ opacity: 0.5 }} />
         <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--txt-2)' }}>
           {isAdmin
             ? 'Aucun retour pour le moment'

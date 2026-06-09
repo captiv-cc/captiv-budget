@@ -33,7 +33,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAppTheme } from '../hooks/useAppTheme'
 import { pickOrgLogo } from '../lib/branding'
 import { notify } from '../lib/notify'
-import { LogOut, Menu, Search, Share2, MessageSquare } from 'lucide-react'
+import { LogOut, Menu, Search, Share2, Megaphone } from 'lucide-react'
 import {
   NAV_MAIN,
   NAV_BDD,
@@ -364,7 +364,7 @@ export default function Layout() {
                   e.currentTarget.style.background = 'transparent'
                 }}
               >
-                <MessageSquare className="w-3.5 h-3.5" />
+                <Megaphone className="w-3.5 h-3.5" />
               </button>
               <span
                 className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-100"

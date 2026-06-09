@@ -16,7 +16,7 @@
 
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { MessageSquare } from 'lucide-react'
+import { Megaphone } from 'lucide-react'
 import CreateFeedbackModal from './CreateFeedbackModal'
 
 export default function FloatingFeedbackButton() {
@@ -58,7 +58,7 @@ export default function FloatingFeedbackButton() {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <MessageSquare size={20} />
+        <Megaphone size={20} />
         {/* Mini label au hover (style Intercom) */}
         {hovered && (
           <span
