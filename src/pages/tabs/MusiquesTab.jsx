@@ -495,6 +495,22 @@ export default function MusiquesTab() {
     [visiblePropositions, groupBy],
   )
 
+  // MUS-6.5 : Map<propId, links[]> pour afficher le badge 🎬 N dans la
+  // liste vrac. Les liens vers des livrables masqués (hidden_in_musique)
+  // sont EXCLUS du badge — cohérence avec le reste de la chaîne musique.
+  const linksByProposition = useMemo(() => {
+    const hiddenIds = new Set(
+      livrablesList.filter((l) => l.hidden_in_musique).map((l) => l.id),
+    )
+    const m = new Map()
+    for (const lk of linksList) {
+      if (hiddenIds.has(lk.livrable_id)) continue
+      if (!m.has(lk.proposition_id)) m.set(lk.proposition_id, [])
+      m.get(lk.proposition_id).push(lk)
+    }
+    return m
+  }, [linksList, livrablesList])
+
   // MUS-4.7 : compteurs par statut (pour les stat pills du header).
   // Calculés sur les propositions BRUTES (pas filtrées) — ce sont les
   // totaux du projet, pas de la vue. C'est la logique attendue côté
@@ -1352,6 +1368,7 @@ export default function MusiquesTab() {
                     projectId={projectId}
                     onMutated={refetch}
                     onClick={() => setDetailPropId(p.id)}
+                    livrableLinks={linksByProposition.get(p.id)}
                     // Filtres rapides (MUS-3.1)
                     onTagClick={(tag) => setFilterTag(tag)}
                     onJourClick={(jour) => setFilterJour(jour)}

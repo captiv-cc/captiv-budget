@@ -33,6 +33,7 @@ import {
   Trash2,
   AlertTriangle,
   MessageCircle,
+  Film,
   CheckSquare,
   Square,
   GripVertical,
@@ -131,6 +132,48 @@ function ProposerAvatar({ proposer, createdAt, onClick }) {
   )
 }
 
+// ─── LivrablesLinkedBadge : badge 🎬 N + tooltip ─────────────────────────
+// MUS-6.5 — Affiche d'un coup d'œil dans combien de livrables la track est
+// attribuée. Hover dévoile la liste des numéros·noms via tooltip natif
+// (suffisant pour V1, popover custom plus tard si besoin).
+function LivrablesLinkedBadge({ links }) {
+  const count = links.length
+  // Tooltip : liste des livrables avec leur statut_local
+  const STATUT_SHORT = {
+    proposition: 'prop',
+    choix: 'choix',
+    valide: 'OK',
+  }
+  const tooltip = links
+    .map((lk) => {
+      const l = lk.livrable || {}
+      const label = l.numero ? `${l.numero} · ${l.nom}` : l.nom || '—'
+      const s = STATUT_SHORT[lk.statut_local] || lk.statut_local
+      return `${label} (${s})`
+    })
+    .join('\n')
+  return (
+    <div
+      title={`Liée à ${count} livrable${count > 1 ? 's' : ''}\n${tooltip}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        padding: '2px 6px',
+        background: 'rgba(59,130,246,0.10)',
+        border: '1px solid rgba(59,130,246,0.25)',
+        borderRadius: 10,
+        color: 'var(--blue, #3B82F6)',
+        fontSize: 10,
+        fontWeight: 600,
+      }}
+    >
+      <Film size={11} />
+      {count}
+    </div>
+  )
+}
+
 export default function PropositionRow({
   proposition: p,
   aggregate,
@@ -158,6 +201,10 @@ export default function PropositionRow({
   onDragOver,
   onDragEnd,
   onDrop,
+  // MUS-6.5 : liens livrables — Array<{ id, livrable_id, statut_local,
+  // livrable: { id, numero, nom, block: { couleur } } }>. Si fourni et
+  // non-vide, on affiche un badge 🎬 N à côté du compteur commentaires.
+  livrableLinks = null,
 }) {
   const agg = aggregate || {
     noteAvg: null,
@@ -442,6 +489,13 @@ export default function PropositionRow({
           flexShrink: 0,
         }}
       >
+        {/* MUS-6.5 : badge livrables liés. Hover dévoile la liste des
+            livrables (numéro·nom) via le tooltip natif. Click sur la
+            badge ouvre le drawer où on peut éditer la setlist. */}
+        {livrableLinks && livrableLinks.length > 0 && (
+          <LivrablesLinkedBadge links={livrableLinks} />
+        )}
+
         {/* Compteur commentaires (visible si > 0) */}
         {agg.commentCount > 0 && (
           <div
