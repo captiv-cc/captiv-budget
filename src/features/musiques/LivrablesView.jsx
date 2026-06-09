@@ -53,6 +53,7 @@ import {
   X,
   Plus,
   MessageCircle,
+  MessageSquarePlus,
   Youtube,
 } from 'lucide-react'
 
@@ -839,6 +840,41 @@ function LinkItem({
               >
                 <Youtube size={10} />
               </a>
+            )}
+            {/* MUS-6.8 v4 : bouton "+ remarque" inline dans la ligne meta
+                (pas en dessous = pas de décalage layout). Opacity 0 au
+                repos, 0.7 au hover. Click ouvre l'input en dessous (le
+                push à ce moment-là est attendu, c'est une action explicite).
+                On ne le rend QUE si pas de remarque déjà présente. */}
+            {canEdit && !link.remarque && !editRemarque && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setEditRemarque(true)
+                }}
+                disabled={busy}
+                style={{
+                  marginLeft: 'auto',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--txt-3)',
+                  cursor: 'text',
+                  fontSize: 9,
+                  fontStyle: 'italic',
+                  padding: 0,
+                  opacity: hover ? 0.7 : 0,
+                  transition: 'opacity 80ms',
+                  flexShrink: 0,
+                }}
+                title="Ajouter une remarque"
+              >
+                <MessageSquarePlus size={9} />
+                remarque
+              </button>
             )}
           </div>
         </div>
