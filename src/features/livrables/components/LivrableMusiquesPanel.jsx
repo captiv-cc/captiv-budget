@@ -25,6 +25,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Music,
   Plus,
@@ -33,20 +34,27 @@ import {
   Search as SearchIcon,
   Play,
   Pause,
+  ChevronRight,
 } from 'lucide-react'
 import {
   listMusiquesForLivrable,
   listPropositions,
   linkPropositionToLivrable,
+  updateProposition,
   updateLink,
   removeLink,
   STATUTS_LOCAL,
   STATUT_LOCAL_LABELS,
   STATUT_LOCAL_COLORS,
 } from '../../../lib/musiques'
+import { getDeezerTrack } from '../../../lib/musiqueSearch'
 import { notify } from '../../../lib/notify'
 
 export default function LivrableMusiquesPanel({ livrable, canEdit = true }) {
+  const navigate = useNavigate()
+  const { id: projectIdFromUrl } = useParams()
+  const projectId = livrable?.project_id || projectIdFromUrl
+
   const [links, setLinks] = useState([])
   const [loading, setLoading] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -73,33 +81,70 @@ export default function LivrableMusiquesPanel({ livrable, canEdit = true }) {
     reloadLinks()
   }, [reloadLinks])
 
-  // Audio preview - simple toggle (UN seul track joué à la fois)
+  // Audio preview avec fallback URL refresh (pattern PropositionDetailDrawer).
+  // Si l'URL Deezer est expirée (CDN refuse), on refetch via getDeezerTrack
+  // depuis le spotify_id (qui en réalité contient le deezer_id, historique
+  // de naming) puis on persiste la nouvelle URL pour les prochaines fois.
   useEffect(
     () => () => {
       audioEl?.pause?.()
     },
     [audioEl],
   )
-  function togglePlay(p) {
-    if (!p?.preview_url) return
-    if (playingId === p.id) {
+  const togglePlay = useCallback(
+    async (p) => {
+      if (!p) return
+      // Toggle pause si même piste
+      if (playingId === p.id) {
+        audioEl?.pause?.()
+        setPlayingId(null)
+        return
+      }
       audioEl?.pause?.()
-      setPlayingId(null)
-      return
-    }
-    audioEl?.pause?.()
-    const a = new Audio(p.preview_url)
-    a.volume = 0.7
-    a.addEventListener('ended', () => setPlayingId(null))
-    a.play()
-      .then(() => {
-        setAudioEl(a)
-        setPlayingId(p.id)
-      })
-      .catch((err) => {
-        console.warn('[LivrableMusiquesPanel] play failed', err)
-      })
-  }
+      setPlayingId(p.id)
+      const tryPlay = (url) => {
+        const a = new Audio(url)
+        a.volume = 0.7
+        a.addEventListener('ended', () => setPlayingId(null))
+        return { a, pp: a.play() }
+      }
+      let played = false
+      let audio = null
+      let url = p.preview_url
+      if (url) {
+        try {
+          const r = tryPlay(url)
+          await r.pp
+          audio = r.a
+          played = true
+        } catch {
+          /* tomber sur le refresh */
+        }
+      }
+      if (!played && p.spotify_id) {
+        try {
+          const fresh = await getDeezerTrack(p.spotify_id)
+          if (fresh?.preview_url && fresh.preview_url !== url) {
+            url = fresh.preview_url
+            updateProposition(p.id, { preview_url: url }).catch(() => {})
+            const r = tryPlay(url)
+            audio = r.a
+            await r.pp
+            played = true
+          }
+        } catch {
+          /* abort */
+        }
+      }
+      if (!played) {
+        setPlayingId(null)
+        notify.error('Lecture impossible (preview Deezer indisponible)')
+        return
+      }
+      setAudioEl(audio)
+    },
+    [playingId, audioEl],
+  )
 
   // Group by statut
   const linksByStatut = useMemo(() => {
@@ -201,8 +246,33 @@ export default function LivrableMusiquesPanel({ livrable, canEdit = true }) {
         </div>
       )}
 
-      {/* 3 sections empilées */}
-      {STATUTS_LOCAL.map((s) => (
+      {/* MUS cross-module polish : section Proposition compactée en
+          compteur cliquable (la liste complète des propositions est
+          souvent longue et peu actionnable depuis ce drawer — l'user
+          gère ça dans le module Musiques). Choix et Validé affichés
+          normalement (sélections engagées, à voir en détail). */}
+      <PropositionsCounter
+        count={(linksByStatut.get('proposition') || []).length}
+        isHover={hoverStatut === 'proposition'}
+        canEdit={canEdit}
+        onDragOver={(e) => {
+          if (draggingLinkId) {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setHoverStatut('proposition')
+          }
+        }}
+        onDragLeave={() => {
+          if (hoverStatut === 'proposition') setHoverStatut(null)
+        }}
+        onDrop={() => handleDrop('proposition')}
+        onNavigate={() => {
+          if (!projectId) return
+          navigate(`/projet/${projectId}/musiques`)
+        }}
+      />
+
+      {STATUTS_LOCAL.filter((s) => s !== 'proposition').map((s) => (
         <SectionRow
           key={s}
           statut={s}
@@ -243,6 +313,107 @@ export default function LivrableMusiquesPanel({ livrable, canEdit = true }) {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── PropositionsCounter : compteur compact pour la section Proposition ─
+// Au lieu d'afficher la liste complète (souvent longue, peu actionnable
+// depuis ici), on montre juste un résumé "Propositions : N" cliquable
+// qui redirige vers le module Musiques où l'user peut faire le tri
+// complet (vue Attribution / Livrables). Garde la zone drop active pour
+// continuer à pouvoir y glisser une track depuis Choix/Validé pour la
+// "déclasser".
+function PropositionsCounter({
+  count,
+  isHover,
+  canEdit,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onNavigate,
+}) {
+  const palette = STATUT_LOCAL_COLORS.proposition || {
+    bg: 'var(--bg-elev)',
+    fg: 'var(--txt-3)',
+  }
+  return (
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => {
+        e.preventDefault()
+        onDrop?.()
+      }}
+      style={{
+        borderTop: '1px solid var(--brd-sub)',
+        background: isHover
+          ? `linear-gradient(90deg, ${palette.bg}, transparent 60%)`
+          : 'transparent',
+        transition: 'background 80ms',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onNavigate}
+        disabled={!canEdit && count === 0}
+        style={{
+          width: '100%',
+          padding: '8px 14px',
+          background: 'transparent',
+          border: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: 'pointer',
+          color: 'var(--txt-2)',
+          fontSize: 12,
+          textAlign: 'left',
+        }}
+        title="Ouvrir le module Musiques pour gérer les propositions"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-elev)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+        }}
+      >
+        <span
+          style={{
+            fontSize: 9,
+            padding: '2px 7px',
+            background: palette.bg,
+            color: palette.fg,
+            borderRadius: 6,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: 0.6,
+          }}
+        >
+          {STATUT_LOCAL_LABELS.proposition}
+        </span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {count}
+        </span>
+        <span
+          style={{
+            marginLeft: 'auto',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 2,
+            fontSize: 11,
+            color: 'var(--blue, #3B82F6)',
+            fontWeight: 500,
+          }}
+        >
+          {isHover
+            ? `Lâcher pour déclasser`
+            : count === 0
+              ? 'Aller au module Musiques'
+              : 'Voir dans Musiques'}
+          <ChevronRight size={11} />
+        </span>
+      </button>
     </div>
   )
 }
