@@ -1270,6 +1270,8 @@ export default function MusiquesTab() {
           blocks={blocksList}
           links={linksList}
           canEdit={canEdit}
+          playingId={playingId}
+          onTogglePlay={togglePlay}
           onMutated={() => {
             refetchAttribution()
             refetch()

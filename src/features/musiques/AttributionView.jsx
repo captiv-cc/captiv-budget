@@ -42,16 +42,29 @@ import {
   Film,
   Star,
   Inbox,
+  Play,
+  Pause,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   linkPropositionToLivrable,
   removeLink,
-  STATUTS,
   STATUT_LABELS,
   STATUT_COLORS,
   STATUT_LOCAL_COLORS,
 } from '../../lib/musiques'
 import { notify } from '../../lib/notify'
+
+// Tri du vrac dans la vue Attribution. Note desc en défaut (logique de
+// triage : on commence par les meilleures).
+const SORT_OPTIONS = [
+  { key: 'note_desc', label: 'Mieux notées d\'abord' },
+  { key: 'created_desc', label: 'Plus récentes' },
+  { key: 'created_asc', label: 'Plus anciennes' },
+  { key: 'artiste_asc', label: 'Artiste A→Z' },
+  { key: 'titre_asc', label: 'Titre A→Z' },
+  { key: 'jour_asc', label: 'Jour festival' },
+]
 
 export default function AttributionView({
   propositions = [],
@@ -60,12 +73,14 @@ export default function AttributionView({
   blocks = [],
   links = [],
   canEdit = true,
+  playingId = null,
+  onTogglePlay,
   onMutated,
   onOpenDetail,
 }) {
   // ─── State : filtres vrac + sélection multiple + drag ────────────────────
   const [vracSearch, setVracSearch] = useState('')
-  const [vracStatutFilter, setVracStatutFilter] = useState(null)
+  const [vracSort, setVracSort] = useState('note_desc')
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   // Set des IDs en cours de drag (la track draggée + le reste de la
   // sélection multiple si applicable). Sert au visuel sur le vrac et
@@ -102,11 +117,13 @@ export default function AttributionView({
     return m
   }, [propositions])
 
-  // ─── Vrac filtré (search + statut) ───────────────────────────────────────
+  // ─── Vrac filtré (search) + trié ─────────────────────────────────────────
+  // Note : on retire le filtre par statut local — la barre du haut de la
+  // page (header MusiquesTab) reste le seul endroit pour filtrer par statut
+  // global, on évite le doublon dans le panneau vrac.
   const filteredVrac = useMemo(() => {
     const q = vracSearch.trim().toLowerCase()
-    return propositions.filter((p) => {
-      if (vracStatutFilter && p.statut !== vracStatutFilter) return false
+    const filtered = propositions.filter((p) => {
       if (q) {
         const artist = (p.artiste?.nom || p.artiste_text || '').toLowerCase()
         const title = (p.titre || '').toLowerCase()
@@ -114,7 +131,53 @@ export default function AttributionView({
       }
       return true
     })
-  }, [propositions, vracSearch, vracStatutFilter])
+    const sorted = [...filtered]
+    const artistName = (p) =>
+      (p.artiste?.nom || p.artiste_text || '').toLowerCase()
+    switch (vracSort) {
+      case 'note_desc':
+        sorted.sort((a, b) => {
+          const aAvg = aggregates?.get?.(a.id)?.noteAvg ?? -1
+          const bAvg = aggregates?.get?.(b.id)?.noteAvg ?? -1
+          if (bAvg !== aAvg) return bAvg - aAvg
+          return new Date(b.created_at) - new Date(a.created_at)
+        })
+        break
+      case 'created_asc':
+        sorted.sort(
+          (a, b) => new Date(a.created_at) - new Date(b.created_at),
+        )
+        break
+      case 'artiste_asc':
+        sorted.sort((a, b) =>
+          artistName(a).localeCompare(artistName(b), 'fr', {
+            sensitivity: 'base',
+          }),
+        )
+        break
+      case 'titre_asc':
+        sorted.sort((a, b) =>
+          (a.titre || '').localeCompare(b.titre || '', 'fr', {
+            sensitivity: 'base',
+          }),
+        )
+        break
+      case 'jour_asc':
+        sorted.sort((a, b) => {
+          const aj = a.artiste?.jour || ''
+          const bj = b.artiste?.jour || ''
+          if (aj !== bj) return aj.localeCompare(bj, 'fr')
+          return artistName(a).localeCompare(artistName(b), 'fr')
+        })
+        break
+      case 'created_desc':
+      default:
+        sorted.sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at),
+        )
+    }
+    return sorted
+  }, [propositions, vracSearch, vracSort, aggregates])
 
   // ─── Livrables groupés par bloc ─────────────────────────────────────────
   const livrablesByBlock = useMemo(() => {
@@ -234,6 +297,8 @@ export default function AttributionView({
         hoverPropId={hoverPropId}
         onHoverProp={setHoverPropId}
         canEdit={canEdit}
+        playingId={playingId}
+        onTogglePlay={onTogglePlay}
         // Drop zone : si on drop un livrable-link ici, on l'unlink
         hoverActive={hoverVrac && Boolean(draggingLinkId)}
         onDragOver={(e) => {
@@ -246,8 +311,8 @@ export default function AttributionView({
         onDrop={handleDropOnVrac}
         search={vracSearch}
         onSearchChange={setVracSearch}
-        statutFilter={vracStatutFilter}
-        onStatutFilterChange={setVracStatutFilter}
+        sort={vracSort}
+        onSortChange={setVracSort}
         onToggleSelected={toggleSelected}
         onClearSelection={clearSelection}
         onDragStart={handleDragStart}
@@ -296,14 +361,16 @@ function VracPanel({
   hoverPropId,
   onHoverProp,
   canEdit,
+  playingId,
+  onTogglePlay,
   hoverActive,
   onDragOver,
   onDragLeave,
   onDrop,
   search,
   onSearchChange,
-  statutFilter,
-  onStatutFilterChange,
+  sort,
+  onSortChange,
   onToggleSelected,
   onClearSelection,
   onDragStart,
@@ -423,27 +490,39 @@ function VracPanel({
             }}
           />
         </div>
-        <select
-          value={statutFilter || ''}
-          onChange={(e) => onStatutFilterChange(e.target.value || null)}
+        <div
           style={{
-            padding: '4px 6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 6px 4px 8px',
             background: 'var(--bg-elev)',
             border: '1px solid var(--brd-sub)',
             borderRadius: 4,
-            color: 'var(--txt-2)',
-            fontSize: 11,
-            cursor: 'pointer',
-            outline: 'none',
           }}
         >
-          <option value="">Tous les statuts</option>
-          {STATUTS.map((s) => (
-            <option key={s} value={s}>
-              {STATUT_LABELS[s]}
-            </option>
-          ))}
-        </select>
+          <ArrowUpDown size={10} style={{ color: 'var(--txt-3)' }} />
+          <select
+            value={sort}
+            onChange={(e) => onSortChange(e.target.value)}
+            style={{
+              flex: 1,
+              padding: 0,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-2)',
+              fontSize: 11,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Liste */}
@@ -479,6 +558,8 @@ function VracPanel({
               dragging={draggingIds.has(p.id)}
               hovered={hoverPropId === p.id}
               canEdit={canEdit}
+              isPlaying={playingId === p.id}
+              onTogglePlay={() => onTogglePlay?.(p)}
               onMouseEnter={() => onHoverProp(p.id)}
               onMouseLeave={() => onHoverProp(null)}
               onToggleSelected={() => onToggleSelected(p.id)}
@@ -502,6 +583,8 @@ function VracItem({
   dragging,
   hovered,
   canEdit,
+  isPlaying,
+  onTogglePlay,
   onMouseEnter,
   onMouseLeave,
   onToggleSelected,
@@ -564,9 +647,13 @@ function VracItem({
         {selected ? <CheckSquare size={13} /> : <Square size={13} />}
       </button>
 
-      {/* Cover */}
+      {/* Cover + bouton play overlay (visible si preview_url existe). Le
+          bouton est toujours visible (pas seulement au hover) pour ne pas
+          faire frotter avec le drag-detection au mouseenter. Pastille
+          orange compacte 18px qui ressort quel que soit le fond. */}
       <div
         style={{
+          position: 'relative',
           width: 28,
           height: 28,
           borderRadius: 3,
@@ -576,7 +663,59 @@ function VracItem({
           backgroundPosition: 'center',
           flexShrink: 0,
         }}
-      />
+      >
+        {p.preview_url && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onTogglePlay?.()
+            }}
+            title={
+              isPlaying ? 'Pause' : 'Écouter le preview 30s'
+            }
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: 'none',
+              borderRadius: 3,
+              cursor: 'pointer',
+              padding: 0,
+              background:
+                'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.45))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: '#FF6E37',
+                color: 'white',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow:
+                  '0 1px 4px rgba(0,0,0,0.45), 0 0 0 1.5px rgba(255,255,255,0.85)',
+              }}
+            >
+              {isPlaying ? (
+                <Pause size={9} fill="white" />
+              ) : (
+                <Play
+                  size={9}
+                  fill="white"
+                  style={{ marginLeft: 0.5 }}
+                />
+              )}
+            </span>
+          </button>
+        )}
+      </div>
 
       {/* Texte */}
       <div style={{ minWidth: 0 }}>
