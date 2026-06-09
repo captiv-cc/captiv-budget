@@ -1275,6 +1275,8 @@ export default function DerouleTab() {
           canEdit={canEdit}
           deroules={deroules}
           onCreate={handleCreateDeroule}
+          onNavigateDate={setSelectedDate}
+          onImport={() => setImportOpen(true)}
         />
       ) : view === 'cadreur' ? (
         <DerouleCadreurView
@@ -1620,7 +1622,14 @@ function ToggleBtn({ active, onClick, icon: Icon, label, leftBorder }) {
 
 // ─── EmptyState ────────────────────────────────────────────────────────────
 
-function EmptyState({ selectedDate, canEdit, deroules = [], onCreate }) {
+function EmptyState({
+  selectedDate,
+  canEdit,
+  deroules = [],
+  onCreate,
+  onNavigateDate,
+  onImport,
+}) {
   // FEST-5.5.3 : propose de reprendre les lanes du déroulé le plus récent
   // (autre que la date courante) → on évite de re-saisir cadreurs+scènes
   // chaque jour d'un festival.
@@ -1634,6 +1643,24 @@ function EmptyState({ selectedDate, canEdit, deroules = [], onCreate }) {
     return sorted[0]
   }, [deroules, selectedDate])
 
+  // CTA "Aller au prochain jour avec déroulé" : on cherche d'abord le
+  // jour le plus proche dans le futur, puis le plus récent dans le passé
+  // si rien à venir. La direction est utilisée pour le libellé (Aller
+  // au / Revenir au).
+  const nextDateWithDeroule = useMemo(() => {
+    const others = (deroules || []).filter((d) => d.date_jour !== selectedDate)
+    if (others.length === 0) return null
+    const futures = others
+      .filter((d) => d.date_jour > selectedDate)
+      .sort((a, b) => (a.date_jour < b.date_jour ? -1 : 1))
+    if (futures.length > 0) return { ...futures[0], direction: 'forward' }
+    const past = [...others].sort((a, b) =>
+      a.date_jour < b.date_jour ? 1 : -1,
+    )
+    return { ...past[0], direction: 'backward' }
+  }, [deroules, selectedDate])
+
+  const noDerouleAtAll = (deroules || []).length === 0
   const [copyLanes, setCopyLanes] = useState(true)
 
   return (
@@ -1652,35 +1679,80 @@ function EmptyState({ selectedDate, canEdit, deroules = [], onCreate }) {
         Créez un déroulé pour planifier la journée heure par heure.
       </p>
 
-      {canEdit && mostRecentOther && (
-        <label
+      {/* CTA "Aller au prochain jour avec déroulé" — affiché si au moins
+          un autre jour a déjà un déroulé. Permet d'éviter la perplexité
+          du "ah mais y'a rien aujourd'hui, alors qu'il y a clairement
+          un festival en cours". */}
+      {nextDateWithDeroule && onNavigateDate && (
+        <button
+          type="button"
+          onClick={() => onNavigateDate(nextDateWithDeroule.date_jour)}
+          className="mt-5 inline-flex items-center gap-2 px-3.5 py-2 text-sm rounded-lg transition-colors"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            marginTop: 16,
-            padding: '6px 12px',
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--brd-sub)',
-            borderRadius: 6,
-            fontSize: 12,
-            color: 'var(--txt-2)',
-            cursor: 'pointer',
+            background: 'var(--blue-bg, rgba(59,130,246,0.12))',
+            color: 'var(--blue, #3B82F6)',
+            border: '1px solid var(--blue, #3B82F6)',
+            fontWeight: 500,
           }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--blue, #3B82F6)'
+            e.currentTarget.style.color = 'white'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background =
+              'var(--blue-bg, rgba(59,130,246,0.12))'
+            e.currentTarget.style.color = 'var(--blue, #3B82F6)'
+          }}
+          title={
+            nextDateWithDeroule.direction === 'forward'
+              ? 'Aller au prochain jour qui a un déroulé'
+              : 'Revenir au jour précédent qui a un déroulé'
+          }
         >
-          <input
-            type="checkbox"
-            checked={copyLanes}
-            onChange={(e) => setCopyLanes(e.target.checked)}
-          />
-          Reprendre la structure du{' '}
-          <strong style={{ color: 'var(--txt)' }}>
-            {formatDate(mostRecentOther.date_jour)}
-          </strong>{' '}
-          <span style={{ color: 'var(--txt-3)', fontSize: 11 }}>
-            (cadreurs + scènes)
-          </span>
-        </label>
+          {nextDateWithDeroule.direction === 'forward' ? (
+            <>
+              Aller au {formatDate(nextDateWithDeroule.date_jour)}
+              <ChevronRight className="w-4 h-4" />
+            </>
+          ) : (
+            <>
+              <ChevronLeft className="w-4 h-4" />
+              Revenir au {formatDate(nextDateWithDeroule.date_jour)}
+            </>
+          )}
+        </button>
+      )}
+
+      {canEdit && mostRecentOther && (
+        <div style={{ marginTop: 16 }}>
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 12px',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--brd-sub)',
+              borderRadius: 6,
+              fontSize: 12,
+              color: 'var(--txt-2)',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={copyLanes}
+              onChange={(e) => setCopyLanes(e.target.checked)}
+            />
+            Reprendre la structure du{' '}
+            <strong style={{ color: 'var(--txt)' }}>
+              {formatDate(mostRecentOther.date_jour)}
+            </strong>{' '}
+            <span style={{ color: 'var(--txt-3)', fontSize: 11 }}>
+              (cadreurs + scènes)
+            </span>
+          </label>
+        </div>
       )}
 
       {canEdit && (
@@ -1702,6 +1774,64 @@ function EmptyState({ selectedDate, canEdit, deroules = [], onCreate }) {
             <Plus className="w-3.5 h-3.5" />
             Créer le déroulé
           </button>
+        </div>
+      )}
+
+      {/* Rappel "Importer prog." quand le projet n'a AUCUN déroulé : on
+          incite à utiliser Claude Vision plutôt que tout saisir à la
+          main. Caché si au moins un autre jour a déjà un déroulé (cas
+          où l'utilisateur est juste en train de planifier un nouveau
+          jour — pas besoin de l'incitation). */}
+      {canEdit && noDerouleAtAll && onImport && (
+        <div style={{ marginTop: 18 }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: 'var(--txt-3)',
+              marginBottom: 6,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            }}
+          >
+            Ou plus rapide
+          </div>
+          <button
+            type="button"
+            onClick={onImport}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm rounded-lg transition-colors"
+            style={{
+              background: 'transparent',
+              color: 'var(--txt-2)',
+              border: '1px dashed var(--brd)',
+              fontWeight: 500,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-elev)'
+              e.currentTarget.style.color = 'var(--txt)'
+              e.currentTarget.style.borderStyle = 'solid'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--txt-2)'
+              e.currentTarget.style.borderStyle = 'dashed'
+            }}
+            title="Importe une programmation PDF/image via Claude Vision (FEST-4)"
+          >
+            <Sparkles className="w-4 h-4" style={{ color: 'var(--blue, #3B82F6)' }} />
+            Importer une programmation
+          </button>
+          <p
+            style={{
+              fontSize: 11,
+              color: 'var(--txt-3)',
+              marginTop: 6,
+              maxWidth: 360,
+              marginInline: 'auto',
+            }}
+          >
+            Importe le PDF ou l&apos;image de la programmation et Claude
+            crée les déroulés des jours du festival pour toi.
+          </p>
         </div>
       )}
     </div>
