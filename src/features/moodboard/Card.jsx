@@ -357,13 +357,11 @@ export default function Card({
 
 function LinkBody({ card, embedOpen }) {
   if (embedOpen && card.oembed_html) {
-    // Aspect ratio adapté au provider : 9:16 pour Insta/TikTok (format
-    // vertical) sinon 16:9 (YouTube, Vimeo, Twitter).
-    const aspect =
-      card.provider === 'instagram' || card.provider === 'tiktok'
-        ? '9 / 16'
-        : '16 / 9'
-    return <OembedFrame html={card.oembed_html} aspectRatio={aspect} />
+    // Le script officiel d'Instagram/TikTok dimensionnera l'iframe
+    // automatiquement (hauteur ~600-1200px selon le contenu). En in-grid
+    // (masonry) ça peut être grand mais l'utilisateur a explicitement
+    // cliqué pour "lire dans la carte".
+    return <OembedFrame html={card.oembed_html} provider={card.provider} />
   }
   if (card.image_url) {
     return (
@@ -499,27 +497,84 @@ function NoteBody({ card }) {
   )
 }
 
+// Charge un script externe une seule fois (singleton). Retourne une
+// Promise qui résout quand le script est prêt.
+const _scriptPromises = new Map()
+function loadScriptOnce(src) {
+  if (_scriptPromises.has(src)) return _scriptPromises.get(src)
+  const promise = new Promise((resolve, reject) => {
+    // Vérifie s'il existe déjà dans le DOM
+    const existing = document.querySelector(`script[src="${src}"]`)
+    if (existing) {
+      if (existing.dataset.loaded === 'true') resolve()
+      else existing.addEventListener('load', resolve, { once: true })
+      return
+    }
+    const s = document.createElement('script')
+    s.src = src
+    s.async = true
+    s.onload = () => {
+      s.dataset.loaded = 'true'
+      resolve()
+    }
+    s.onerror = reject
+    document.body.appendChild(s)
+  })
+  _scriptPromises.set(src, promise)
+  return promise
+}
+
 // Exporté pour réutilisation dans CardDrawer.
-// OembedFrame — wrapper qui force l'iframe à 100% de son container.
-// Nécessaire parce que les providers oEmbed (notamment YouTube) renvoient
-// des iframes avec des attributs width/height fixes (200x113) qui priment
-// sur le CSS. On les override en JS imperatively après injection.
+// OembedFrame — wrapper qui injecte le HTML d'embed et configure le bon
+// runtime selon le provider.
+//
+// Providers à blockquote (Instagram, TikTok) :
+//   Le HTML est un <blockquote> placeholder. On charge le script officiel
+//   du provider (embed.js) puis on appelle Embeds.process() pour qu'il
+//   transforme le blockquote en iframe avec hauteur auto-ajustée par
+//   postMessage entre l'iframe Insta/TT et notre page.
+//
+// Providers à iframe direct (YouTube, Vimeo, Twitter) :
+//   Le HTML est un iframe avec width/height fixes que les providers
+//   imposent. On les retire imperatively et force 100% du container.
 //
 // 2 modes de sizing :
-//   - aspectRatio : container responsive width=100%, height calculée par ratio
-//     (parfait pour YouTube/Vimeo en 16:9)
-//   - fixedHeight + maxWidth : sizing en pixels (parfait pour Instagram et
-//     TikTok dont l'iframe a une hauteur fixe contenant header + media +
-//     caption + footer, et qu'un aspect-ratio strict coupe)
+//   - aspectRatio (par défaut 16:9) : container responsive avec hauteur
+//     calculée par ratio. OK pour YouTube/Vimeo.
+//   - minHeight + maxWidth : pour Instagram/TikTok dont la hauteur réelle
+//     est dynamique (caption + likes + commentaires). On laisse le script
+//     officiel dimensionner, on garantit juste un min-height pour éviter
+//     le flash de chargement.
 export function OembedFrame({
   html,
+  provider = null,
   aspectRatio = '16 / 9',
-  fixedHeight = null,
+  minHeight = null,
   maxWidth = null,
 }) {
   const wrapperRef = useRef(null)
   useEffect(() => {
-    const iframe = wrapperRef.current?.querySelector('iframe')
+    const root = wrapperRef.current
+    if (!root || !html) return
+
+    if (provider === 'instagram') {
+      loadScriptOnce('https://www.instagram.com/embed.js')
+        .then(() => {
+          if (window.instgrm?.Embeds?.process) {
+            window.instgrm.Embeds.process()
+          }
+        })
+        .catch((e) => console.warn('[OembedFrame] Instagram script KO', e))
+      return
+    }
+    if (provider === 'tiktok') {
+      loadScriptOnce('https://www.tiktok.com/embed.js').catch((e) =>
+        console.warn('[OembedFrame] TikTok script KO', e),
+      )
+      return
+    }
+    // YouTube/Vimeo : iframe direct, force le sizing
+    const iframe = root.querySelector('iframe')
     if (iframe) {
       iframe.removeAttribute('width')
       iframe.removeAttribute('height')
@@ -527,18 +582,19 @@ export function OembedFrame({
       iframe.style.height = '100%'
       iframe.style.border = '0'
     }
-  }, [html])
+  }, [html, provider])
 
-  const containerStyle = fixedHeight
+  const isOfficialScript = provider === 'instagram' || provider === 'tiktok'
+
+  const containerStyle = isOfficialScript
     ? {
         width: '100%',
-        maxWidth: maxWidth || 460,
-        height: fixedHeight,
-        background: '#fff',
-        overflow: 'hidden',
-        position: 'relative',
+        maxWidth: maxWidth || (provider === 'tiktok' ? 605 : 540),
+        minHeight: minHeight || 540,
+        background: 'transparent',
         margin: '0 auto',
-        borderRadius: 6,
+        display: 'flex',
+        justifyContent: 'center',
       }
     : {
         aspectRatio,
@@ -555,7 +611,7 @@ export function OembedFrame({
         dangerouslySetInnerHTML={{ __html: html }}
         style={{
           width: '100%',
-          height: '100%',
+          ...(isOfficialScript ? {} : { height: '100%' }),
         }}
       />
     </div>

@@ -165,14 +165,23 @@ function buildDirectEmbed(
     //   /reel/SHORTCODE/     : reel (singulier — partage iOS)
     //   /reels/SHORTCODE/    : reel (pluriel — partage web)
     //   /tv/SHORTCODE/       : IGTV
-    // Tous redirigent vers /p/SHORTCODE/embed/captioned/ qui marche.
     const m = targetUrl.match(
       /instagram\.com\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/,
     )
     if (!m) return null
     const shortcode = m[1]
-    // /embed/captioned/ ajoute la légende sous le post. Évite les scripts.
-    const oembed_html = `<iframe src="https://www.instagram.com/p/${shortcode}/embed/captioned/" frameborder="0" scrolling="no" allowtransparency="true" allowfullscreen="true" style="width:100%;height:100%;border:0;background:#fff"></iframe>`
+    // On utilise le blockquote officiel d'Instagram (PAS l'iframe direct
+    // qui a une hauteur fixe inadaptée aux différents formats). Le script
+    // embed.js d'Instagram, chargé côté front, transformera ce blockquote
+    // en iframe dont la hauteur s'auto-ajuste au contenu (caption +
+    // likes + commentaires).
+    const permalink = `https://www.instagram.com/p/${shortcode}/`
+    const oembed_html =
+      `<blockquote class="instagram-media" data-instgrm-captioned ` +
+      `data-instgrm-permalink="${permalink}" data-instgrm-version="14" ` +
+      `style="background:#FFF;border:0;border-radius:3px;` +
+      `box-shadow:0 0 1px 0 rgba(0,0,0,0.5),0 1px 10px 0 rgba(0,0,0,0.15);` +
+      `margin:1px;max-width:540px;min-width:326px;padding:0;width:99.375%;"></blockquote>`
     return { oembed_html }
   }
   if (provider === 'tiktok') {
@@ -181,7 +190,14 @@ function buildDirectEmbed(
     const m = targetUrl.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/)
     if (!m) return null
     const videoId = m[1]
-    const oembed_html = `<iframe src="https://www.tiktok.com/embed/v2/${videoId}" frameborder="0" allowfullscreen="true" allow="encrypted-media" style="width:100%;height:100%;border:0;background:#000"></iframe>`
+    // Pareil qu'Instagram : on utilise le blockquote officiel TikTok. Le
+    // script embed.js de TikTok transformera le blockquote en iframe
+    // dont la hauteur s'auto-ajuste.
+    const oembed_html =
+      `<blockquote class="tiktok-embed" cite="${targetUrl}" ` +
+      `data-video-id="${videoId}" ` +
+      `style="max-width:605px;min-width:325px;">` +
+      `<section></section></blockquote>`
     return { oembed_html }
   }
   return null
