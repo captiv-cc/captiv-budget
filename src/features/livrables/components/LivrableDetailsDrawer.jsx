@@ -27,13 +27,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState } from 'react'
-import { History, ListTodo, X } from 'lucide-react'
+import { History, ListTodo, Music, X } from 'lucide-react'
 import LivrableVersionsPanel from './LivrableVersionsPanel'
 import LivrableEtapesPanel from './LivrableEtapesPanel'
+import LivrableMusiquesPanel from './LivrableMusiquesPanel'
 
 const TABS = [
   { key: 'versions', label: 'Versions', icon: History },
   { key: 'etapes', label: 'Étapes', icon: ListTodo },
+  { key: 'musiques', label: 'Musiques', icon: Music },
 ]
 
 export default function LivrableDetailsDrawer({
@@ -204,19 +206,26 @@ export default function LivrableDetailsDrawer({
 
         {/* Contenu (le panel gère son scroll + footer) */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {activeTab === 'versions' ? (
+          {activeTab === 'versions' && (
             <LivrableVersionsPanel
               livrable={livrable}
               versions={versions}
               actions={actions}
               canEdit={canEdit}
             />
-          ) : (
+          )}
+          {activeTab === 'etapes' && (
             <LivrableEtapesPanel
               livrable={livrable}
               etapes={etapes}
               eventTypes={eventTypes}
               actions={actions}
+              canEdit={canEdit}
+            />
+          )}
+          {activeTab === 'musiques' && (
+            <LivrableMusiquesPanel
+              livrable={livrable}
               canEdit={canEdit}
             />
           )}
