@@ -441,6 +441,26 @@ export async function updateLivrable(livrableId, fields) {
 }
 
 /**
+ * MUSIQUES MUS-6.7 — Toggle/set le flag hidden_in_musique d'un livrable.
+ * Affecte tout le monde (masquage global) dans toute la chaîne musique
+ * (vue Attribution, picker drawer prop, dashboard widgets). N'affecte pas
+ * la visibilité du livrable dans le module Livrables natif.
+ *
+ * @param {string} livrableId
+ * @param {boolean} hidden
+ */
+export async function setLivrableHiddenInMusique(livrableId, hidden) {
+  const { data, error } = await supabase
+    .from('livrables')
+    .update({ hidden_in_musique: Boolean(hidden) })
+    .eq('id', livrableId)
+    .select('id, hidden_in_musique')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
  * Bulk update : applique le même patch sur N livrables en une seule requête
  * UPDATE … IN (…). C'est la primitive utilisée par `LivrableBulkEditBar`
  * (LIV-14). Whitelist appliquée pour éviter les écritures hors-champ.

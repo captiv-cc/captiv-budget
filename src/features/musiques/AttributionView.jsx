@@ -45,6 +45,8 @@ import {
   Play,
   Pause,
   ArrowUpDown,
+  EyeOff,
+  Eye,
 } from 'lucide-react'
 import {
   linkPropositionToLivrable,
@@ -53,6 +55,7 @@ import {
   STATUT_COLORS,
   STATUT_LOCAL_COLORS,
 } from '../../lib/musiques'
+import { setLivrableHiddenInMusique } from '../../lib/livrables'
 import { notify } from '../../lib/notify'
 
 // Tri du vrac dans la vue Attribution. Note desc en défaut (logique de
@@ -179,17 +182,50 @@ export default function AttributionView({
     return sorted
   }, [propositions, vracSearch, vracSort, aggregates])
 
-  // ─── Livrables groupés par bloc ─────────────────────────────────────────
+  // ─── Livrables groupés par bloc (hors masqués) ──────────────────────────
+  // MUS-6.7 : on filtre les livrables hidden_in_musique pour ne pas
+  // les afficher dans la grille principale. Ils restent comptés à part
+  // pour le badge "+N masqués".
+  const visibleLivrables = useMemo(
+    () => livrables.filter((l) => !l.hidden_in_musique),
+    [livrables],
+  )
+  const hiddenLivrables = useMemo(
+    () => livrables.filter((l) => l.hidden_in_musique),
+    [livrables],
+  )
   const livrablesByBlock = useMemo(() => {
     const m = new Map()
-    for (const l of livrables) {
+    for (const l of visibleLivrables) {
       if (!m.has(l.block_id)) m.set(l.block_id, [])
       m.get(l.block_id).push(l)
     }
     return blocks
       .map((b) => ({ block: b, items: m.get(b.id) || [] }))
       .filter((g) => g.items.length > 0)
-  }, [livrables, blocks])
+  }, [visibleLivrables, blocks])
+
+  // ─── Toggle hide / show livrable (MUS-6.7) ──────────────────────────────
+  const handleToggleHidden = useCallback(
+    async (livrable) => {
+      if (!livrable?.id || !canEdit) return
+      const next = !livrable.hidden_in_musique
+      try {
+        await setLivrableHiddenInMusique(livrable.id, next)
+        notify.success(
+          next
+            ? `${livrable.nom || 'Livrable'} masqué de la chaîne musique`
+            : `${livrable.nom || 'Livrable'} réaffiché`,
+          false,
+        )
+        onMutated?.()
+      } catch (e) {
+        console.warn('[Attribution] toggleHidden failed', e)
+        notify.error(e?.message || 'Toggle impossible')
+      }
+    },
+    [canEdit, onMutated],
+  )
 
   // ─── Multi-sélection ─────────────────────────────────────────────────────
   const toggleSelected = useCallback((id) => {
@@ -323,11 +359,13 @@ export default function AttributionView({
       {/* ─── PANNEAU LIVRABLES (droite) ─────────────────────────────── */}
       <LivrablesPanel
         livrablesByBlock={livrablesByBlock}
+        hiddenLivrables={hiddenLivrables}
         linksByLivrable={linksByLivrable}
         propositionsById={propositionsById}
         hoverPropId={hoverPropId}
         hoverLivrableId={hoverLivrableId}
         canEdit={canEdit}
+        onToggleHidden={handleToggleHidden}
         onDragOver={(e, livrableId) => {
           if (draggingIds.size > 0) {
             e.preventDefault()
@@ -795,11 +833,13 @@ function VracItem({
 // ─── LivrablesPanel ──────────────────────────────────────────────────────
 function LivrablesPanel({
   livrablesByBlock,
+  hiddenLivrables = [],
   linksByLivrable,
   propositionsById,
   hoverPropId,
   hoverLivrableId,
   canEdit,
+  onToggleHidden,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -807,6 +847,7 @@ function LivrablesPanel({
   onLinkDragEnd,
   onOpenDetail,
 }) {
+  const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false)
   // Set des livrable_ids où la track hover est déjà liée — pour halo
   const livrablesHoverLinked = useMemo(() => {
     if (!hoverPropId) return new Set()
@@ -847,6 +888,131 @@ function LivrablesPanel({
         padding: 8,
       }}
     >
+      {/* MUS-6.7 : badge "+N masqués" — visible si au moins 1 livrable
+          est marqué hidden_in_musique. Cliquable pour ouvrir un panneau
+          listant les masqués avec bouton ré-afficher par item. */}
+      {hiddenLivrables.length > 0 && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: 0,
+            background: 'transparent',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setHiddenPanelOpen((v) => !v)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 8px',
+              fontSize: 11,
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-3)',
+              border: '1px dashed var(--brd-sub)',
+              borderRadius: 10,
+              cursor: 'pointer',
+            }}
+          >
+            <EyeOff size={11} />
+            {hiddenLivrables.length} masqué
+            {hiddenLivrables.length > 1 ? 's' : ''}
+            <span style={{ opacity: 0.6, marginLeft: 2 }}>
+              {hiddenPanelOpen ? '▲' : '▼'}
+            </span>
+          </button>
+          {hiddenPanelOpen && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: 8,
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--brd-sub)',
+                borderRadius: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 9,
+                  color: 'var(--txt-3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
+                  marginBottom: 2,
+                }}
+              >
+                Livrables masqués de la chaîne musique
+              </div>
+              {hiddenLivrables.map((l) => (
+                <div
+                  key={l.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 6px',
+                    background: 'var(--bg-surf)',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: 'var(--txt-2)',
+                  }}
+                >
+                  <span
+                    style={{
+                      color: 'var(--txt-3)',
+                      fontVariantNumeric: 'tabular-nums',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {l.numero}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {l.nom}
+                  </span>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleHidden?.(l)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        padding: '2px 6px',
+                        background: 'transparent',
+                        border: '1px solid var(--brd-sub)',
+                        borderRadius: 4,
+                        color: 'var(--txt-2)',
+                        fontSize: 10,
+                        cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--bg-hov)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      <Eye size={9} />
+                      Réafficher
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div
         style={{
           display: 'flex',
@@ -898,6 +1064,7 @@ function LivrablesPanel({
                   hover={hoverLivrableId === l.id}
                   alreadyLinkedToHover={livrablesHoverLinked.has(l.id)}
                   canEdit={canEdit}
+                  onToggleHidden={() => onToggleHidden?.(l)}
                   onDragOver={(e) => onDragOver?.(e, l.id)}
                   onDragLeave={() => onDragLeave?.(l.id)}
                   onDrop={() => onDrop?.(l.id)}
@@ -923,6 +1090,7 @@ function LivrableColumn({
   hover,
   alreadyLinkedToHover,
   canEdit,
+  onToggleHidden,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -930,6 +1098,7 @@ function LivrableColumn({
   onLinkDragEnd,
   onOpenDetail,
 }) {
+  const [headerHover, setHeaderHover] = useState(false)
   return (
     <div
       onDragOver={onDragOver}
@@ -962,6 +1131,8 @@ function LivrableColumn({
     >
       {/* Header */}
       <div
+        onMouseEnter={() => setHeaderHover(true)}
+        onMouseLeave={() => setHeaderHover(false)}
         style={{
           padding: '5px 8px',
           borderBottom: '1px solid var(--brd-sub)',
@@ -995,6 +1166,39 @@ function LivrableColumn({
         >
           {l.nom}
         </span>
+        {/* MUS-6.7 : bouton EyeOff hover-only pour masquer ce livrable
+            de la chaîne musique (action globale, gated par canEdit). */}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleHidden?.()
+            }}
+            title="Masquer ce livrable de la chaîne musique"
+            aria-label="Masquer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+              padding: 0,
+              opacity: headerHover ? 0.7 : 0,
+              transition: 'opacity 80ms',
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = headerHover ? '0.7' : '0'
+            }}
+          >
+            <EyeOff size={11} />
+          </button>
+        )}
         <span
           style={{
             fontSize: 10,

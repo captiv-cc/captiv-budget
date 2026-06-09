@@ -1709,9 +1709,12 @@ function LivrablesPickerModal({
   }, [existingLinks])
 
   // Filtrage + groupage par bloc
+  // MUS-6.7 : on exclut les livrables marqués hidden_in_musique
+  // (masquage global) — ils ne doivent pas apparaître dans le picker.
   const filteredByBlock = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = livrables.filter((l) => {
+      if (l.hidden_in_musique) return false
       if (!q) return true
       const text = `${l.numero || ''} ${l.nom || ''} ${l.format || ''}`.toLowerCase()
       return text.includes(q)
