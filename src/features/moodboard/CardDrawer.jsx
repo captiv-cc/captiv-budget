@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Send,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import {
   updateCard,
@@ -27,6 +28,7 @@ import {
   addComment,
   removeComment,
   toggleReaction,
+  refreshLinkCard,
   REACTIONS,
   REACTION_EMOJI,
   REACTION_LABELS,
@@ -48,6 +50,7 @@ export default function CardDrawer({
   const [draft, setDraft] = useState({})
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [newComment, setNewComment] = useState('')
   const [postingComment, setPostingComment] = useState(false)
 
@@ -143,6 +146,20 @@ export default function CardDrawer({
       onMutated?.()
     } catch (e) {
       notify.error(e?.message || 'Suppression KO')
+    }
+  }
+
+  async function handleRefreshPreview() {
+    if (!canEdit) return
+    setRefreshing(true)
+    try {
+      await refreshLinkCard(card)
+      notify.success('Preview rafraîchi', false)
+      onMutated?.()
+    } catch (e) {
+      notify.error(e?.message || 'Rafraîchissement KO')
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -506,6 +523,34 @@ export default function CardDrawer({
           >
             <CreatorInfo card={card} />
             <div style={{ flex: 1 }} />
+            {canEdit && card.type === 'link' && (
+              <button
+                type="button"
+                onClick={handleRefreshPreview}
+                disabled={refreshing || saving}
+                title="Re-fetch les metadata depuis l'URL source (utile après une mise à jour de l'Edge Function og-fetch)"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '4px 8px',
+                  background: 'transparent',
+                  color: 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  cursor: refreshing ? 'not-allowed' : 'pointer',
+                  marginRight: 6,
+                }}
+              >
+                {refreshing ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={12} />
+                )}
+                Rafraîchir le preview
+              </button>
+            )}
             {canEdit && (
               <button
                 type="button"

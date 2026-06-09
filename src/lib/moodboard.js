@@ -55,6 +55,7 @@
 //
 //   og-fetch :
 //     - fetchUrlMetadata(url)
+//     - refreshLinkCard(card)        // rafraîchit oembed_html + image_url
 //
 //   Paste-anywhere :
 //     - extractUrlsFromText(text)
@@ -680,6 +681,36 @@ export async function fetchUrlMetadata(url) {
     throw new Error(`og-fetch HTTP ${res.status}: ${text}`)
   }
   return await res.json()
+}
+
+/**
+ * Rafraîchit le preview d'une carte type 'link' : ré-appelle og-fetch sur
+ * son URL et patch image_url + oembed_html + provider + title si vide.
+ *
+ * Utile après un changement côté Edge Function (nouveau provider supporté)
+ * pour mettre à jour les cartes existantes sans les supprimer/recréer.
+ *
+ * @param {object} card  La carte (au minimum { id, url, type, title })
+ * @returns {Promise<object>} La carte mise à jour
+ */
+export async function refreshLinkCard(card) {
+  if (!card?.url) throw new Error('Pas d\'URL à rafraîchir')
+  if (card.type !== 'link') throw new Error('Seules les cartes link sont rafraîchissables')
+  const meta = await fetchUrlMetadata(card.url)
+  const patch = {
+    image_url: meta?.image_url || null,
+    oembed_html: meta?.oembed_html || null,
+    provider: meta?.provider || null,
+  }
+  // On ne overwrite le title que s'il était identique à l'URL (= jamais
+  // édité par l'utilisateur). Sinon on garde son édition manuelle.
+  if (meta?.title && (!card.title || card.title === card.url)) {
+    patch.title = meta.title
+  }
+  if (meta?.description && !card.description) {
+    patch.description = meta.description
+  }
+  return await updateCard(card.id, patch)
 }
 
 // ─── Paste-anywhere helpers ───────────────────────────────────────────────

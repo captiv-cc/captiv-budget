@@ -160,9 +160,14 @@ function buildDirectEmbed(
   targetUrl: string,
 ): { oembed_html: string; title?: string } | null {
   if (provider === 'instagram') {
-    // /p/SHORTCODE/, /reel/SHORTCODE/, /tv/SHORTCODE/
+    // Patterns Instagram (le 1er match l'emporte) :
+    //   /p/SHORTCODE/        : post classique
+    //   /reel/SHORTCODE/     : reel (singulier — partage iOS)
+    //   /reels/SHORTCODE/    : reel (pluriel — partage web)
+    //   /tv/SHORTCODE/       : IGTV
+    // Tous redirigent vers /p/SHORTCODE/embed/captioned/ qui marche.
     const m = targetUrl.match(
-      /instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/,
+      /instagram\.com\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/,
     )
     if (!m) return null
     const shortcode = m[1]
