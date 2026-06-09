@@ -767,20 +767,26 @@ export function computeAggregates(notes, tags, currentUserId, comments = []) {
 // MUS-6.2 — Helpers livrable_link (N:M proposition ↔ livrable)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Cycle de vie statut LOCAL (par couple track+livrable). Volontairement
-// minimal pour MUS-6 — le tunnel droits/labels viendra dans MUS-7.
-export const STATUTS_LOCAL = ['propose', 'valide_client', 'refuse_client']
+// Cycle de vie statut LOCAL par couple track+livrable (MUS-6.8 — refonte
+// en 3 stades internes). La validation client + droits/labels vivront à
+// part dans l'onglet "Autorisations" futur (pas de migration BDD ici).
+//
+//   proposition : track candidate pour ce livrable (par défaut au link)
+//   choix       : shortlist — on l'a retenue comme candidate sérieuse
+//   valide      : tranchée — c'est celle qui sera utilisée dans le livrable
+export const STATUTS_LOCAL = ['proposition', 'choix', 'valide']
 export const STATUT_LOCAL_LABELS = {
-  propose: 'Proposé',
-  valide_client: 'Validé client',
-  refuse_client: 'Refusé client',
+  proposition: 'Proposition',
+  choix: 'Choix',
+  valide: 'Validé',
 }
-// Palette cohérente avec STATUT_COLORS (vert pour OK, rouge pour KO,
-// neutre pour "en attente"). Permet le scanning rapide dans la setlist.
+// Palette : progression visuelle neutre → bleu (engagement) → vert (final).
+// Cohérente avec le funnel à l'œil. Permet le scanning rapide dans les
+// vues setlist / livrable.
 export const STATUT_LOCAL_COLORS = {
-  propose: { bg: 'rgba(148,163,184,0.18)', fg: 'var(--txt-2)' },
-  valide_client: { bg: 'rgba(34,197,94,0.2)', fg: '#16A34A' },
-  refuse_client: { bg: 'rgba(239,68,68,0.18)', fg: '#EF4444' },
+  proposition: { bg: 'rgba(148,163,184,0.18)', fg: 'var(--txt-2)' },
+  choix: { bg: 'rgba(59,130,246,0.18)', fg: 'var(--blue, #3B82F6)' },
+  valide: { bg: 'rgba(34,197,94,0.2)', fg: '#16A34A' },
 }
 
 /**
@@ -964,7 +970,7 @@ export async function linkPropositionToLivrable(
       livrable_id: livrableId,
       ordre,
       remarque: opts.remarque || null,
-      statut_local: opts.statut_local || 'propose',
+      statut_local: opts.statut_local || 'proposition',
       created_by: userId,
     })
     .select('*')

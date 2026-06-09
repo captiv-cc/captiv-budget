@@ -45,10 +45,9 @@ import {
   Tag as TagIcon,
   ArrowUpDown,
   LayoutGrid,
-  List as ListIcon,
-  Columns as ColumnsIcon,
-  LayoutDashboard,
   Film,
+  Clapperboard,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -79,9 +78,8 @@ import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
 import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
-import PipelineView from '../../features/musiques/PipelineView'
-import DashboardView from '../../features/musiques/DashboardView'
 import AttributionView from '../../features/musiques/AttributionView'
+import LivrablesView from '../../features/musiques/LivrablesView'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 
@@ -120,22 +118,20 @@ export default function MusiquesTab() {
   //     non-null (= quelqu'un a déjà réordonné le projet) → 'manual'
   //     pour voir l'ordre partagé
   //   - Sinon : 'created_desc' (les plus récentes d'abord)
-  // MUS-5.1 / MUS-6.4 : view mode (list/pipeline/dashboard/attribution)
-  // persisté par projet
+  // View mode persisté par projet. MUS-6.8 : refonte des onglets.
+  //   vrac        → liste des propositions (ex 'list')
+  //   attribution → vue split vrac ↔ livrables (Kanban léger)
+  //   livrables   → détail par livrable avec 3 sections (proposition/choix/valide)
+  //   autorisations → futur tunnel validation client + droits/labels (disabled)
+  // Anciens 'list', 'pipeline', 'dashboard' migrés automatiquement à 'vrac'.
   const VIEW_KEY = `musiques.view.${projectId || 'global'}`
   const [viewMode, setViewModeRaw] = useState(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY)
-      if (
-        v === 'pipeline' ||
-        v === 'dashboard' ||
-        v === 'attribution'
-      ) {
-        return v
-      }
-      return 'list'
+      if (v === 'attribution' || v === 'livrables') return v
+      return 'vrac'
     } catch {
-      return 'list'
+      return 'vrac'
     }
   })
   const setViewMode = useCallback(
@@ -952,16 +948,10 @@ export default function MusiquesTab() {
           Vue
         </span>
         <ViewToggle
-          active={viewMode === 'list'}
-          icon={ListIcon}
-          label="Liste"
-          onClick={() => setViewMode('list')}
-        />
-        <ViewToggle
-          active={viewMode === 'pipeline'}
-          icon={ColumnsIcon}
-          label="Pipeline"
-          onClick={() => setViewMode('pipeline')}
+          active={viewMode === 'vrac'}
+          icon={Inbox}
+          label="Vrac"
+          onClick={() => setViewMode('vrac')}
         />
         <ViewToggle
           active={viewMode === 'attribution'}
@@ -970,10 +960,17 @@ export default function MusiquesTab() {
           onClick={() => setViewMode('attribution')}
         />
         <ViewToggle
-          active={viewMode === 'dashboard'}
-          icon={LayoutDashboard}
-          label="Dashboard"
-          onClick={() => setViewMode('dashboard')}
+          active={viewMode === 'livrables'}
+          icon={Clapperboard}
+          label="Livrables"
+          onClick={() => setViewMode('livrables')}
+        />
+        <ViewToggle
+          active={false}
+          icon={ShieldCheck}
+          label="Autorisations"
+          disabled
+          badge="à venir"
         />
       </div>
 
@@ -1034,7 +1031,7 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Bulk action bar (MUS-3.3) — sticky overlay (MUS-3.4) ─────── */}
-      {selectedIds.size > 0 && viewMode === 'list' && (
+      {selectedIds.size > 0 && viewMode === 'vrac' && (
         <div
           style={{
             position: 'sticky',
@@ -1218,7 +1215,7 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Empty state filtres (a des propositions mais filtres masquent) ── */}
-      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && viewMode !== 'dashboard' && viewMode !== 'attribution' && (
+      {!loading && propositions.length > 0 && visiblePropositions.length === 0 && viewMode === 'vrac' && (
         <div
           style={{
             padding: '32px 12px',
@@ -1249,18 +1246,6 @@ export default function MusiquesTab() {
         </div>
       )}
 
-      {/* ─── Pipeline view (MUS-5.2) ──────────────────────────────────── */}
-      {!loading && visiblePropositions.length > 0 && viewMode === 'pipeline' && (
-        <PipelineView
-          propositions={visiblePropositions}
-          aggregates={aggregates}
-          canEdit={canEdit}
-          currentUserId={user?.id || null}
-          onMutated={refetch}
-          onOpenDetail={(p) => setDetailPropId(p.id)}
-        />
-      )}
-
       {/* ─── Attribution view (MUS-6.4) ──────────────────────────────── */}
       {!loading && viewMode === 'attribution' && (
         <AttributionView
@@ -1280,21 +1265,27 @@ export default function MusiquesTab() {
         />
       )}
 
-      {/* ─── Dashboard view (MUS-5.3) ─────────────────────────────────── */}
-      {!loading && propositions.length > 0 && viewMode === 'dashboard' && (
-        <DashboardView
+      {/* ─── Livrables view (MUS-6.8.c) ──────────────────────────────── */}
+      {!loading && viewMode === 'livrables' && (
+        <LivrablesView
           propositions={propositions}
           aggregates={aggregates}
-          onOpenDetail={(p) => setDetailPropId(p.id)}
-          onClickStatut={(s) => {
-            setFilterStatut(s)
-            setViewMode('list')
+          livrables={livrablesList}
+          blocks={blocksList}
+          links={linksList}
+          canEdit={canEdit}
+          playingId={playingId}
+          onTogglePlay={togglePlay}
+          onMutated={() => {
+            refetchAttribution()
+            refetch()
           }}
+          onOpenDetail={(p) => setDetailPropId(p.id)}
         />
       )}
 
-      {/* ─── Liste propositions (PropositionRow — MUS-1.11) ──────────── */}
-      {!loading && visiblePropositions.length > 0 && viewMode === 'list' && (
+      {/* ─── Vrac (liste propositions — MUS-1.11) ────────────────────── */}
+      {!loading && visiblePropositions.length > 0 && viewMode === 'vrac' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {groupedView.map((group) => (
             <div
@@ -1612,20 +1603,37 @@ function StatPill({
 // ─── ViewToggle (MUS-5.1) — bouton onglet de vue ─────────────────────────
 // Pattern aligné Livrables : pill compact avec icône + label, accent
 // bleu quand actif.
-function ViewToggle({ active, icon: Icon, label, onClick }) {
+function ViewToggle({ active, icon: Icon, label, onClick, disabled, badge }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md shrink-0 transition-all focus:outline-none"
       style={{
         background: active ? 'var(--blue-bg)' : 'var(--bg-elev)',
         color: active ? 'var(--blue)' : 'var(--txt-2)',
         border: `1px solid ${active ? 'var(--blue)' : 'var(--brd)'}`,
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
+      title={disabled ? (badge ? `${label} — ${badge}` : label) : undefined}
     >
       {Icon && <Icon className="w-3.5 h-3.5" />}
       <span>{label}</span>
+      {badge && (
+        <span
+          className="text-[9px] font-semibold uppercase tracking-wider"
+          style={{
+            padding: '1px 5px',
+            background: 'var(--bg-2, var(--bg-elev))',
+            color: 'var(--txt-3)',
+            borderRadius: 4,
+          }}
+        >
+          {badge}
+        </span>
+      )}
     </button>
   )
 }
