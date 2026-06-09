@@ -58,6 +58,24 @@ import {
 import { setLivrableHiddenInMusique } from '../../lib/livrables'
 import { notify } from '../../lib/notify'
 
+// Helper : format compact du jour de présence artiste pour mini-pill
+// ("Vendredi 21 août" → "Ven 21", "Day 1" → "Day 1"). Renvoie null si
+// pas de jour.
+function formatJourShort(jour) {
+  if (!jour) return null
+  const trimmed = jour.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(/\s+/)
+  const first = parts[0] || ''
+  const second = parts[1] || ''
+  // Si le premier mot fait <=4 chars (Day, J1, etc) → garder tel quel
+  // sinon abréger à 3 lettres ("Vendredi" → "Ven")
+  const day = first.length <= 4 ? first : first.slice(0, 3)
+  // Si le 2e mot est un numéro → l'inclure
+  if (second && /^\d+/.test(second)) return `${day} ${second.match(/^\d+/)[0]}`
+  return day
+}
+
 // Tri du vrac dans la vue Attribution. Note desc en défaut (logique de
 // triage : on commence par les meilleures).
 const SORT_OPTIONS = [
@@ -685,10 +703,12 @@ function VracItem({
         {selected ? <CheckSquare size={13} /> : <Square size={13} />}
       </button>
 
-      {/* Cover + bouton play overlay (visible si preview_url existe). Le
-          bouton est toujours visible (pas seulement au hover) pour ne pas
-          faire frotter avec le drag-detection au mouseenter. Pastille
-          orange compacte 18px qui ressort quel que soit le fond. */}
+      {/* Cover + bouton play overlay. La cover est légèrement floutée
+          (backdrop-filter) sous l'overlay sombre subtil pour que la
+          pastille play blanche ressorte sur n'importe quelle pochette
+          sans clasher (notamment sur une cover orange comme PARCELS).
+          Pastille play blanche unie + icône orange pour rappeler
+          discrètement l'identité Deezer. */}
       <div
         style={{
           position: 'relative',
@@ -700,6 +720,7 @@ function VracItem({
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           flexShrink: 0,
+          overflow: 'hidden',
         }}
       >
         {p.preview_url && (
@@ -720,8 +741,9 @@ function VracItem({
               borderRadius: 3,
               cursor: 'pointer',
               padding: 0,
-              background:
-                'linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.45))',
+              background: 'rgba(0,0,0,0.30)',
+              backdropFilter: 'blur(1.5px)',
+              WebkitBackdropFilter: 'blur(1.5px)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -732,22 +754,21 @@ function VracItem({
                 width: 18,
                 height: 18,
                 borderRadius: '50%',
-                background: '#FF6E37',
-                color: 'white',
+                background: 'white',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow:
-                  '0 1px 4px rgba(0,0,0,0.45), 0 0 0 1.5px rgba(255,255,255,0.85)',
+                  '0 1px 3px rgba(0,0,0,0.35)',
               }}
             >
               {isPlaying ? (
-                <Pause size={9} fill="white" />
+                <Pause size={9} fill="#FF6E37" style={{ color: '#FF6E37' }} />
               ) : (
                 <Play
                   size={9}
-                  fill="white"
-                  style={{ marginLeft: 0.5 }}
+                  fill="#FF6E37"
+                  style={{ color: '#FF6E37', marginLeft: 0.5 }}
                 />
               )}
             </span>
@@ -778,6 +799,29 @@ function VracItem({
             alignItems: 'center',
           }}
         >
+          {/* MUS-6.4 polish : mini-pill jour de présence de l'artiste si
+              connue (récupéré via projet_artistes). Bleue cohérent avec
+              le badge "Joue Vendredi" du drawer. */}
+          {p.artiste?.jour && (
+            <span
+              style={{
+                padding: '0 4px',
+                background: 'rgba(59,130,246,0.14)',
+                color: 'var(--blue, #3B82F6)',
+                borderRadius: 3,
+                fontWeight: 600,
+                fontSize: 8,
+                lineHeight: '12px',
+              }}
+              title={
+                p.artiste.scene
+                  ? `Joue ${p.artiste.jour} · ${p.artiste.scene}`
+                  : `Joue ${p.artiste.jour}`
+              }
+            >
+              {formatJourShort(p.artiste.jour)}
+            </span>
+          )}
           {agg.noteCount > 0 && (
             <span
               style={{
@@ -1300,6 +1344,28 @@ function LivrableColumn({
                   <span style={{ fontWeight: 500 }}>{artistName}</span>
                   <span style={{ color: 'var(--txt-3)' }}> · {p.titre}</span>
                 </span>
+                {/* MUS-6.4 polish : mini-pill jour cohérent avec le vrac */}
+                {p.artiste?.jour && (
+                  <span
+                    style={{
+                      padding: '0 4px',
+                      background: 'rgba(59,130,246,0.14)',
+                      color: 'var(--blue, #3B82F6)',
+                      borderRadius: 3,
+                      fontWeight: 600,
+                      fontSize: 8,
+                      lineHeight: '12px',
+                      flexShrink: 0,
+                    }}
+                    title={
+                      p.artiste.scene
+                        ? `Joue ${p.artiste.jour} · ${p.artiste.scene}`
+                        : `Joue ${p.artiste.jour}`
+                    }
+                  >
+                    {formatJourShort(p.artiste.jour)}
+                  </span>
+                )}
               </div>
             )
           })

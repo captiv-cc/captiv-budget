@@ -516,9 +516,12 @@ export default function PropositionDetailDrawer({
                   style={{
                     position: 'absolute',
                     inset: 0,
-                    // Voile sombre subtil pour faire ressortir le bouton
-                    background:
-                      'linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.4))',
+                    // MUS-6.4 polish : cover floutée + bouton blanc pour
+                    // que la pastille ressorte sur n'importe quelle cover
+                    // sans clasher (notamment cover orange).
+                    background: 'rgba(0,0,0,0.30)',
+                    backdropFilter: 'blur(2px)',
+                    WebkitBackdropFilter: 'blur(2px)',
                     border: 'none',
                     borderRadius: 5,
                     cursor: 'pointer',
@@ -528,32 +531,26 @@ export default function PropositionDetailDrawer({
                     padding: 0,
                   }}
                 >
-                  {/* Pastille play visible quelle que soit la cover :
-                      pill orange + icône blanche, ombre marquée. */}
                   <span
                     style={{
                       width: 28,
                       height: 28,
                       borderRadius: '50%',
-                      background: '#FF6E37',
-                      color: 'white',
+                      background: 'white',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      boxShadow:
-                        '0 2px 8px rgba(0,0,0,0.45), 0 0 0 2px rgba(255,255,255,0.85)',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
                       transition: 'transform 80ms',
                     }}
                   >
                     {isPlaying ? (
-                      <Pause size={14} fill="white" />
+                      <Pause size={14} fill="#FF6E37" style={{ color: '#FF6E37' }} />
                     ) : (
                       <Play
                         size={14}
-                        fill="white"
-                        // Décale le triangle d'1px à droite pour qu'il soit
-                        // optiquement centré (le glyphe Play est lourd à gauche).
-                        style={{ marginLeft: 1 }}
+                        fill="#FF6E37"
+                        style={{ color: '#FF6E37', marginLeft: 1 }}
                       />
                     )}
                   </span>
