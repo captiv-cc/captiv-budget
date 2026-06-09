@@ -35,6 +35,8 @@ export default function LivrableBlockList({
   canEdit = true,
   onOpenVersions,
   onOpenEtapes,
+  onOpenMusiques,
+  musiquesCountByLivrable,
   // LIV-14 — bulk select
   selectedIds,
   onToggleSelect,
@@ -84,6 +86,8 @@ export default function LivrableBlockList({
           etapesByLivrable={etapesByLivrable}
           onOpenVersions={onOpenVersions}
           onOpenEtapes={onOpenEtapes}
+          onOpenMusiques={onOpenMusiques}
+          musiquesCountByLivrable={musiquesCountByLivrable}
           selectedIds={selectedIds}
           onToggleSelect={onToggleSelect}
           onSelectBlock={onSelectBlock}

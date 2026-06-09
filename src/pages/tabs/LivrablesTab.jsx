@@ -58,6 +58,7 @@ import {
 import { listEventTypes } from '../../lib/planning'
 import { listOrgProfiles, indexProfilesById } from '../../lib/profiles'
 import { listProjectLots } from '../../lib/livrables'
+import { listAllLinks, subscribeLinks } from '../../lib/musiques'
 import LivrableBlockList from '../../features/livrables/components/LivrableBlockList'
 import LivrableDetailsDrawer from '../../features/livrables/components/LivrableDetailsDrawer'
 import BulkActionBar from '../../features/livrables/components/BulkActionBar'
@@ -604,6 +605,42 @@ export default function LivrablesTab() {
     setDetailsDrawerInitialTab('etapes')
     setDetailsDrawerLivrableId(livrable.id)
   }, [])
+  const handleOpenMusiques = useCallback((livrable) => {
+    if (!livrable?.id) return
+    setDetailsDrawerInitialTab('musiques')
+    setDetailsDrawerLivrableId(livrable.id)
+  }, [])
+
+  // MUS cross-module : compteur musiques liées par livrable (badge dans la
+  // colonne Détails). Fetch tous les liens du projet une fois + Realtime
+  // pour rafraîchir quand quelqu'un ajoute/retire un lien depuis Musiques.
+  const [musiqueLinks, setMusiqueLinks] = useState([])
+  const refetchMusiqueLinks = useCallback(async () => {
+    if (!projectId) return
+    try {
+      const data = await listAllLinks(projectId)
+      setMusiqueLinks(data || [])
+    } catch (e) {
+      // Silencieux : l'utilisateur peut très bien ne pas avoir le module
+      // musiques activé. On retombe sur 0 partout.
+      console.warn('[LivrablesTab] musique links fetch failed', e)
+    }
+  }, [projectId])
+  useEffect(() => {
+    refetchMusiqueLinks()
+  }, [refetchMusiqueLinks])
+  useEffect(() => {
+    if (!projectId) return undefined
+    const sub = subscribeLinks(projectId, () => refetchMusiqueLinks())
+    return () => sub.unsubscribe()
+  }, [projectId, refetchMusiqueLinks])
+  const musiquesCountByLivrable = useMemo(() => {
+    const m = new Map()
+    for (const lk of musiqueLinks) {
+      m.set(lk.livrable_id, (m.get(lk.livrable_id) || 0) + 1)
+    }
+    return m
+  }, [musiqueLinks])
   const handleCloseDetailsDrawer = useCallback(() => {
     setDetailsDrawerLivrableId(null)
   }, [])
@@ -804,6 +841,8 @@ export default function LivrablesTab() {
             canEdit={canEdit}
             onOpenVersions={handleOpenVersions}
             onOpenEtapes={handleOpenEtapes}
+            onOpenMusiques={handleOpenMusiques}
+            musiquesCountByLivrable={musiquesCountByLivrable}
             selectedIds={selectedIds}
             onToggleSelect={canEdit ? handleToggleSelect : undefined}
             onSelectBlock={canEdit ? handleSelectBlock : undefined}

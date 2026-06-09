@@ -71,6 +71,9 @@ export default function LivrableBlockCard({
   etapesByLivrable,    // Map<livrableId, etape[]>
   onOpenVersions,      // (livrable) => void
   onOpenEtapes,        // (livrable) => void
+  onOpenMusiques,      // (livrable) => void — MUS cross-module
+  musiquesCountByLivrable, // Map<livrableId, number>
+
   // LIV-14 — bulk select
   selectedIds,         // Set<string> (sélection cross-blocs)
   onToggleSelect,      // (livrableId, { shiftKey }) => void
@@ -809,8 +812,10 @@ export default function LivrableBlockCard({
                     onEditNotes={handleEditNotes}
                     versions={versionsByLivrable?.get(l.id) || []}
                     etapes={etapesByLivrable?.get(l.id) || []}
+                    musiquesCount={musiquesCountByLivrable?.get?.(l.id) || 0}
                     onOpenVersions={onOpenVersions}
                     onOpenEtapes={onOpenEtapes}
+                    onOpenMusiques={onOpenMusiques}
                     selected={selectedIds?.has(l.id) || false}
                     profiles={profiles}
                     profilesById={profilesById}

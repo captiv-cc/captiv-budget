@@ -44,6 +44,7 @@ import {
   Link2,
   ListTodo,
   MoreHorizontal,
+  Music,
   StickyNote,
   Trash2,
 } from 'lucide-react'
@@ -69,6 +70,8 @@ export default function LivrableRow({
   etapes = [],
   onOpenVersions,
   onOpenEtapes,
+  onOpenMusiques,
+  musiquesCount = 0,
   // LIV-14 — bulk select
   selected = false,
   onToggleSelect,
@@ -382,9 +385,13 @@ export default function LivrableRow({
         />
       </td>
 
-      {/* Détails — 2 badges : versions + étapes (LIV-8 + LIV-9) */}
-      <td className="px-2 py-1.5 align-middle" style={{ width: '130px' }}>
-        <div className="flex items-center gap-1">
+      {/* Détails — 3 badges : versions + étapes + musiques (LIV-8 + LIV-9
+          + MUS cross-module). Le badge musique n'apparaît que si le
+          livrable a au moins une track liée (sinon trop de visuel pour
+          rien — l'utilisateur peut toujours ajouter via le drawer ou la
+          vue Attribution du module Musiques). */}
+      <td className="px-2 py-1.5 align-middle" style={{ width: '160px' }}>
+        <div className="flex items-center gap-1 flex-wrap">
           <VersionsTrigger
             label={latestVersionLabel}
             count={versionsCount}
@@ -396,6 +403,12 @@ export default function LivrableRow({
             onClick={() => onOpenEtapes?.(livrable)}
             canEdit={canEdit}
           />
+          {musiquesCount > 0 && (
+            <MusiquesTrigger
+              count={musiquesCount}
+              onClick={() => onOpenMusiques?.(livrable)}
+            />
+          )}
         </div>
       </td>
 
@@ -604,6 +617,30 @@ function EtapesTrigger({ count, onClick, canEdit }) {
       title={`${count} étape${count > 1 ? 's' : ''} — cliquer pour voir le pipeline`}
     >
       <ListTodo className="w-3 h-3 shrink-0" />
+      <span className="font-mono">{count}</span>
+    </button>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// MusiquesTrigger — badge cliquable pour ouvrir le drawer onglet Musiques
+// ════════════════════════════════════════════════════════════════════════════
+
+function MusiquesTrigger({ count, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-medium"
+      style={{
+        background: 'var(--purple-bg, rgba(156,95,253,0.18))',
+        color: 'var(--purple, #9c5ffd)',
+      }}
+      title={`${count} musique${count > 1 ? 's' : ''} liée${
+        count > 1 ? 's' : ''
+      } — cliquer pour voir la setlist`}
+    >
+      <Music className="w-3 h-3 shrink-0" />
       <span className="font-mono">{count}</span>
     </button>
   )
