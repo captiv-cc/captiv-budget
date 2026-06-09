@@ -1,9 +1,9 @@
-# MOD-1 — Module Moodboard (V1)
+# MOD — Module Moodboard
 
-> **Statut** : cadré, prêt à coder
+> **Statut** : ✅ **V1 livrée** (2026-06-10) — V2 en backlog
 > **Date d'ouverture** : 2026-06-09
 > **Owner** : Hugo MARTIN
-> **Estim V1** : ~5j en 9 tickets
+> **Livrés V1** : 17 tickets (MOD-1.1 → MOD-2.2)
 
 ## Contexte / besoin
 
@@ -223,60 +223,116 @@ Pas de librairie externe pour V1 — implémentation CSS native via
 `column-count` responsive selon résultat visuel. Si insatisfaisant, fallback
 sur `react-masonry-css` (5 Ko gzip).
 
-## Découpe en tickets MOD-1.x
+## Tickets livrés (V1)
 
-| Ticket | Description | Estim |
+| Ticket | Description | Statut |
 |---|---|---|
-| MOD-1.1 | Migration BDD (4 tables + RLS + Realtime publication) | 0.5j |
-| MOD-1.2 | Edge Function `og-fetch` (6 providers + fallback OG) | 1j |
-| MOD-1.3 | Helpers `lib/moodboard.js` (CRUD + realtime + uploads Storage) | 0.5j |
-| MOD-1.4 | Page `MoodboardTab.jsx` + routing + insertion onglet ProjetLayout | 0.5j |
-| MOD-1.5 | Composant `Card.jsx` multi-type (rendu link/image/video/note) | 0.5j |
-| MOD-1.6 | `Section` + `SectionList` + drag-drop entre sections + réordre | 0.5j |
-| MOD-1.7 | `CardDrawer` (commentaires + réactions + meta) | 0.5j |
-| MOD-1.8 | `PasteHandler` (URL paste, file drop, clipboard image) | 0.5j |
-| MOD-1.9 | Lint + tests + commit final + push | 0.25j |
-| **Total** | | **~5j** |
+| MOD-1.1 | Migration BDD (4 tables + RLS + Realtime + bucket Storage) | ✅ |
+| MOD-1.2 | Edge Function `og-fetch` (YouTube/TikTok/Vimeo/Twitter/IG + OG scrape) | ✅ |
+| MOD-1.3 | Helpers `lib/moodboard.js` (CRUD + realtime + uploads + og-fetch) | ✅ |
+| MOD-1.4 | `MoodboardTab.jsx` + routing + insertion onglet ProjetLayout | ✅ |
+| MOD-1.5/6/7/8 | `Card.jsx` + `SectionList` + `CardDrawer` + `PasteHandler` | ✅ |
+| MOD-1.9 | Bouton "+ Ajouter" par section + YouTube full-width + IG/TikTok embed | ✅ |
+| MOD-1.10 | Fix regex Instagram `/reels/` + bouton "Rafraîchir le preview" | ✅ |
+| MOD-1.11 | Fix sizing embed Instagram + TikTok | ✅ |
+| MOD-1.12 | Refonte Insta/TikTok via blockquote + `embed.js` officiel (auto-resize) | ✅ |
+| MOD-1.13 | Fix chevauchement embed via injection impérative `innerHTML` | ✅ |
+| MOD-1.14 | Remplacement `window.confirm` par `lib/confirm` (harmonisation UI) | ✅ |
+| MOD-1.15 | Header drawer informatif + toast loading + avatars + bug fix commentaires + tooltips réactions | ✅ |
+| MOD-2.1 | Tags transversaux (BDD + helpers + chips filtre + section drawer + autocomplete) | ✅ |
+| MOD-2.2 | Polish UX (sticky headers + color picker section + astuce dismissible + note vide engageante) | ✅ |
 
-## Backlog V2 (cadré, pas codé en V1)
+## Rétrospective V1 (2026-06-10)
 
-- **Tags transversaux** : "concept", "lumière", "couleur", "mouvement", "ref client"... filtrage cross-sections
-- **Cross-link card → livrable / musique / artiste** : "cette ref c'est pour la vidéo 14"
-- **Share read-only public** : envoyer le Moodboard à un client/artiste via lien tokenisé (pattern Déroulé share existant)
-- **Canvas libre alternatif** : mode toggle entre sections+masonry et canvas libre infini
+### Ce qui s'est bien passé
+
+- **Pattern paste-first + bouton "+ Ajouter"** couvre les 2 personas (power user clavier vs novice). Adopté immédiatement par Hugo.
+- **embed.js officiel d'Instagram/TikTok** : la bonne décision technique au final. Auto-resize natif + on hérite des updates de Meta. Plus robuste que les iframes directs qu'on avait initialement tentés.
+- **Injection impérative `innerHTML`** (MOD-1.13) : nécessaire pour éviter les conflits entre React et les scripts officiels qui modifient le DOM.
+- **Toast loading sur og-fetch** : transforme une attente silencieuse de 2-3s en feedback rassurant.
+- **lib/confirm + lib/notify** existants réutilisés : cohérence UI immédiate, pas de divergence.
+- **Tags transversaux livrés en V1** plutôt qu'en V2 : valeur immédiate jugée trop forte pour attendre.
+
+### Pivots significatifs en cours de route
+
+1. **Strategy embed Insta/TikTok** : passage de iframe direct (MOD-1.9) → fixed height en pixels (MOD-1.11) → blockquote + script officiel (MOD-1.12) après échec des 2 premières approches. La 3e marche.
+2. **Polish UX en cours d'usage** : header drawer "LINK" jugé peu utile par Hugo → refactor en titre + provider + domain. Commentaires sans avatar = bug (le helper `listAllComments` n'incluait pas le JOIN `author`). Tooltips réactions ajoutés sur demande.
+3. **Scope élargi en cours** : MOD-2 initialement prévu en V2, livré dans la foulée car valeur immédiate (tags + polish UX).
+
+### Limitations connues V1 (à addresser en V2 si besoin)
+
+- **Reels Instagram non lisibles inline** : Instagram bloque délibérément la lecture des vidéos dans leurs iframes d'embed (mesure anti-scrape depuis ~2021). L'utilisateur voit la vignette + caption + likes mais doit cliquer "Regarder sur Instagram" qui ouvre un nouvel onglet. **Pas de workaround sans IG Business token + Graph API**.
+- **Pas de DOMPurify sur oembed_html** : on fait confiance aux providers officiels (YouTube, TikTok, Vimeo, IG via Meta). À ajouter avant tout déploiement avec usage externe public.
+- **Drag-drop HTML5 natif** : marche bien desktop, pas sur mobile. Pas critique pour V1 (usage prod = desktop).
+- **Pas de virtualization** : performances correctes jusqu'à ~100-150 cartes. Au-delà, à reprendre.
+- **Storage non encrypté** : les uploads images/vidéos sont en bucket public. OK pour usage interne, à revoir avant un share public.
+- **`UserAvatar.jsx` exporte un helper non-composant** (`userDisplayName`) → warning Fast Refresh. À extraire dans `utils.js` dédié.
+
+### Stats V1
+
+- **17 tickets livrés** (MOD-1.1 → MOD-2.2)
+- **7 fichiers** : `MoodboardTab.jsx`, `Card.jsx`, `SectionList.jsx`, `CardDrawer.jsx`, `PasteHandler.jsx`, `UserAvatar.jsx`, `lib/moodboard.js`
+- **1 Edge Function** : `og-fetch`
+- **2 migrations BDD** : `20260609e_moodboard_schema.sql` + `20260609f_moodboard_tags.sql`
+- **5 tables BDD** : `sections`, `cards`, `comments`, `reactions`, `tags`
+- **1 bucket Storage** : `moodboard`
+
+## Backlog V2 (priorisé)
+
+### 🔥 Priorité haute (forte valeur pour l'usage réel)
+
+- **Cross-link card → livrable / musique / artiste** : "cette ref c'est pour la vidéo 14" ou "cette palette pour le set DJ X". Briser le silo, intégrer Moodboard au reste de DESK. Affichage croisé dans le drawer Livrable et Musique. → table N:M `projet_moodboard_card_link` + UI bidirectionnelle.
+- **Share read-only public** : envoyer le Moodboard à un client/artiste via lien tokenisé (pattern Déroulé share existant à réutiliser). Le client peut voir + réagir + commenter sans compte. Forte valeur agence (validation directionnelle, retours rapides).
+- **Search globale** : input search dans le header, full-text sur titre + description + body commentaires + tags. À partir de ~50 cartes c'est indispensable.
+- **Notifications / @mentions** : quand un user commente, les autres reçoivent une notif in-app + email (settings utilisateur). Tag `@nom` dans les commentaires pour mentionner. Sans ça, la collab est purement synchrone (Realtime), pas asynchrone.
+
+### 🟢 Priorité moyenne (nice-to-have qui change le ressenti)
+
+- **Loading skeletons** lors des refetches (vs juste un texte "Chargement…")
+- **Lazy loading des images** dans la masonry (intersection observer)
+- **Card types additionnels** :
+  - Color swatch / palette (hex + nom)
+  - Audio snippet (mp3 upload + waveform mini)
+  - File PDF (preview vignette de la 1re page)
+  - Divider / sous-titre (organisation visuelle interne)
+- **AI tagging auto** : Claude Vision sur les images au moment de l'upload pour suggérer des tags ("lumière naturelle", "couleur saturée", "mouvement", "portrait"). Suggestions affichées dans le drawer, l'utilisateur valide.
+- **DOMPurify sur `oembed_html`** avant tout déploiement avec usage externe public.
+- **Mobile UX** : drag-drop HTML5 ne marche pas sur tactile. Plan B : bouton "Déplacer vers…" dans le menu carte pour mobile + AB testing du paste sur input mobile.
+- **Drawer mobile responsive** : sur petit écran, le drawer 640px ne tient pas — pivot vers fullscreen ou sheet bottom.
+
+### 🟡 Priorité basse (V3+ probable)
+
+- **Canvas libre alternatif** : mode toggle entre sections+masonry et canvas libre infini (style Milanote). Gros chantier (~10-15j) avec collab realtime des positions, viewport sync, snap. À évaluer après usage réel.
 - **Lignes / arrows entre cartes** (canvas libre uniquement)
 - **Sub-sections** (sections-in-sections type Milanote)
-- **Search globale** sur titre / description / commentaires / tags
-- **Browser extension capture** (épingler depuis n'importe quel onglet Chrome)
-- **Card types additionnels** : color swatch / palette, audio snippet, file PDF, divider/sous-titre
-- **AI tagging auto** : Claude Vision sur les images pour suggérer tags
+- **Browser extension Chrome** : capture depuis n'importe quel onglet → envoie à un projet Moodboard
+- **Virtualization** des sections pour scale 500+ cartes
+- **Export PDF du moodboard** (snapshot statique pour partage hors-ligne)
+- **Templates de moodboard** (reproduire la structure d'un autre projet)
 
-## Risques et points d'attention
+### 🐛 Polish technique à reprendre
+
+- **Tests vitest** pour les helpers purs (`normalizeTag`, `aggregateReactions`, `tagsByCard`, `extractUrlsFromText`, `calcSortOrderBetween`)
+- **Warning Fast Refresh** sur `UserAvatar.jsx` : extraire `userDisplayName` dans un fichier `utils.js` séparé
+- **Dédup `UserAvatar` vs `ProposerAvatar`** : extraire un composant partagé `src/components/UserAvatar.jsx` réutilisable par Moodboard + Musiques
+- **Header MoodboardTab** condensable : trop chargé (icône + titre + sub + 3 pills + 2 CTAs + astuce). À simplifier ou réorganiser quand on aura plus d'éléments.
+
+## Risques et limitations (V1 finalisée)
 
 ### Fragilité des embeds Instagram/TikTok
-Les providers sociaux changent leur stratégie d'embed tous les 6 mois. Il faut
-absolument que la stratégie **fallback OG card** fonctionne 100% du temps,
-même si l'embed live tombe en panne. À tester explicitement en cassant
-volontairement l'oEmbed en dev.
+Les providers sociaux changent leur stratégie d'embed tous les 6 mois. La V1 utilise leurs scripts officiels `embed.js` qui auto-resize les iframes. Si Meta/TikTok cassent ce flow, on a un fallback OG card en première ligne (image + titre + URL clickable). À surveiller via tests manuels périodiques.
 
 ### Iframe-blocking sites
-Beaucoup de sites refusent l'iframe via `X-Frame-Options: DENY` ou `CSP frame-ancestors`.
-La carte OG link (image hero + titre + URL clickable) couvre ce cas. Pas d'effort
-à faire au-delà.
+Beaucoup de sites refusent l'iframe via `X-Frame-Options: DENY` ou `CSP frame-ancestors`. La carte OG link (image hero + titre + URL clickable) couvre ce cas — observé en pratique pour ~30% des sites random.
 
 ### Storage costs
-Les vidéos uploadées peuvent peser lourd vite. Cap à 50 Mo par fichier (à
-valider). Surveiller quota Storage projet — au-delà de X Go, prévoir un cleanup
-manuel ou archivage S3.
+Les vidéos uploadées peuvent peser lourd vite. Cap actuel à 50 Mo par fichier (côté front). Surveiller quota Storage projet — au-delà de quelques Go par projet, prévoir un cleanup manuel ou archivage S3.
 
 ### Realtime conflicts sur drag-drop
-2 users qui drag la même carte au même moment → last-write-wins (pattern simple,
-déjà utilisé pour les sort_order Musiques). Pas besoin de CRDT pour V1.
+2 users qui drag la même carte au même moment → last-write-wins (pattern simple, déjà éprouvé sur les sort_order Musiques). Pas besoin de CRDT pour V1.
 
-### Mobile
-Sections + masonry est responsive natif. Mais paste-anywhere + drag-drop sont
-clavier-only / souris. Sur mobile, fallback bouton "+ Ajouter une ref" qui ouvre
-un modal de choix (URL / photo / vidéo / note). À cadrer en MOD-1.4.
+### Mobile (limitation V1)
+Sections + masonry est responsive natif. Mais paste-anywhere + drag-drop sont clavier/souris uniquement. Sur mobile, en pratique le module est consultable mais pas éditable confortablement. **À cadrer en V2 si l'usage mobile remonte**.
 
 ## Liens utiles
 
@@ -288,3 +344,6 @@ un modal de choix (URL / photo / vidéo / note). À cadrer en MOD-1.4.
 - Permissions hook : `src/hooks/useProjectPermissions.js`
 - Edge Functions existantes (pattern) : `supabase/functions/`
 - Realtime publication (pattern migration) : `supabase/migrations/20260608e_musique_realtime_publication.sql`
+- Confirm dialog réutilisable : `src/lib/confirm.js`
+- Notify toasts réutilisable : `src/lib/notify.js`
+
