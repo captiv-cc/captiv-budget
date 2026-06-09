@@ -61,22 +61,28 @@ export function extractPlainText(doc, { maxLen = 5000 } = {}) {
   if (!doc) return ''
   const parts = []
 
+  const blockTypes = new Set([
+    'paragraph',
+    'heading',
+    'listItem',
+    'blockquote',
+    'codeBlock',
+  ])
   function walk(node) {
     if (!node) return
     if (node.type === 'text' && typeof node.text === 'string') {
       parts.push(node.text)
-    } else if (Array.isArray(node.content)) {
-      for (const child of node.content) walk(child)
-      // Saut de ligne entre blocs (paragraphes, headings, items, etc.)
-      const blockTypes = new Set([
-        'paragraph',
-        'heading',
-        'listItem',
-        'blockquote',
-        'codeBlock',
-      ])
-      if (blockTypes.has(node.type)) parts.push('\n')
+      return
     }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) walk(child)
+    }
+    // Saut de ligne entre blocs (paragraphes, headings, items, etc.)
+    // Ajouté même si le bloc est VIDE (sans content) — un paragraphe vide
+    // est une ligne blanche dans le texte. Indispensable pour préserver
+    // les sauts visuels (ex: A / vide / vide / B → "A\n\n\nB" puis
+    // compressé à "A\n\nB").
+    if (blockTypes.has(node.type)) parts.push('\n')
   }
   walk(doc)
 

@@ -60,7 +60,7 @@ export function normalizeNom(nom) {
     .replace(/[̀-ͯ]/g, '')   // retire diacritiques
     .replace(/Ø/g, 'O')                // O barré → O (NFD ne le décompose pas)
     .replace(/ø/g, 'o')
-    .replace(/[$£€]/g, '')             // signes monétaires
+    .replace(/[$£€]/g, ' ')            // signes monétaires → espace
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')      // ne garde que alphanumérique + espaces
     .replace(/\s+/g, ' ')              // condense les espaces

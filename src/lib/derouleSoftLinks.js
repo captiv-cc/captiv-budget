@@ -32,7 +32,6 @@ export const ANCHOR_FIELDS = [
   'couleur',
   'lieu_text',
   'notes',
-  'heure_debut_min',
   'duree_min',
   'cadreurs',
 ]
@@ -121,9 +120,27 @@ export function isFieldEqual(field, a, b) {
 // Retourne { fields: [...] } prêt à stocker en source_anchor.
 export function proposeAnchorDefault(child, source) {
   if (!child || !source) return { fields: [] }
+  // Considère un champ "vide" comme non pertinent pour anchorer par défaut.
+  // Si les 2 créneaux ont 'notes' null/undefined, c'est juste qu'il n'y a
+  // pas de note → pas la peine de pré-cocher anchor.notes (anchorer du vide
+  // n'a pas de sens).
+  function isFieldEmpty(field, c) {
+    if (!c) return true
+    if (field === 'cadreurs') {
+      const arr = c.member_ids
+      return !Array.isArray(arr) || arr.length === 0
+    }
+    if (field === 'duree_min') {
+      return getDureeMin(c) == null
+    }
+    const v = c[field]
+    return v == null || v === ''
+  }
   const fields = []
   for (const f of ANCHOR_FIELDS) {
-    if (isFieldEqual(f, child, source)) fields.push(f)
+    if (!isFieldEqual(f, child, source)) continue
+    if (isFieldEmpty(f, child) && isFieldEmpty(f, source)) continue
+    fields.push(f)
   }
   return { fields }
 }
