@@ -528,6 +528,12 @@ function loadScriptOnce(src) {
 // OembedFrame — wrapper qui injecte le HTML d'embed et configure le bon
 // runtime selon le provider.
 //
+// Important : on injecte le HTML *impératif* via innerHTML dans useEffect
+// (pas via dangerouslySetInnerHTML) pour éviter les conflits avec les
+// scripts officiels d'Instagram/TikTok qui modifient le DOM par-dessus
+// React. Sans ça, on a observé des doubles rendus de l'iframe ou des
+// chevauchements visuels.
+//
 // Providers à blockquote (Instagram, TikTok) :
 //   Le HTML est un <blockquote> placeholder. On charge le script officiel
 //   du provider (embed.js) puis on appelle Embeds.process() pour qu'il
@@ -537,14 +543,6 @@ function loadScriptOnce(src) {
 // Providers à iframe direct (YouTube, Vimeo, Twitter) :
 //   Le HTML est un iframe avec width/height fixes que les providers
 //   imposent. On les retire imperatively et force 100% du container.
-//
-// 2 modes de sizing :
-//   - aspectRatio (par défaut 16:9) : container responsive avec hauteur
-//     calculée par ratio. OK pour YouTube/Vimeo.
-//   - minHeight + maxWidth : pour Instagram/TikTok dont la hauteur réelle
-//     est dynamique (caption + likes + commentaires). On laisse le script
-//     officiel dimensionner, on garantit juste un min-height pour éviter
-//     le flash de chargement.
 export function OembedFrame({
   html,
   provider = null,
@@ -556,6 +554,14 @@ export function OembedFrame({
   useEffect(() => {
     const root = wrapperRef.current
     if (!root || !html) return
+
+    // Injection impérative pour échapper à React. Si le HTML a déjà été
+    // injecté (cas re-render avec même html), pas besoin de re-injecter
+    // — le iframe transformé par embed.js est déjà en place.
+    if (root.dataset.injected !== html) {
+      root.innerHTML = html
+      root.dataset.injected = html
+    }
 
     if (provider === 'instagram') {
       loadScriptOnce('https://www.instagram.com/embed.js')
@@ -588,13 +594,12 @@ export function OembedFrame({
 
   const containerStyle = isOfficialScript
     ? {
+        // Bloc simple, centré via les inline styles du blockquote
+        // (max-width baked in). Pas de flex pour éviter les conflits
+        // de sizing avec le iframe inséré par embed.js.
         width: '100%',
-        maxWidth: maxWidth || (provider === 'tiktok' ? 605 : 540),
         minHeight: minHeight || 540,
-        background: 'transparent',
-        margin: '0 auto',
-        display: 'flex',
-        justifyContent: 'center',
+        overflow: 'hidden', // clippe toute fuite visuelle
       }
     : {
         aspectRatio,
@@ -608,7 +613,6 @@ export function OembedFrame({
     <div style={containerStyle}>
       <div
         ref={wrapperRef}
-        dangerouslySetInnerHTML={{ __html: html }}
         style={{
           width: '100%',
           ...(isOfficialScript ? {} : { height: '100%' }),
