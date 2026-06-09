@@ -5,7 +5,9 @@
 // Module Musiques MVP1 — MUS-1.7
 //
 // Page principale du module Musiques. Affiche la liste des propositions
-// (vrac + statuts), avec barre de recherche unifiée et actions globales.
+// (vrac), avec barre de recherche unifiée et actions globales. Les statuts
+// globaux par track ont été supprimés (MUS-6.9) au profit du workflow par
+// livrable (statut_local : proposition / choix / valide).
 //
 // Pour MVP1, le scope est :
 //   - Liste propositions du projet (avec note moyenne, tags, artiste)
@@ -36,13 +38,11 @@ import {
   CheckSquare,
   Trash2,
   AlertTriangle,
-  CheckCircle2,
-  Clock,
-  XCircle,
+  Star,
+  Clapperboard as ClapperboardSmall,
   Eraser,
   ChevronDown,
   Check,
-  Tag as TagIcon,
   ArrowUpDown,
   LayoutGrid,
   Film,
@@ -56,13 +56,9 @@ import {
   listAllComments,
   computeAggregates,
   subscribeToProject,
-  STATUTS,
-  STATUT_LABELS,
-  STATUT_COLORS,
   updateProposition,
   updateSortOrder,
   deleteProposition,
-  setStatut,
   listAllLinks,
   subscribeLinks,
 } from '../../lib/musiques'
@@ -102,9 +98,8 @@ export default function MusiquesTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Filtres locaux (recherche, statut)
+  // Filtres locaux (recherche). Le statut global a été supprimé (MUS-6.9).
   const [searchLocal, setSearchLocal] = useState('')
-  const [filterStatut, setFilterStatut] = useState(null)
   // MUS-3.1 : filtres rapides additionnels (click sur tag/jour/proposeur)
   const [filterTag, setFilterTag] = useState(null)
   const [filterJour, setFilterJour] = useState(null)
@@ -171,7 +166,7 @@ export default function MusiquesTab() {
     [SORT_KEY],
   )
 
-  // MUS-3.4 : groupBy "Organiser par..." (statut/artiste/jour/proposeur)
+  // MUS-3.4 : groupBy "Organiser par..." (artiste/jour/proposeur)
   const GROUPBY_KEY = `musiques.groupby.${projectId || 'global'}`
   const [groupBy, setGroupBy] = useState(() => {
     try {
@@ -451,11 +446,10 @@ export default function MusiquesTab() {
     [notes, tags, user?.id, commentsList],
   )
 
-  // ─── Filtrage local (search + statut + filtres rapides) ──────────────────
+  // ─── Filtrage local (search + filtres rapides) ───────────────────────────
   const visiblePropositions = useMemo(() => {
     const s = searchLocal.trim().toLowerCase()
     const filtered = propositions.filter((p) => {
-      if (filterStatut && p.statut !== filterStatut) return false
       if (filterJour && p.artiste?.jour !== filterJour) return false
       if (filterProposerId && p.proposer_id !== filterProposerId) return false
       if (filterTag) {
@@ -474,7 +468,6 @@ export default function MusiquesTab() {
   }, [
     propositions,
     searchLocal,
-    filterStatut,
     filterTag,
     filterJour,
     filterProposerId,
@@ -511,55 +504,38 @@ export default function MusiquesTab() {
     return m
   }, [linksList, livrablesList])
 
-  // MUS-4.7 : compteurs par statut (pour les stat pills du header).
-  // Calculés sur les propositions BRUTES (pas filtrées) — ce sont les
-  // totaux du projet, pas de la vue. C'est la logique attendue côté
-  // Livrables/Matériel : on filtre depuis le header, le compteur reste
-  // global.
-  const statutCounts = useMemo(() => {
-    const counts = { total: propositions.length }
-    for (const s of STATUTS) counts[s] = 0
-    let noted = 0
-    const seen = new Set()
-    for (const p of propositions) {
-      if (p.statut in counts) counts[p.statut] += 1
+  // MUS-6.9 : compteurs simples pour les stat pills du header. Les statuts
+  // globaux ayant été supprimés, on garde 3 mesures utiles :
+  //   - total       : nb de propositions du projet
+  //   - noted       : nb avec au moins une note ★
+  //   - attribuees  : nb liées à au moins un livrable non masqué
+  // Calculés sur les propositions BRUTES (pas filtrées) — totaux projet.
+  const counts = useMemo(() => {
+    const noted = new Set()
+    for (const n of notes || []) noted.add(n.proposition_id)
+    // linksByProposition est déjà filtré sur les livrables NON masqués
+    const attribuees = linksByProposition.size
+    return {
+      total: propositions.length,
+      noted: noted.size,
+      attribuees,
     }
-    // Combien de propositions ont au moins une note (peu importe qui)
-    for (const n of notes || []) {
-      if (!seen.has(n.proposition_id)) {
-        seen.add(n.proposition_id)
-        noted += 1
-      }
-    }
-    counts.noted = noted
-    return counts
-  }, [propositions, notes])
+  }, [propositions, notes, linksByProposition])
 
   // MUS-4.7 : indique si au moins un filtre est actif → permet à la pill
   // "Total" de devenir un eraser (clic = clear all filters).
   const anyFilterActive = Boolean(
-    filterStatut ||
-      filterTag ||
+    filterTag ||
       filterJour ||
       filterProposerId ||
       searchLocal.trim(),
   )
   const clearAllFilters = useCallback(() => {
-    setFilterStatut(null)
     setFilterTag(null)
     setFilterJour(null)
     setFilterProposerId(null)
     setSearchLocal('')
   }, [])
-
-  // MUS-4.7 : toggle d'une stat pill statut. Click sur la pill = filtre
-  // sur ce statut, click sur la même pill = clear.
-  const toggleStatutFilter = useCallback(
-    (statut) => {
-      setFilterStatut((cur) => (cur === statut ? null : statut))
-    },
-    [],
-  )
 
   // MUS-3.5 : drag and drop handlers (déclarés ici car ils dépendent
   // de visiblePropositions qui doit être init avant).
@@ -649,32 +625,7 @@ export default function MusiquesTab() {
     return m
   }, [propositions])
 
-  // ─── Bulk actions (MUS-3.3) ───────────────────────────────────────────────
-  async function bulkSetStatut(newStatut) {
-    if (selectedIds.size === 0) return
-    setBulkBusy(true)
-    try {
-      const results = await Promise.allSettled(
-        [...selectedIds].map((id) => setStatut(id, newStatut)),
-      )
-      const ok = results.filter((r) => r.status === 'fulfilled').length
-      const ko = results.length - ok
-      if (ok > 0) {
-        notify.success(
-          `${ok} proposition${ok > 1 ? 's' : ''} → ${STATUT_LABELS[newStatut]}`,
-          false,
-        )
-      }
-      if (ko > 0) {
-        notify.error(`${ko} échec${ko > 1 ? 's' : ''} sur le bulk`)
-      }
-      clearSelection()
-      refetch()
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
+  // ─── Bulk actions (MUS-3.3) — MUS-6.9 : seule la suppression reste ──────
   async function bulkDelete() {
     if (selectedIds.size === 0) return
     setBulkBusy(true)
@@ -736,29 +687,30 @@ export default function MusiquesTab() {
               Musiques
             </h1>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              {statutCounts.total}{' '}
-              {statutCounts.total > 1 ? 'propositions' : 'proposition'}
-              {statutCounts.noted > 0 && (
+              {counts.total}{' '}
+              {counts.total > 1 ? 'propositions' : 'proposition'}
+              {counts.noted > 0 && (
                 <>
-                  {' '}· {statutCounts.noted} notée
-                  {statutCounts.noted > 1 ? 's' : ''}
+                  {' '}· {counts.noted} notée
+                  {counts.noted > 1 ? 's' : ''}
                 </>
               )}
-              {statutCounts.accorde > 0 && (
+              {counts.attribuees > 0 && (
                 <>
-                  {' '}· {statutCounts.accorde} accordée
-                  {statutCounts.accorde > 1 ? 's' : ''}
+                  {' '}· {counts.attribuees} attribuée
+                  {counts.attribuees > 1 ? 's' : ''}
                 </>
               )}
             </p>
           </div>
 
-          {/* Stat pills cliquables — chaque pill toggle un filtre statut.
-              Total est un eraser quand au moins un filtre est actif. */}
+          {/* Stat pills — MUS-6.9 : plus de filtre par statut, on affiche
+              juste 3 mesures globales. La pill Total devient un eraser
+              quand au moins un filtre rapide est actif. */}
           <div className="flex items-center gap-2 flex-wrap ml-0 sm:ml-4">
             <StatPill
               label="Total"
-              value={statutCounts.total}
+              value={counts.total}
               icon={anyFilterActive ? Eraser : Inbox}
               color="var(--txt-2)"
               bg="var(--bg-2, var(--bg-elev))"
@@ -768,51 +720,35 @@ export default function MusiquesTab() {
               title={
                 anyFilterActive
                   ? 'Effacer tous les filtres'
-                  : `${statutCounts.total} proposition${
-                      statutCounts.total > 1 ? 's' : ''
+                  : `${counts.total} proposition${
+                      counts.total > 1 ? 's' : ''
                     }`
               }
             />
             <StatPill
-              label="Vrac"
-              value={statutCounts.vrac}
-              icon={Music}
-              color={STATUT_COLORS.vrac?.fg || 'var(--txt-3)'}
-              bg={STATUT_COLORS.vrac?.bg || 'var(--bg-elev)'}
-              active={filterStatut === 'vrac'}
-              onClick={() => toggleStatutFilter('vrac')}
+              label="Notées"
+              value={counts.noted}
+              icon={Star}
+              color="var(--orange, #F59E0B)"
+              bg="rgba(245,158,11,0.18)"
+              active={false}
+              dim={counts.noted === 0}
+              title={`${counts.noted} proposition${
+                counts.noted > 1 ? 's' : ''
+              } avec au moins une note`}
             />
             <StatPill
-              label="En nego"
-              value={statutCounts.en_nego}
-              icon={Clock}
-              color={STATUT_COLORS.en_nego?.fg || '#D97706'}
-              bg={STATUT_COLORS.en_nego?.bg || 'rgba(245,158,11,0.18)'}
-              active={filterStatut === 'en_nego'}
-              onClick={() => toggleStatutFilter('en_nego')}
-              dim={statutCounts.en_nego === 0}
+              label="Attribuées"
+              value={counts.attribuees}
+              icon={ClapperboardSmall}
+              color="var(--purple, #9c5ffd)"
+              bg="rgba(156,95,253,0.18)"
+              active={false}
+              dim={counts.attribuees === 0}
+              title={`${counts.attribuees} proposition${
+                counts.attribuees > 1 ? 's' : ''
+              } liée${counts.attribuees > 1 ? 's' : ''} à au moins un livrable`}
             />
-            <StatPill
-              label="Accordés"
-              value={statutCounts.accorde}
-              icon={CheckCircle2}
-              color={STATUT_COLORS.accorde?.fg || '#16A34A'}
-              bg={STATUT_COLORS.accorde?.bg || 'rgba(34,197,94,0.18)'}
-              active={filterStatut === 'accorde'}
-              onClick={() => toggleStatutFilter('accorde')}
-              dim={statutCounts.accorde === 0}
-            />
-            {statutCounts.refuse > 0 && (
-              <StatPill
-                label="Refusés"
-                value={statutCounts.refuse}
-                icon={XCircle}
-                color={STATUT_COLORS.refuse?.fg || '#EF4444'}
-                bg={STATUT_COLORS.refuse?.bg || 'rgba(239,68,68,0.18)'}
-                active={filterStatut === 'refuse'}
-                onClick={() => toggleStatutFilter('refuse')}
-              />
-            )}
           </div>
 
           {/* CTAs primaires — pattern Mat/Liv : actions secondaires en
@@ -951,23 +887,6 @@ export default function MusiquesTab() {
             />
           </div>
 
-          {/* Filtre statut — chip dropdown au pattern Livrables */}
-          <ChipDropdown
-            icon={TagIcon}
-            label="Statut"
-            value={filterStatut}
-            options={[
-              { key: null, label: 'Tous les statuts' },
-              ...Object.entries(STATUT_LABELS).map(([key, label]) => ({
-                key,
-                label,
-                colorBg: STATUT_COLORS[key]?.bg,
-                colorFg: STATUT_COLORS[key]?.fg,
-              })),
-            ]}
-            onSelect={(k) => setFilterStatut(k)}
-          />
-
           {/* Tri */}
           <ChipDropdown
             icon={ArrowUpDown}
@@ -985,7 +904,6 @@ export default function MusiquesTab() {
             value={groupBy}
             options={[
               { key: 'none', label: 'Sans groupement' },
-              { key: 'statut', label: 'Par statut' },
               { key: 'artiste', label: 'Par artiste' },
               { key: 'jour', label: 'Par jour' },
               { key: 'proposeur', label: 'Par proposeur' },
@@ -1075,29 +993,6 @@ export default function MusiquesTab() {
           <span style={{ fontSize: 12, fontWeight: 500 }}>
             {selectedIds.size} sélectionnée{selectedIds.size > 1 ? 's' : ''}
           </span>
-          <span style={{ opacity: 0.5 }}>·</span>
-          <span style={{ fontSize: 11, opacity: 0.85 }}>
-            Changer le statut :
-          </span>
-          {STATUTS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => bulkSetStatut(s)}
-              disabled={bulkBusy}
-              style={{
-                padding: '3px 8px',
-                fontSize: 10,
-                background: 'rgba(255,255,255,0.18)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                borderRadius: 10,
-                cursor: bulkBusy ? 'not-allowed' : 'pointer',
-                color: 'white',
-              }}
-            >
-              {STATUT_LABELS[s]}
-            </button>
-          ))}
           <span style={{ opacity: 0.5 }}>·</span>
           {bulkConfirmDelete ? (
             <>
@@ -1249,10 +1144,7 @@ export default function MusiquesTab() {
           Aucune proposition ne correspond aux filtres actifs.
           <button
             type="button"
-            onClick={() => {
-              setSearchLocal('')
-              setFilterStatut(null)
-            }}
+            onClick={clearAllFilters}
             style={{
               marginLeft: 8,
               background: 'none',
@@ -1332,8 +1224,6 @@ export default function MusiquesTab() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6,
-                    textTransform: groupBy === 'statut' ? 'uppercase' : 'none',
-                    letterSpacing: groupBy === 'statut' ? 0.5 : 0,
                   }}
                 >
                   <span>{group.label}</span>
@@ -1462,34 +1352,19 @@ function groupPropositions(list, groupBy) {
     groups.get(key).items.push(p)
   }
   const arr = [...groups.values()]
-  // Ordonner les groupes intelligemment selon le mode
-  if (groupBy === 'statut') {
-    const order = [
-      'accorde',
-      'en_nego',
-      'valide_festival',
-      'selectionne',
-      'vrac',
-      'refuse',
-    ]
-    arr.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
-  } else {
-    // Ordre alphabétique du label, avec "Sans X" en dernier
-    arr.sort((a, b) => {
-      const aNo = a.key.startsWith('_none')
-      const bNo = b.key.startsWith('_none')
-      if (aNo && !bNo) return 1
-      if (!aNo && bNo) return -1
-      return a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' })
-    })
-  }
+  // Ordre alphabétique du label, avec "Sans X" en dernier
+  arr.sort((a, b) => {
+    const aNo = a.key.startsWith('_none')
+    const bNo = b.key.startsWith('_none')
+    if (aNo && !bNo) return 1
+    if (!aNo && bNo) return -1
+    return a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' })
+  })
   return arr
 }
 
 function groupKeyLabel(p, groupBy) {
   switch (groupBy) {
-    case 'statut':
-      return { key: p.statut, label: STATUT_LABELS_FALLBACK(p.statut) }
     case 'artiste': {
       const nom = p.artiste?.nom || p.artiste_text || ''
       if (!nom) return { key: '_none', label: 'Sans artiste' }
@@ -1512,19 +1387,6 @@ function groupKeyLabel(p, groupBy) {
     default:
       return { key: 'all', label: '' }
   }
-}
-
-// Inline mini lookup pour ne pas avoir à importer STATUT_LABELS ici
-function STATUT_LABELS_FALLBACK(key) {
-  const m = {
-    vrac: 'Vrac',
-    selectionne: 'Sélectionné',
-    valide_festival: 'Validé festival',
-    en_nego: 'En négo',
-    accorde: 'Accordé',
-    refuse: 'Refusé',
-  }
-  return m[key] || key
 }
 
 // ─── FilterChip (MUS-3.1) ─────────────────────────────────────────────────
@@ -1672,8 +1534,9 @@ function ViewToggle({ active, icon: Icon, label, onClick, disabled, badge }) {
 //   - value                : key courante (null = pas de sélection)
 //   - options              : Array<{ key, label, colorBg?, colorFg? }>
 //                            colorBg/colorFg → pour afficher le label en
-//                            pill colorée (utilisé par Statut pour
-//                            reprendre les couleurs STATUT_COLORS)
+//                            pill colorée (vestige des anciens statuts —
+//                            inutilisé depuis MUS-6.9 mais conservé pour
+//                            de futurs usages)
 //   - onSelect(key)        : callback sur sélection (null pour Tous)
 //   - hideClear            : si true, pas de footer "Effacer" (cas où
 //                            'none' / mode par défaut a déjà cette
@@ -1825,7 +1688,6 @@ const SORT_OPTIONS = [
   { key: 'titre_asc', label: 'Titre A→Z' },
   { key: 'artiste_asc', label: 'Artiste A→Z' },
   { key: 'comments_desc', label: 'Plus commenté' },
-  { key: 'statut', label: 'Par statut' },
 ]
 
 function sortPropositions(list, mode, aggregates) {
@@ -1886,22 +1748,6 @@ function sortPropositions(list, mode, aggregates) {
         (a, b) => getAgg(b).commentCount - getAgg(a).commentCount,
       )
       break
-    case 'statut': {
-      const order = [
-        'accorde',
-        'en_nego',
-        'valide_festival',
-        'selectionne',
-        'vrac',
-        'refuse',
-      ]
-      arr.sort(
-        (a, b) =>
-          order.indexOf(a.statut) - order.indexOf(b.statut) ||
-          new Date(b.created_at) - new Date(a.created_at),
-      )
-      break
-    }
     case 'created_desc':
     default:
       arr.sort(

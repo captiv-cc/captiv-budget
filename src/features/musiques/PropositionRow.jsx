@@ -39,12 +39,8 @@ import {
   GripVertical,
 } from 'lucide-react'
 import {
-  STATUTS,
-  STATUT_LABELS,
-  STATUT_COLORS,
   upsertMyNote,
   removeMyNote,
-  setStatut,
   deleteProposition,
 } from '../../lib/musiques'
 import { notify } from '../../lib/notify'
@@ -423,22 +419,9 @@ export default function PropositionRow({
               {p.artiste.scene ? ` · ${p.artiste.scene}` : ''}
             </button>
           )}
-          {/* Badge statut : palette dédiée par valeur du workflow,
-              pour permettre le scanning rapide à l'œil. */}
-          <span
-            style={{
-              fontSize: 9,
-              padding: '1px 6px',
-              background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
-              color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-3)',
-              borderRadius: 6,
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-            }}
-          >
-            {STATUT_LABELS[p.statut] || p.statut}
-          </span>
+          {/* MUS-6.9 : le badge statut global a été retiré (les statuts
+              vivent désormais au niveau du couple track × livrable, voir
+              badge "Liée à N livrable(s)" plus loin). */}
         </div>
 
         {/* Tags editor (collab) + audio-features badges sur la même ligne */}
@@ -556,8 +539,7 @@ export default function PropositionRow({
             size={13}
           />
           {/* Sous les étoiles : moyenne + count + différenciation
-              "Toi/moy" si pertinent. Le badge statut a été déplacé
-              sur la ligne du titre (sa vraie place). */}
+              "Toi/moy" si pertinent. */}
           {agg.noteCount > 0 && (
             <span
               style={{
@@ -709,10 +691,12 @@ function NoteSummary({ myNote, noteAvg, noteCount }) {
   )
 }
 
-// ─── QuickActionsMenu : "..." popover avec changer statut + supprimer ──────
+// ─── QuickActionsMenu : "..." popover avec supprimer ──────
 // MUS-4.7c : rendu via PopoverFloat (portal sur document.body) pour
 // échapper à l'overflow auto des conteneurs parents — sans ça, le menu
 // se faisait clipper sur la dernière row visible.
+// MUS-6.9 : la section "Changer le statut" a été retirée (statuts globaux
+// supprimés). Le menu se réduit à la suppression.
 function QuickActionsMenu({ proposition: p, onMutated }) {
   const [open, setOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -723,24 +707,6 @@ function QuickActionsMenu({ proposition: p, onMutated }) {
   useEffect(() => {
     if (!open) setConfirmDelete(false)
   }, [open])
-
-  async function handleStatutChange(newStatut) {
-    if (newStatut === p.statut) {
-      setOpen(false)
-      return
-    }
-    setBusy(true)
-    try {
-      await setStatut(p.id, newStatut)
-      onMutated?.()
-      setOpen(false)
-    } catch (e) {
-      console.warn('[QuickActions] statut', e)
-      notify.error(e?.message || 'Changement statut KO')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function handleDelete() {
     setBusy(true)
@@ -805,60 +771,6 @@ function QuickActionsMenu({ proposition: p, onMutated }) {
             gap: 2,
           }}
         >
-          {/* Section statut */}
-          <div
-            style={{
-              fontSize: 9,
-              padding: '4px 8px',
-              color: 'var(--txt-3)',
-              textTransform: 'uppercase',
-              letterSpacing: 1,
-            }}
-          >
-            Changer le statut
-          </div>
-          {STATUTS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => handleStatutChange(s)}
-              disabled={busy}
-              style={{
-                padding: '6px 10px',
-                background:
-                  s === p.statut ? 'var(--bg-elev)' : 'transparent',
-                border: 'none',
-                color: 'var(--txt-2)',
-                fontSize: 12,
-                textAlign: 'left',
-                borderRadius: 4,
-                cursor: busy ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              onMouseEnter={(e) => {
-                if (!busy) e.currentTarget.style.background = 'var(--bg-elev)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  s === p.statut ? 'var(--bg-elev)' : 'transparent'
-              }}
-            >
-              {s === p.statut && (
-                <span style={{ fontSize: 10, color: 'var(--blue, #3B82F6)' }}>
-                  ✓
-                </span>
-              )}
-              <span style={{ flex: 1 }}>{STATUT_LABELS[s]}</span>
-            </button>
-          ))}
-          <div
-            style={{
-              borderTop: '1px solid var(--brd-sub)',
-              margin: '4px 0',
-            }}
-          />
           {/* Supprimer */}
           {confirmDelete ? (
             <div

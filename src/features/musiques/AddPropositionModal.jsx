@@ -745,19 +745,6 @@ function DuplicateWarning({ warning, onCancel, busy }) {
             <span style={{ flex: 1 }}>
               {p.artiste?.nom || p.artiste_text || '—'} · {p.titre}
             </span>
-            <span
-              style={{
-                fontSize: 9,
-                padding: '1px 5px',
-                background: 'var(--bg-surf)',
-                borderRadius: 6,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                color: 'var(--txt-3)',
-              }}
-            >
-              {p.statut}
-            </span>
             {p.created_at && (
               <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>
                 {new Date(p.created_at).toLocaleDateString('fr-FR', {

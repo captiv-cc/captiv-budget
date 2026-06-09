@@ -6,12 +6,15 @@
 //
 // Modal centrée plus large que AddProposition, qui s'ouvre au click sur
 // une row de la liste. Permet de :
-//   - Visualiser tous les détails (cover, BPM, audio features, statut,
+//   - Visualiser tous les détails (cover, BPM, audio features,
 //     proposeur, ancienneté)
 //   - Éditer : titre, artiste_text, lien_youtube, remarques
-//   - Changer le statut (vrac → selectionne → ...)
 //   - Voir + ajouter + éditer + supprimer des commentaires
+//   - Gérer les liens vers les livrables (statut_local par lien)
 //   - Supprimer la proposition (avec confirm)
+//
+// MUS-6.9 : le statut global de la track a été supprimé. Le workflow vit
+// désormais sur les liens livrable (proposition / choix / valide).
 //
 // L'édition est inline : click sur un champ → input, blur ou Enter pour
 // commit. Pattern Notion-like.
@@ -43,10 +46,6 @@ import {
 import {
   updateProposition,
   deleteProposition,
-  setStatut,
-  STATUTS,
-  STATUT_LABELS,
-  STATUT_COLORS,
   listComments,
   addComment,
   updateComment,
@@ -257,20 +256,6 @@ export default function PropositionDetailDrawer({
     }
   }
 
-  async function handleStatutChange(newStatut) {
-    if (!canEdit || newStatut === p.statut) return
-    setSaving(true)
-    try {
-      await setStatut(p.id, newStatut)
-      onMutated?.()
-    } catch (e) {
-      console.warn('[Drawer] statut failed', e)
-      notify.error(e?.message || 'Erreur changement statut')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   async function handleDelete() {
     if (!canEdit) return
     setDeleting(true)
@@ -393,8 +378,8 @@ export default function PropositionDetailDrawer({
         }}
       >
         {/* ─── Header amélioré (MUS-4.2) ──────────────────────────────────
-            Titre + artiste plus lisibles, badge statut bien visible à
-            gauche, fermeture à droite. */}
+            Titre + artiste plus lisibles, fermeture à droite. MUS-6.9 :
+            badge statut global retiré (statut vit par lien livrable). */}
         <div
           style={{
             display: 'flex',
@@ -415,21 +400,6 @@ export default function PropositionDetailDrawer({
               flex: 1,
             }}
           >
-            <span
-              style={{
-                fontSize: 10,
-                padding: '3px 9px',
-                borderRadius: 10,
-                textTransform: 'uppercase',
-                letterSpacing: 0.6,
-                background: STATUT_COLORS[p.statut]?.bg || 'var(--bg-elev)',
-                color: STATUT_COLORS[p.statut]?.fg || 'var(--txt-2)',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              {STATUT_LABELS[p.statut]}
-            </span>
             <div
               style={{
                 display: 'flex',
@@ -601,41 +571,9 @@ export default function PropositionDetailDrawer({
             </div>
           </div>
 
-          {/* MUS-4.5 : Statut + Lien YouTube en 2-col compacte. Le Statut
-              est court (select) et le lien tient sur une input compacte —
-              les 2 sur une ligne libèrent ~50px de hauteur. */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(140px, 1fr) 2fr',
-              gap: 8,
-            }}
-          >
-            <div>
-              <FieldLabel>Statut</FieldLabel>
-              <select
-                value={p.statut}
-                onChange={(e) => handleStatutChange(e.target.value)}
-                disabled={!canEdit || saving}
-                style={{
-                  width: '100%',
-                  padding: '5px 8px',
-                  background: 'var(--bg-elev)',
-                  border: '1px solid var(--brd-sub)',
-                  color: 'var(--txt)',
-                  borderRadius: 4,
-                  fontSize: 12,
-                  outline: 'none',
-                  cursor: canEdit ? 'pointer' : 'default',
-                }}
-              >
-                {STATUTS.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUT_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* MUS-6.9 : le select Statut a été retiré (statuts globaux
+              supprimés). Le Lien YouTube prend désormais toute la largeur. */}
+          <div>
             <div>
               <FieldLabel>Lien YouTube</FieldLabel>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

@@ -13,9 +13,11 @@
 // (computeAggregates). Si la charge le justifie, passer en vue SQL plus
 // tard.
 //
-// Cycle de vie statut :
-//   vrac → selectionne → valide_festival → en_nego → accorde
-//                                                  ↘ refuse (n'importe où)
+// Cycle de vie (MUS-6.9) : le statut global de la track a été supprimé.
+// Le workflow vit désormais au niveau du couple track × livrable via
+// projet_musique_livrable_link.statut_local (proposition / choix / valide).
+// La validation client + droits/labels iront dans l'onglet Autorisations
+// futur (cf. CHANTIER_MUS-7_AUTORISATIONS.md).
 //
 // API publique :
 //   Reads :
@@ -28,7 +30,6 @@
 //     - createProposition(projectId, fields)
 //     - updateProposition(id, fields)
 //     - deleteProposition(id)
-//     - setStatut(id, statut)
 //   Writes notes (l'utilisateur courant) :
 //     - upsertMyNote(propositionId, note)
 //     - removeMyNote(propositionId)
@@ -39,7 +40,6 @@
 //     - subscribeToProject(projectId, callbacks)
 //   Pure helpers :
 //     - normalizeTag(tag)
-//     - STATUTS, STATUT_LABELS
 //     - computeAggregates(propositions, notes, tags)
 //
 //   MUS-6 Livrable links (N:M proposition ↔ livrable) :
@@ -57,65 +57,10 @@
 
 import { supabase } from './supabase'
 
-// ─── Cycle de vie ───────────────────────────────────────────────────────────
-
-export const STATUTS = [
-  'vrac',
-  'selectionne',
-  'valide_festival',
-  'en_nego',
-  'accorde',
-  'refuse',
-]
-
-export const STATUT_LABELS = {
-  vrac: 'Vrac',
-  selectionne: 'Sélectionné',
-  valide_festival: 'Validé festival',
-  en_nego: 'En négo',
-  accorde: 'Accordé',
-  refuse: 'Refusé',
-}
-
-/**
- * Palette statuts pour les badges UI. Chaque statut a une couleur
- * distincte pour le scanning rapide. Format : { bg, fg } avec couleurs
- * pâles/transparentes pour le fond et plus saturées pour le texte.
- *
- * Workflow visuel :
- *   vrac          → gris (neutre, à trier)
- *   selectionne   → bleu (choisi par équipe créa)
- *   valide_festival → vert clair (validé côté festival)
- *   en_nego       → amber (en cours de négociation label)
- *   accorde       → vert foncé (accord final, autorisé)
- *   refuse        → rouge (refusé soit festival soit label)
- */
-export const STATUT_COLORS = {
-  vrac: {
-    bg: 'rgba(148,163,184,0.18)',  // slate
-    fg: 'var(--txt-2)',
-  },
-  selectionne: {
-    bg: 'rgba(59,130,246,0.18)',   // blue
-    fg: 'var(--blue, #3B82F6)',
-  },
-  valide_festival: {
-    bg: 'rgba(94,234,212,0.18)',   // teal-300
-    fg: '#0F766E',
-  },
-  en_nego: {
-    bg: 'rgba(245,158,11,0.18)',   // amber
-    fg: '#D97706',
-  },
-  accorde: {
-    bg: 'rgba(34,197,94,0.2)',     // green saturé
-    fg: '#16A34A',
-  },
-  refuse: {
-    bg: 'rgba(239,68,68,0.18)',    // red
-    fg: '#EF4444',
-  },
-}
+// MUS-6.9 — Les statuts globaux des propositions (vrac / selectionne /
+// valide_festival / en_nego / accorde / refuse) ont été supprimés. Le
+// workflow vit désormais sur les liens livrable via STATUTS_LOCAL plus
+// bas dans ce fichier.
 
 // ─── Normalisation tag ─────────────────────────────────────────────────────
 
@@ -141,7 +86,6 @@ export function normalizeTag(tag) {
  *
  * @param {string} projectId
  * @param {object} [opts]
- * @param {string} [opts.statut] Filtre statut
  * @param {string} [opts.search] LIKE sur titre + artiste_text
  * @param {string} [opts.sort='created_at_desc']
  *        'created_at_desc' | 'created_at_asc' | 'titre_asc'
@@ -156,9 +100,6 @@ export async function listPropositions(projectId, opts = {}) {
       proposer:proposer_id (id, full_name, avatar_url, email)
     `)
     .eq('project_id', projectId)
-  if (opts.statut) {
-    q = q.eq('statut', opts.statut)
-  }
   if (opts.search?.trim()) {
     // Cherche dans titre OU artiste_text (le nom de l'annuaire est joint
     // mais on ne peut pas filter dessus en or-clause Supabase simplement).
@@ -305,7 +246,6 @@ export async function createProposition(projectId, fields) {
     lien_youtube: fields.lien_youtube || null,
     timecode_start_sec: fields.timecode_start_sec ?? null,
     timecode_end_sec: fields.timecode_end_sec ?? null,
-    statut: fields.statut || 'vrac',
     proposer_id: userId,
     remarques: fields.remarques || null,
   }
@@ -371,17 +311,6 @@ export function calcSortOrderBetween(beforeOrder, afterOrder) {
   if (b == null) return a - 1
   if (a == null) return b + 1
   return (b + a) / 2
-}
-
-/**
- * Change le statut. Pas de validation transition (le front peut sauter
- * d'étape — utile pour le Kanban drag-drop).
- */
-export async function setStatut(id, statut) {
-  if (!STATUTS.includes(statut)) {
-    throw new Error(`statut invalide : ${statut}`)
-  }
-  return updateProposition(id, { statut })
 }
 
 /**
@@ -676,7 +605,7 @@ export async function findSimilarProposition(projectId, artisteName, titre) {
   const { data, error } = await supabase
     .from('projet_musique_propositions')
     .select(`
-      id, titre, artiste_text, artiste_id, statut, proposer_id, created_at,
+      id, titre, artiste_text, artiste_id, proposer_id, created_at,
       artiste:artiste_id (id, nom)
     `)
     .eq('project_id', projectId)
@@ -850,7 +779,6 @@ export async function listMusiquesForLivrable(livrableId) {
         id,
         titre,
         artiste_text,
-        statut,
         cover_url,
         preview_url,
         lien_youtube,

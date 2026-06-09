@@ -6,8 +6,6 @@
 import { describe, it, expect } from 'vitest'
 import { normalizeNom } from './projetArtistes'
 import {
-  STATUTS,
-  STATUT_LABELS,
   normalizeTag,
   computeAggregates,
 } from './musiques'
@@ -73,23 +71,9 @@ describe('normalizeTag', () => {
   })
 })
 
-describe('STATUTS', () => {
-  it('contient 6 statuts dans l\'ordre du cycle de vie', () => {
-    expect(STATUTS).toEqual([
-      'vrac',
-      'selectionne',
-      'valide_festival',
-      'en_nego',
-      'accorde',
-      'refuse',
-    ])
-  })
-  it('chaque statut a un libellé', () => {
-    for (const s of STATUTS) {
-      expect(STATUT_LABELS[s]).toBeTruthy()
-    }
-  })
-})
+// MUS-6.9 : les tests STATUTS/STATUT_LABELS ont été retirés. Le workflow
+// statut vit désormais sur le lien projet_musique_livrable_link via
+// statut_local (proposition / choix / valide).
 
 describe('computeAggregates', () => {
   it('calcule la moyenne et le count', () => {
