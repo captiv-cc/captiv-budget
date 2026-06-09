@@ -659,26 +659,35 @@ function HeroMedia({ card }) {
     )
   }
   if (card.type === 'link' && card.oembed_html) {
-    // Aspect ratio adapté au provider : 9:16 pour les formats verticaux
-    // (Instagram reel/post, TikTok), 16:9 pour YouTube/Vimeo/Twitter.
-    const aspect =
-      card.provider === 'instagram' || card.provider === 'tiktok'
-        ? '9 / 16'
-        : '16 / 9'
-    return (
-      <div
-        style={{
-          maxWidth: card.provider === 'instagram' || card.provider === 'tiktok'
-            ? 360
-            : '100%',
-          margin: '0 auto',
-          borderRadius: 6,
-          overflow: 'hidden',
-        }}
-      >
-        <OembedFrame html={card.oembed_html} aspectRatio={aspect} />
-      </div>
-    )
+    // Instagram & TikTok : leur iframe d'embed a une hauteur fixe en
+    // pixels (contient header + média + caption + footer). Forcer un
+    // aspect ratio coupe le contenu. On fixe donc en pixels.
+    //   - Instagram : posts, carousels, reels — ~780px de haut x 460px max
+    //   - TikTok    : vidéo + footer commentaires — ~750px x 360px max
+    // Limitation Instagram connue : les vidéos (reels) ne se lisent PAS
+    // en place — leur lecteur embed force un clic "Regarder sur Instagram"
+    // qui ouvre l'app. C'est leur design, on ne peut pas y faire grand
+    // chose. Les posts photo + carousels marchent parfaitement.
+    if (card.provider === 'instagram') {
+      return (
+        <OembedFrame
+          html={card.oembed_html}
+          fixedHeight={800}
+          maxWidth={460}
+        />
+      )
+    }
+    if (card.provider === 'tiktok') {
+      return (
+        <OembedFrame
+          html={card.oembed_html}
+          fixedHeight={750}
+          maxWidth={360}
+        />
+      )
+    }
+    // YouTube, Vimeo, Twitter, autres : aspect-ratio 16:9 plein largeur
+    return <OembedFrame html={card.oembed_html} aspectRatio="16 / 9" />
   }
   if (card.type === 'link' && card.image_url) {
     return (

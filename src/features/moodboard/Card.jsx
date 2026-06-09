@@ -504,7 +504,19 @@ function NoteBody({ card }) {
 // Nécessaire parce que les providers oEmbed (notamment YouTube) renvoient
 // des iframes avec des attributs width/height fixes (200x113) qui priment
 // sur le CSS. On les override en JS imperatively après injection.
-export function OembedFrame({ html, aspectRatio = '16 / 9' }) {
+//
+// 2 modes de sizing :
+//   - aspectRatio : container responsive width=100%, height calculée par ratio
+//     (parfait pour YouTube/Vimeo en 16:9)
+//   - fixedHeight + maxWidth : sizing en pixels (parfait pour Instagram et
+//     TikTok dont l'iframe a une hauteur fixe contenant header + media +
+//     caption + footer, et qu'un aspect-ratio strict coupe)
+export function OembedFrame({
+  html,
+  aspectRatio = '16 / 9',
+  fixedHeight = null,
+  maxWidth = null,
+}) {
   const wrapperRef = useRef(null)
   useEffect(() => {
     const iframe = wrapperRef.current?.querySelector('iframe')
@@ -516,16 +528,28 @@ export function OembedFrame({ html, aspectRatio = '16 / 9' }) {
       iframe.style.border = '0'
     }
   }, [html])
-  return (
-    <div
-      style={{
+
+  const containerStyle = fixedHeight
+    ? {
+        width: '100%',
+        maxWidth: maxWidth || 460,
+        height: fixedHeight,
+        background: '#fff',
+        overflow: 'hidden',
+        position: 'relative',
+        margin: '0 auto',
+        borderRadius: 6,
+      }
+    : {
         aspectRatio,
         width: '100%',
+        maxWidth: maxWidth || '100%',
         background: '#000',
         overflow: 'hidden',
         position: 'relative',
-      }}
-    >
+      }
+  return (
+    <div style={containerStyle}>
       <div
         ref={wrapperRef}
         dangerouslySetInnerHTML={{ __html: html }}
