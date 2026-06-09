@@ -268,7 +268,8 @@ export default function LivrableMusiquesPanel({ livrable, canEdit = true }) {
         onDrop={() => handleDrop('proposition')}
         onNavigate={() => {
           if (!projectId) return
-          navigate(`/projet/${projectId}/musiques`)
+          // Route réelle = /projets/:id/musiques (avec 's' à projets)
+          navigate(`/projets/${projectId}/musiques`)
         }}
       />
 
