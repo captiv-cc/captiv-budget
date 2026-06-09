@@ -1,0 +1,532 @@
+// ════════════════════════════════════════════════════════════════════════════
+// SectionList — Liste verticale des sections + masonry de cartes (MOD-1.6)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Orchestre :
+//   - Rendu de chaque section (header + masonry CSS columns)
+//   - Drag-drop d'une CARTE vers une autre section (cross-section)
+//   - Drag-drop d'une CARTE intra-section pour réordre
+//   - Drag-drop d'une SECTION pour réordonner les sections elles-mêmes
+//   - Édition inline du nom de section (clic sur le titre)
+//   - Suppression de section (bouton "..." avec confirm)
+//
+// État de drag global ici (un seul drag à la fois) — passé en props aux
+// Card via Section.
+//
+// ════════════════════════════════════════════════════════════════════════════
+
+import { useCallback, useRef, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Check,
+  X,
+  Trash2,
+} from 'lucide-react'
+import {
+  updateSection,
+  deleteSection,
+  updateCard,
+  deleteCard,
+  calcSortOrderBetween,
+} from '../../lib/moodboard'
+import { notify } from '../../lib/notify'
+import Card from './Card'
+
+export default function SectionList({
+  sections,
+  cardsBySection,
+  commentsByCard,
+  reactionsByCard,
+  canEdit,
+  onMutated,
+  onOpenCard,
+}) {
+  // État du drag en cours (cardId + sourceSectionId).
+  // `dragging` = drag en cours, `over` = cible survolée.
+  const draggingRef = useRef(null) // { cardId, fromSection }
+  const [overSection, setOverSection] = useState(null) // sectionId | null
+  const [overCard, setOverCard] = useState(null) // cardId | null
+  const [collapsed, setCollapsed] = useState(() => new Set())
+
+  const toggleCollapsed = useCallback((sectionId) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(sectionId)) next.delete(sectionId)
+      else next.add(sectionId)
+      return next
+    })
+  }, [])
+
+  // ─── Card drag handlers ─────────────────────────────────────────────────
+  const handleCardDragStart = useCallback((card) => {
+    draggingRef.current = { cardId: card.id, fromSection: card.section_id }
+  }, [])
+
+  const handleCardDragEnd = useCallback(() => {
+    draggingRef.current = null
+    setOverSection(null)
+    setOverCard(null)
+  }, [])
+
+  const handleSectionDragOver = useCallback((e, sectionId) => {
+    if (!draggingRef.current) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setOverSection(sectionId)
+  }, [])
+
+  const handleCardDragOver = useCallback((e, card) => {
+    if (!draggingRef.current) return
+    if (draggingRef.current.cardId === card.id) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    setOverCard(card.id)
+    setOverSection(card.section_id)
+  }, [])
+
+  const handleCardDrop = useCallback(
+    async (e, targetCard) => {
+      if (!draggingRef.current) return
+      e.preventDefault()
+      e.stopPropagation()
+      const { cardId, fromSection } = draggingRef.current
+      const toSection = targetCard.section_id
+      if (cardId === targetCard.id) return
+      // Calcule sort_order pour insérer AVANT la cible
+      const sectionCards = cardsBySection.get(toSection) || []
+      const targetIdx = sectionCards.findIndex((c) => c.id === targetCard.id)
+      const before = sectionCards[targetIdx - 1]?.sort_order ?? null
+      const after = targetCard.sort_order ?? null
+      const newOrder = calcSortOrderBetween(before, after)
+      handleCardDragEnd()
+      try {
+        await updateCard(cardId, {
+          section_id: toSection,
+          sort_order: newOrder,
+        })
+        onMutated?.()
+      } catch (err) {
+        console.warn('[SectionList] move KO', err)
+        notify.error(err?.message || 'Déplacement impossible')
+      }
+      // unused param (could be useful for fromSection diff)
+      void fromSection
+    },
+    [cardsBySection, handleCardDragEnd, onMutated],
+  )
+
+  const handleSectionDrop = useCallback(
+    async (e, sectionId) => {
+      if (!draggingRef.current) return
+      e.preventDefault()
+      const { cardId, fromSection } = draggingRef.current
+      handleCardDragEnd()
+      if (sectionId === fromSection) return // pas de changement
+      // Append en fin de la section cible
+      const sectionCards = cardsBySection.get(sectionId) || []
+      const last = sectionCards[sectionCards.length - 1]
+      const newOrder = (last?.sort_order ?? 0) + 1000
+      try {
+        await updateCard(cardId, {
+          section_id: sectionId,
+          sort_order: newOrder,
+        })
+        onMutated?.()
+      } catch (err) {
+        console.warn('[SectionList] section-drop KO', err)
+        notify.error(err?.message || 'Déplacement impossible')
+      }
+    },
+    [cardsBySection, handleCardDragEnd, onMutated],
+  )
+
+  // ─── Section actions ────────────────────────────────────────────────────
+  const handleRenameSection = useCallback(
+    async (section, newName) => {
+      if (!newName?.trim() || newName.trim() === section.nom) return
+      try {
+        await updateSection(section.id, { nom: newName.trim() })
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Renommage impossible')
+      }
+    },
+    [onMutated],
+  )
+
+  const handleDeleteSection = useCallback(
+    async (section) => {
+      const cardCount = (cardsBySection.get(section.id) || []).length
+      const msg = cardCount > 0
+        ? `Supprimer "${section.nom}" et ses ${cardCount} carte(s) ?`
+        : `Supprimer la section "${section.nom}" ?`
+      if (!window.confirm(msg)) return
+      try {
+        await deleteSection(section.id)
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Suppression impossible')
+      }
+    },
+    [cardsBySection, onMutated],
+  )
+
+  const handleDeleteCard = useCallback(
+    async (card) => {
+      try {
+        await deleteCard(card.id, { removeFile: true })
+        onMutated?.()
+      } catch (e) {
+        notify.error(e?.message || 'Suppression impossible')
+      }
+    },
+    [onMutated],
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {sections.map((section) => {
+        const sectionCards = cardsBySection.get(section.id) || []
+        const isCollapsed = collapsed.has(section.id)
+        const isOver = overSection === section.id
+
+        return (
+          <div
+            key={section.id}
+            style={{
+              background: 'var(--bg-surf)',
+              border: `1px solid ${
+                isOver ? 'var(--blue, #3B82F6)' : 'var(--brd-sub)'
+              }`,
+              borderRadius: 8,
+              overflow: 'hidden',
+              transition: 'border-color 100ms',
+            }}
+            onDragOver={(e) => handleSectionDragOver(e, section.id)}
+            onDragLeave={() => {
+              // On reset uniquement si on quitte la zone section
+              setOverSection(null)
+            }}
+            onDrop={(e) => handleSectionDrop(e, section.id)}
+          >
+            <SectionHeader
+              section={section}
+              count={sectionCards.length}
+              collapsed={isCollapsed}
+              onToggleCollapsed={() => toggleCollapsed(section.id)}
+              canEdit={canEdit}
+              onRename={(name) => handleRenameSection(section, name)}
+              onDelete={() => handleDeleteSection(section)}
+            />
+
+            {!isCollapsed && (
+              <div style={{ padding: '8px 12px 12px' }}>
+                {sectionCards.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '20px 12px',
+                      textAlign: 'center',
+                      color: 'var(--txt-3)',
+                      fontSize: 11,
+                      fontStyle: 'italic',
+                      border: '1px dashed var(--brd-sub)',
+                      borderRadius: 6,
+                    }}
+                  >
+                    Glisse une carte ici ou colle une URL pour ajouter
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      // Masonry CSS columns
+                      columnCount: 'auto',
+                      columnWidth: 200,
+                      columnGap: 10,
+                    }}
+                  >
+                    {sectionCards.map((card) => (
+                      <div
+                        key={card.id}
+                        onDragOver={(e) => handleCardDragOver(e, card)}
+                        onDrop={(e) => handleCardDrop(e, card)}
+                        style={{
+                          outline:
+                            overCard === card.id
+                              ? '2px solid var(--blue, #3B82F6)'
+                              : 'none',
+                          outlineOffset: 2,
+                          borderRadius: 8,
+                          marginBottom: 0,
+                        }}
+                      >
+                        <Card
+                          card={card}
+                          comments={commentsByCard.get(card.id) || []}
+                          reactionAgg={reactionsByCard.get(card.id) || null}
+                          canEdit={canEdit}
+                          onOpen={onOpenCard}
+                          onDelete={canEdit ? handleDeleteCard : null}
+                          draggable={canEdit}
+                          onDragStart={() => handleCardDragStart(card)}
+                          onDragEnd={handleCardDragEnd}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── SectionHeader ──────────────────────────────────────────────────────────
+function SectionHeader({
+  section,
+  count,
+  collapsed,
+  onToggleCollapsed,
+  canEdit,
+  onRename,
+  onDelete,
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(section.nom)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const commit = () => {
+    setEditing(false)
+    if (draft && draft !== section.nom) onRename?.(draft)
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 12px',
+        background: 'var(--bg-elev)',
+        borderBottom: '1px solid var(--brd-sub)',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        title={collapsed ? 'Déplier' : 'Replier'}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--txt-3)',
+          cursor: 'pointer',
+          padding: 2,
+          display: 'inline-flex',
+        }}
+      >
+        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+      </button>
+
+      {section.color && (
+        <div
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: section.color,
+            flexShrink: 0,
+          }}
+        />
+      )}
+
+      {editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit()
+              if (e.key === 'Escape') {
+                setDraft(section.nom)
+                setEditing(false)
+              }
+            }}
+            autoFocus
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              flex: 1,
+              padding: '2px 6px',
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--blue, #3B82F6)',
+              borderRadius: 4,
+              color: 'var(--txt)',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              commit()
+            }}
+            style={{
+              padding: 4,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--blue, #3B82F6)',
+              cursor: 'pointer',
+            }}
+          >
+            <Check size={14} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              setDraft(section.nom)
+              setEditing(false)
+            }}
+            style={{
+              padding: 4,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => canEdit && setEditing(true)}
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--txt)',
+            background: 'transparent',
+            border: 'none',
+            padding: '2px 4px',
+            cursor: canEdit ? 'text' : 'default',
+            textAlign: 'left',
+          }}
+          title={canEdit ? 'Cliquer pour renommer' : ''}
+        >
+          {section.nom}
+        </button>
+      )}
+
+      <span
+        style={{
+          fontSize: 11,
+          color: 'var(--txt-3)',
+          fontWeight: 400,
+        }}
+      >
+        {count}
+      </span>
+
+      <div style={{ flex: 1 }} />
+
+      {canEdit && (
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{
+              padding: 4,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--txt-3)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title="Actions"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          {menuOpen && (
+            <>
+              <div
+                onClick={() => setMenuOpen(false)}
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 10,
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  zIndex: 11,
+                  background: 'var(--bg-surf)',
+                  border: '1px solid var(--brd)',
+                  borderRadius: 6,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                  minWidth: 160,
+                  padding: 4,
+                  marginTop: 4,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setEditing(true)
+                  }}
+                  style={menuItemStyle()}
+                >
+                  Renommer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onDelete?.()
+                  }}
+                  style={{
+                    ...menuItemStyle(),
+                    color: '#EF4444',
+                  }}
+                >
+                  <Trash2 size={12} style={{ marginRight: 4 }} />
+                  Supprimer
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function menuItemStyle() {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    padding: '6px 10px',
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--txt-2)',
+    fontSize: 12,
+    textAlign: 'left',
+    borderRadius: 4,
+    cursor: 'pointer',
+  }
+}
+

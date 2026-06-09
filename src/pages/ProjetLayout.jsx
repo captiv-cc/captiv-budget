@@ -54,6 +54,7 @@ import {
   Shield,
   Menu,
   Music,
+  Image as ImageIcon,
   Share2,
   Truck,
 } from 'lucide-react'
@@ -136,6 +137,14 @@ const ALL_TABS = [
     path: 'musiques',
     finance: false,
     outil: 'musiques',
+  },
+  {
+    key: 'moodboard',
+    label: 'Moodboard',
+    icon: ImageIcon,
+    path: 'moodboard',
+    finance: false,
+    outil: 'moodboard',
   },
   {
     key: 'livrables',
