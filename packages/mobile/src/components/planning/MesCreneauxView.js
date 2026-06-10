@@ -41,8 +41,8 @@ function CreneauRow({ creneau, onPress }) {
       ]}
     >
       <View style={styles.heureCol}>
-        <Text style={styles.heureStart}>{formatHeure(creneau.start)}</Text>
-        <Text style={styles.heureEnd}>{formatHeure(creneau.end)}</Text>
+        <Text style={styles.heureStart} numberOfLines={1}>{formatHeure(creneau.start)}</Text>
+        <Text style={styles.heureEnd} numberOfLines={1}>{formatHeure(creneau.end)}</Text>
       </View>
 
       <View style={styles.content}>
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   heureCol: {
-    width: 50,
+    width: 60,
   },
   heureStart: {
     fontSize: 20,

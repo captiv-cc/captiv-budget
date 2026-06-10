@@ -1,14 +1,5 @@
-// ════════════════════════════════════════════════════════════════════════════
-// Toggle — switch on/off (style iOS)
-// ════════════════════════════════════════════════════════════════════════════
-
-import { Pressable, View, StyleSheet } from 'react-native'
+import { Pressable, Animated, StyleSheet, Easing } from 'react-native'
 import { useEffect, useRef } from 'react'
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated'
 
 import { colors } from '../../theme'
 
@@ -17,15 +8,18 @@ const TRACK_HEIGHT = 20
 const KNOB_SIZE = 16
 
 export default function Toggle({ value, onChange, color = colors.status.success }) {
-  const offset = useSharedValue(value ? TRACK_WIDTH - KNOB_SIZE - 2 : 2)
+  const offsetAnim = useRef(
+    new Animated.Value(value ? TRACK_WIDTH - KNOB_SIZE - 2 : 2),
+  ).current
 
   useEffect(() => {
-    offset.value = withTiming(value ? TRACK_WIDTH - KNOB_SIZE - 2 : 2, { duration: 180 })
-  }, [value, offset])
-
-  const knobStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: offset.value }],
-  }))
+    Animated.timing(offsetAnim, {
+      toValue: value ? TRACK_WIDTH - KNOB_SIZE - 2 : 2,
+      duration: 180,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start()
+  }, [value, offsetAnim])
 
   return (
     <Pressable
@@ -38,7 +32,7 @@ export default function Toggle({ value, onChange, color = colors.status.success 
         },
       ]}
     >
-      <Animated.View style={[styles.knob, knobStyle]} />
+      <Animated.View style={[styles.knob, { transform: [{ translateX: offsetAnim }] }]} />
     </Pressable>
   )
 }

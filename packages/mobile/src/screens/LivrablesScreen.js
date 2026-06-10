@@ -82,6 +82,8 @@ export default function LivrablesScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0 }}
+        style={{ flexGrow: 0 }}
         contentContainerStyle={styles.filtres}
       >
         {FILTRES.map((f) => {

@@ -12,15 +12,18 @@
       "resizeMode": "contain",
       "backgroundColor": "#0A0A0B"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "bundleIdentifier": "cc.captiv.desk",
       "buildNumber": "1",
       "supportsTablet": false,
-      "deploymentTarget": "15.1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["remote-notification"],
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
         "NSCameraUsageDescription": "Pour scanner les QR codes des partages projet.",
         "NSPhotoLibraryUsageDescription": "Pour joindre des screenshots aux signalements de bug."
       }
@@ -28,12 +31,15 @@
     "android": {
       "package": "cc.captiv.desk",
       "versionCode": 1,
-      "minSdkVersion": 24,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A0A0B"
       },
-      "permissions": ["NOTIFICATIONS", "VIBRATE", "WAKE_LOCK"]
+      "permissions": [
+        "NOTIFICATIONS",
+        "VIBRATE",
+        "WAKE_LOCK"
+      ]
     },
     "notification": {
       "icon": "./assets/notification-icon.png",
@@ -50,7 +56,8 @@
           "color": "#3B82F6",
           "sounds": []
         }
-      ]
+      ],
+      "expo-font"
     ],
     "updates": {
       "fallbackToCacheTimeout": 0,

@@ -88,7 +88,7 @@ export default function PlanningScreen() {
       </View>
 
       {/* Floating segmented control (au-dessus de la tab bar) */}
-      <View style={[styles.floatingSegmentWrap, { bottom: insets.bottom + 70 }]}>
+      <View style={[styles.floatingSegmentWrap, { bottom: 8 }]}>
         {Platform.OS === 'ios' && (
           <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         )}
