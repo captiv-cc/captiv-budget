@@ -553,3 +553,66 @@ manuels cross-platform pour les features partagées.
 - [ ] Création des comptes admin (Apple, Google, Firebase, Expo, Sentry)
 - [ ] Rédaction Privacy Policy URL
 - [ ] Choix icône + couleurs de la marque mobile
+
+---
+
+## 📌 État au 10/06/2026 02h00 — Nuit de dev autonome
+
+Phases 1-4 codées en autonomie pendant la nuit (sandbox sans accès npm, donc
+code écrit sans validation runtime — Hugo valide au matin via `npm install`).
+
+### ✅ Phase 1 — Migration monorepo (done)
+- Repo restructuré en npm workspaces (`packages/web` + `packages/shared` + `packages/mobile`)
+- Pivot annoncé pnpm → **npm workspaces** (pragmatique, zéro install pour Hugo)
+- Turborepo configuré (`turbo.json`)
+- Vercel mis à jour (build/output packages/web/)
+- Web rebranché sur `@captiv/shared/supabase` (factory commune)
+- Doc complète : `docs/MIGRATION_MONOREPO.md`
+
+### ✅ Phase 2 — Bootstrap Expo + Auth + Nav (done)
+- `packages/mobile/` initialisé (Expo SDK 51, bundle id `cc.captiv.desk`)
+- Metro config monorepo aware (watch packages/*)
+- AuthProvider Supabase + SecureStore adapter
+- React Navigation v6 (Auth Stack + Main Tabs Liquid Glass)
+
+### ✅ Phase 3 — Écrans cœur (done)
+- 6 écrans codés : Login / Planning (Mes+Timeline) / Détail créneau /
+  Livrables / Notifications / Profil
+- 9 composants atomiques : GlassCard, BottomSheet, StatusPill, Button,
+  Input, Toggle, SegmentedControl, Avatar, IconButton
+- TimelineView multi-lanes + ligne NOW rouge
+- CreneauDetailSheet bottom sheet 82% + dropdown statuts
+- Profil bottom sheet picker rappels (5/15/30/45/60/120 min, défaut 15)
+- Fixtures complètes (MARSATAC 2026 + créneaux + livrables + notifs)
+
+### ✅ Phase 4 — Push notifs stack (dry-run)
+- Migration SQL : `push_tokens`, `user_settings`, `notifications` + RLS
+- Edge function `send-push` (Deno + Expo Push Service)
+- Hook `usePushNotifications` (register + handlers)
+- Hook `useUserSettings` (CRUD préférences)
+- Hook `useNotifications` (liste + Realtime)
+- Trigger Postgres auto-notify : reporté en V2 (send-push appelable manuellement
+  depuis le web admin pour V1)
+
+### ✅ Phase 5 — Documentation
+- `docs/REPRISE_MATIN.md` : setup mobile pas-à-pas (10 min npm install +
+  expo install + start), validation visuelle écran par écran, APNs key
+  (10 min sur dev portal Apple), wire push manager dans App.js,
+  debug guide, TODOs ouverts à valider
+
+### 📋 Reste à faire (au matin par Hugo, ~30-60 min)
+1. `npm install` au root (valide structure monorepo)
+2. `cd packages/mobile && npx expo install --fix` (installe deps Expo)
+3. Copier `.env` mobile (cf packages/web/.env)
+4. `expo start` → scanner QR code sur iPhone via Expo Go
+5. Validation visuelle des 6 écrans
+6. Créer 4 PNG assets (icon, splash, adaptive-icon, notification-icon)
+7. APNs key Apple Developer + upload sur Expo (`eas credentials`)
+8. Wire `usePushNotifications` dans App.js (5 min, voir REPRISE_MATIN section D)
+9. `supabase functions deploy send-push`
+10. Test push réelle sur device → 🎉
+
+### Commits réalisés sur `feature/mobile-app`
+1. `chore(monorepo)` — Migration npm workspaces : packages/web + packages/shared
+2. `feat(mobile)` — CAD Phase 2+3 : Expo bootstrap + 6 écrans Liquid Glass complets
+3. `feat(push)` — CAD Phase 4 : stack push notifs dry-run + docs reprise
