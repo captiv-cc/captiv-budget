@@ -22,13 +22,17 @@ import {
   DELAI_RAPPEL_DEFAUT,
 } from '@captiv/shared'
 import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
-import { fixtureUser, fixtureSettings } from '../fixtures'
+import { fixtureUser } from '../fixtures'
+import { useUserSettings } from '../hooks/useUserSettings'
 
 export default function ProfilScreen() {
   const insets = useSafeAreaInsets()
   const { signOut } = useAuth()
-  const [pushOn, setPushOn] = useState(fixtureSettings.push_notifications)
-  const [rappelMin, setRappelMin] = useState(fixtureSettings.rappel_creneau_delai_min ?? DELAI_RAPPEL_DEFAUT)
+  const { settings, update } = useUserSettings()
+  const pushOn = settings.push_enabled
+  const setPushOn = (val) => update({ push_enabled: val })
+  const rappelMin = settings.rappel_delai_min ?? DELAI_RAPPEL_DEFAUT
+  const setRappelMin = (val) => update({ rappel_delai_min: val })
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const handleSignOut = () => {

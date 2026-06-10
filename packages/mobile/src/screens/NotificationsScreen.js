@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { IconButton, Avatar } from '../components/atoms'
 import { formatRelatif, estAujourdhui, estHier } from '@captiv/shared'
 import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
-import { fixtureNotifications } from '../fixtures'
+import { useNotifications } from '../hooks/useNotifications'
 
 const TYPE_META = {
   creneau_assigne: {
@@ -48,7 +48,7 @@ const TYPE_META = {
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets()
-  const [notifs, setNotifs] = useState(fixtureNotifications)
+  const { notifications: notifs, unreadCount: nbNonLues, markAllRead } = useNotifications()
 
   const { aujourdhui, hier, plusVieux } = useMemo(() => {
     const today = []
@@ -62,11 +62,7 @@ export default function NotificationsScreen() {
     return { aujourdhui: today, hier: yesterday, plusVieux: older }
   }, [notifs])
 
-  const nbNonLues = notifs.filter((n) => !n.lu).length
 
-  const markAllRead = () => {
-    setNotifs((prev) => prev.map((n) => ({ ...n, lu: true })))
-  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
