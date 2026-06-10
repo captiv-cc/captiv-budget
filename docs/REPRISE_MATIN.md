@@ -35,12 +35,27 @@ npm run dev:web                # le web doit fonctionner comme avant
 
 Si le web marche, la migration monorepo est validée. Continue.
 
-### 2. Setup Expo CLI (si pas déjà fait — 2 min)
+### 2. Pas besoin d'installer Expo CLI globalement (skip)
 
+⚠️ **`expo-cli` est déprécié depuis SDK 50.** Tu utilises directement `npx expo`
+(géré par le projet local). Aucune install globale nécessaire pour démarrer.
+
+Pour `eas-cli` (utile plus tard pour les credentials APNs), 3 options :
+
+**A. Recommandé — éviter sudo une fois pour toutes** :
 ```bash
-npm install -g expo-cli eas-cli
-expo --version                 # devrait afficher v51+
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.zshrc
+source ~/.zshrc
+npm install -g eas-cli         # marchera sans sudo
 ```
+
+**B. Quick & dirty** : `sudo npm install -g eas-cli`
+
+**C. Pas d'install** : utilise `npx eas-cli` à la place de `eas` partout.
+
+Pour la suite immédiate (lancer l'app), aucune install globale requise.
 
 ### 3. Variables d'environnement mobile
 
