@@ -8,6 +8,7 @@
 
 # ─── Dépendances (reconstructibles via npm install) ───────────────────────
 node_modules/
+packages/*/node_modules/
 .pnp
 .pnp.js
 
@@ -15,11 +16,29 @@ node_modules/
 dist/
 build/
 dist-ssr/
+packages/*/dist/
+packages/*/build/
 *.local
 .vite/
 .cache/
 .parcel-cache/
 .turbo/
+packages/*/.turbo/
+
+# ─── Expo / React Native (packages/mobile) ────────────────────────────────
+.expo/
+.expo-shared/
+packages/mobile/.expo/
+packages/mobile/ios/Pods/
+packages/mobile/ios/build/
+packages/mobile/android/.gradle/
+packages/mobile/android/app/build/
+packages/mobile/android/build/
+*.jks
+*.p12
+*.mobileprovision
+*.orig.*
+web-build/
 
 # ─── Logs ─────────────────────────────────────────────────────────────────
 logs/

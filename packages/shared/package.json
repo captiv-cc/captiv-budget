@@ -1,0 +1,21 @@
+{
+  "name": "@captiv/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Code partagé entre @captiv/web et @captiv/mobile (Supabase client factory, helpers purs, types, constantes).",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./supabase": "./src/supabase.js",
+    "./lib/*": "./src/lib/*.js",
+    "./constants/*": "./src/constants/*.js"
+  },
+  "scripts": {
+    "lint": "echo 'shared: no lint yet'",
+    "test": "echo 'shared: no tests yet'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}
