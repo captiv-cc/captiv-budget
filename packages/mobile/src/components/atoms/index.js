@@ -1,0 +1,10 @@
+// Barrel export pour faciliter les imports
+export { default as Avatar } from './Avatar.js'
+export { default as BottomSheet } from './BottomSheet.js'
+export { default as Button } from './Button.js'
+export { default as GlassCard } from './GlassCard.js'
+export { default as IconButton } from './IconButton.js'
+export { default as Input } from './Input.js'
+export { default as SegmentedControl } from './SegmentedControl.js'
+export { default as StatusPill } from './StatusPill.js'
+export { default as Toggle } from './Toggle.js'

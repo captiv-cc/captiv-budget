@@ -1,0 +1,141 @@
+// ════════════════════════════════════════════════════════════════════════════
+// MainTabs — bottom tab bar Liquid Glass
+// ════════════════════════════════════════════════════════════════════════════
+
+import { View, Text, Pressable, StyleSheet, Platform } from 'react-native'
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
+import { BlurView } from 'expo-blur'
+import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+import PlanningScreen from '../screens/PlanningScreen'
+import LivrablesScreen from '../screens/LivrablesScreen'
+import NotificationsScreen from '../screens/NotificationsScreen'
+import ProfilScreen from '../screens/ProfilScreen'
+import { colors, fontSize, fontWeight } from '../theme'
+
+const Tab = createBottomTabNavigator()
+
+const TABS = [
+  { name: 'Planning', label: 'Planning', icon: 'calendar-outline', iconActive: 'calendar' },
+  { name: 'Livrables', label: 'Livrables', icon: 'checkbox-outline', iconActive: 'checkbox' },
+  { name: 'Notifications', label: 'Notifs', icon: 'notifications-outline', iconActive: 'notifications', badge: 3 },
+  { name: 'Profil', label: 'Profil', icon: 'person-circle-outline', iconActive: 'person-circle' },
+]
+
+function GlassTabBar({ state, descriptors, navigation }) {
+  const insets = useSafeAreaInsets()
+  const pb = Math.max(insets.bottom, 12)
+
+  return (
+    <View style={[styles.tabBarWrap, { paddingBottom: pb }]}>
+      {Platform.OS === 'ios' && (
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+      )}
+      <View style={[StyleSheet.absoluteFill, styles.tabBarSurface]} />
+      <View style={styles.tabBarRow}>
+        {state.routes.map((route, index) => {
+          const focused = state.index === index
+          const meta = TABS.find((t) => t.name === route.name) ?? TABS[0]
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            })
+            if (!focused && !event.defaultPrevented) {
+              navigation.navigate(route.name)
+            }
+          }
+
+          return (
+            <Pressable key={route.key} onPress={onPress} style={styles.tab} hitSlop={8}>
+              <View style={styles.tabIconWrap}>
+                <Ionicons
+                  name={focused ? meta.iconActive : meta.icon}
+                  size={22}
+                  color={focused ? colors.brand.blueLight : colors.textMuted}
+                />
+                {meta.badge ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{meta.badge}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: focused ? colors.brand.blueLight : colors.textMuted, fontWeight: focused ? fontWeight.semibold : fontWeight.regular },
+                ]}
+              >
+                {meta.label}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    </View>
+  )
+}
+
+export default function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{ headerShown: false }}
+      tabBar={(props) => <GlassTabBar {...props} />}
+    >
+      <Tab.Screen name="Planning" component={PlanningScreen} />
+      <Tab.Screen name="Livrables" component={LivrablesScreen} />
+      <Tab.Screen name="Notifications" component={NotificationsScreen} />
+      <Tab.Screen name="Profil" component={ProfilScreen} />
+    </Tab.Navigator>
+  )
+}
+
+const styles = StyleSheet.create({
+  tabBarWrap: {
+    paddingTop: 6,
+    paddingHorizontal: 8,
+    overflow: 'hidden',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  tabBarSurface: {
+    backgroundColor: 'rgba(10,10,11,0.85)',
+  },
+  tabBarRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+  },
+  tabIconWrap: { position: 'relative' },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    backgroundColor: '#EF4444',
+    borderRadius: 7,
+    minWidth: 14,
+    height: 14,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+  },
+  tabLabel: {
+    fontSize: fontSize.caption,
+    letterSpacing: -0.1,
+  },
+})
