@@ -656,6 +656,23 @@ export async function fetchProjectDeroules(projectId) {
 }
 
 /**
+ * Toutes les lanes du projet (tous jours confondus). Utile pour lier un POI
+ * à une scène/lieu transversal (une scène existe en N lanes, une par jour).
+ */
+export async function fetchProjectLanes(projectId) {
+  const deroules = await fetchProjectDeroules(projectId)
+  const ids = deroules.map((d) => d.id)
+  if (!ids.length) return []
+  const { data, error } = await supabase
+    .from('projet_deroule_lanes')
+    .select('*')
+    .in('deroule_id', ids)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
  * Charge un déroulé complet (header + lanes + créneaux + assignations).
  * Retourne shape unifié pour consommation directe par le hook.
  */
@@ -1113,6 +1130,7 @@ export async function createCreneau(payload) {
       couleur: payload.couleur ?? null,
       lieu_text: payload.lieu_text ?? null,
       lieu_id: payload.lieu_id ?? null,
+      artiste_id: payload.artiste_id ?? null,
       statut: 'planifie',
       notes: payload.notes ?? null,
       source_creneau_id: payload.source_creneau_id ?? null,

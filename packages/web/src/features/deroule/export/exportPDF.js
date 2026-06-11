@@ -429,24 +429,7 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
     pdf.text(dureeStr, x + w - 1.5, y + 3, { align: 'right' })
   }
 
-  // ─── Texte interne (titre + horaires + lieu) ──────────────────────────
-  pdf.setTextColor(...C.text)
-  pdf.setFont('helvetica', 'bold')
-  const titleFontSize = h > 8 ? 8 : 7
-  pdf.setFontSize(titleFontSize)
-  const titleY = y + 2.5
-  const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
-  // Wrap titre sur 2-3 lignes max, en réservant la place du badge sur 1ère ligne
-  const maxLines = h > 16 ? 3 : h > 8 ? 2 : 1
-  const titleMaxW = Math.max(8, w - 2 - badgeWidth - 1)
-  // Première ligne tronquée par le badge ; lignes suivantes pleine largeur
-  const titleLines = pdf.splitTextToSize(titre, titleMaxW)
-  for (let i = 0; i < Math.min(titleLines.length, maxLines); i += 1) {
-    pdf.text(titleLines[i], x + 1.5, titleY + i * (titleFontSize * 0.4))
-  }
-
-  // (A) Préparer la bande d'alerte : on calcule la position AVANT pour
-  // savoir si horaires/lieu doivent être décalés vers le haut.
+  // (A) Bande d'alerte : calculée AVANT le texte pour borner contentMaxY.
   const showAlerte = Boolean(ea) && h >= 9
   const alertColorHex = showAlerte
     ? ALERTE_COLORS[ea.niveau] || ALERTE_COLORS.important
@@ -456,18 +439,72 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
   const alertBandY = showAlerte ? y + h - ALERT_BAND_H : null
   const contentMaxY = showAlerte ? alertBandY - 0.6 : y + h - 0.5
 
-  // Horaires (si la place le permet)
-  let cursorY = titleY + Math.min(titleLines.length, maxLines) * (titleFontSize * 0.4) + 0.8
-  if (h >= 7 && cursorY + 2 < contentMaxY) {
+  // ─── Texte interne (titre + horaires + lieu) ──────────────────────────
+  // Heure de début TOUJOURS visible. Créneau < 20 min → début seul ; sinon
+  // plage début–fin.
+  const startStr = formatMinHHMM(creneau.heure_debut_min)
+  const startOnly = dureeMin < 20
+  const timeStr = startOnly
+    ? startStr
+    : `${startStr}–${formatMinHHMM(creneau.heure_fin_min)}`
+
+  pdf.setTextColor(...C.text)
+  const titleFontSize = h > 8 ? 8 : 7
+  const lineH = titleFontSize * 0.4
+  const titleY = y + 2.5
+  const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
+  const maxLines = h > 16 ? 3 : h > 8 ? 2 : 1
+  const titleMaxW = Math.max(8, w - 2 - badgeWidth - 1)
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(titleFontSize)
+  const titleLines = pdf.splitTextToSize(titre, titleMaxW)
+  const nTitleLines = Math.min(titleLines.length, maxLines)
+  // La ligne d'horaire dédiée tient-elle sous le titre ?
+  const timeLineFits = titleY + nTitleLines * lineH + 0.8 + 2 < contentMaxY
+
+  let cursorY
+  if (timeLineFits) {
+    // Titre normal + ligne d'horaire dédiée dessous.
+    for (let i = 0; i < nTitleLines; i += 1) {
+      pdf.text(titleLines[i], x + 1.5, titleY + i * lineH)
+    }
+    cursorY = titleY + nTitleLines * lineH + 0.8
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(6.5)
     pdf.setTextColor(...C.textMuted)
-    pdf.text(
-      `${formatMinHHMM(creneau.heure_debut_min)}–${formatMinHHMM(creneau.heure_fin_min)}`,
-      x + 1.5,
-      cursorY,
-    )
+    pdf.text(timeStr, x + 1.5, cursorY)
     cursorY += 3
+  } else {
+    // Pas la place pour une ligne dédiée → heure de début préfixée au titre,
+    // mais EN PETIT GRIS (cohérente avec les autres horaires) ; titre en gras.
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(6.5)
+    const timeW = pdf.getTextWidth(startStr) + 1.5
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(titleFontSize)
+    // Wrap : 1ère ligne réduite par la largeur de l'heure, suite pleine largeur.
+    let lines
+    if (pdf.getTextWidth(titleLines[0] || '') <= titleMaxW - timeW) {
+      lines = titleLines
+    } else {
+      const firstFit = pdf.splitTextToSize(titre, Math.max(6, titleMaxW - timeW))
+      const first = firstFit[0] || titre
+      const rest = titre.slice(first.length).replace(/^\s+/, '')
+      const restLines = rest ? pdf.splitTextToSize(rest, titleMaxW) : []
+      lines = [first, ...restLines]
+    }
+    const nLines = Math.min(lines.length, maxLines)
+    pdf.setTextColor(...C.text)
+    for (let i = 0; i < nLines; i += 1) {
+      pdf.text(lines[i], i === 0 ? x + 1.5 + timeW : x + 1.5, titleY + i * lineH)
+    }
+    // Heure de début en petit gris, posée dans l'espace réservé en tête de ligne.
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(6.5)
+    pdf.setTextColor(...C.textMuted)
+    pdf.text(startStr, x + 1.5, titleY)
+    cursorY = titleY + nLines * lineH + 0.8
   }
 
   // (F) Lieu sous les horaires (si présent et place dispo)

@@ -95,6 +95,45 @@ export async function geocodeAddress(query) {
 }
 
 /**
+ * Recherche multi-résultats (pour une barre de recherche interactive).
+ * Renvoie une liste de { label, lat, lon, bbox:[w,s,e,n] }.
+ */
+export async function geocodeSearch(query, { limit = 5, signal } = {}) {
+  const trimmed = (query || '').trim()
+  if (trimmed.length < 3) return []
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    limit: String(limit),
+    q: trimmed,
+  })
+  try {
+    const r = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
+      signal,
+      headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'fr' },
+    })
+    if (!r.ok) return []
+    const data = await r.json()
+    if (!Array.isArray(data)) return []
+    return data.map((r0) => ({
+      label: r0.display_name || trimmed,
+      lat: parseFloat(r0.lat),
+      lon: parseFloat(r0.lon),
+      bbox: Array.isArray(r0.boundingbox)
+        ? [
+            parseFloat(r0.boundingbox[2]), // west
+            parseFloat(r0.boundingbox[0]), // south
+            parseFloat(r0.boundingbox[3]), // east
+            parseFloat(r0.boundingbox[1]), // north
+          ]
+        : null,
+    }))
+  } catch (e) {
+    if (e?.name !== 'AbortError') console.warn('[geocodeSearch] error', e)
+    return []
+  }
+}
+
+/**
  * Formate des coordonnées en notation human-readable.
  *   formatLatLon(48.8566, 2.3522) → "48.857°N, 2.352°E"
  */

@@ -50,6 +50,7 @@ import PlanFormModal from '../../features/plans/PlanFormModal'
 import PlansExportProgress from '../../features/plans/PlansExportProgress'
 import PlansShareModal from '../../features/plans/PlansShareModal'
 import PlanViewer from '../../features/plans/PlanViewer'
+import LieuCarteView from '../../features/lieux/LieuCarteView'
 import { exportPlansAsZip, triggerZipDownload } from '../../lib/plansZipExport'
 
 const OUTIL_KEY = 'plans'
@@ -105,6 +106,9 @@ export default function PlansTab() {
     }
   }, [])
   const effectiveViewMode = viewMode || 'grid'
+
+  // ── Mode haut-niveau : liste des plans ('plans') ou carte interactive ('carte')
+  const [topMode, setTopMode] = useState('plans')
 
   const filteredPlans = useMemo(() => {
     let list = plans
@@ -462,6 +466,19 @@ export default function PlansTab() {
     )
   }
 
+  // Sous-onglet Carte : vue dédiée plein-cadre (géoréf + POIs).
+  if (topMode === 'carte') {
+    return (
+      <LieuCarteView
+        projectId={projectId}
+        project={project}
+        plans={plans}
+        canEdit={canEdit}
+        onBack={() => setTopMode('plans')}
+      />
+    )
+  }
+
   return (
     <div className="px-4 sm:px-6 py-4 sm:py-6">
       {/* Header — aligné sur le pattern MaterielHeader (grosse icône + stats + actions) */}
@@ -483,6 +500,24 @@ export default function PlansTab() {
               ` · ${categories.filter((c) => !c.is_archived).length} catégorie${categories.filter((c) => !c.is_archived).length > 1 ? 's' : ''}`}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setTopMode('carte')}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shrink-0"
+          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hov)'
+            e.currentTarget.style.color = 'var(--txt)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--bg-elev)'
+            e.currentTarget.style.color = 'var(--txt-2)'
+          }}
+          title="Carte interactive — caler le plan sur le satellite, points de RDV"
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Carte</span>
+        </button>
         {canEdit && (
           <div className="flex items-center gap-1.5 shrink-0">
             {activePlans.length > 0 && (

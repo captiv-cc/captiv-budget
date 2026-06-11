@@ -1,28 +1,23 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LivrablesScreen — liste des livrables (style page suivi captiv)
-// ════════════════════════════════════════════════════════════════════════════
-//
-// Maquette : header avec contexte projet, filtres chips (Tous / Mes / En
-// retard), sections par bloc (RECAP, SNACK CONTENT, CAPSULES) avec pastille
-// colorée, chaque ligne livrable compacte (n° + nom + format/durée/livraison
-// + chip statut).
-//
+// LivrablesScreen — livrables par bloc (refonte UI 2026)
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native'
+import { useState, useMemo, useRef } from 'react'
+import { View, Text, Animated, ScrollView, StyleSheet, RefreshControl } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
-import { IconButton, StatusPill } from '../components/atoms'
-import {
-  STATUT_LIVRABLE,
-  STATUT_LIVRABLE_LABEL,
-  formatDateCourte,
-} from '@captiv/shared'
-import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
-import { fixtureLivrables, fixtureBlocs, fixtureProjet } from '../fixtures'
+import { IconButton } from '../components/atoms'
+import { ScreenHeader, Card, Badge, PressableScale } from '../components/shared'
+import { STATUT_LIVRABLE, STATUT_LIVRABLE_LABEL, formatDateCourte } from '@captiv/shared'
+import { colors, spacing, radius, type } from '../theme'
+import { useAuth } from '../lib/AuthContext'
+import { aujourdhuiJour } from '../lib/dateMin'
+import { useProjet } from '../lib/ProjetContext'
+import { useLivrablesProjet } from '../hooks/useLivrablesProjet'
+import { useListEntrance } from '../hooks/useListEntrance'
+import { RowSkeletonList } from '../components/Skeleton'
 
 const FILTRES = [
   { value: 'tous', label: 'Tous' },
@@ -41,275 +36,154 @@ const STATUT_VARIANT = {
 
 export default function LivrablesScreen() {
   const insets = useSafeAreaInsets()
+  const { user } = useAuth()
   const [filtre, setFiltre] = useState('tous')
+  const { projet } = useProjet()
+  const { blocs, livrables, loading, refetch } = useLivrablesProjet(projet?.id)
 
-  const livrablesParBloc = useMemo(() => {
+  const filteredParBloc = useMemo(() => {
+    const today = aujourdhuiJour()
+    const match = (l) => {
+      if (filtre === 'mine') return l.assignee_profile_id === user?.id
+      if (filtre === 'retard') return l.livraison && String(l.livraison) < today && l.statut !== STATUT_LIVRABLE.VALIDE
+      return true
+    }
     const map = {}
-    for (const l of fixtureLivrables) {
-      if (!map[l.bloc_id]) map[l.bloc_id] = []
-      map[l.bloc_id].push(l)
+    for (const l of livrables ?? []) {
+      if (!match(l)) continue
+      ;(map[l.bloc_id] ??= []).push(l)
     }
     return map
-  }, [])
+  }, [livrables, filtre, user?.id])
+
+  const totalAffiches = Object.values(filteredParBloc).reduce((n, arr) => n + arr.length, 0)
+  let runningIndex = 0
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <IconButton icon="menu-outline" />
-        <Text style={styles.title}>Livrables</Text>
-        <IconButton icon="filter-outline" iconSize={14} />
-      </View>
+      <ScreenHeader title="Livrables" leftMode="menu" right={<IconButton icon="filter-outline" iconSize={14} />} />
 
-      {/* Projet chip */}
-      <View style={styles.projetChipWrap}>
-        <View style={styles.projetChip}>
-          <View>
-            <Text style={styles.projetChipLabel}>Projet en cours</Text>
-            <Text style={styles.projetChipName}>{fixtureProjet.nom}</Text>
-          </View>
-          <View style={styles.projetChipPill}>
-            <Text style={styles.projetChipPillText}>
-              J{fixtureProjet.jour_actuel}/{fixtureProjet.jours_total} · VEN
-            </Text>
-          </View>
-        </View>
+      {/* Projet courant */}
+      <View style={styles.topPad}>
+        <Card variant="glass" padding="md">
+          <Text style={styles.projetLabel}>Projet en cours</Text>
+          <Text style={styles.projetName}>{projet?.title ?? 'Pas de projet'}</Text>
+        </Card>
       </View>
 
       {/* Filtres */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0 }}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={styles.filtres}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.filtres}>
         {FILTRES.map((f) => {
-          const isActive = f.value === filtre
+          const active = f.value === filtre
           return (
-            <Pressable
+            <PressableScale
               key={f.value}
+              haptic="selection"
               onPress={() => setFiltre(f.value)}
-              style={[styles.filtreChip, isActive && styles.filtreChipActive]}
+              style={[styles.filtreChip, active && styles.filtreChipActive]}
             >
-              <Text style={[styles.filtreText, isActive && styles.filtreTextActive]}>
-                {f.label}
-              </Text>
-            </Pressable>
+              <Text style={[styles.filtreText, active && styles.filtreTextActive]}>{f.label}</Text>
+            </PressableScale>
           )
         })}
       </ScrollView>
 
-      {/* Liste sections */}
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {fixtureBlocs.map((bloc) => {
-          const items = livrablesParBloc[bloc.id] ?? []
-          if (items.length === 0) return null
-          return (
-            <View key={bloc.id} style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionDot, { backgroundColor: bloc.couleur }]} />
-                <Text style={styles.sectionLabel}>{bloc.label}</Text>
-                <Text style={styles.sectionCount}>· {items.length}</Text>
-              </View>
-              <View style={styles.sectionList}>
-                {items.map((l) => (
-                  <LivrableRow key={l.id} livrable={l} />
-                ))}
-              </View>
-            </View>
-          )
-        })}
-      </ScrollView>
+      {loading && (!livrables || livrables.length === 0) ? (
+        <View style={{ paddingTop: 6 }}>
+          <RowSkeletonList count={7} />
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={colors.textMuted} />}
+        >
+          {totalAffiches === 0 ? (
+            <Text style={styles.empty}>
+              {filtre === 'mine'
+                ? 'Aucun livrable qui t’est assigné.'
+                : filtre === 'retard'
+                  ? 'Aucun livrable en retard 🎉'
+                  : 'Aucun livrable sur ce projet.'}
+            </Text>
+          ) : (
+            blocs.map((bloc) => {
+              const items = filteredParBloc[bloc.id] ?? []
+              if (items.length === 0) return null
+              return (
+                <View key={bloc.id} style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <View style={[styles.sectionDot, { backgroundColor: bloc.couleur }]} />
+                    <Text style={styles.sectionLabel}>{bloc.label}</Text>
+                    <Text style={styles.sectionCount}>{items.length}</Text>
+                  </View>
+                  <View style={styles.sectionList}>
+                    {items.map((l) => (
+                      <LivrableRow key={l.id} livrable={l} accent={bloc.couleur} index={runningIndex++} />
+                    ))}
+                  </View>
+                </View>
+              )
+            })
+          )}
+        </ScrollView>
+      )}
     </View>
   )
 }
 
-function LivrableRow({ livrable }) {
-  const variant = STATUT_VARIANT[livrable.statut] ?? 'neutral'
-  const livraisonStr = livrable.livraison
-    ? formatDateCourte(livrable.livraison).slice(0, 5) // "12/06"
-    : null
+function LivrableRow({ livrable, accent, index }) {
+  const entrance = useListEntrance(index)
+  const tone = STATUT_VARIANT[livrable.statut] ?? 'neutral'
+  const livraisonStr = livrable.livraison ? formatDateCourte(livrable.livraison).slice(0, 5) : null
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.row,
-        { opacity: pressed ? 0.85 : 1 },
-      ]}
-    >
-      <Text style={styles.rowNum}>{livrable.numero}</Text>
-      <View style={styles.rowContent}>
-        <Text style={styles.rowTitre} numberOfLines={1}>
-          {livrable.nom}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {livrable.format} · {livrable.duree}
-          {livraisonStr ? ` · ${livraisonStr}` : ''}
-        </Text>
-      </View>
-      <StatusPill variant={variant}>{STATUT_LIVRABLE_LABEL[livrable.statut]}</StatusPill>
-    </Pressable>
+    <Animated.View style={entrance}>
+      <Card variant="flat" padding="sm" accent={accent} style={styles.row}>
+        <Text style={styles.rowNum}>{livrable.numero}</Text>
+        <View style={styles.rowContent}>
+          <Text style={styles.rowTitre} numberOfLines={1}>{livrable.nom}</Text>
+          <Text style={styles.rowMeta} numberOfLines={1}>
+            {[livrable.format, livrable.duree, livraisonStr].filter(Boolean).join('  ·  ')}
+          </Text>
+        </View>
+        <Badge tone={tone}>{STATUT_LIVRABLE_LABEL[livrable.statut]}</Badge>
+      </Card>
+    </Animated.View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.base,
-  },
-  title: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: fontWeight.semibold,
-    letterSpacing: -0.3,
-  },
-  projetChipWrap: {
-    paddingHorizontal: 14,
-    paddingBottom: spacing.base,
-  },
-  projetChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.glass.subtle,
-    borderColor: colors.glass.borderSubtle,
-    borderWidth: 0.5,
-    borderRadius: radius.base,
-    padding: spacing.md,
-  },
-  projetChipLabel: {
-    fontSize: 9,
-    color: colors.textMuted,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  projetChipName: {
-    fontSize: 13,
-    color: '#fff',
-    fontWeight: fontWeight.semibold,
-    marginTop: 1,
-  },
-  projetChipPill: {
-    backgroundColor: 'rgba(16,185,129,0.15)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  projetChipPillText: {
-    fontSize: 8,
-    color: '#34D399',
-    fontWeight: fontWeight.bold,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  filtres: {
-    paddingHorizontal: 14,
-    paddingBottom: spacing.base,
-    gap: 4,
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
+  topPad: { paddingHorizontal: spacing.lg, paddingBottom: spacing.base },
+  projetLabel: { ...type.overline, color: colors.textMuted, textTransform: 'uppercase' },
+  projetName: { ...type.bodyStrong, color: '#fff', marginTop: 2 },
+  filtres: { paddingHorizontal: spacing.lg, paddingBottom: spacing.base, gap: spacing.sm },
   filtreChip: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
     backgroundColor: colors.glass.base,
     borderWidth: 0.5,
     borderColor: colors.glass.border,
-    marginRight: 4,
   },
-  filtreChipActive: {
-    backgroundColor: '#fff',
-    borderColor: '#fff',
-  },
-  filtreText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  filtreTextActive: {
-    color: '#000',
-    fontWeight: fontWeight.bold,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 14,
-    paddingTop: 2,
-    gap: spacing.lg,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 2,
-    paddingBottom: 2,
-  },
-  sectionDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  sectionLabel: {
-    fontSize: 10,
-    color: '#fff',
-    fontWeight: fontWeight.bold,
-    letterSpacing: 0.5,
-  },
-  sectionCount: {
-    fontSize: 9,
-    color: colors.textMuted,
-  },
-  sectionList: {
-    gap: 4,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.glass.subtle,
-    borderColor: colors.glass.borderSubtle,
-    borderWidth: 0.5,
-    borderRadius: radius.md,
-    paddingVertical: 9,
-    paddingHorizontal: 11,
-    gap: spacing.md,
-  },
-  rowNum: {
-    width: 18,
-    fontSize: 9,
-    color: colors.textMuted,
-    fontWeight: fontWeight.semibold,
-  },
-  rowContent: {
-    flex: 1,
-  },
-  rowTitre: {
-    fontSize: 11,
-    color: '#fff',
-    fontWeight: fontWeight.semibold,
-    lineHeight: 14,
-  },
-  rowMeta: {
-    fontSize: 9,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
+  filtreChipActive: { backgroundColor: '#fff', borderColor: '#fff' },
+  filtreText: { ...type.caption, color: colors.textSecondary, fontWeight: '600' },
+  filtreTextActive: { color: '#000', fontWeight: '700' },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingTop: 2, gap: spacing.xl },
+  empty: { ...type.body, color: colors.textMuted, textAlign: 'center', marginTop: 60 },
+  section: { gap: spacing.base },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 2 },
+  sectionDot: { width: 9, height: 9, borderRadius: 4.5 },
+  sectionLabel: { ...type.overline, color: '#fff', textTransform: 'uppercase' },
+  sectionCount: { ...type.caption, color: colors.textMuted },
+  sectionList: { gap: spacing.sm },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rowNum: { width: 22, ...type.caption, color: colors.textMuted, fontWeight: '700' },
+  rowContent: { flex: 1, gap: 2 },
+  rowTitre: { ...type.subhead, color: '#fff', fontWeight: '600' },
+  rowMeta: { ...type.caption, color: colors.textMuted },
 })

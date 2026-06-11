@@ -46,6 +46,7 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // du projet, avec un indicateur visuel sur ceux non présents ce jour.
 // import { membresPresentsJour } from '../../lib/deroule'
 import { findMembreOverlaps, enrichCreneauxWithImplicitMembers, MAX_MIN } from '../../lib/deroule'
+import { resolveArtistesForImport, normalizeNom } from '../../lib/projetArtistes'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
@@ -706,6 +707,16 @@ export default function DerouleTab() {
       const globalLane =
         targetLanes.find((l) => l.type === 'global') || targetLanes[0]
 
+      // 2b. Lien artiste : résout/crée les artistes dans l'annuaire partagé
+      //     (projet_artistes) — réutilise ceux importés via l'affiche (Musiques)
+      //     par matching flou. Sert à poser artiste_id sur chaque créneau show.
+      const artisteItems = [...shows, ...updates.map((u) => u.show).filter(Boolean)]
+      const artisteMap = await resolveArtistesForImport(projectId, artisteItems, {
+        source: 'grille',
+      })
+      const artisteIdForTitre = (titre) =>
+        artisteMap.get(normalizeNom(titre || ''))?.id ?? null
+
       // 3. Insert des créneaux. Best-effort : on log les erreurs, on continue
       //    et on rapporte au final.
       let okCount = 0
@@ -735,6 +746,7 @@ export default function DerouleTab() {
             // assign-cadreur).
             type: 'show',
             titre: s.titre,
+            artiste_id: artisteIdForTitre(s.titre),
           })
           okCount += 1
         } catch (e) {
@@ -752,7 +764,9 @@ export default function DerouleTab() {
           // trouvé, on prend l'existing du payload.
           const sourceCreneau =
             creneaux.find((c) => c.id === u.existingId) || null
-          await updateCreneau(u.existingId, u.fields)
+          // Re-lie l'artiste si on a pu le résoudre (titre potentiellement corrigé).
+          const aid = artisteIdForTitre(u.show?.titre)
+          await updateCreneau(u.existingId, aid ? { ...u.fields, artiste_id: aid } : u.fields)
           updCount += 1
           // Propagation aux enfants liés (cadreur shoots)
           if (propagateLinks && sourceCreneau) {

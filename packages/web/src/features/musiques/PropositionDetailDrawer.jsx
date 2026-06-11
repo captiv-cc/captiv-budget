@@ -42,6 +42,8 @@ import {
   Film,
   Search as SearchIcon,
   Plus as PlusIcon,
+  CalendarClock,
+  MapPin,
 } from 'lucide-react'
 import {
   updateProposition,
@@ -64,6 +66,8 @@ import {
 } from '../../lib/musiques'
 import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 import { getDeezerTrack } from '../../lib/musiqueSearch'
+import { fetchCreneauxByArtiste } from '../../lib/projetArtistes'
+import { formatMinHHMM } from '../../lib/deroule'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 import StarRating from './StarRating'
@@ -813,6 +817,9 @@ export default function PropositionDetailDrawer({
             onMutated={reloadLinks}
           />
 
+          {/* ═══ Au déroulé — créneaux de l'artiste (lien Déroulé ↔ Musiques) ═══ */}
+          <DerouleSlotsSection artisteId={proposition.artiste?.id} />
+
           {/* ═══ Commentaires (compacté MUS-4.5) ═══
               Header inline + plus de "aucun commentaire encore" (le
               placeholder de la textarea suffit). */}
@@ -1243,6 +1250,71 @@ function NoteVoterRow({ note, isMine }) {
       >
         <RelativeTime date={note.updated_at || note.created_at} />
       </span>
+    </div>
+  )
+}
+
+// ─── DerouleSlotsSection : créneaux de l'artiste au déroulé (lien Musiques↔Déroulé)
+function formatJourFR(dateStr) {
+  if (!dateStr) return ''
+  const parts = String(dateStr).split('-')
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : dateStr
+}
+
+function DerouleSlotsSection({ artisteId }) {
+  const [slots, setSlots] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!artisteId) {
+      setSlots([])
+      return
+    }
+    let alive = true
+    setLoading(true)
+    fetchCreneauxByArtiste(artisteId)
+      .then((s) => { if (alive) setSlots(s) })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [artisteId])
+
+  // Rien à montrer (artiste non lié au déroulé) → on n'affiche pas la section.
+  if (!artisteId || (!loading && slots.length === 0)) return null
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <CalendarClock size={13} style={{ color: 'var(--txt-3)' }} />
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, textTransform: 'uppercase', color: 'var(--txt-3)' }}>
+          Au déroulé
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {slots.map((c) => (
+          <div
+            key={c.id}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+              color: 'var(--txt-2)', padding: '5px 8px', background: 'var(--bg-elev)',
+              borderRadius: 6, border: '1px solid var(--brd-sub)',
+            }}
+          >
+            <span style={{ fontWeight: 600, color: 'var(--txt)' }}>{formatJourFR(c.date_jour)}</span>
+            <span style={{ color: 'var(--txt-3)' }}>·</span>
+            <span>{formatMinHHMM(c.heure_debut_min)}–{formatMinHHMM(c.heure_fin_min)}</span>
+            {c.scene && (
+              <>
+                <span style={{ color: 'var(--txt-3)' }}>·</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                  <MapPin size={11} style={{ color: 'var(--txt-3)', flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.scene}</span>
+                </span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

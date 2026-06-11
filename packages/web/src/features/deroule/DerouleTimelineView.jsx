@@ -1075,6 +1075,78 @@ export default function DerouleTimelineView({
                     />
                   )
                 })}
+              {/* Fantôme à la position D'ORIGINE pendant un déplacement (move).
+                  Reste visible tant que le créneau n'est pas relâché → on voit
+                  d'où il part. Teinté à la couleur du créneau, atténué. */}
+              {dragState &&
+                dragState.mode === 'move' &&
+                !dragState.multiLane &&
+                dragState.hasMoved &&
+                dragState.initialLaneId === lane.id &&
+                (() => {
+                  const src = allCreneauxById.get(dragState.creneauId)
+                  if (!src) return null
+                  const ghostColor = effectiveCouleurCreneau(src, projectTypes)
+                  return (
+                    <div
+                      className="absolute rounded pointer-events-none"
+                      style={{
+                        top: minToTop(dragState.initialDebutMin),
+                        left: 4,
+                        right: 4,
+                        height:
+                          durationToHeight(
+                            dragState.initialFinMin - dragState.initialDebutMin,
+                          ) - 2,
+                        background: `${ghostColor}1f`,
+                        border: `1.5px dashed ${ghostColor}`,
+                        opacity: 0.7,
+                        padding: '3px 7px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--txt-2)',
+                        lineHeight: 1.2,
+                        overflow: 'hidden',
+                        zIndex: 1,
+                      }}
+                    >
+                      <span style={{ opacity: 0.85 }}>{src.titre || ''}</span>
+                      <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--txt-3)' }}>
+                        {formatMinHHMM(dragState.initialDebutMin)} – {formatMinHHMM(dragState.initialFinMin)}
+                      </div>
+                    </div>
+                  )
+                })()}
+              {/* Tooltip durée pendant un resize (drag du début ou de la fin) :
+                  petit badge collé au bord déplacé, affichant la durée totale. */}
+              {dragState &&
+                (dragState.mode === 'resize-top' || dragState.mode === 'resize-bottom') &&
+                dragState.hasMoved &&
+                dragState.initialLaneId === lane.id && (
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      top:
+                        (dragState.mode === 'resize-bottom'
+                          ? minToTop(dragState.currentFinMin)
+                          : minToTop(dragState.currentDebutMin)) - 9,
+                      right: 6,
+                      background: 'rgba(20,22,28,0.94)',
+                      color: '#fff',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 6,
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
+                      zIndex: 6,
+                    }}
+                  >
+                    {formatDureeShort(
+                      dragState.currentFinMin - dragState.currentDebutMin,
+                    )}
+                  </div>
+                )}
               {/* Preview visuel pendant un click-and-drag de création
                   (mode 'create') : un rectangle pointillé entre les heures
                   choisies, affiché dans la lane d'origine du drag. */}

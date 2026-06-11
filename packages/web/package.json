@@ -32,6 +32,7 @@
     "jspdf-autotable": "^3.8.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.383.0",
+    "maplibre-gl": "^5.24.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

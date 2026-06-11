@@ -11,21 +11,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import PlanningScreen from '../screens/PlanningScreen'
 import LivrablesScreen from '../screens/LivrablesScreen'
 import NotificationsScreen from '../screens/NotificationsScreen'
-import ProfilScreen from '../screens/ProfilScreen'
+import CarteScreen from '../screens/CarteScreen'
 import { colors, fontSize, fontWeight } from '../theme'
+import { useNotifications } from '../hooks/useNotifications'
 
 const Tab = createBottomTabNavigator()
 
 const TABS = [
   { name: 'Planning', label: 'Planning', icon: 'calendar-outline', iconActive: 'calendar' },
   { name: 'Livrables', label: 'Livrables', icon: 'checkbox-outline', iconActive: 'checkbox' },
-  { name: 'Notifications', label: 'Notifs', icon: 'notifications-outline', iconActive: 'notifications', badge: 3 },
-  { name: 'Profil', label: 'Profil', icon: 'person-circle-outline', iconActive: 'person-circle' },
+  { name: 'Notifications', label: 'Notifs', icon: 'notifications-outline', iconActive: 'notifications' },
+  { name: 'Carte', label: 'Plan', icon: 'map-outline', iconActive: 'map' },
 ]
 
 function GlassTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets()
   const pb = Math.max(insets.bottom, 12)
+  const { unreadCount } = useNotifications()
 
   return (
     <View style={[styles.tabBarWrap, { paddingBottom: pb }]}>
@@ -37,6 +39,7 @@ function GlassTabBar({ state, descriptors, navigation }) {
         {state.routes.map((route, index) => {
           const focused = state.index === index
           const meta = TABS.find((t) => t.name === route.name) ?? TABS[0]
+          const badge = route.name === 'Notifications' ? unreadCount : 0
           const onPress = () => {
             const event = navigation.emit({
               type: 'tabPress',
@@ -56,9 +59,9 @@ function GlassTabBar({ state, descriptors, navigation }) {
                   size={22}
                   color={focused ? colors.brand.blueLight : colors.textMuted}
                 />
-                {meta.badge ? (
+                {badge > 0 ? (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{meta.badge}</Text>
+                    <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
                   </View>
                 ) : null}
               </View>
@@ -87,7 +90,7 @@ export default function MainTabs() {
       <Tab.Screen name="Planning" component={PlanningScreen} />
       <Tab.Screen name="Livrables" component={LivrablesScreen} />
       <Tab.Screen name="Notifications" component={NotificationsScreen} />
-      <Tab.Screen name="Profil" component={ProfilScreen} />
+      <Tab.Screen name="Carte" component={CarteScreen} />
     </Tab.Navigator>
   )
 }

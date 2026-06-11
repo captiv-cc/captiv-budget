@@ -57,20 +57,21 @@
           "sounds": []
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ],
     "updates": {
       "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/PLACEHOLDER-UPDATE-ID"
+      "url": "https://u.expo.dev/0476077a-77b8-49b2-9917-f4d1ad43a20c"
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "extra": {
       "eas": {
-        "projectId": "PLACEHOLDER-EAS-PROJECT-ID"
+        "projectId": "0476077a-77b8-49b2-9917-f4d1ad43a20c"
       }
     },
-    "owner": "PLACEHOLDER-EXPO-USERNAME"
+    "owner": "captiv.cc"
   }
 }

@@ -39,6 +39,7 @@ import {
   Check,
   AlertTriangle,
   Info as InfoIcon,
+  Navigation,
 } from 'lucide-react'
 import {
   CRENEAU_STATUTS,
@@ -51,6 +52,8 @@ import {
   hasAlerte,
 } from '../../lib/deroule'
 import { getProjectCreneauTypes } from '../../lib/creneauTypes'
+import { listPoisByProject } from '../../lib/lieux'
+import { emojiFor } from '../lieux/poiIcons'
 import RichEditor, { isDocEmpty, docsEqual } from '../../components/rich-editor'
 import Tooltip from '../../components/Tooltip'
 import CustomSelect from '../../components/CustomSelect'
@@ -963,6 +966,29 @@ function CompactView({
       })),
     [lanes],
   )
+
+  // POIs de la carte du projet (pour le sélecteur "Lieu sur la carte").
+  const [cartePois, setCartePois] = useState([])
+  useEffect(() => {
+    if (!project?.id) return
+    let alive = true
+    listPoisByProject(project.id)
+      .then((d) => { if (alive) setCartePois(d) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [project?.id])
+
+  const poiOptions = useMemo(
+    () => [
+      { value: '', label: '— Aucun —' },
+      ...cartePois.map((p) => ({
+        value: p.id,
+        label: `${emojiFor(p.icon) ? `${emojiFor(p.icon)} ` : ''}${p.label || '(sans nom)'}`,
+      })),
+    ],
+    [cartePois],
+  )
+  const linkedPoi = cartePois.find((p) => p.id === draft.lieu_id) || null
   const statutOptions = useMemo(
     () =>
       CRENEAU_STATUTS.map((s) => ({
@@ -1204,6 +1230,25 @@ function CompactView({
           placeholder="Ajouter un lieu"
           canEdit={canEdit}
           onSave={(v) => saveField('lieu_text', v || null)}
+        />
+      )}
+
+      {/* Ligne Lieu sur la carte — lien précis vers un POI (le "Y aller" mobile
+          le résout en priorité). Affichée si éditable OU si déjà liée. */}
+      {(canEdit || linkedPoi) && (
+        <InlineSelect
+          icon={<Navigation size={14} />}
+          value={draft.lieu_id || ''}
+          options={poiOptions}
+          canEdit={canEdit}
+          renderDisplay={() =>
+            linkedPoi ? (
+              `${emojiFor(linkedPoi.icon) ? `${emojiFor(linkedPoi.icon)} ` : ''}${linkedPoi.label || '(sans nom)'}`
+            ) : (
+              <span style={{ opacity: 0.5 }}>Lieu sur la carte</span>
+            )
+          }
+          onSave={(v) => saveField('lieu_id', v || null)}
         />
       )}
 
@@ -2932,6 +2977,7 @@ function initDraft(creneau) {
     type: creneau.type || 'autre',
     couleur: creneau.couleur || null,
     lieu_text: creneau.lieu_text || null,
+    lieu_id: creneau.lieu_id || null,
     statut: creneau.statut || 'planifie',
     notes: creneau.notes || null,
     // FEST-3.2 C fix : préserver le lien soft (source_creneau_id + anchor)

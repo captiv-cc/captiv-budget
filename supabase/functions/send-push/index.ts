@@ -158,6 +158,24 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'missing_fields', fields: ['user_ids', 'titre', 'type'] }, 400)
   }
 
+  // ── Contrôle d'autorisation ────────────────────────────────────────────────
+  // Privilégié (triggers Postgres / cron) si le bearer == service_role : peut
+  // cibler n'importe quels user_ids. Sinon, c'est un utilisateur connecté → on
+  // restreint les cibles à lui-même (anti-abus : pas de spam d'autrui).
+  const bearer = authHeader.replace(/^Bearer\s+/i, '').trim()
+  const isService = SUPABASE_SERVICE_ROLE !== '' && bearer === SUPABASE_SERVICE_ROLE
+  if (!isService) {
+    const { data: userData, error: userErr } = await supabase.auth.getUser(bearer)
+    if (userErr || !userData?.user) {
+      return jsonResponse({ error: 'unauthorized' }, 401)
+    }
+    const selfId = userData.user.id
+    body.user_ids = body.user_ids.filter((id) => id === selfId)
+    if (body.user_ids.length === 0) {
+      return jsonResponse({ error: 'forbidden_targets' }, 403)
+    }
+  }
+
   // 1. Fetch push tokens pour les user_ids cibles
   const { data: tokens, error: tokensErr } = await supabase
     .from('push_tokens')

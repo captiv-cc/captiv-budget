@@ -44,6 +44,7 @@ export const colors = {
     blue: '#3B82F6',
     blueLight: '#60A5FA',
     blueBg: 'rgba(59,130,246,0.12)',
+    blueBgSubtle: 'rgba(59,130,246,0.06)',
     blueBorder: 'rgba(96,165,250,0.3)',
     violet: '#8B5CF6',
     violetLight: '#A78BFA',
@@ -177,6 +178,64 @@ export const blur = {
   base: 40,
   strong: 60,
   intense: 80,
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Échelle typo sémantique (avec lineHeight) — refonte UI 2026
+// ════════════════════════════════════════════════════════════════════════════
+// À préférer aux fontSize bruts : donne du rythme (line-heights) et une
+// hiérarchie cohérente. À étaler via {...type.body}.
+export const type = {
+  largeTitle: { fontSize: 28, lineHeight: 34, letterSpacing: -0.5, fontWeight: '700' },
+  title: { fontSize: 22, lineHeight: 27, letterSpacing: -0.4, fontWeight: '700' },
+  title2: { fontSize: 19, lineHeight: 24, letterSpacing: -0.3, fontWeight: '700' },
+  headerTitle: { fontSize: 17, lineHeight: 22, letterSpacing: -0.3, fontWeight: '600' },
+  body: { fontSize: 15, lineHeight: 20, letterSpacing: -0.2, fontWeight: '400' },
+  bodyStrong: { fontSize: 15, lineHeight: 20, letterSpacing: -0.2, fontWeight: '600' },
+  subhead: { fontSize: 13, lineHeight: 18, letterSpacing: -0.1, fontWeight: '400' },
+  footnote: { fontSize: 12, lineHeight: 16, letterSpacing: 0, fontWeight: '400' },
+  caption: { fontSize: 11, lineHeight: 14, letterSpacing: 0, fontWeight: '500' },
+  overline: { fontSize: 10, lineHeight: 13, letterSpacing: 0.6, fontWeight: '700' },
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Teintes de statut unifiées (fini les rgba en dur dans les écrans)
+// ════════════════════════════════════════════════════════════════════════════
+export const statusTint = {
+  success: { fg: colors.status.successLight, bg: colors.status.successBg, border: colors.status.successBorder, solid: colors.status.success },
+  warning: { fg: colors.status.warningLight, bg: colors.status.warningBg, border: colors.status.warningBorder, solid: colors.status.warning },
+  danger: { fg: colors.status.dangerLight, bg: colors.status.dangerBg, border: colors.status.dangerBorder, solid: colors.status.danger },
+  info: { fg: colors.status.infoLight, bg: colors.status.infoBg, border: colors.status.infoBorder, solid: colors.status.info },
+  accent: { fg: colors.status.accentLight, bg: colors.status.accentBg, border: colors.status.accentBorder, solid: colors.status.accent },
+  neutral: { fg: colors.textMuted, bg: colors.glass.base, border: colors.glass.borderSubtle, solid: colors.textSecondary },
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Ombres RN natives (shadowColor/Offset/Opacity/Radius + elevation Android)
+// Les `shadows` ci-dessus (strings CSS) restent pour le web.
+// ⚠️ Une View ombrée ne doit PAS avoir overflow:'hidden' ni fond transparent.
+// ════════════════════════════════════════════════════════════════════════════
+export const elevation = {
+  none: {},
+  sm: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
+  md: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 6 },
+  lg: { shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.45, shadowRadius: 28, elevation: 12 },
+  header: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
+}
+
+// Feedback de press unique (PressableScale)
+export const press = {
+  scale: 0.97,
+  opacity: 0.85,
+  duration: 90,
+}
+
+// Dégradés (expo-linear-gradient) — mode "bold"
+export const gradients = {
+  hero: ['rgba(59,130,246,0.22)', 'rgba(59,130,246,0.04)', 'transparent'],
+  violet: ['rgba(139,92,246,0.20)', 'transparent'],
+  success: ['rgba(16,185,129,0.18)', 'transparent'],
+  dark: ['rgba(20,20,22,0)', 'rgba(10,10,11,0.6)'],
 }
 
 /**

@@ -158,12 +158,10 @@ export function usePushNotifications({ onReceive, onTap, enabled = true } = {}) 
     })
 
     return () => {
-      if (notifListener.current) {
-        Notifications.removeNotificationSubscription(notifListener.current)
-      }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current)
-      }
+      // SDK 54 : plus de Notifications.removeNotificationSubscription — on
+      // appelle .remove() sur l'abonnement retourné par addNotification*Listener.
+      notifListener.current?.remove()
+      responseListener.current?.remove()
     }
   }, [enabled, onReceive, onTap])
 

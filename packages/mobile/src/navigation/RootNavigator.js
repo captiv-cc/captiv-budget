@@ -9,7 +9,8 @@ import { useAuth } from '../lib/AuthContext'
 import { colors } from '../theme'
 
 import AuthStack from './AuthStack'
-import MainTabs from './MainTabs'
+import MainStack from './MainStack'
+import { navigationRef } from './navigationRef'
 
 const NavTheme = {
   ...DarkTheme,
@@ -35,8 +36,8 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={NavTheme}>
-      {session ? <MainTabs /> : <AuthStack />}
+    <NavigationContainer ref={navigationRef} theme={NavTheme}>
+      {session ? <MainStack /> : <AuthStack />}
     </NavigationContainer>
   )
 }

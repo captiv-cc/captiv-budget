@@ -270,6 +270,68 @@ export async function bulkUpsertFromAffiche(projectId, artistes, opts = {}) {
 }
 
 /**
+ * Résout les artistes d'un import timetable (déroulé) vers l'annuaire partagé.
+ * Pour chaque nom unique : upsert (source='grille' par défaut) — réutilise
+ * l'artiste de l'affiche si le nom matche (fuzzy via nom_normalise), sinon le
+ * crée. Renvoie une Map(nom_normalisé → artiste row) pour poser artiste_id sur
+ * les créneaux. Le matching dédupliqué évite N upserts pour un même artiste.
+ *
+ * @param {string} projectId
+ * @param {Array<{titre?: string, nom?: string}>} items shows extraits (titre = nom artiste)
+ * @param {object} [opts]
+ * @param {string} [opts.source='grille']
+ * @returns {Promise<Map<string, object>>} clé = normalizeNom(nom)
+ */
+export async function resolveArtistesForImport(projectId, items, { source = 'grille' } = {}) {
+  const map = new Map()
+  if (!projectId) return map
+  for (const it of items || []) {
+    const nom = (it?.titre ?? it?.nom ?? '').trim()
+    const key = normalizeNom(nom)
+    if (!key || map.has(key)) continue
+    try {
+      const artiste = await upsertArtiste(projectId, { nom, source })
+      map.set(key, artiste)
+    } catch (e) {
+      console.warn('[resolveArtistesForImport]', nom, e?.message || e)
+    }
+  }
+  return map
+}
+
+/**
+ * Récupère les créneaux du déroulé liés à un artiste (via créneau.artiste_id).
+ * Sert à montrer, côté Musiques, où/quand l'artiste joue (scène + heure + jour).
+ *
+ * @param {string} artisteId
+ * @returns {Promise<Array<{id, titre, date_jour, scene, heure_debut_min, heure_fin_min}>>}
+ */
+export async function fetchCreneauxByArtiste(artisteId) {
+  if (!artisteId) return []
+  const { data, error } = await supabase
+    .from('projet_deroule_creneaux')
+    .select(
+      'id, titre, heure_debut_min, heure_fin_min, projet_deroules!inner(date_jour), lane:lane_id(libelle)',
+    )
+    .eq('artiste_id', artisteId)
+  if (error) throw error
+  return (data || [])
+    .map((c) => ({
+      id: c.id,
+      titre: c.titre,
+      date_jour: c.projet_deroules?.date_jour || null,
+      scene: c.lane?.libelle || null,
+      heure_debut_min: c.heure_debut_min,
+      heure_fin_min: c.heure_fin_min,
+    }))
+    .sort(
+      (a, b) =>
+        (a.date_jour || '').localeCompare(b.date_jour || '') ||
+        (a.heure_debut_min ?? 0) - (b.heure_debut_min ?? 0),
+    )
+}
+
+/**
  * Enrichit un artiste existant avec son ID Spotify (après lookup).
  * Patch direct sans logique de priorité (les IDs Spotify sont
  * universels, on ne risque pas d'overwrite à tort).

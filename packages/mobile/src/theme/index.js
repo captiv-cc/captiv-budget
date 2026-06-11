@@ -14,7 +14,21 @@
 import { Platform } from 'react-native'
 import { tokens } from '@captiv/shared'
 
-export const { colors, spacing, radius, fontSize, fontWeight, letterSpacing, blur, zIndex } = tokens
+export const {
+  colors,
+  spacing,
+  radius,
+  fontSize,
+  fontWeight,
+  letterSpacing,
+  blur,
+  zIndex,
+  type,
+  statusTint,
+  elevation,
+  press,
+  gradients,
+} = tokens
 
 /**
  * Police par défaut. Sur iOS on prend la SF native via fontFamily undefined
@@ -66,6 +80,19 @@ export const glassStyles = {
     borderColor: colors.glass.borderHigh,
     borderRadius: radius.lg,
   },
+}
+
+/**
+ * Surface glass "posée" : variant glass + ombre douce + inset highlight.
+ * À utiliser pour les cards en relief (elevated). Ne PAS combiner avec
+ * overflow:'hidden' (l'ombre serait clippée sur iOS).
+ */
+export function glassSurface(variant = 'base') {
+  return {
+    ...glassStyles[variant],
+    ...elevation.sm,
+    borderTopColor: colors.glass.insetHighlight,
+  }
 }
 
 /**

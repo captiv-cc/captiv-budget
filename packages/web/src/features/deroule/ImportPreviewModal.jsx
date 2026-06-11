@@ -67,6 +67,8 @@ export default function ImportPreviewModal({
   // Mode UPDATE : toggle global "Décaler aussi les créneaux cadreurs
   // liés". Default ON (use case courant : MAJ programme festival).
   const [propagateLinks, setPropagateLinks] = useState(true)
+  // Corrections de noms d'artistes (fautes d'extraction IA) : idx → titre édité.
+  const [titreOverrides, setTitreOverrides] = useState({})
 
   // Reset à chaque ouverture / nouveau résultat
   useEffect(() => {
@@ -76,6 +78,7 @@ export default function ImportPreviewModal({
     setCopyCadreurs(true)
     setDeleteChecked({})
     setPropagateLinks(true)
+    setTitreOverrides({})
   }, [open, extracted, selectedDate])
 
   // Esc ferme
@@ -97,19 +100,21 @@ export default function ImportPreviewModal({
   // Si heure_fin <= heure_debut, on suppose passage de minuit → +1j (+1440).
   const showsWithMin = useMemo(() => {
     if (!extracted?.shows) return []
-    return extracted.shows.map((s) => {
+    return extracted.shows.map((s, i) => {
       const debut = timeToMinutes(s.heure_debut)
       let fin = timeToMinutes(s.heure_fin)
       if (Number.isFinite(debut) && Number.isFinite(fin) && fin <= debut) {
         fin = fin + 1440 // passage minuit
       }
+      const titre = titreOverrides[i] !== undefined ? titreOverrides[i] : s.titre
       return {
         ...s,
+        titre,
         debut_min: debut,
         fin_min: fin,
       }
     })
-  }, [extracted])
+  }, [extracted, titreOverrides])
 
   // ─── Détection des scènes à créer ───────────────────────────────────────
   // Pour chaque scène unique parmi les shows cochés, on regarde si une lane
@@ -728,20 +733,38 @@ export default function ImportPreviewModal({
                         gap: 6,
                       }}
                     >
-                      <div
+                      <input
+                        type="text"
+                        value={s.titre || ''}
+                        disabled={importing}
+                        placeholder="Nom d'artiste"
+                        onChange={(e) =>
+                          setTitreOverrides((p) => ({ ...p, [i]: e.target.value }))
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        title="Corriger le nom de l'artiste avant l'import"
                         style={{
                           fontSize: 13,
                           fontWeight: 500,
                           color: 'var(--txt)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
                           flex: 1,
                           minWidth: 0,
+                          background: 'transparent',
+                          border: 'none',
+                          borderBottom: '1px dashed var(--brd-sub)',
+                          outline: 'none',
+                          padding: '1px 0',
                         }}
-                      >
-                        {s.titre || '(sans titre)'}
-                      </div>
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderBottomColor = 'var(--blue)'
+                          e.currentTarget.style.borderBottomStyle = 'solid'
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderBottomColor = 'var(--brd-sub)'
+                          e.currentTarget.style.borderBottomStyle = 'dashed'
+                        }}
+                      />
                       {/* Badges d'état diff (mode update) */}
                       {isUpdate && (
                         <span

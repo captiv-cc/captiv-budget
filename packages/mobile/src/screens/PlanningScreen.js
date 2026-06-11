@@ -10,67 +10,128 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState } from 'react'
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native'
+import { useState, useMemo, useEffect } from 'react'
+import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native'
+import { useRoute } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur'
 import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
-import { IconButton, SegmentedControl, Avatar } from '../components/atoms'
+import { SegmentedControl, Avatar } from '../components/atoms'
+import { ScreenHeader, PressableScale } from '../components/shared'
 import MesCreneauxView from '../components/planning/MesCreneauxView'
 import TimelineView from '../components/planning/TimelineView'
 import CreneauDetailSheet from './CreneauDetailSheet'
-import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
-import {
-  fixtureCreneaux,
-  fixtureLanes,
-  fixtureCreneauxTimeline,
-  fixtureProjet,
-  fixtureUser,
-} from '../fixtures'
-
-const JOURS = ['VEN', 'SAM 14', 'DIM']
+import { colors, fontWeight, spacing, radius } from '../theme'
+import { aujourdhuiJour, formatJourPill } from '../lib/dateMin'
+import { useProjet } from '../lib/ProjetContext'
+import { useProjetDeroules } from '../hooks/useProjetDeroules'
+import { useMesCreneauxJour } from '../hooks/useMesCreneauxJour'
+import { useDerouleJour } from '../hooks/useDerouleJour'
+import { usePlanningRealtime } from '../hooks/usePlanningRealtime'
+import { useProfile } from '../hooks/useProfile'
 
 export default function PlanningScreen() {
   const insets = useSafeAreaInsets()
+  const route = useRoute()
+  const { profile } = useProfile()
+  const { projet } = useProjet()
   const [view, setView] = useState('mine') // 'mine' | 'timeline'
-  const [jour, setJour] = useState('SAM 14')
+  const [selectedJour, setSelectedJour] = useState(null)
   const [selectedCreneau, setSelectedCreneau] = useState(null)
 
+  // Deep-link push : ouvre le créneau ciblé (param posé par openCreneauFromPush)
+  useEffect(() => {
+    const id = route.params?.openCreneauId
+    if (id) setSelectedCreneau({ id })
+  }, [route.params?.openCreneauId, route.params?.ts])
+  const { deroules, refetch: refetchDeroules } = useProjetDeroules(projet?.id)
+
+  // Jours réels du projet (date_jour) ; pill active = jour choisi, sinon
+  // aujourd'hui s'il fait partie du projet, sinon le 1er jour.
+  const jours = useMemo(() => deroules.map((d) => d.date_jour), [deroules])
+  const jourActif =
+    selectedJour && jours.includes(selectedJour)
+      ? selectedJour
+      : jours.includes(aujourdhuiJour())
+        ? aujourdhuiJour()
+        : jours[0] ?? null
+
+  const {
+    creneaux: mesCreneaux,
+    loading: loadingCreneaux,
+    refetch: refetchMine,
+  } = useMesCreneauxJour({ projetId: projet?.id, jour: jourActif })
+
+  // Timeline : toutes les lanes + créneaux du jour
+  const {
+    lanes,
+    creneaux: tousCreneaux,
+    loading: loadingDeroule,
+    refetch: refetchDeroule,
+  } = useDerouleJour({ projetId: projet?.id, jour: jourActif })
+
+  // Live : un changement déroulé (décalage, statut, réassignation, ajout de
+  // jour) refetch tout
+  const refetchAll = () => {
+    refetchMine()
+    refetchDeroule()
+    refetchDeroules()
+  }
+  usePlanningRealtime(projet?.id, refetchAll)
+
+  // Ids ordonnés pour la nav prec/suiv dans le drawer
+  const siblingIds = useMemo(() => {
+    const list = view === 'mine'
+      ? mesCreneaux
+      : [...tousCreneaux].sort((a, b) => (a.heure_debut_min ?? 0) - (b.heure_debut_min ?? 0))
+    return list.map((c) => c.id)
+  }, [view, mesCreneaux, tousCreneaux])
+
+  const [refreshing, setRefreshing] = useState(false)
+  const onRefresh = async () => {
+    setRefreshing(true)
+    await Promise.all([refetchMine(), refetchDeroule(), refetchDeroules()])
+    setRefreshing(false)
+  }
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <IconButton icon="menu-outline" />
-        <View style={styles.headerCenter}>
-          <Text style={styles.context}>
-            {fixtureProjet.nom} · SAM 14 JUIN
-          </Text>
-          <Text style={styles.title}>
-            {view === 'mine' ? 'Mes créneaux' : 'Planning festival'}
-          </Text>
-        </View>
-        <Avatar nom={fixtureUser.nom} id={fixtureUser.id} size={32} />
-      </View>
+      <ScreenHeader
+        title={view === 'mine' ? 'Mes créneaux' : 'Déroulé'}
+        subtitle={`${projet?.title ?? 'Pas de projet en cours'}${jourActif ? ` · ${formatJourPill(jourActif)}` : ''}`}
+        leftMode="menu"
+        right={<Avatar nom={profile?.displayName ?? '?'} id={profile?.id} size={32} />}
+      />
 
-      {/* Day pills */}
-      <View style={styles.dayPills}>
-        {JOURS.map((j) => (
-          <Pressable
-            key={j}
-            onPress={() => setJour(j)}
-            style={[styles.dayPill, jour === j && styles.dayPillActive]}
-          >
-            <Text style={[styles.dayPillText, jour === j && styles.dayPillTextActive]}>{j}</Text>
-          </Pressable>
-        ))}
+      {/* Day pills (scroll horizontal si beaucoup de jours) */}
+      <View style={styles.dayPillsRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.dayPillsContent}
+        >
+          {jours.map((j) => (
+            <PressableScale
+              key={j}
+              haptic="selection"
+              onPress={() => setSelectedJour(j)}
+              style={[styles.dayPill, jourActif === j && styles.dayPillActive]}
+            >
+              <Text style={[styles.dayPillText, jourActif === j && styles.dayPillTextActive]}>
+                {formatJourPill(j)}
+              </Text>
+            </PressableScale>
+          ))}
+        </ScrollView>
         {view === 'timeline' && (
           <View style={styles.lanesIndicator}>
             <Ionicons name="swap-horizontal-outline" size={11} color={colors.textMuted} />
-            <Text style={styles.lanesIndicatorText}>4 lanes</Text>
+            <Text style={styles.lanesIndicatorText}>{lanes.length} lanes</Text>
           </View>
         )}
       </View>
@@ -79,11 +140,23 @@ export default function PlanningScreen() {
       <View style={styles.content}>
         {view === 'mine' ? (
           <MesCreneauxView
-            creneaux={fixtureCreneaux}
+            creneaux={mesCreneaux}
             onPressItem={setSelectedCreneau}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            loading={loadingCreneaux}
+            jour={jourActif}
           />
         ) : (
-          <TimelineView lanes={fixtureLanes} creneaux={fixtureCreneauxTimeline} />
+          <TimelineView
+            lanes={lanes}
+            creneaux={tousCreneaux}
+            jour={jourActif}
+            onPressCreneau={setSelectedCreneau}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            loading={loadingDeroule}
+          />
         )}
       </View>
 
@@ -109,6 +182,9 @@ export default function PlanningScreen() {
         visible={!!selectedCreneau}
         creneau={selectedCreneau}
         onClose={() => setSelectedCreneau(null)}
+        onChanged={refetchAll}
+        siblingIds={siblingIds}
+        onNavigate={(id) => setSelectedCreneau({ id })}
       />
     </View>
   )
@@ -119,37 +195,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
-  header: {
+  dayPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.base,
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  context: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    letterSpacing: 0.5,
-  },
-  title: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: fontWeight.semibold,
-    letterSpacing: -0.2,
-    marginTop: 1,
-  },
-  dayPills: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
-    gap: spacing.sm,
+  },
+  dayPillsContent: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
   },
   dayPill: {
     paddingHorizontal: spacing.md,
@@ -173,10 +228,10 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   lanesIndicator: {
-    marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
+    paddingHorizontal: spacing.lg,
   },
   lanesIndicatorText: {
     fontSize: 10,

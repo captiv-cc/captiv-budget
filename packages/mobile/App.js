@@ -17,8 +17,11 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { StatusBar } from 'expo-status-bar'
 
 import { AuthProvider } from './src/lib/AuthContext'
+import { NotificationsProvider } from './src/lib/NotificationsContext'
+import { ProjetProvider } from './src/lib/ProjetContext'
 import { queryClient } from './src/lib/queryClient'
 import RootNavigator from './src/navigation/RootNavigator'
+import PushManager from './src/components/PushManager'
 
 export default function App() {
   return (
@@ -26,8 +29,13 @@ export default function App() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <StatusBar style="light" />
-            <RootNavigator />
+            <ProjetProvider>
+              <NotificationsProvider>
+                <StatusBar style="light" />
+                <RootNavigator />
+                <PushManager />
+              </NotificationsProvider>
+            </ProjetProvider>
           </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
