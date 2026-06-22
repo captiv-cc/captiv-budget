@@ -435,6 +435,25 @@ html[data-check-theme='light'] ::-webkit-scrollbar-thumb:hover {
     background: var(--bg-surf);
   }
 
+  /* Surbrillance temporaire d'une ligne (clic depuis l'historique) */
+  @keyframes devisLineFlash {
+    0%,
+    35% {
+      background: rgba(59, 130, 246, 0.32);
+    }
+    100% {
+      background: transparent;
+    }
+  }
+  .devis-line-flash td {
+    animation: devisLineFlash 1.7s ease-out;
+  }
+
+  /* Entrée d'historique cliquable (saut vers la ligne) */
+  .hist-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
   /* Colonne Produit/Poste — plus visible */
   .devis-table .produit-cell .input-cell {
     font-weight: 500;

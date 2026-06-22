@@ -11,6 +11,7 @@
 
 import { useState, useRef } from 'react'
 import { fmtEur } from '../../../../lib/cotisations'
+import { focusSiblingRowCell } from '../../../../lib/devisGridNav'
 
 export default function PriceCell({
   value,
@@ -18,6 +19,7 @@ export default function PriceCell({
   placeholder = '—',
   style = {},
   nullable = false,
+  dataCol,
 }) {
   const [editing, setEditing] = useState(false)
   const inputRef = useRef(null)
@@ -37,6 +39,7 @@ export default function PriceCell({
         ref={inputRef}
         type="number"
         className="input-cell w-full text-right"
+        data-col={dataCol}
         defaultValue={value || ''}
         autoFocus
         min={0}
@@ -45,7 +48,11 @@ export default function PriceCell({
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
-            commit(e.currentTarget.value)
+            const from = e.currentTarget
+            const shift = e.shiftKey
+            commit(from.value)
+            // Descend (ou remonte) sur la même colonne après validation.
+            focusSiblingRowCell(from, shift ? -1 : 1)
           }
           if (e.key === 'Escape') {
             e.preventDefault()
@@ -61,6 +68,7 @@ export default function PriceCell({
     <div
       className="input-cell w-full text-right tabular-nums cursor-text"
       tabIndex={0}
+      data-col={dataCol}
       onClick={() => setEditing(true)}
       onFocus={() => setEditing(true)}
       style={style}

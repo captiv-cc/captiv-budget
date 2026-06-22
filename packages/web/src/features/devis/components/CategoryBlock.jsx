@@ -39,6 +39,8 @@ export default function CategoryBlock({
   onDeleteLine,
   onDuplicateLine,
   onReorderLines,
+  othersEditingByRow,
+  onEditRow,
 }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(info.label)
@@ -264,12 +266,15 @@ export default function CategoryBlock({
             key={line.id || line._tempId}
             line={line}
             index={idx}
+            catId={cat.id}
             taux={taux}
             bdd={bdd}
             accentColor={accentColor}
             showAnalyse={showAnalyse}
             remiseVisible={remiseVisible}
             isDragOver={dragOverIdx === idx}
+            editingBy={line.id ? othersEditingByRow?.get(line.id) || null : null}
+            onEditRow={onEditRow}
             onChange={(field, val) => onUpdateLine(line.id, line._tempId, field, val)}
             onChangeBatch={(updates) => onUpdateLineBatch(line.id, line._tempId, updates)}
             onDelete={() => onDeleteLine(line.id, line._tempId)}
@@ -289,6 +294,24 @@ export default function CategoryBlock({
             }}
           />
         ))}
+
+      {/* État vide — bloc sans ligne */}
+      {!collapsed && cat.lines.length === 0 && (
+        <tr>
+          <td
+            colSpan={showAnalyse ? 16 : 13}
+            className="text-center text-[11px] italic py-2"
+            style={{
+              color: 'var(--txt-3)',
+              background: 'var(--bg-surf)',
+              borderLeft: `3px solid ${accentColor}`,
+              borderRight: `1px solid ${accentColor}18`,
+            }}
+          >
+            Aucune ligne — utilisez la recherche ci-dessous pour en ajouter.
+          </td>
+        </tr>
+      )}
 
       {!collapsed && (
         <tr>

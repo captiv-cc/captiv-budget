@@ -8,17 +8,20 @@
  * Extrait de DevisEditor.jsx — chantier refacto.
  */
 
+import { memo } from 'react'
 import { GripVertical, Copy, Trash2 } from 'lucide-react'
 import { calcLine, fmtEur, fmtPct, REGIMES_SALARIES, UNITES } from '../../../lib/cotisations'
 import ProduitAutocomplete from '../../../components/ProduitAutocomplete'
 import { regimeFromProduit } from '../constants'
+import { handleGridEnter } from '../../../lib/devisGridNav'
 import RegimeSelect from './RegimeSelect'
 import PriceCell from './cells/PriceCell'
 import CalcCell from './cells/CalcCell'
 
-export default function DevisLine({
+function DevisLine({
   line,
   index = 0,
+  catId,
   taux,
   bdd,
   accentColor,
@@ -33,6 +36,8 @@ export default function DevisLine({
   onDragOver,
   onDrop,
   onDragEnd,
+  editingBy = null,
+  onEditRow,
 }) {
   const c = calcLine(line, taux)
   const inactive = !line.use_line
@@ -51,6 +56,8 @@ export default function DevisLine({
   return (
     <tr
       className={`devis-line group${inactive ? ' opacity-40' : ''}`}
+      data-cat-id={catId}
+      data-line-key={line.id || line._tempId}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -66,17 +73,43 @@ export default function DevisLine({
         onDrop?.()
       }}
       onDragEnd={onDragEnd}
+      onFocusCapture={() => line.id && onEditRow?.(line.id)}
+      onBlurCapture={(e) => {
+        // Ne libère le verrou que si le focus quitte réellement la ligne
+        // (et non en passant d'une cellule à l'autre de la même ligne).
+        if (!e.currentTarget.contains(e.relatedTarget)) onEditRow?.(null)
+      }}
       style={{
-        background: isDragOver ? 'rgba(255,255,255,.04)' : zebraBg,
-        outline: isDragOver ? `2px solid ${accentColor}60` : 'none',
+        background: isDragOver
+          ? 'rgba(255,255,255,.04)'
+          : editingBy
+            ? `${editingBy.color}14`
+            : zebraBg,
+        outline: isDragOver
+          ? `2px solid ${accentColor}60`
+          : editingBy
+            ? `1.5px solid ${editingBy.color}99`
+            : 'none',
         transition: 'outline 80ms, background 80ms',
       }}
     >
       <td
-        className="text-center"
-        style={{ color: 'var(--txt-3)', borderLeft: `3px solid ${accentColor}`, cursor: 'grab' }}
+        className="text-center relative"
+        style={{
+          color: 'var(--txt-3)',
+          borderLeft: `3px solid ${editingBy ? editingBy.color : accentColor}`,
+          cursor: 'grab',
+        }}
       >
-        <GripVertical className="w-3 h-3 mx-auto opacity-40" />
+        {editingBy ? (
+          <span
+            title={`${editingBy.full_name} édite cette ligne`}
+            className="inline-flex w-3 h-3 mx-auto rounded-full"
+            style={{ background: editingBy.color, boxShadow: `0 0 0 2px ${editingBy.color}40` }}
+          />
+        ) : (
+          <GripVertical className="w-3 h-3 mx-auto opacity-40" />
+        )}
       </td>
       {/* ✓ USE */}
       <td className="text-center">
@@ -141,6 +174,8 @@ export default function DevisLine({
         <input
           type="number"
           className="input-cell w-full text-right"
+          data-col="nb"
+          onKeyDown={handleGridEnter}
           value={line.nb ?? 1}
           onChange={(e) => onChange('nb', parseFloat(e.target.value) || 1)}
           min={1}
@@ -154,6 +189,8 @@ export default function DevisLine({
           <input
             type="number"
             className="input-cell text-right flex-1 min-w-0"
+            data-col="quantite"
+            onKeyDown={handleGridEnter}
             value={line.quantite || ''}
             onChange={(e) => onChange('quantite', parseFloat(e.target.value) || 0)}
             min={0}
@@ -183,7 +220,7 @@ export default function DevisLine({
       </td>
       {/* Tarif vente HT */}
       <td>
-        <PriceCell value={line.tarif_ht} onChange={(v) => onChange('tarif_ht', v)} />
+        <PriceCell value={line.tarif_ht} onChange={(v) => onChange('tarif_ht', v)} dataCol="tarif" />
       </td>
       {/* Coût unitaire — fixe pour salariés, saisissable sinon (vide = coût égal vente) */}
       <td>
@@ -202,6 +239,7 @@ export default function DevisLine({
             <PriceCell
               value={line.cout_ht}
               onChange={(v) => onChange('cout_ht', v)}
+              dataCol="cout"
               placeholder={
                 line.regime === 'Ext. Intermittent' ? (
                   'brut'
@@ -239,6 +277,8 @@ export default function DevisLine({
             <input
               type="number"
               className="input-cell w-full text-right pr-5"
+              data-col="remise"
+              onKeyDown={handleGridEnter}
               value={line.remise_pct || ''}
               onChange={(e) => onChange('remise_pct', parseFloat(e.target.value) || 0)}
               min={0}
@@ -360,3 +400,26 @@ export default function DevisLine({
     </tr>
   )
 }
+
+// Comparateur custom : ne re-render que si une prop DONNÉE change. Les lignes
+// inchangées conservent leur référence d'objet (setCategories renvoie le même
+// `l` pour les lignes non modifiées), donc on évite de re-render toutes les
+// lignes à chaque frappe. Les callbacks (onChange…) sont volontairement ignorés :
+// ils capturent des closures stables (ids de ligne figés + handlers useCallback
+// + cat.id), et tout changement d'index/de données modifie aussi l'objet `line`
+// → re-render. Sûr et nettement plus fluide sur les gros devis.
+function linesEqual(a, b) {
+  return (
+    a.line === b.line &&
+    a.index === b.index &&
+    a.taux === b.taux &&
+    a.bdd === b.bdd &&
+    a.accentColor === b.accentColor &&
+    a.showAnalyse === b.showAnalyse &&
+    a.remiseVisible === b.remiseVisible &&
+    a.isDragOver === b.isDragOver &&
+    a.editingBy === b.editingBy
+  )
+}
+
+export default memo(DevisLine, linesEqual)
