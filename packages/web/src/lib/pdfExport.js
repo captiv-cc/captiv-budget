@@ -517,7 +517,9 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   if (livrablesPdf && livrablesPdf.length > 0) {
     txt('Livrable(s) :', c3X, p3y, { size: 6, color: C.gray })
     p3y += 3.4
-    livrablesPdf.slice(0, 8).forEach((liv, i) => {
+    // Valeur contractuelle : on liste TOUS les livrables (pas de cap). Le
+    // débordement éventuel est géré par un saut de page avant le Récapitulatif.
+    livrablesPdf.forEach((liv, i) => {
       const numero = (liv.numero || '').toString().trim()
       const prefix = numero ? `${numero}` : `#${i + 1}`
       const parts = [`${prefix} | ${liv.nom || ''}`]
@@ -531,6 +533,14 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   }
 
   y = Math.max(p1y, p2y, p3y) + 4
+
+  // Si la liste des livrables a poussé le contenu trop bas, on bascule le
+  // Récapitulatif sur une nouvelle page (les footers sont posés en fin, donc
+  // rien à dessiner ici). Garde ~80mm pour le récap + sous-totaux + notes.
+  if (y > PH - 80) {
+    doc.addPage()
+    y = 20
+  }
 
   // ── Récapitulatif ─────────────────────────────────────────────────────────────
   const RECAP_ROW_H = 4.2 // compact rows

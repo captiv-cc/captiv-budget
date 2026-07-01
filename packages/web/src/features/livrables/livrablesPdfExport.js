@@ -220,6 +220,34 @@ export function buildEnsembleData({
   // Compteur livraisons par jour (deliveries du jour J)
   const rendusByDay = new Map()
 
+  // ── Camaïeu : index de nuance par "type" d'étape, regroupé par phase ──────
+  // Permet de distinguer Dérush / Montage / Étalo / Mix (toutes "post-prod")
+  // par des variantes de la couleur de phase, tout en restant cohérent avec
+  // la légende.
+  const phaseOfEtape = (e) => {
+    const et = e.event_type_id ? eventTypesById.get(e.event_type_id) : null
+    const category = et?.category || null
+    return category === 'pre_prod' || category === 'tournage' || category === 'post_prod'
+      ? category
+      : kindToPhase(e.kind)
+  }
+  const typeKeyOfEtape = (e) => {
+    const et = e.event_type_id ? eventTypesById.get(e.event_type_id) : null
+    return e.event_type_id || (et?.label || '').trim() || e.kind || 'autre'
+  }
+  const shadeIdxByPhaseType = new Map() // `${phase}::${typeKey}` → index nuance
+  const seenTypesPerPhase = new Map() // phase → [typeKey,…] (ordre stable)
+  for (const e of etapes) {
+    const phase = phaseOfEtape(e)
+    if (!phase) continue
+    const tk = typeKeyOfEtape(e)
+    if (!seenTypesPerPhase.has(phase)) seenTypesPerPhase.set(phase, [])
+    const arr = seenTypesPerPhase.get(phase)
+    let i = arr.indexOf(tk)
+    if (i === -1) { i = arr.length; arr.push(tk) }
+    shadeIdxByPhaseType.set(`${phase}::${tk}`, i)
+  }
+
   // Enrichissement par livrable
   const enrichedLivrables = activeLivrables.map((l) => {
     const block = blocksById.get(l.block_id) || null
@@ -230,13 +258,18 @@ export function buildEnsembleData({
     const nom = (l.nom || '').toString().trim() || 'Sans nom'
     const label = fullNumero ? `${fullNumero} · ${nom}` : nom
 
-    const phaseByDay = new Map()
-    const labelByDay = new Map() // libellé event_type par jour (pour affichage dans cellule)
+    // Étapes du livrable → assignées à des TRACKS (sous-colonnes) pour gérer
+    // les étapes simultanées (étalo + mix en parallèle) sans qu'elles
+    // s'écrasent. etapesByDay[jour] = liste des étapes couvrant ce jour.
     const livrableEtapes = etapesByLivrable.get(l.id) || []
-    for (const e of livrableEtapes) {
-      const sd = parseLocalDate(e.date_debut)
-      const ed = parseLocalDate(e.date_fin || e.date_debut)
-      if (!sd) continue
+    const sortedEt = livrableEtapes
+      .map((e) => ({ e, sd: parseLocalDate(e.date_debut), ed: parseLocalDate(e.date_fin || e.date_debut) }))
+      .filter((x) => x.sd)
+      .sort((a, b) => a.sd.getTime() - b.sd.getTime())
+    const trackEnds = [] // fin (ms) de la dernière étape par track
+    const etapesByDay = new Map() // dayKey → [{ phase, label, track, isStart }]
+    for (const x of sortedEt) {
+      const e = x.e
       const et = e.event_type_id ? eventTypesById.get(e.event_type_id) : null
       const category = et?.category || null
       const phase =
@@ -244,33 +277,43 @@ export function buildEnsembleData({
           ? category
           : kindToPhase(e.kind)
       if (!phase) continue
-      // Libellé à afficher dans la cellule : label event_type, sinon nom étape, sinon kind
       const cellLabel =
-        (et?.label || '').trim() ||
-        (e.nom || '').trim() ||
-        (e.kind ? kindToFrLabel(e.kind) : '')
-      const endTs = (ed || sd).getTime()
-      for (let t = sd.getTime(); t <= endTs; t += MS_PER_DAY) {
+        (et?.label || '').trim() || (e.nom || '').trim() || (e.kind ? kindToFrLabel(e.kind) : '')
+      // Couleur = nuance (camaïeu) de la couleur de phase selon le type d'étape.
+      const baseDef = PHASE_DEFS.find((p) => p.key === phase)
+      const baseFill = baseDef ? baseDef.fill : C.white
+      const shadeIdx = shadeIdxByPhaseType.get(`${phase}::${typeKeyOfEtape(e)}`) || 0
+      const fill = shadeFor(baseFill, shadeIdx)
+      const text = readableTextFor(fill)
+      const startTs = x.sd.getTime()
+      const endTs = (x.ed || x.sd).getTime()
+      // 1er track libre (dont la dernière étape se termine avant ce début).
+      let track = -1
+      for (let i = 0; i < trackEnds.length; i += 1) {
+        if (trackEnds[i] < startTs) { track = i; trackEnds[i] = endTs; break }
+      }
+      if (track === -1) { trackEnds.push(endTs); track = trackEnds.length - 1 }
+      const startKey = dayKey(x.sd)
+      for (let t = startTs; t <= endTs; t += MS_PER_DAY) {
         const k = dayKey(new Date(t))
-        if (k) {
-          phaseByDay.set(k, phase)
-          if (cellLabel) labelByDay.set(k, cellLabel)
-        }
+        if (!k) continue
+        if (!etapesByDay.has(k)) etapesByDay.set(k, [])
+        etapesByDay.get(k).push({ phase, fill, text, label: cellLabel, track, isStart: k === startKey })
       }
     }
+    const maxTracks = Math.max(1, trackEnds.length)
+
+    // Overrides ponctuels PRIORITAIRES sur les étapes : livraison + envois
+    // (événements d'un jour, pleine cellule).
+    const overrideByDay = new Map() // dayKey → { phase, label }
     const dlDate = parseLocalDate(l.date_livraison)
     if (dlDate) {
       const k = dayKey(dlDate)
       if (k) {
-        phaseByDay.set(k, 'delivery')
-        labelByDay.set(k, 'Livraison')
+        overrideByDay.set(k, { phase: 'delivery', label: 'Livraison', short: 'LIV' })
         rendusByDay.set(k, (rendusByDay.get(k) || 0) + 1)
       }
     }
-
-    // LIV-V-PREV : envois de versions (date_envoi_prevu).
-    // Phase 'envoi' prioritaire sur tout (étape, tournage). Non comptabilisée
-    // dans le compteur RENDUS (les vrais rendus = livraison finale).
     const livVersions = versionsByLivrable?.get?.(l.id)
       || (Array.isArray(versionsByLivrable) ? null : null)
     if (Array.isArray(livVersions)) {
@@ -280,9 +323,12 @@ export function buildEnsembleData({
         if (!vd) continue
         const k = dayKey(vd)
         if (!k) continue
-        phaseByDay.set(k, 'envoi')
         const numero = (v.numero_label || '').toString().trim()
-        labelByDay.set(k, numero ? `Envoi ${numero}` : 'Envoi')
+        overrideByDay.set(k, {
+          phase: 'envoi',
+          label: numero ? `Envoi ${numero}` : 'Envoi',
+          short: numero || 'Env',
+        })
       }
     }
 
@@ -304,8 +350,9 @@ export function buildEnsembleData({
       blockCouleur: block?.couleur || null,
       blockSortOrder: block?.sort_order ?? 0,
       sortOrder: l.sort_order ?? 0,
-      phaseByDay,
-      labelByDay,
+      etapesByDay,
+      overrideByDay,
+      maxTracks,
     }
   })
 
@@ -403,6 +450,33 @@ function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim())
   if (!m) return null
   return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+}
+
+/** Assombrit un RGB (amt 0..1, 0=inchangé, 1=noir). */
+function darkenRgb(rgb, amt) {
+  const k = 1 - Math.max(0, Math.min(1, amt))
+  return [Math.round(rgb[0] * k), Math.round(rgb[1] * k), Math.round(rgb[2] * k)]
+}
+
+/** Variante de teinte d'une couleur de base (camaïeu) selon un index. Permet
+ *  de distinguer plusieurs étapes d'une même phase (ex : Dérush/Montage/Étalo/
+ *  Mix toutes "post-prod") tout en gardant la famille de couleur de la légende. */
+function shadeFor(rgb, idx) {
+  switch (((idx % 6) + 6) % 6) {
+    case 0: return rgb
+    case 1: return darkenRgb(rgb, 0.26)
+    case 2: return tint(rgb, 0.6) // éclairci
+    case 3: return darkenRgb(rgb, 0.46)
+    case 4: return tint(rgb, 0.4) // très éclairci
+    default: return darkenRgb(rgb, 0.6)
+  }
+}
+
+/** Texte lisible (foncé/blanc) selon la luminance d'un fond RGB. */
+function readableTextFor(rgb) {
+  if (!rgb) return [40, 40, 40]
+  const lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+  return lum > 150 ? [40, 40, 40] : [255, 255, 255]
 }
 
 /** Mélange un RGB avec du blanc pour obtenir un fond pâle (factor 0..1, 0=blanc). */
@@ -601,12 +675,22 @@ function drawHeader(doc, {
   let infoX = MARGIN_MM
   if (projectImage) {
     try {
-      doc.addImage(
-        projectImage.dataUrl, projectImage.format,
-        MARGIN_MM, HEADER_BLOCK_Y, IMG_SIZE, IMG_SIZE,
-        undefined, 'FAST',
-      )
-      // Cadre fin autour de l'image
+      // Préserve le ratio : on inscrit l'image dans le carré sans la déformer,
+      // centrée. (Sinon les logos non carrés — ex. NVIDIA — sont étirés.)
+      let w = IMG_SIZE
+      let h = IMG_SIZE
+      try {
+        const props = doc.getImageProperties(projectImage.dataUrl)
+        if (props?.width && props?.height) {
+          const ratio = props.width / props.height
+          if (ratio >= 1) h = IMG_SIZE / ratio
+          else w = IMG_SIZE * ratio
+        }
+      } catch { /* dimensions indispo → carré par défaut */ }
+      const ix = MARGIN_MM + (IMG_SIZE - w) / 2
+      const iy = HEADER_BLOCK_Y + (IMG_SIZE - h) / 2
+      doc.addImage(projectImage.dataUrl, projectImage.format, ix, iy, w, h, undefined, 'FAST')
+      // Cadre fin autour du carré
       doc.setLineWidth(0.4)
       doc.setDrawColor(...C.text)
       doc.rect(MARGIN_MM, HEADER_BLOCK_Y, IMG_SIZE, IMG_SIZE, 'S')
@@ -796,8 +880,9 @@ const FRAME_LW = 0.6           // épaisseur des bordures noires d'encadrement
 function computeColumnWidth(livrablesCount) {
   const availableW = PAGE_WIDTH_MM - 2 * MARGIN_MM - DAY_COL_W - RENDUS_COL_W
   const minColW = 7
-  // V&B-style : on étale les colonnes quand peu de livrables (jusqu'à 35 mm).
-  const maxColW = 35
+  // On étale les colonnes quand il y a peu de livrables (jusqu'à 60 mm) pour
+  // exploiter la largeur de la page ; fines quand il y en a beaucoup.
+  const maxColW = 60
   return Math.max(minColW, Math.min(maxColW, availableW / Math.max(1, livrablesCount)))
 }
 
@@ -1207,45 +1292,79 @@ function drawDayRow(doc, opts) {
   // Si la colonne est assez large (≥ 25 mm), on écrit le label de l'event_type
   // dans la cellule colorée (ex: "Étalonnage", "Dérush", "Livraison").
   const SHOW_CELL_LABEL_THRESHOLD = 25
+  // Helper : écrit un label de phase centré dans une zone (x,largeur).
+  const drawCellLabel = (label, zx, zw, textColor) => {
+    if (!label || zw < 8) return
+    doc.setFontSize(6)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...(textColor || C.text))
+    const maxChars = Math.max(2, Math.floor(zw * 0.5))
+    const truncated = label.length > maxChars ? label.slice(0, maxChars - 1) + '…' : label
+    doc.text(truncated, zx + zw / 2, y + ROW_H - 1.4, { align: 'center' })
+    doc.setFont('helvetica', 'normal')
+  }
+
   let cx = tableLeft + DAY_COL_W
   for (const liv of livrables) {
-    const phase = liv.phaseByDay.get(day.key) || null
-    // Priorité de couleur : phase étape > tournage projet > weekend > blanc.
-    // Le tournage projet sert de fond seulement quand il n'y a pas d'étape.
-    let fill = day.isWeekend ? C.weekend : C.white
-    let textColor = null
-    if (isTournageDay && !phase) {
-      fill = tournageBgFill
-    }
-    if (phase) {
-      const def = PHASE_DEFS.find((p) => p.key === phase)
-      if (def) {
-        fill = def.fill
-        textColor = def.text
-      }
-    }
-    doc.setFillColor(...fill)
+    const override = liv.overrideByDay?.get(day.key) || null
+    const etaps = liv.etapesByDay?.get(day.key) || []
+
+    // Fond de base : tournage projet (si pas d'étape/override) > weekend > blanc.
+    let baseFill = day.isWeekend ? C.weekend : C.white
+    if (isTournageDay && !override && etaps.length === 0) baseFill = tournageBgFill
+    doc.setFillColor(...baseFill)
     doc.setDrawColor(...C.borderLight)
     doc.rect(cx, y, livrableColW, ROW_H, 'FD')
 
-    // Label dans la cellule (uniquement si large + phase présente)
-    if (phase && livrableColW >= SHOW_CELL_LABEL_THRESHOLD) {
-      const cellLabel = liv.labelByDay?.get(day.key)
-      if (cellLabel) {
-        doc.setFontSize(6)
-        doc.setFont('helvetica', 'bold')
-        doc.setTextColor(...(textColor || C.text))
-        const maxChars = Math.max(3, Math.floor(livrableColW * 0.5))
-        const truncated = cellLabel.length > maxChars
-          ? cellLabel.slice(0, maxChars - 1) + '…'
-          : cellLabel
-        doc.text(
-          truncated,
-          cx + livrableColW / 2,
-          y + ROW_H - 1.4,
-          { align: 'center' },
-        )
-        doc.setFont('helvetica', 'normal')
+    // Étapes du jour (couleur event_type ; sous-colonnes côte à côte si simultané).
+    if (etaps.length > 0) {
+      if (etaps.length === 1 || liv.maxTracks <= 1) {
+        const e0 = etaps[0]
+        doc.setFillColor(...e0.fill)
+        doc.setDrawColor(...C.borderLight)
+        doc.rect(cx, y, livrableColW, ROW_H, 'FD')
+        if (livrableColW >= SHOW_CELL_LABEL_THRESHOLD) drawCellLabel(e0.label, cx, livrableColW, e0.text)
+      } else {
+        const subW = livrableColW / liv.maxTracks
+        for (const e of etaps) {
+          const sx = cx + e.track * subW
+          doc.setFillColor(...e.fill)
+          doc.setDrawColor(...C.white)
+          doc.setLineWidth(0.3)
+          doc.rect(sx, y, subW, ROW_H, 'FD')
+          doc.setLineWidth(0.1)
+          // Label chaque jour (sinon les jours de continuation sont ambigus).
+          drawCellLabel(e.label, sx, subW, e.text)
+        }
+      }
+    }
+
+    // Envoi / Livraison (jalon ponctuel).
+    if (override) {
+      const def = PHASE_DEFS.find((p) => p.key === override.phase)
+      if (def) {
+        if (etaps.length === 0) {
+          // Aucune étape ce jour → pleine cellule (comportement habituel).
+          doc.setFillColor(...def.fill)
+          doc.setDrawColor(...C.borderLight)
+          doc.rect(cx, y, livrableColW, ROW_H, 'FD')
+          if (livrableColW >= SHOW_CELL_LABEL_THRESHOLD) drawCellLabel(override.label, cx, livrableColW, def.text)
+        } else {
+          // Cohabite avec des étapes → petit TAB labellé (V1/V2/VDEF/LIV) en
+          // haut-droite, par-dessus les étapes (sans les masquer). Le numéro de
+          // version reste visible — crucial pour le client.
+          doc.setFontSize(5.5)
+          doc.setFont('helvetica', 'bold')
+          const short = (override.short || '').toString()
+          const tabW = Math.min(livrableColW - 1, Math.max(5, doc.getTextWidth(short) + 2.4))
+          const tabH = 2.6
+          const tx = cx + livrableColW - tabW
+          doc.setFillColor(...def.fill)
+          doc.rect(tx, y, tabW, tabH, 'F')
+          doc.setTextColor(...(def.text || C.white))
+          doc.text(short, tx + tabW / 2, y + tabH - 0.7, { align: 'center' })
+          doc.setFont('helvetica', 'normal')
+        }
       }
     }
 

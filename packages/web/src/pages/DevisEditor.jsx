@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { notify } from '../lib/notify'
-import { confirm } from '../lib/confirm'
-import { calcSynthese, REGIMES_SALARIES, CATS_HUMAINS, TAUX_DEFAUT } from '../lib/cotisations'
-import { applyCategoryDansMarge } from '../lib/devisLines'
+import { REGIMES_SALARIES } from '../lib/cotisations'
 import { exportDevisPDF } from '../lib/pdfExport'
 import { BLOCS_CANONIQUES, getBlocInfo as _getBlocInfoByName } from '../lib/blocs'
-import { normalizeRegime, EMPTY_LINE, EMPTY_GLOBAL } from '../features/devis/constants'
+import { EMPTY_LINE } from '../features/devis/constants'
+import { useDevis } from '../features/devis/useDevis'
+import { useProjectPresence } from '../hooks/useProjectPresence'
+import PresenceAvatars from '../components/PresenceAvatars'
+import DevisHistoryPanel from '../features/devis/components/DevisHistoryPanel'
+import { fetchUnseenCount, markHistorySeen } from '../lib/devisHistorySeen'
 import StatusSelect from '../features/devis/components/StatusSelect'
 import SynthBar from '../features/devis/components/SynthBar'
 import AddLineModal from '../features/devis/components/AddLineModal'
@@ -27,6 +30,7 @@ import {
   BarChart3,
   X,
   Pencil,
+  History,
 } from 'lucide-react'
 
 // Re-export pour les modules qui importent BLOCS_CANONIQUES depuis DevisEditor
@@ -52,105 +56,103 @@ function computeSortedCategories(categories) {
 export default function DevisEditor({ embedded = false }) {
   const { id: projectId, devisId } = useParams()
   const navigate = useNavigate()
-  const { org } = useAuth()
+  const { org, user } = useAuth()
 
-  const [devis, setDevis] = useState(null)
-  const [project, setProject] = useState(null)
-  const [client, setClient] = useState(null)
-  const [categories, setCategories] = useState([])
+  // ── Données + persistance (hook) ───────────────────────────────────────────
+  const D = useDevis({ devisId, projectId, org })
+  const {
+    devis, project, client, categories, taux, bdd, globalAdj,
+    saving, saved, dirty, loading, saveError,
+    synth, hasAnyRemise,
+    saveNow, updateGlobalAdj, updateDevisField,
+    addCategory, addBlocCanonique, renameCategory,
+    updateCategoryDansMarge, updateCategoryNotes, deleteCategory,
+    insertLine, duplicateLine, deleteLine, updateLine, updateLineBatch, reorderLines,
+  } = D
+
+  // ── R3 : présence collaborative (avatars + qui édite quelle ligne) ──────────
+  // Channel keyé par devisId (chaque version a sa présence propre).
+  const { othersOnPage, othersEditingByRow, setMyEditingRowId } = useProjectPresence({
+    projectId: devisId,
+    channelSlug: 'devis-presence',
+  })
+
+  // ── État purement UI (reste dans le composant) ─────────────────────────────
   const [collapsed, setCollapsed] = useState({})
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [taux, setTaux] = useState(TAUX_DEFAUT)
-  const [bdd, setBdd] = useState([])
-  const [globalAdj, setGlobalAdj] = useState(EMPTY_GLOBAL)
-  const [saveError, setSaveError] = useState(null)
-  // Modale ajout de ligne
   const [addLineModal, setAddLineModal] = useState(null) // { catId, defaultRegime } | null
-  const [showAnalyse, setShowAnalyse] = useState(false) // toggle colonnes analyse
-  const [showRemise, setShowRemise] = useState(false) // toggle colonne remise
-  const [editingTitle, setEditingTitle] = useState(false) // toggle édition titre devis
-  // Prévisualisation PDF : { url, filename, revoke } | null
-  // Quand non-null, la modale <PdfPreviewModal /> s'ouvre et affiche le PDF
-  // en <iframe>. L'utilisateur peut télécharger depuis la modale ou la fermer.
+  const [showAnalyse, setShowAnalyse] = useState(false)
+  const [showRemise, setShowRemise] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
   const [pdfPreview, setPdfPreview] = useState(null)
   const [pdfLoading, setPdfLoading] = useState(false)
-  const isSaving = useRef(false) // garde contre saves concurrentes
-  const pendingSave = useRef(null) // dernier save en attente
-  const insertingTempIds = useRef(new Set()) // évite double-INSERT
-  const hasChanges = useRef(false) // true seulement après modif utilisateur
+  const [unseenHistory, setUnseenHistory] = useState(0)
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      // Devis + categories + lines
-      const { data: dv } = await supabase.from('devis').select('*').eq('id', devisId).single()
-      setDevis(dv)
-      setGlobalAdj({
-        marge_globale_pct: Number(dv?.marge_globale_pct) || 0,
-        assurance_pct: Number(dv?.assurance_pct) || 0,
-        remise_globale_pct: Number(dv?.remise_globale_pct) || 0,
-        remise_globale_montant: Number(dv?.remise_globale_montant) || 0,
-      })
-
-      const { data: cats } = await supabase
-        .from('devis_categories')
-        .select('*')
-        .eq('devis_id', devisId)
-        .order('sort_order')
-
-      const { data: lines } = await supabase
-        .from('devis_lines')
-        .select('*')
-        .eq('devis_id', devisId)
-        .order('sort_order')
-
-      const catsWithLines = (cats || []).map((cat) => ({
-        ...cat,
-        lines: (lines || [])
-          .filter((l) => l.category_id === cat.id)
-          .map((l) => ({ ...l, regime: normalizeRegime(l.regime) })),
-      }))
-      setCategories(catsWithLines)
-
-      // Projet + client
-      const { data: proj } = await supabase
-        .from('projects')
-        .select('*, clients(*)')
-        .eq('id', projectId)
-        .single()
-      setProject(proj)
-      setClient(proj?.clients)
-
-      // BDD produits
-      const { data: bddData } = await supabase.from('produits_bdd').select('*').order('categorie')
-      setBdd(bddData || [])
-
-      // Taux cotisations
-      if (org?.id) {
-        const { data: confData } = await supabase
-          .from('cotisation_config')
-          .select('*')
-          .eq('org_id', org.id)
-        if (confData?.length) {
-          const t = { ...TAUX_DEFAUT }
-          confData.forEach((c) => {
-            t[c.key] = Number(c.value)
-          })
-          setTaux(t)
+  // ── Raccourci clavier : Cmd/Ctrl+S = sauvegarder ───────────────────────────
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        saveNow()
+        return
+      }
+      // Cmd/Ctrl+Entrée → ajouter une ligne au bloc de la cellule active
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        const catEl = document.activeElement?.closest?.('[data-cat-id]')
+        const catId = catEl?.getAttribute('data-cat-id')
+        if (catId) {
+          e.preventDefault()
+          addLineRef.current(catId)
         }
       }
-    } finally {
-      hasChanges.current = false // reset : pas de save auto juste après le chargement
-      setLoading(false)
     }
-  }, [devisId, projectId, org?.id])
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [saveNow])
 
-  // ── Chargement initial ────────────────────────────────────────────────────
+  // ── Badge Historique : nb de modifs faites par D'AUTRES et non encore lues.
+  // "Lu" = dernière ouverture du panneau, stockée côté serveur (devis_audit_seen)
+  // → synchronisé entre appareils ; la pastille s'affiche dès l'arrivée si le
+  // devis a été modifié pendant l'absence.
+  const showHistoryRef = useRef(false)
   useEffect(() => {
-    loadAll()
-  }, [devisId, loadAll])
+    showHistoryRef.current = showHistory
+    if (showHistory && devisId && user?.id) {
+      setUnseenHistory(0)
+      markHistorySeen(devisId, user.id)
+    }
+  }, [showHistory, devisId, user?.id])
+
+  // À l'arrivée : compte les entrées non lues (serveur).
+  useEffect(() => {
+    if (!devisId || !user?.id) return undefined
+    let alive = true
+    fetchUnseenCount(devisId, user.id).then((n) => {
+      if (alive) setUnseenHistory(n)
+    })
+    return () => {
+      alive = false
+    }
+  }, [devisId, user?.id])
+
+  // Incrément temps réel des modifs des autres tant que le panneau est fermé.
+  useEffect(() => {
+    if (!devisId) return undefined
+    const ch = supabase
+      .channel(`devis-audit-badge:${devisId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'devis_audit', filter: `devis_id=eq.${devisId}` },
+        (payload) => {
+          if (payload.new?.actor_id === user?.id) return // pas mes propres changements
+          if (!showHistoryRef.current) setUnseenHistory((n) => n + 1)
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(ch)
+    }
+  }, [devisId, user?.id])
 
   // Nettoyage du Blob URL de preview PDF au démontage — évite les fuites
   // mémoire si l'utilisateur ferme l'onglet / change de devis sans fermer
@@ -167,190 +169,8 @@ export default function DevisEditor({ embedded = false }) {
     }
   }, [pdfPreview])
 
-  // ── Auto-save : useEffect avec dépendances ────────────────────────────────
-  // Ne se déclenche QUE si l'utilisateur a fait une modification (hasChanges)
-  useEffect(() => {
-    if (!devis || loading || !hasChanges.current) return
-    const snapCats = categories
-    const snapAdj = globalAdj
-    const snapDv = devis
-    const timer = setTimeout(() => doSave(snapCats, snapDv, snapAdj), 1500)
-    return () => clearTimeout(timer)
-  }, [categories, globalAdj, devis?.title, devis?.status]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── doSave : reçoit les valeurs en paramètre → jamais de closure stale ─────
-  async function doSave(cats, dv, adj) {
-    if (isSaving.current) {
-      // Mémorise le dernier état à sauvegarder pour l'exécuter après
-      pendingSave.current = { cats, dv, adj }
-      return
-    }
-    if (!dv) return
-
-    isSaving.current = true
-    setSaving(true)
-    setSaveError(null)
-    const errors = []
-
-    try {
-      for (const cat of cats) {
-        for (const line of cat.lines) {
-          const payload = {
-            devis_id: devisId,
-            category_id: cat.id,
-            ref: line.ref,
-            produit: line.produit,
-            description: line.description,
-            regime: line.regime,
-            use_line: line.use_line,
-            dans_marge: true, // géré au niveau catégorie
-            nb: line.nb ?? 1,
-            quantite: line.quantite,
-            unite: line.unite,
-            tarif_ht: line.tarif_ht,
-            cout_ht: line.cout_ht ?? null,
-            remise_pct: line.remise_pct,
-            sort_order: line.sort_order,
-            is_crew: CATS_HUMAINS.includes(line.regime),
-          }
-          if (line.id) {
-            // ── UPDATE ligne existante ─────────────────────────────────────
-            const { error } = await supabase.from('devis_lines').update(payload).eq('id', line.id)
-            if (error) {
-              console.error('[doSave] UPDATE ligne failed:', error, 'payload:', payload)
-              errors.push(`UPDATE: ${error.message}`)
-            }
-          } else if (!insertingTempIds.current.has(line._tempId)) {
-            // ── INSERT nouvelle ligne (pas déjà en cours d'insertion) ──────
-            insertingTempIds.current.add(line._tempId)
-            const { data: newLine, error } = await supabase
-              .from('devis_lines')
-              .insert(payload)
-              .select()
-              .single()
-            insertingTempIds.current.delete(line._tempId)
-            if (error) {
-              console.error('[doSave] INSERT ligne failed:', error, 'payload:', payload)
-              errors.push(`INSERT: ${error.message}`)
-            } else if (newLine) {
-              setCategories((prev) =>
-                prev.map((c) =>
-                  c.id === cat.id
-                    ? {
-                        ...c,
-                        lines: c.lines.map((l) =>
-                          l._tempId === line._tempId ? { ...newLine } : l,
-                        ),
-                      }
-                    : c,
-                ),
-              )
-            }
-          }
-        }
-      }
-
-      const { error: devisErr } = await supabase
-        .from('devis')
-        .update({
-          updated_at: new Date().toISOString(),
-          status: dv.status,
-          title: dv.title ?? null,
-          marge_globale_pct: adj.marge_globale_pct,
-          assurance_pct: adj.assurance_pct,
-          remise_globale_pct: adj.remise_globale_pct,
-          remise_globale_montant: adj.remise_globale_montant,
-          tva_rate: dv.tva_rate != null ? Number(dv.tva_rate) : 20,
-          acompte_pct: dv.acompte_pct != null ? Number(dv.acompte_pct) : 30,
-        })
-        .eq('id', devisId)
-      if (devisErr) {
-        console.error('[doSave] devis update failed:', devisErr)
-        errors.push(`Devis: ${devisErr.message}`)
-      }
-
-      if (errors.length === 0) {
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      } else {
-        setSaveError(errors.join(' | '))
-      }
-    } finally {
-      isSaving.current = false
-      setSaving(false)
-      // Exécute le save en attente (si l'utilisateur a modifié pendant le save)
-      if (pendingSave.current) {
-        const p = pendingSave.current
-        pendingSave.current = null
-        doSave(p.cats, p.dv, p.adj)
-      }
-    }
-  }
-
-  // Raccourci pour le bouton Sauvegarder (valeurs directes du render courant)
-  function saveNow() {
-    hasChanges.current = true // force save même si hasChanges pas encore levé
-    doSave(categories, devis, globalAdj)
-  }
-
-  // ── Mise à jour ajustements globaux ──────────────────────────────────────
-  function updateGlobalAdj(field, value) {
-    const num = parseFloat(value) || 0
-    hasChanges.current = true
-    setGlobalAdj((p) => ({ ...p, [field]: num }))
-  }
-
-  // Mise à jour d'un champ direct du devis (tva_rate, acompte_pct…)
-  function updateDevisField(field, value) {
-    hasChanges.current = true
-    setDevis((p) => ({ ...p, [field]: value }))
-  }
-
-  // ── Gestion catégories ────────────────────────────────────────────────────
-  async function addCategory(name) {
-    const { data: cat } = await supabase
-      .from('devis_categories')
-      .insert({
-        devis_id: devisId,
-        name: name || 'NOUVELLE CATÉGORIE',
-        sort_order: categories.length,
-        dans_marge: true,
-      })
-      .select()
-      .single()
-    if (cat) setCategories((prev) => [...prev, { ...cat, lines: [] }])
-  }
-
-  // Ajoute un bloc canonique (revient à sa place d'origine dans l'ordre)
-  async function addBlocCanonique(bloc) {
-    const canonicalIdx = BLOCS_CANONIQUES.findIndex((b) => b.key === bloc.key)
-    const { data: cat } = await supabase
-      .from('devis_categories')
-      .insert({
-        devis_id: devisId,
-        name: bloc.key,
-        sort_order: canonicalIdx * 10,
-        dans_marge: true,
-      })
-      .select()
-      .single()
-    if (cat) setCategories((prev) => [...prev, { ...cat, lines: [] }])
-  }
-
-  async function renameCategory(catId, name) {
-    await supabase.from('devis_categories').update({ name }).eq('id', catId)
-    setCategories((prev) => prev.map((c) => (c.id === catId ? { ...c, name } : c)))
-  }
-
-  async function updateCategoryDansMarge(catId, val) {
-    await supabase.from('devis_categories').update({ dans_marge: val }).eq('id', catId)
-    setCategories((prev) => prev.map((c) => (c.id === catId ? { ...c, dans_marge: val } : c)))
-  }
-
-  async function updateCategoryNotes(catId, notes) {
-    await supabase.from('devis_categories').update({ notes }).eq('id', catId)
-    setCategories((prev) => prev.map((c) => (c.id === catId ? { ...c, notes } : c)))
-  }
+  // (autosave + doSave déplacés dans useDevis)
+  // (sauvegarde, autosave, ajustements, handlers catégories → useDevis)
 
   // ── Prévisualisation PDF ──────────────────────────────────────────────────
   // Génère le PDF en mémoire et ouvre la modale <PdfPreviewModal />. Depuis
@@ -395,139 +215,22 @@ export default function DevisEditor({ embedded = false }) {
     setPdfPreview(null)
   }
 
-  async function deleteCategory(catId) {
-    const ok = await confirm({
-      title: 'Supprimer le bloc',
-      message: 'Cette catégorie et toutes ses lignes seront supprimées définitivement.',
-      confirmLabel: 'Supprimer',
-      danger: true,
-    })
-    if (!ok) return
-    await supabase.from('devis_lines').delete().eq('category_id', catId)
-    await supabase.from('devis_categories').delete().eq('id', catId)
-    setCategories((prev) => prev.filter((c) => c.id !== catId))
-  }
-
   // ── Gestion lignes ────────────────────────────────────────────────────────
   // Ouvre la modale régime-first (avec pré-remplissage optionnel)
   function addLine(catId, defaultRegime = null, prefilledProduit = null) {
-    setCategories((prev) => {
-      const cat = prev.find((c) => c.id === catId)
-      const info = cat ? getBlocInfo(cat) : { defaultRegime: 'Frais' }
-      const regime = defaultRegime || info.defaultRegime || EMPTY_LINE.regime
-      setAddLineModal({ catId, defaultRegime: regime, prefilledProduit })
-      return prev
-    })
+    const cat = categories.find((c) => c.id === catId)
+    const info = cat ? getBlocInfo(cat) : { defaultRegime: 'Frais' }
+    const regime = defaultRegime || info.defaultRegime || EMPTY_LINE.regime
+    setAddLineModal({ catId, defaultRegime: regime, prefilledProduit })
   }
-
-  // Duplique une ligne existante et l'insère juste après
-  function duplicateLine(catId, lineId, tempId) {
-    const tempNewId = `tmp_${Date.now()}_${Math.random()}`
-    hasChanges.current = true
-    setCategories((prev) =>
-      prev.map((c) => {
-        if (c.id !== catId) return c
-        const idx = c.lines.findIndex((l) => (lineId ? l.id === lineId : l._tempId === tempId))
-        if (idx === -1) return c
-        const original = c.lines[idx]
-        const clone = { ...original, id: null, _tempId: tempNewId, sort_order: idx + 1 }
-        const lines = [...c.lines]
-        lines.splice(idx + 1, 0, clone)
-        return { ...c, lines: lines.map((l, i) => ({ ...l, sort_order: i })) }
-      }),
-    )
-  }
-
-  // Insère une ligne directement (sans passer par la modale)
-  function insertLine(catId, lineData) {
-    const tempId = `tmp_${Date.now()}_${Math.random()}`
-    hasChanges.current = true
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === catId
-          ? {
-              ...c,
-              lines: [
-                ...c.lines,
-                { ...EMPTY_LINE, ...lineData, _tempId: tempId, sort_order: c.lines.length },
-              ],
-            }
-          : c,
-      ),
-    )
-  }
+  // Ref vers la dernière version d'addLine → le listener clavier reste stable.
+  const addLineRef = useRef(addLine)
+  addLineRef.current = addLine
 
   // Insère la ligne depuis la modale + ferme la modale
   function confirmAddLine(catId, lineData) {
     insertLine(catId, lineData)
     setAddLineModal(null)
-  }
-
-  async function deleteLine(catId, lineId, tempId) {
-    if (lineId) await supabase.from('devis_lines').delete().eq('id', lineId)
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === catId
-          ? {
-              ...c,
-              lines: c.lines.filter((l) => (lineId ? l.id !== lineId : l._tempId !== tempId)),
-            }
-          : c,
-      ),
-    )
-  }
-
-  function updateLine(catId, lineId, tempId, field, value) {
-    hasChanges.current = true
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === catId
-          ? {
-              ...c,
-              lines: c.lines.map((l) => {
-                if (!(lineId ? l.id === lineId : l._tempId === tempId)) return l
-                const updated = { ...l, [field]: value }
-                updated.is_crew = CATS_HUMAINS.includes(updated.regime)
-                return updated
-              }),
-            }
-          : c,
-      ),
-    )
-  }
-
-  function updateLineBatch(catId, lineId, tempId, updates) {
-    hasChanges.current = true
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === catId
-          ? {
-              ...c,
-              lines: c.lines.map((l) => {
-                if (!(lineId ? l.id === lineId : l._tempId === tempId)) return l
-                const updated = { ...l, ...updates }
-                updated.is_crew = CATS_HUMAINS.includes(updated.regime)
-                return updated
-              }),
-            }
-          : c,
-      ),
-    )
-  }
-
-  // ── Réordonner les lignes d'un bloc (drag & drop) ────────────────────────
-  function reorderLines(catId, fromIdx, toIdx) {
-    if (fromIdx === toIdx) return
-    hasChanges.current = true
-    setCategories((prev) =>
-      prev.map((c) => {
-        if (c.id !== catId) return c
-        const lines = [...c.lines]
-        const [moved] = lines.splice(fromIdx, 1)
-        lines.splice(toIdx, 0, moved)
-        return { ...c, lines: lines.map((l, i) => ({ ...l, sort_order: i })) }
-      }),
-    )
   }
 
   // ── Dupliquer en nouvelle version ─────────────────────────────────────────
@@ -601,22 +304,9 @@ export default function DevisEditor({ embedded = false }) {
   }
 
   // ── Calcul synthèse global ────────────────────────────────────────────────
-  // Si une catégorie a dans_marge=false, ses lignes ne comptent pas dans la
-  // marge globale. La normalisation est centralisée dans applyCategoryDansMarge
-  // pour qu'éditeur ET ProjetLayout (header BUDGET) calculent la même chose.
-  const flatLines = categories.flatMap((c) => c.lines.map((l) => ({ ...l, category_id: c.id })))
-  const allLines = applyCategoryDansMarge(flatLines, categories)
-  // Affiche la colonne Remise si au moins une ligne a une remise, OU si l'utilisateur l'a forcée
-  const hasAnyRemise = categories.some((c) => c.lines.some((l) => l.remise_pct > 0))
+  // allLines / hasAnyRemise / synth viennent désormais du hook useDevis.
+  // Affiche la colonne Remise si au moins une ligne a une remise, OU si forcée.
   const remiseVisible = showRemise || hasAnyRemise
-
-  const synth = calcSynthese(
-    allLines,
-    devis?.tva_rate || 20,
-    devis?.acompte_pct || 30,
-    taux,
-    globalAdj,
-  )
 
   if (loading)
     return (
@@ -625,8 +315,31 @@ export default function DevisEditor({ embedded = false }) {
       </div>
     )
 
+  // Map id→nom de bloc pour traduire les changements de catégorie dans l'historique
+  const catNameById = new Map(categories.map((c) => [c.id, getBlocInfo(c).label || c.name]))
+
+  // Clic sur une entrée d'historique → déplie le bloc, scroll vers la ligne, flash.
+  function jumpToLine(lineId) {
+    if (!lineId) return
+    const cat = categories.find((c) => c.lines.some((l) => l.id === lineId))
+    if (cat && collapsed[cat.id]) setCollapsed((p) => ({ ...p, [cat.id]: false }))
+    // Double rAF : laisse React rendre la ligne si le bloc vient d'être déplié.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-line-key="${CSS.escape(String(lineId))}"]`)
+        if (!el) return
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.remove('devis-line-flash')
+        // reflow pour pouvoir rejouer l'animation si on re-clique la même ligne
+        void el.offsetWidth
+        el.classList.add('devis-line-flash')
+        setTimeout(() => el.classList.remove('devis-line-flash'), 1800)
+      }),
+    )
+  }
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden relative">
       {/* ── Topbar ────────────────────────────────────────────────────────── */}
       <header
         className="px-4 shrink-0"
@@ -705,8 +418,9 @@ export default function DevisEditor({ embedded = false }) {
             </div>
           </div>
 
-          {/* Droite : statut save + boutons ─────────────────────────────── */}
+          {/* Droite : présence + statut save + boutons ───────────────────── */}
           <div className="flex items-center gap-2 shrink-0">
+            <PresenceAvatars othersOnPage={othersOnPage} showLabel={false} />
             <div
               className="flex items-center gap-1.5 text-xs"
               style={{ width: '90px', justifyContent: 'flex-end' }}
@@ -735,10 +449,35 @@ export default function DevisEditor({ embedded = false }) {
                   ⚠ Erreur save
                 </span>
               )}
+              {dirty && !saving && !saved && !saveError && (
+                <span className="flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: 'var(--orange)' }}
+                  />
+                  Non sauvegardé
+                </span>
+              )}
             </div>
             <button onClick={saveNow} className="btn-secondary btn-sm">
               <Save className="w-3.5 h-3.5" />
               Sauvegarder
+            </button>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className="btn-secondary btn-sm relative"
+              title="Historique des changements"
+              style={showHistory ? { color: 'var(--blue)', borderColor: 'var(--blue)' } : undefined}
+            >
+              <History className="w-3.5 h-3.5" />
+              {unseenHistory > 0 && !showHistory && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full text-[9px] font-bold"
+                  style={{ background: 'var(--blue)', color: '#fff' }}
+                >
+                  {unseenHistory > 9 ? '9+' : unseenHistory}
+                </span>
+              )}
             </button>
             <button onClick={dupliquerVersion} className="btn-secondary btn-sm">
               <Copy className="w-3.5 h-3.5" />
@@ -964,10 +703,26 @@ export default function DevisEditor({ embedded = false }) {
                 onDeleteLine={(lineId, tempId) => deleteLine(cat.id, lineId, tempId)}
                 onDuplicateLine={(lineId, tempId) => duplicateLine(cat.id, lineId, tempId)}
                 onReorderLines={(fromIdx, toIdx) => reorderLines(cat.id, fromIdx, toIdx)}
+                othersEditingByRow={othersEditingByRow}
+                onEditRow={setMyEditingRowId}
               />
             ))}
           </tbody>
         </table>
+
+        {/* État vide — aucun bloc encore */}
+        {categories.length === 0 && (
+          <div className="flex flex-col items-center justify-center text-center py-12 px-4">
+            <BarChart3 className="w-8 h-8 mb-3" style={{ color: 'var(--txt-3)', opacity: 0.5 }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--txt-2)' }}>
+              Ce devis est vide
+            </p>
+            <p className="text-xs mt-1 max-w-xs" style={{ color: 'var(--txt-3)' }}>
+              Ajoutez un bloc ci-dessous (Régie, Matériel, Équipe…) pour commencer à
+              chiffrer vos lignes.
+            </p>
+          </div>
+        )}
 
         {/* Ajouter bloc */}
         {(() => {
@@ -1041,6 +796,15 @@ export default function DevisEditor({ embedded = false }) {
         url={pdfPreview?.url || null}
         filename={pdfPreview?.filename || 'devis.pdf'}
         onDownload={() => pdfPreview?.download?.()}
+      />
+
+      {/* ── Historique des changements (R4) ──────────────────────────────── */}
+      <DevisHistoryPanel
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        devisId={devisId}
+        catNameById={catNameById}
+        onJumpToLine={jumpToLine}
       />
     </div>
   )

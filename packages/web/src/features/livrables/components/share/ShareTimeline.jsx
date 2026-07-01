@@ -34,6 +34,9 @@ const HEADER_HEIGHT = 36
 const SUB_ROW_HEIGHT = 26      // hauteur d'une pill marqueur (icône + label + date)
 const SUB_ROW_GAP = 4
 const LANE_PADDING_Y = 8
+const PHASE_BAND_H = 18        // hauteur d'une bande d'étape (sous-ligne)
+const PHASE_BAND_GAP = 3       // espace entre 2 bandes d'étapes empilées
+const PHASE_MARKERS_GAP = 4    // espace entre la zone bandes et la zone marqueurs
 const PADDING_DAYS = 3
 
 // Largeur estimée d'un pill marqueur en pixels — utilisée pour le packing.
@@ -139,17 +142,23 @@ export default function ShareTimeline({
 
   const phasesByLivrable = useMemo(() => {
     if (calendarLevel !== 'phases') return new Map()
-    const map = new Map()
+    const raw = new Map()
     for (const e of etapes) {
       if (!e.date_debut || !e.date_fin) continue
-      if (!map.has(e.livrable_id)) map.set(e.livrable_id, [])
+      if (!raw.has(e.livrable_id)) raw.set(e.livrable_id, [])
       const startMs = parseISO(e.date_debut)
       const endMs = parseISO(e.date_fin)
       if (startMs == null || endMs == null) continue
       const et = eventTypesById.get(e.event_type_id)
       const color = et?.color || KIND_COLORS[e.kind] || KIND_COLORS.autre
       const label = et?.label || (e.kind || 'Autre').toUpperCase()
-      map.get(e.livrable_id).push({ start: startMs, end: endMs, color, label })
+      raw.get(e.livrable_id).push({ start: startMs, end: endMs, color, label })
+    }
+    // Packe les étapes qui se chevauchent en sous-lignes (étalo + mix en
+    // simultané → 2 bandes empilées au lieu de superposées).
+    const map = new Map()
+    for (const [livrableId, bands] of raw) {
+      map.set(livrableId, packBands(bands))
     }
     return map
   }, [calendarLevel, etapes, eventTypesById])
@@ -230,7 +239,8 @@ export default function ShareTimeline({
   }
   if (calendarLevel === 'phases') {
     for (const livrable of livrables) {
-      const phases = phasesByLivrable.get(livrable.id) || []
+      const phaseData = phasesByLivrable.get(livrable.id) || { bands: [], subRowsCount: 0 }
+      const phases = phaseData.bands
       const livVersions = (versionsByLivrable.get(livrable.id) || []).filter((v) => v.date_envoi_prevu)
       if (phases.length === 0 && livVersions.length === 0 && !livrable.date_livraison) continue
 
@@ -275,6 +285,7 @@ export default function ShareTimeline({
         type: 'livrable',
         livrable,
         phases,
+        phaseSubRowsCount: phaseData.subRowsCount,
         markers: packed.markers,
         subRowsCount: packed.subRowsCount,
       })
@@ -391,6 +402,32 @@ function packMarkers(markers) {
     }
   }
   return { markers: out, subRowsCount: Math.max(1, subRows.length) }
+}
+
+// Packe des bandes d'étapes [{start, end, ...}] en sous-lignes : deux étapes
+// qui se chevauchent dans le temps vont sur des sous-lignes différentes
+// (ex : étalonnage + mix en simultané → 2 bandes empilées au lieu de superposées).
+function packBands(bands) {
+  if (!bands || bands.length === 0) return { bands: [], subRowsCount: 0 }
+  const sorted = [...bands].sort((a, b) => a.start - b.start)
+  const rowEnds = [] // fin (ms) de la dernière bande de chaque sous-ligne
+  const out = []
+  for (const b of sorted) {
+    let placed = false
+    for (let i = 0; i < rowEnds.length; i++) {
+      if (rowEnds[i] <= b.start) {
+        rowEnds[i] = b.end
+        out.push({ ...b, subRow: i })
+        placed = true
+        break
+      }
+    }
+    if (!placed) {
+      rowEnds.push(b.end)
+      out.push({ ...b, subRow: rowEnds.length - 1 })
+    }
+  }
+  return { bands: out, subRowsCount: rowEnds.length }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -535,12 +572,19 @@ function PeriodeBands({ periodeKey, periode, windowStart, totalDays, dayWidth })
 
 function Lane({ lane, window, dayWidth }) {
   const isMilestonesLane = lane.type === 'milestones'
-  // Hauteur dynamique selon le nombre de sub-rows nécessaires.
+  // Hauteur dynamique : bandes d'étapes empilées (sous-lignes) + zone marqueurs.
   const subRows = Math.max(1, lane.subRowsCount || 1)
   const markersHeight = subRows * SUB_ROW_HEIGHT + Math.max(0, subRows - 1) * SUB_ROW_GAP
-  // En mode livrable : on garde au moins la place pour 1 phase bar.
-  const baseLaneHeight = isMilestonesLane ? markersHeight : Math.max(markersHeight, SUB_ROW_HEIGHT + 8)
+  const phaseSubRows = isMilestonesLane ? 0 : lane.phaseSubRowsCount || 0
+  const phaseBandsHeight =
+    phaseSubRows > 0 ? phaseSubRows * PHASE_BAND_H + (phaseSubRows - 1) * PHASE_BAND_GAP : 0
+  const sectionGap = phaseBandsHeight > 0 ? PHASE_MARKERS_GAP : 0
+  const baseLaneHeight = isMilestonesLane
+    ? markersHeight
+    : Math.max(phaseBandsHeight + sectionGap + markersHeight, SUB_ROW_HEIGHT + 8)
   const laneHeight = baseLaneHeight + LANE_PADDING_Y * 2
+  // Les marqueurs (envois/livraison) se placent SOUS les bandes d'étapes.
+  const markersBaseTop = LANE_PADDING_Y + phaseBandsHeight + sectionGap
 
   return (
     <div
@@ -568,7 +612,7 @@ function Lane({ lane, window, dayWidth }) {
         className="relative shrink-0"
         style={{ width: window.totalDays * dayWidth, minHeight: laneHeight }}
       >
-        {/* Phases bars (mode phases sur lane livrable) — derrière les marqueurs */}
+        {/* Phases bars (mode phases sur lane livrable) — empilées en sous-lignes */}
         {!isMilestonesLane && (lane.phases || []).map((phase, idx) => (
           <PhaseBar
             key={idx}
@@ -576,7 +620,6 @@ function Lane({ lane, window, dayWidth }) {
             windowStart={window.start}
             totalDays={window.totalDays}
             dayWidth={dayWidth}
-            laneHeight={baseLaneHeight}
           />
         ))}
 
@@ -586,6 +629,7 @@ function Lane({ lane, window, dayWidth }) {
             key={m.id}
             marker={m}
             isMilestonesLane={isMilestonesLane}
+            baseTop={markersBaseTop}
           />
         ))}
       </div>
@@ -597,8 +641,8 @@ function Lane({ lane, window, dayWidth }) {
 // Marker — pill compact pour envoi prévu ou livraison master
 // ════════════════════════════════════════════════════════════════════════════
 
-function Marker({ marker, isMilestonesLane }) {
-  const top = LANE_PADDING_Y + marker.subRow * (SUB_ROW_HEIGHT + SUB_ROW_GAP)
+function Marker({ marker, isMilestonesLane, baseTop = LANE_PADDING_Y }) {
+  const top = baseTop + marker.subRow * (SUB_ROW_HEIGHT + SUB_ROW_GAP)
   const isEnvoi = marker.kind === 'envoi'
   const color = isEnvoi ? 'var(--purple)' : 'var(--orange)'
   const Icon = isEnvoi ? Send : Target
@@ -665,7 +709,7 @@ function Marker({ marker, isMilestonesLane }) {
 // PhaseBar — rectangle d'une phase de production agrégée
 // ════════════════════════════════════════════════════════════════════════════
 
-function PhaseBar({ phase, windowStart, totalDays, dayWidth, laneHeight }) {
+function PhaseBar({ phase, windowStart, totalDays, dayWidth }) {
   const startOffset = Math.round((phase.start - windowStart.getTime()) / MS_PER_DAY)
   const endOffset = Math.round((phase.end - windowStart.getTime()) / MS_PER_DAY)
   if (endOffset < 0 || startOffset > totalDays) return null
@@ -673,6 +717,8 @@ function PhaseBar({ phase, windowStart, totalDays, dayWidth, laneHeight }) {
   const clampedEnd = Math.min(totalDays - 1, endOffset)
   const widthDays = clampedEnd - clampedStart + 1
   const w = widthDays * dayWidth - 2
+  // Empilement : chaque étape sur sa sous-ligne (étapes simultanées séparées).
+  const top = LANE_PADDING_Y + (phase.subRow || 0) * (PHASE_BAND_H + PHASE_BAND_GAP)
 
   // Label : "Phase 14/04→19/04" (toujours avec dates).
   const startStr = formatDateShort(new Date(phase.start).toISOString().slice(0, 10))
@@ -686,9 +732,9 @@ function PhaseBar({ phase, windowStart, totalDays, dayWidth, laneHeight }) {
       className="absolute flex items-center px-2 rounded text-[10px] font-medium"
       style={{
         left: clampedStart * dayWidth + 1,
-        top: LANE_PADDING_Y,
+        top,
         width: w,
-        height: laneHeight,
+        height: PHASE_BAND_H,
         background: phase.color,
         color: 'white',
         textShadow: '0 1px 1px rgba(0,0,0,0.3)',
