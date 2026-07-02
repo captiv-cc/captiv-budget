@@ -36,6 +36,7 @@ import {
   Archive,
   ArchiveRestore,
   MoreVertical,
+  Eye,
 } from 'lucide-react'
 
 const STATUS_MAP = {
@@ -1033,6 +1034,23 @@ function LotAccordion({
                   <Pencil className="w-3.5 h-3.5" />
                   Renommer le lot
                 </button>
+                {lot.public_token && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setMenuOpen(false)
+                      navigator.clipboard.writeText(
+                        `${window.location.origin}/devis/lot/${lot.public_token}`,
+                      )
+                      notify.success('Lien de la proposition copié (versions envoyées du lot)')
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2 text-gray-700"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    Lien client du lot
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     setMenuOpen(false)

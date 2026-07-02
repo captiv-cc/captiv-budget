@@ -12,13 +12,13 @@ import PresenceAvatars from '../components/PresenceAvatars'
 import DevisHistoryPanel from '../features/devis/components/DevisHistoryPanel'
 import { fetchUnseenCount, markHistorySeen } from '../lib/devisHistorySeen'
 import { duplicateDevisVersion } from '../lib/devisDuplicate'
-import { prompt } from '../lib/confirm'
 import {
   sendDevisToClient,
   getPublicDevisUrl,
   fetchDevisViewStats,
   fetchDevisSignature,
   getSignedPdfUrl,
+  markReminded,
 } from '../lib/devisEnvoi'
 import StatusSelect from '../features/devis/components/StatusSelect'
 import SynthBar from '../features/devis/components/SynthBar'
@@ -312,26 +312,34 @@ export default function DevisEditor({ embedded = false }) {
   // Fige un PDF de la version courante (snapshot immuable montré au client),
   // passe le devis en "Envoyé" et copie le lien public.
   const [sending, setSending] = useState(false)
-  async function envoyerAuClient() {
+  const [sendModal, setSendModal] = useState(false)
+  const [sendMessage, setSendMessage] = useState('')
+  const [sendValidity, setSendValidity] = useState('30') // jours ; '0' = sans limite
+
+  function envoyerAuClient() {
     if (sending) return
-    // Prompt combiné : confirme l'envoi + mot d'accompagnement (optionnel),
-    // affiché dans le hero de la page client. Annuler → null → abandon.
-    const message = await prompt({
-      title: `Envoyer la V${curV} au client`,
-      message: `Un PDF de la V${curV} est figé pour le client et le devis passe en « Envoyé ». Mot d'accompagnement (optionnel) :`,
-      placeholder: 'Bonjour, voici notre proposition pour…',
-      initialValue: devis?.message_client || '',
-      multiline: true,
-      confirmLabel: 'Figer et copier le lien',
-    })
-    if (message === null) return
+    setSendMessage(devis?.message_client || '')
+    setSendModal(true)
+  }
+
+  async function confirmSend() {
+    if (sending) return
     setSending(true)
     try {
       if (dirty) {
         saveNow()
         await new Promise((r) => setTimeout(r, 400))
       }
-      const { url } = await sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message })
+      const days = parseInt(sendValidity, 10)
+      const validUntil =
+        days > 0 ? new Date(Date.now() + days * 24 * 3600 * 1000).toISOString() : null
+      const { url } = await sendDevisToClient({
+        devis, categories, globalAdj, project, client, org, taux,
+        message: sendMessage,
+        validUntil,
+        totals: { ht: synth?.totalHTFinal ?? null, ttc: synth?.totalTTC ?? null },
+      })
+      setSendModal(false)
       updateDevisField('status', 'envoye') // sync état local (le DB est déjà à jour)
       try {
         await navigator.clipboard.writeText(url)
@@ -340,10 +348,31 @@ export default function DevisEditor({ embedded = false }) {
         notify.info(url, { duration: 12000 })
       }
     } catch (err) {
-      console.error('[envoyerAuClient]', err)
+      console.error('[confirmSend]', err)
       notify.error(`Envoi impossible : ${err.message}`)
     } finally {
       setSending(false)
+    }
+  }
+
+  // Relance : mail pré-rempli depuis la boîte de l'utilisateur + trace en DB.
+  function relancerClient() {
+    const url = getPublicDevisUrl(devis)
+    const subject = encodeURIComponent(
+      `Relance devis${devis?.title ? ` « ${devis.title} »` : ''}${project?.title ? ` · ${project.title}` : ''}`,
+    )
+    const body = encodeURIComponent(
+      `Bonjour,\n\nAvez-vous pu prendre connaissance de notre devis ?\nVous pouvez le consulter et l'accepter ici : ${url}\n\nBien cordialement,`,
+    )
+    markReminded(devisId).then(() => {
+      // maj optimiste de la date affichée dans le bandeau
+      updateDevisField('last_reminded_at', new Date().toISOString())
+    })
+    if (client?.email) {
+      window.location.href = `mailto:${client.email}?subject=${subject}&body=${body}`
+    } else {
+      navigator.clipboard.writeText(url)
+      notify.info('Pas d’email client renseigné : lien copié, relance tracée')
     }
   }
 
@@ -662,7 +691,47 @@ export default function DevisEditor({ embedded = false }) {
               ) : (
                 <> Jamais ouvert par le client.</>
               ))}
+            {isSent &&
+              devis?.valid_until &&
+              (new Date(devis.valid_until).getTime() < Date.now() ? (
+                <strong style={{ color: 'var(--red)' }}>
+                  {' '}
+                  Offre expirée le{' '}
+                  {new Date(devis.valid_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.
+                </strong>
+              ) : (
+                <>
+                  {' '}
+                  Valable jusqu&apos;au{' '}
+                  {new Date(devis.valid_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.
+                </>
+              ))}
+            {isSent && devis?.last_reminded_at && (
+              <>
+                {' '}
+                Relancé le{' '}
+                {new Date(devis.last_reminded_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.
+              </>
+            )}
           </span>
+          {isSent && (
+            <button
+              onClick={relancerClient}
+              className="text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+              style={{
+                color: 'var(--txt-2)',
+                background: 'rgba(255,255,255,.06)',
+                border: '1px solid var(--brd)',
+              }}
+              title={
+                client?.email
+                  ? `Email pré-rempli vers ${client.email} + relance tracée`
+                  : 'Copie le lien + trace la relance (pas d’email client renseigné)'
+              }
+            >
+              Relancer
+            </button>
+          )}
           {signatureInfo?.signed_pdf_path && (
             <button
               onClick={async () => {
@@ -736,6 +805,39 @@ export default function DevisEditor({ embedded = false }) {
             }}
           >
             Reverrouiller
+          </button>
+        </div>
+      )}
+      {devis?.status === 'refuse' && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 text-xs shrink-0"
+          style={{
+            background: 'rgba(239,68,68,.08)',
+            borderBottom: '1px solid rgba(239,68,68,.25)',
+            color: 'var(--txt-2)',
+          }}
+        >
+          <X className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--red)' }} />
+          <span>
+            <strong style={{ color: 'var(--red)' }}>
+              Devis refusé
+              {devis?.refused_at
+                ? ` le ${new Date(devis.refused_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+                : ''}
+              .
+            </strong>
+            {devis?.refused_reason && <> Raison : « {devis.refused_reason} »</>}
+          </span>
+          <button
+            onClick={dupliquerVersion}
+            className="ml-auto text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+            style={{
+              color: 'var(--txt)',
+              background: 'rgba(255,255,255,.08)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            Créer la V{nextV}
           </button>
         </div>
       )}
@@ -1043,6 +1145,92 @@ export default function DevisEditor({ embedded = false }) {
         filename={pdfPreview?.filename || 'devis.pdf'}
         onDownload={() => pdfPreview?.download?.()}
       />
+
+      {/* ── Modale d'envoi au client (message + validité) ────────────────── */}
+      {sendModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,.55)' }}
+          onClick={() => setSendModal(false)}
+        >
+          <div
+            className="rounded-xl p-5 mx-4"
+            style={{
+              width: '460px',
+              maxWidth: '100%',
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+              boxShadow: '0 16px 48px rgba(0,0,0,.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-bold mb-1" style={{ color: 'var(--txt)' }}>
+              Envoyer la V{curV} au client
+            </h3>
+            <p className="text-xs leading-relaxed mb-4" style={{ color: 'var(--txt-3)' }}>
+              Un PDF de la V{curV} est figé pour le client et le devis passe en « Envoyé ».
+            </p>
+            <label className="block mb-3">
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Mot d&apos;accompagnement (optionnel)
+              </span>
+              <textarea
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                placeholder="Bonjour, voici notre proposition pour…"
+                rows={3}
+                className="w-full mt-1 px-2.5 py-2 rounded-lg text-xs outline-none resize-none"
+                style={{
+                  background: 'rgba(255,255,255,.05)',
+                  border: '1px solid var(--brd)',
+                  color: 'var(--txt)',
+                  lineHeight: 1.5,
+                }}
+              />
+            </label>
+            <label className="block mb-4">
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Validité de l&apos;offre
+              </span>
+              <select
+                value={sendValidity}
+                onChange={(e) => setSendValidity(e.target.value)}
+                className="w-full mt-1 px-2.5 py-2 rounded-lg text-xs outline-none cursor-pointer"
+                style={{
+                  background: 'rgba(255,255,255,.05)',
+                  border: '1px solid var(--brd)',
+                  color: 'var(--txt)',
+                }}
+              >
+                <option value="15">15 jours</option>
+                <option value="30">30 jours</option>
+                <option value="45">45 jours</option>
+                <option value="60">60 jours</option>
+                <option value="0">Sans limite</option>
+              </select>
+            </label>
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setSendModal(false)} className="btn-ghost btn-sm">
+                Annuler
+              </button>
+              <button onClick={confirmSend} disabled={sending} className="btn-primary btn-sm">
+                {sending ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                Figer et copier le lien
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modale déverrouillage (devis envoyé/accepté) ─────────────────── */}
       {unlockModal && (

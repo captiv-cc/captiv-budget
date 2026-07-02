@@ -40,13 +40,72 @@ Deno.serve(async (req) => {
   if (!SUPABASE_URL || !SERVICE_ROLE) return json({ error: 'Config manquante' }, 500)
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE)
 
-  let payload: { token?: string; action?: string }
+  let payload: {
+    token?: string
+    lotToken?: string
+    action?: string
+    reason?: string
+  }
   try {
     payload = await req.json()
   } catch {
     return json({ error: 'JSON invalide' }, 400)
   }
-  const { token, action = 'get' } = payload
+  const { token, lotToken, action = 'get' } = payload
+
+  // ── Page LOT : versions envoyées côte à côte (multi-options) ──────────────
+  if (lotToken && typeof lotToken === 'string') {
+    const { data: lot } = await supabase
+      .from('devis_lots')
+      .select('id, title, project_id')
+      .eq('public_token', lotToken)
+      .maybeSingle()
+    if (!lot) return json({ error: 'not_found' }, 404)
+
+    const { data: lotProj } = await supabase
+      .from('projects')
+      .select(
+        'title, ref_projet, cover_url, ' +
+          'organisations(display_name, legal_name, address, email, phone, siret, ' +
+          'logo_url_clair, logo_url_sombre, logo_banner_url, brand_color)',
+      )
+      .eq('id', lot.project_id)
+      .maybeSingle()
+
+    const { data: options } = await supabase
+      .from('devis')
+      .select(
+        'version_number, title, status, sent_at, accepted_at, valid_until, ' +
+          'sent_total_ht, sent_total_ttc, public_token',
+      )
+      .eq('lot_id', lot.id)
+      .not('sent_at', 'is', null)
+      .order('version_number', { ascending: false })
+
+    return json({
+      lot: { title: lot.title },
+      project: lotProj
+        ? { title: lotProj.title, ref_projet: lotProj.ref_projet, cover_url: lotProj.cover_url }
+        : null,
+      org: lotProj?.organisations ?? null,
+      options: (options || []).map((o) => ({
+        version_number: o.version_number,
+        title: o.title,
+        status: o.status,
+        sent_at: o.sent_at,
+        accepted_at: o.accepted_at,
+        valid_until: o.valid_until,
+        total_ht: o.sent_total_ht,
+        total_ttc: o.sent_total_ttc,
+        token: o.public_token,
+        expired:
+          o.status === 'envoye' && o.valid_until
+            ? new Date(o.valid_until).getTime() < Date.now()
+            : false,
+      })),
+    })
+  }
+
   if (!token || typeof token !== 'string') return json({ error: 'Token requis' }, 400)
 
   // ── Résolution du devis par token ──────────────────────────────────────────
@@ -55,11 +114,16 @@ Deno.serve(async (req) => {
     .select(
       'id, version_number, title, status, sent_at, accepted_at, refused_at, ' +
         'tva_rate, acompte_pct, notes, message_client, pdf_snapshot_path, pdf_snapshot_at, ' +
-        'project_id, lot_id',
+        'valid_until, refused_reason, project_id, lot_id',
     )
     .eq('public_token', token)
     .maybeSingle()
   if (!devis) return json({ error: 'not_found' }, 404)
+
+  const expired =
+    devis.status === 'envoye' &&
+    Boolean(devis.valid_until) &&
+    new Date(devis.valid_until).getTime() < Date.now()
 
   const userAgent = req.headers.get('user-agent') || null
   const logEvent = (type: string, meta: Record<string, unknown> = {}) =>
@@ -76,6 +140,7 @@ Deno.serve(async (req) => {
     if (devis.status !== 'envoye') {
       return json({ error: 'not_acceptable', status: devis.status }, 409)
     }
+    if (expired) return json({ error: 'expired' }, 409)
     const { error } = await supabase
       .from('devis')
       .update({ status: 'accepte' })
@@ -84,6 +149,23 @@ Deno.serve(async (req) => {
     if (error) return json({ error: 'update_failed' }, 500)
     await logEvent('accept')
     return json({ status: 'accepte' })
+  }
+
+  // ── action: refuse (avec raison optionnelle) ───────────────────────────────
+  if (action === 'refuse') {
+    if (devis.status === 'refuse') return json({ status: 'refuse' })
+    if (devis.status !== 'envoye') {
+      return json({ error: 'not_refusable', status: devis.status }, 409)
+    }
+    const reason = typeof payload.reason === 'string' ? payload.reason.trim().slice(0, 500) : null
+    const { error } = await supabase
+      .from('devis')
+      .update({ status: 'refuse', refused_reason: reason || null })
+      .eq('id', devis.id)
+      .eq('status', 'envoye')
+    if (error) return json({ error: 'update_failed' }, 500)
+    await logEvent('refuse', reason ? { reason } : {})
+    return json({ status: 'refuse' })
   }
 
   // ── action: download (tracking seul) ───────────────────────────────────────
@@ -186,7 +268,10 @@ Deno.serve(async (req) => {
       refused_at: devis.refused_at,
       message_client: devis.message_client,
       pdf_snapshot_at: devis.pdf_snapshot_at,
+      valid_until: devis.valid_until,
+      refused_reason: devis.refused_reason,
     },
+    expired,
     project: proj
       ? { title: proj.title, ref_projet: proj.ref_projet, cover_url: proj.cover_url }
       : null,

@@ -55,6 +55,10 @@ export default function DevisPublic() {
   const [signEmail, setSignEmail] = useState('')
   const [signError, setSignError] = useState(null)
   const [signFallback, setSignFallback] = useState(false) // Universign non configuré
+  // Refus motivé
+  const [refuseModal, setRefuseModal] = useState(false)
+  const [refuseReason, setRefuseReason] = useState('')
+  const [refusing, setRefusing] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -128,6 +132,21 @@ export default function DevisPublic() {
     setSignError('La signature est indisponible pour le moment. Réessayez ou contactez votre interlocuteur.')
   }
 
+  async function confirmRefuse() {
+    if (refusing) return
+    setRefusing(true)
+    const { data: res, error } = await supabase.functions.invoke('devis-public', {
+      body: { token, action: 'refuse', reason: refuseReason.trim() },
+    })
+    setRefusing(false)
+    setRefuseModal(false)
+    if (error || res?.error) {
+      load()
+      return
+    }
+    setData((d) => ({ ...d, devis: { ...d.devis, status: 'refuse' } }))
+  }
+
   function handleDownload() {
     const url = data?.signedPdfUrl || data?.pdfUrl
     if (!url) return
@@ -164,10 +183,10 @@ export default function DevisPublic() {
       </div>
     )
 
-  const { devis, project, org, pdfUrl, signature, signedPdfUrl, versions = [] } = data
+  const { devis, project, org, pdfUrl, signature, signedPdfUrl, expired, versions = [] } = data
   const accepted = devis.status === 'accepte'
   const refused = devis.status === 'refuse'
-  const signaturePending = !accepted && !refused && signature?.status === 'started'
+  const signaturePending = !accepted && !refused && !expired && signature?.status === 'started'
   const displayPdfUrl = signedPdfUrl || pdfUrl
   const cover = project?.cover_url
   const orgName = org?.display_name || org?.legal_name || ''
@@ -287,6 +306,38 @@ export default function DevisPublic() {
               Ce devis a été refusé.
             </p>
           </div>
+        ) : expired ? (
+          <div
+            className="flex flex-wrap items-center gap-3 px-5 py-4"
+            style={{
+              ...glass,
+              background: 'rgba(251,191,36,0.08)',
+              border: '1px solid rgba(251,191,36,0.28)',
+            }}
+          >
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm font-bold" style={{ color: '#fbbf24' }}>
+                Offre expirée le {fmtDate(devis.valid_until)}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Ce devis n&apos;est plus valable. Contactez {orgName || 'votre interlocuteur'} pour
+                une nouvelle proposition.
+              </p>
+            </div>
+            {mailHref && (
+              <a
+                href={mailHref}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                }}
+              >
+                <Mail className="w-4 h-4" />
+                Nous contacter
+              </a>
+            )}
+          </div>
         ) : signaturePending ? (
           <div className="flex flex-wrap items-center gap-3 px-5 py-4" style={glass}>
             <div className="flex-1 min-w-[200px]">
@@ -323,21 +374,33 @@ export default function DevisPublic() {
               <div className="flex-1 min-w-[200px]">
                 <p className="text-sm font-bold text-white">Ce devis vous convient ?</p>
                 <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                  Signature électronique via Universign : rapide, horodatée et à valeur légale.
+                  Signature électronique rapide, horodatée et à valeur légale.
+                  {devis.valid_until && (
+                    <> Offre valable jusqu&apos;au {fmtDate(devis.valid_until)}.</>
+                  )}
                 </p>
               </div>
-              <button
-                onClick={() => setAcceptModal(true)}
-                disabled={accepting}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                style={{
-                  background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                  boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
-                }}
-              >
-                <Check className="w-4 h-4" />
-                Signer ce devis
-              </button>
+              <div className="flex flex-col items-end gap-1.5">
+                <button
+                  onClick={() => setAcceptModal(true)}
+                  disabled={accepting}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                    boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                  }}
+                >
+                  <Check className="w-4 h-4" />
+                  Signer ce devis
+                </button>
+                <button
+                  onClick={() => setRefuseModal(true)}
+                  className="text-[11px] underline-offset-2 hover:underline"
+                  style={{ color: 'rgba(255,255,255,0.4)' }}
+                >
+                  ou refuser ce devis
+                </button>
+              </div>
             </div>
           )
         )}
@@ -489,6 +552,60 @@ export default function DevisPublic() {
           Document confidentiel. Lien de consultation personnel, ne pas diffuser.
         </p>
       </div>
+
+      {/* ── Modale de refus ───────────────────────────────────────────────── */}
+      {refuseModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setRefuseModal(false)}
+        >
+          <div
+            className="w-full p-6"
+            style={{ ...glass, maxWidth: '420px', background: 'rgba(24,27,32,0.95)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-white mb-2">Refuser ce devis</h3>
+            <p className="text-sm leading-relaxed mb-4" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              Pouvez-vous nous dire pourquoi ? Cela nous aide à revenir avec une proposition plus
+              adaptée.
+            </p>
+            <textarea
+              value={refuseReason}
+              onChange={(e) => setRefuseReason(e.target.value)}
+              placeholder="Budget dépassé, projet reporté, autre prestataire… (optionnel)"
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none resize-none mb-4"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.14)',
+                lineHeight: 1.5,
+              }}
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setRefuseModal(false)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold"
+                style={{ color: 'rgba(255,255,255,0.65)' }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmRefuse}
+                disabled={refusing}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
+                style={{
+                  background: 'rgba(239,68,68,0.85)',
+                  boxShadow: '0 8px 24px rgba(239,68,68,0.2)',
+                }}
+              >
+                {refusing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                Refuser le devis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modale de signature ───────────────────────────────────────────── */}
       {acceptModal && (

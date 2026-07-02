@@ -65,11 +65,14 @@ Deno.serve(async (req) => {
   // ── Devis ──────────────────────────────────────────────────────────────────
   const { data: devis } = await supabase
     .from('devis')
-    .select('id, version_number, title, status, pdf_snapshot_path')
+    .select('id, version_number, title, status, pdf_snapshot_path, valid_until')
     .eq('public_token', token)
     .maybeSingle()
   if (!devis) return json({ error: 'not_found' }, 404)
   if (devis.status !== 'envoye') return json({ error: 'not_signable', status: devis.status }, 409)
+  if (devis.valid_until && new Date(devis.valid_until).getTime() < Date.now()) {
+    return json({ error: 'expired' }, 409)
+  }
   if (!devis.pdf_snapshot_path) return json({ error: 'no_snapshot' }, 409)
 
   // ── Reprise d'une signature en cours (même email) ──────────────────────────

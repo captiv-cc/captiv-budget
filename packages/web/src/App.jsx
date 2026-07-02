@@ -17,6 +17,7 @@ import BDD from './pages/BDD'
 import Compta from './pages/Compta'
 import Crew from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
+import DevisLotPublic from './pages/DevisLotPublic'
 import CheckSession from './pages/CheckSession'
 import RenduSession from './pages/RenduSession'
 import LivrableShareSession from './pages/LivrableShareSession'
@@ -102,6 +103,7 @@ function AppRoutes() {
       {/* Public */}
       <Route path="/login" element={<Login />} />
       <Route path="/devis/public/:token" element={<DevisPublic />} />
+      <Route path="/devis/lot/:token" element={<DevisLotPublic />} />
       {/* Checklist terrain — accès anonyme via token (MAT-10). Le token fait
           authentification : pas de PrivateRoute, ne passe PAS dans Layout. */}
       <Route path="/check/:token" element={<CheckSession />} />

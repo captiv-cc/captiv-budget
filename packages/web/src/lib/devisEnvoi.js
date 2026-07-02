@@ -23,10 +23,24 @@ export function getPublicDevisUrl(devis) {
   return `${window.location.origin}/devis/public/${devis?.public_token}`
 }
 
+export function getPublicLotUrl(lot) {
+  return `${window.location.origin}/devis/lot/${lot?.public_token}`
+}
+
+// Trace une relance (le mail part de la boîte de l'utilisateur via mailto).
+export async function markReminded(devisId) {
+  await supabase
+    .from('devis')
+    .update({ last_reminded_at: new Date().toISOString() })
+    .eq('id', devisId)
+}
+
 // Génère + fige le PDF puis passe le devis en "envoyé".
-// `message` : mot d'accompagnement affiché sur la page client (optionnel).
+// `message`    : mot d'accompagnement affiché sur la page client (optionnel).
+// `validUntil` : date limite de validité ISO ou null (offre sans limite).
+// `totals`     : { ht, ttc } figés à l'envoi (affichés sur la page lot).
 // Retourne { url, hash }. Lève une erreur explicite en cas d'échec.
-export async function sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message }) {
+export async function sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message, validUntil, totals }) {
   // 1) PDF (même moteur que la préview / le téléchargement admin)
   const handle = await exportDevisPDF({ ...devis, categories, globalAdj }, project, client, org, taux)
   try {
@@ -48,6 +62,9 @@ export async function sendDevisToClient({ devis, categories, globalAdj, project,
       pdf_snapshot_at: new Date().toISOString(),
     }
     if (message !== undefined) updates.message_client = message || null
+    if (validUntil !== undefined) updates.valid_until = validUntil
+    if (totals?.ht !== undefined) updates.sent_total_ht = totals.ht
+    if (totals?.ttc !== undefined) updates.sent_total_ttc = totals.ttc
     const { error: updErr } = await supabase.from('devis').update(updates).eq('id', devis.id)
     if (updErr) throw new Error(`mise à jour devis : ${updErr.message}`)
 
