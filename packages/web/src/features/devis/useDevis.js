@@ -201,7 +201,17 @@ export function useDevis({ devisId, projectId, org }) {
                 setCategories((prev) =>
                   prev.map((c) =>
                     c.id === cat.id
-                      ? { ...c, lines: c.lines.map((l) => (l._tempId === line._tempId ? { ...newLine } : l)) }
+                      ? {
+                          ...c,
+                          lines: c.lines.map((l) =>
+                            l._tempId === line._tempId
+                              ? // On CONSERVE _tempId : la sheet mobile (et tout
+                                // consommateur keyé dessus) garde sa cible après
+                                // le remplacement par la ligne serveur.
+                                { ...newLine, _tempId: line._tempId }
+                              : l,
+                          ),
+                        }
                       : c,
                   ),
                 )
@@ -458,6 +468,9 @@ export function useDevis({ devisId, projectId, org }) {
           : c,
       ),
     )
+    // Renvoie la clé temporaire : la vue mobile ouvre la sheet d'édition
+    // directement sur la ligne créée.
+    return tempId
   }, [markDirty])
 
   const duplicateLine = useCallback((catId, lineId, tempId) => {

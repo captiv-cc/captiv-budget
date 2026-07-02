@@ -10,6 +10,8 @@ import { useDevis } from '../features/devis/useDevis'
 import { useProjectPresence } from '../hooks/useProjectPresence'
 import PresenceAvatars from '../components/PresenceAvatars'
 import DevisHistoryPanel from '../features/devis/components/DevisHistoryPanel'
+import DevisMobileView from '../features/devis/components/DevisMobileView'
+import { useBreakpoint } from '../hooks/useBreakpoint'
 import { fetchUnseenCount, markHistorySeen } from '../lib/devisHistorySeen'
 import { duplicateDevisVersion } from '../lib/devisDuplicate'
 import {
@@ -68,6 +70,7 @@ export default function DevisEditor({ embedded = false }) {
   const { id: projectId, devisId } = useParams()
   const navigate = useNavigate()
   const { org, user } = useAuth()
+  const { isMobile } = useBreakpoint()
 
   // ── Données + persistance (hook) ───────────────────────────────────────────
   const D = useDevis({ devisId, projectId, org })
@@ -445,7 +448,7 @@ export default function DevisEditor({ embedded = false }) {
         className="px-4 shrink-0"
         style={{ background: 'var(--bg-surf)', borderBottom: '1px solid var(--brd)' }}
       >
-        <div className="flex items-center justify-between gap-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
           {/* Gauche : navigation + titre */}
           <div className="flex items-center gap-2.5 shrink-0">
             {!embedded && (
@@ -505,7 +508,7 @@ export default function DevisEditor({ embedded = false }) {
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <span className="text-xs italic truncate max-w-[260px]">
+                  <span className="text-xs italic truncate max-w-[120px] sm:max-w-[260px]">
                     {devis?.title || 'Sans nom'}
                   </span>
                   <Pencil className="w-3 h-3 opacity-50 group-hover:opacity-100" />
@@ -544,7 +547,7 @@ export default function DevisEditor({ embedded = false }) {
           <div className="flex items-center gap-2 shrink-0">
             <PresenceAvatars othersOnPage={othersOnPage} showLabel={false} />
             <div
-              className="flex items-center gap-1.5 text-xs"
+              className="hidden sm:flex items-center gap-1.5 text-xs"
               style={{ width: '90px', justifyContent: 'flex-end' }}
             >
               {saving && (
@@ -583,7 +586,7 @@ export default function DevisEditor({ embedded = false }) {
             </div>
             <button onClick={saveNow} className="btn-secondary btn-sm">
               <Save className="w-3.5 h-3.5" />
-              Sauvegarder
+              <span className="hidden sm:inline">Sauvegarder</span>
             </button>
             <button
               onClick={() => setShowHistory((v) => !v)}
@@ -603,7 +606,7 @@ export default function DevisEditor({ embedded = false }) {
             </button>
             <button onClick={dupliquerVersion} disabled={duplicating} className="btn-secondary btn-sm">
               <Copy className="w-3.5 h-3.5" />
-              Dupliquer V{(devis?.version_number || 0) + 1}
+              <span className="hidden sm:inline">Dupliquer V{(devis?.version_number || 0) + 1}</span>
             </button>
             <button
               onClick={openPdfPreview}
@@ -616,7 +619,7 @@ export default function DevisEditor({ embedded = false }) {
               ) : (
                 <Eye className="w-3.5 h-3.5" />
               )}
-              PDF
+              <span className="hidden sm:inline">PDF</span>
             </button>
             {devis?.pdf_snapshot_path && (isSent || isAccepted) ? (
               <button
@@ -628,7 +631,7 @@ export default function DevisEditor({ embedded = false }) {
                 title="Copier le lien de consultation client"
               >
                 <Eye className="w-3.5 h-3.5" />
-                Lien client
+                <span className="hidden sm:inline">Lien client</span>
               </button>
             ) : (
               <button
@@ -642,7 +645,7 @@ export default function DevisEditor({ embedded = false }) {
                 ) : (
                   <Send className="w-3.5 h-3.5" />
                 )}
-                Envoyer au client
+                <span className="hidden sm:inline">Envoyer au client</span>
               </button>
             )}
           </div>
@@ -852,6 +855,22 @@ export default function DevisEditor({ embedded = false }) {
         onKeyDownCapture={guardLocked}
         onDragStartCapture={guardLocked}
       >
+        {isMobile && (
+          <DevisMobileView
+            sorted={computeSortedCategories(categories)}
+            taux={taux}
+            bdd={bdd}
+            collapsed={collapsed}
+            setCollapsed={setCollapsed}
+            editLocked={editLocked}
+            insertLine={insertLine}
+            updateLine={updateLine}
+            updateLineBatch={updateLineBatch}
+            deleteLine={deleteLine}
+            duplicateLine={duplicateLine}
+          />
+        )}
+        {!isMobile && (
         <table
           className="devis-table w-full border-collapse"
           style={{ minWidth: showAnalyse ? '1310px' : '910px' }}
@@ -1052,6 +1071,7 @@ export default function DevisEditor({ embedded = false }) {
             ))}
           </tbody>
         </table>
+        )}
 
         {/* État vide — aucun bloc encore */}
         {categories.length === 0 && (

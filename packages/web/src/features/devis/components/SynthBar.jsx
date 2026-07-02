@@ -42,13 +42,13 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
         />
       )}
 
-      {/* ── Bulle flottante — commence après la sidebar (w-56 = 14rem) ──────── */}
+      {/* ── Bulle flottante — pleine largeur en mobile, après la sidebar
+          projet (w-56 = 14rem) à partir de sm ──────────────────────────────── */}
       <div
+        className="left-3 right-[76px] sm:left-[calc(14rem+12px)] sm:right-3"
         style={{
           position: 'fixed',
           bottom: '12px',
-          left: 'calc(14rem + 12px)',
-          right: '12px',
           zIndex: 50,
           borderRadius: '14px',
           background: 'var(--bg-elev)',
@@ -68,9 +68,9 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
             }}
           >
             {/* Grille 3 colonnes */}
-            <div className="grid grid-cols-3 gap-0 px-6 py-4" style={{ maxWidth: '900px' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-0 px-4 sm:px-6 py-4" style={{ maxWidth: '900px' }}>
               {/* Colonne 1 — Ajustements globaux */}
-              <div className="pr-6" style={{ borderRight: '1px solid var(--brd-sub)' }}>
+              <div className="sm:pr-6 sm:border-r" style={{ borderColor: 'var(--brd-sub)' }}>
                 <p
                   className="text-[10px] font-bold uppercase tracking-wider mb-3"
                   style={{ color: 'var(--txt-3)' }}
@@ -146,7 +146,7 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
               </div>
 
               {/* Colonne 2 — Détail des totaux */}
-              <div className="px-6" style={{ borderRight: '1px solid var(--brd-sub)' }}>
+              <div className="sm:px-6 sm:border-r" style={{ borderColor: 'var(--brd-sub)' }}>
                 <p
                   className="text-[10px] font-bold uppercase tracking-wider mb-3"
                   style={{ color: 'var(--txt-3)' }}
@@ -221,7 +221,7 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
               </div>
 
               {/* Colonne 3 — Échéancier + Notes */}
-              <div className="pl-6">
+              <div className="sm:pl-6">
                 <p
                   className="text-[10px] font-bold uppercase tracking-wider mb-3"
                   style={{ color: 'var(--txt-3)' }}
@@ -287,15 +287,16 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
 
         {/* ── Barre principale — clic entier pour toggle ─────────────────────── */}
         <div
-          className="flex items-center justify-between px-6 cursor-pointer select-none"
+          className="flex items-center justify-between px-3 sm:px-6 cursor-pointer select-none overflow-x-auto"
           style={{
             height: '52px',
             borderTop: open ? '1px solid rgba(255,255,255,.06)' : 'none',
+            WebkitOverflowScrolling: 'touch',
           }}
           onClick={() => setOpen((p) => !p)}
         >
           {/* Gauche — métriques principales */}
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4 sm:gap-8 shrink-0">
             <BarMetric label="Total HT" value={fmtEur(synth.totalHTFinal)} prominent />
             <BarMetric label="Total TTC" value={fmtEur(synth.totalTTC)} muted />
             <BarMetric
@@ -306,30 +307,35 @@ export default function SynthBar({ synth, devis, globalAdj, onUpdateGlobal, onUp
             />
           </div>
 
-          {/* Droite — KPIs secondaires + bouton */}
-          <div className="flex items-center gap-6">
-            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,.08)' }} />
-            <BarMetric label="Coût réel HT" value={fmtEur(synth.totalCoutReel)} muted />
-            {synth.totalCharges > 0 && (
-              <BarMetric
-                label="Charges soc."
-                value={fmtEur(synth.totalCharges)}
-                color="var(--red)"
-                muted
-              />
-            )}
-            {synth.totalInterne > 0 && (
-              <BarMetric
-                label="Part interne"
-                value={fmtPct(synth.pctInterne)}
-                subvalue={fmtEur(synth.totalInterne)}
-                color="var(--purple)"
-                muted
-              />
-            )}
-            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,.08)' }} />
+          {/* Droite — KPIs secondaires (masqués en mobile : ils restent dans
+              le tiroir de détails) + bouton Synthèse */}
+          <div className="flex items-center gap-3 sm:gap-6 shrink-0">
+            <div className="hidden sm:flex items-center gap-6">
+              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,.08)' }} />
+              <BarMetric label="Coût réel HT" value={fmtEur(synth.totalCoutReel)} muted />
+              {synth.totalCharges > 0 && (
+                <BarMetric
+                  label="Charges soc."
+                  value={fmtEur(synth.totalCharges)}
+                  color="var(--red)"
+                  muted
+                />
+              )}
+              {synth.totalInterne > 0 && (
+                <BarMetric
+                  label="Part interne"
+                  value={fmtPct(synth.pctInterne)}
+                  subvalue={fmtEur(synth.totalInterne)}
+                  color="var(--purple)"
+                  muted
+                />
+              )}
+              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,.08)' }} />
+            </div>
             <div className="flex items-center gap-1.5" style={{ color: 'var(--txt-3)' }}>
-              <span className="text-[10px] font-semibold uppercase tracking-widest">Synthèse</span>
+              <span className="hidden sm:inline text-[10px] font-semibold uppercase tracking-widest">
+                Synthèse
+              </span>
               {open ? (
                 <ChevronDown className="w-3.5 h-3.5" />
               ) : (
