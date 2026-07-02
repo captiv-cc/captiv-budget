@@ -338,6 +338,7 @@ export default function DevisEditor({ embedded = false }) {
         message: sendMessage,
         validUntil,
         totals: { ht: synth?.totalHTFinal ?? null, ttc: synth?.totalTTC ?? null },
+        sentBy: user?.id || null,
       })
       setSendModal(false)
       updateDevisField('status', 'envoye') // sync état local (le DB est déjà à jour)

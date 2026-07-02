@@ -13,7 +13,7 @@
  *
  * Données : tout passe par l'edge function devis-public (service role).
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import SharePageHeader from '../components/share/SharePageHeader'
@@ -75,9 +75,14 @@ export default function DevisPublic() {
     setLoading(false)
   }, [token])
 
+  // Garde anti double-appel (StrictMode en dev monte les effets deux fois →
+  // sinon : double event "view" + double notification admin).
+  const loadedRef = useRef(null)
   useEffect(() => {
+    if (loadedRef.current === token) return
+    loadedRef.current = token
     load()
-  }, [load])
+  }, [load, token])
 
   // Acceptation simple (fallback quand Universign n'est pas configuré)
   async function confirmAccept() {

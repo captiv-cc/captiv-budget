@@ -23,6 +23,12 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.0'
 import { corsHeaders } from '../_shared/cors.ts'
+import {
+  resolveRecipients,
+  recentlyNotified,
+  sendDevisNotification,
+  devisLabel,
+} from '../_shared/devisNotify.ts'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -114,7 +120,7 @@ Deno.serve(async (req) => {
     .select(
       'id, version_number, title, status, sent_at, accepted_at, refused_at, ' +
         'tva_rate, acompte_pct, notes, message_client, pdf_snapshot_path, pdf_snapshot_at, ' +
-        'valid_until, refused_reason, project_id, lot_id',
+        'valid_until, refused_reason, project_id, lot_id, sent_by, created_by',
     )
     .eq('public_token', token)
     .maybeSingle()
@@ -148,6 +154,16 @@ Deno.serve(async (req) => {
       .eq('status', 'envoye') // garde anti-course
     if (error) return json({ error: 'update_failed' }, 500)
     await logEvent('accept')
+    // Notification équipe (événement majeur)
+    const recipients = await resolveRecipients(supabase, devis, 'majeur', 'devis_decisions')
+    await sendDevisNotification({
+      userIds: recipients,
+      type: 'devis_accepte',
+      titre: `${devisLabel(devis)} accepté 🎉`,
+      corps: 'Le client a accepté le devis (bon pour accord).',
+      devis,
+      supabase,
+    })
     return json({ status: 'accepte' })
   }
 
@@ -165,6 +181,17 @@ Deno.serve(async (req) => {
       .eq('status', 'envoye')
     if (error) return json({ error: 'update_failed' }, 500)
     await logEvent('refuse', reason ? { reason } : {})
+    // Notification équipe (événement majeur), raison incluse
+    const recipients = await resolveRecipients(supabase, devis, 'majeur', 'devis_decisions')
+    await sendDevisNotification({
+      userIds: recipients,
+      type: 'devis_refuse',
+      titre: `${devisLabel(devis)} refusé`,
+      corps: reason ? `Raison : « ${reason} »` : 'Sans raison indiquée.',
+      devis,
+      extraData: reason ? { reason } : undefined,
+      supabase,
+    })
     return json({ status: 'refuse' })
   }
 
@@ -254,6 +281,29 @@ Deno.serve(async (req) => {
   // Tracking de vue (best effort, n'empêche jamais l'affichage)
   try {
     await logEvent('view')
+  } catch (_e) {
+    /* no-op */
+  }
+
+  // Notification « devis consulté » : à la première vue, puis au plus une
+  // fois par 24 h (regain d'intérêt), uniquement pour un devis encore envoyé.
+  try {
+    if (devis.status === 'envoye') {
+      // Dédup systématique (y compris première vue : deux chargements quasi
+      // simultanés ne doivent produire qu'une notification).
+      const shouldNotify = !(await recentlyNotified(supabase, devis.id, 'devis_consulte', 24))
+      if (shouldNotify) {
+        const recipients = await resolveRecipients(supabase, devis, 'quotidien', 'devis_consultations')
+        await sendDevisNotification({
+          userIds: recipients,
+          type: 'devis_consulte',
+          titre: `${devisLabel(devis)} consulté par le client`,
+          corps: firstView ? 'Nouvelle consultation du lien client.' : 'Première consultation du lien client.',
+          devis,
+          projectTitle: proj?.title ?? null,
+        })
+      }
+    }
   } catch (_e) {
     /* no-op */
   }

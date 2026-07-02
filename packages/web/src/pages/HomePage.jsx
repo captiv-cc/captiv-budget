@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { fmtEur } from '../lib/cotisations'
 import ProjectAvatar from '../features/projets/components/ProjectAvatar'
 import LivrablesGlobalWidget from '../features/livrables/components/LivrablesGlobalWidget'
+import NotificationsWidget from '../components/NotificationsWidget'
 import {
   FolderOpen,
   Users,
@@ -343,6 +344,9 @@ export default function HomePage() {
 
         {/* Colonne droite */}
         <div className="space-y-6">
+          {/* Notifications non lues — résumé (la cloche gère le temps réel) */}
+          <NotificationsWidget />
+
           {/* Deadlines à venir — widget livrables (LIV-18) */}
           <div>
             <SectionTitle>Deadlines à venir</SectionTitle>

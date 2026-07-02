@@ -18,6 +18,11 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.0'
+import {
+  resolveRecipients,
+  sendDevisNotification,
+  devisLabel,
+} from '../_shared/devisNotify.ts'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -141,6 +146,24 @@ Deno.serve(async (req) => {
       type: 'accept',
       meta: { signed: true, transaction_id: txId, signer: sig.signer_email },
     })
+    // Notification équipe : devis signé
+    const { data: dv } = await supabase
+      .from('devis')
+      .select('id, project_id, sent_by, created_by, version_number, title')
+      .eq('id', sig.devis_id)
+      .maybeSingle()
+    if (dv) {
+      const recipients = await resolveRecipients(supabase, dv, 'majeur', 'devis_decisions')
+      await sendDevisNotification({
+        userIds: recipients,
+        type: 'devis_accepte',
+        titre: `${devisLabel(dv)} signé 🎉`,
+        corps: `Signé électroniquement par ${sig.signer_name}.`,
+        devis: dv,
+        supabase,
+        extraData: { signed: true, signer: sig.signer_name },
+      })
+    }
     return json({ ok: true, handled: 'completed' })
   }
 
@@ -155,6 +178,23 @@ Deno.serve(async (req) => {
       type: 'refuse',
       meta: { transaction_id: txId, signer: sig.signer_email },
     })
+    // Notification équipe : signature refusée
+    const { data: dv } = await supabase
+      .from('devis')
+      .select('id, project_id, sent_by, created_by, version_number, title')
+      .eq('id', sig.devis_id)
+      .maybeSingle()
+    if (dv) {
+      const recipients = await resolveRecipients(supabase, dv, 'majeur', 'devis_decisions')
+      await sendDevisNotification({
+        userIds: recipients,
+        type: 'devis_refuse',
+        titre: `${devisLabel(dv)} refusé`,
+        corps: `Signature refusée par ${sig.signer_name}.`,
+        devis: dv,
+        supabase,
+      })
+    }
     return json({ ok: true, handled: 'refused' })
   }
 

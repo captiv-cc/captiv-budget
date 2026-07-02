@@ -43,6 +43,7 @@ import {
 } from '../lib/globalNav'
 import GlobalNavDrawer from './GlobalNavDrawer'
 import ICalExportDrawer from '../features/planning/ICalExportDrawer'
+import NotificationsBell from './NotificationsBell'
 import FloatingFeedbackButton from '../features/feedback/FloatingFeedbackButton'
 
 const ROLE_LABELS = {
@@ -304,6 +305,9 @@ export default function Layout() {
                 {profile?.full_name || 'Utilisateur'} — {ROLE_LABELS[role] || role}
               </span>
             </div>
+
+            {/* Cloche notifications (Notifs N4) — badge non-lus + panneau */}
+            <NotificationsBell />
 
             {/* Bouton "Mon planning iCal" — PL-8 v1. Ouvre le drawer d'export
                 personnel (tokens cross-projets). Tooltip droit en hover. */}

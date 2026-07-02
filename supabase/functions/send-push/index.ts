@@ -65,6 +65,8 @@ interface SendPushBody {
   titre: string
   corps?: string
   deep_link?: string
+  link_web?: string // cible de navigation desk, ex "/projets/X/devis/Y"
+  project_id?: string
   data?: Record<string, unknown>
   dry_run?: boolean
 }
@@ -203,6 +205,8 @@ Deno.serve(async (req) => {
     titre: body.titre,
     corps: body.corps ?? null,
     deep_link: body.deep_link ?? null,
+    link_web: body.link_web ?? null,
+    project_id: body.project_id ?? null,
     data: body.data ?? null,
     envoye_at: new Date().toISOString(),
   }))

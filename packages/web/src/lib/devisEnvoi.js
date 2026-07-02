@@ -40,7 +40,7 @@ export async function markReminded(devisId) {
 // `validUntil` : date limite de validité ISO ou null (offre sans limite).
 // `totals`     : { ht, ttc } figés à l'envoi (affichés sur la page lot).
 // Retourne { url, hash }. Lève une erreur explicite en cas d'échec.
-export async function sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message, validUntil, totals }) {
+export async function sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message, validUntil, totals, sentBy }) {
   // 1) PDF (même moteur que la préview / le téléchargement admin)
   const handle = await exportDevisPDF({ ...devis, categories, globalAdj }, project, client, org, taux)
   try {
@@ -63,6 +63,7 @@ export async function sendDevisToClient({ devis, categories, globalAdj, project,
     }
     if (message !== undefined) updates.message_client = message || null
     if (validUntil !== undefined) updates.valid_until = validUntil
+    if (sentBy) updates.sent_by = sentBy
     if (totals?.ht !== undefined) updates.sent_total_ht = totals.ht
     if (totals?.ttc !== undefined) updates.sent_total_ttc = totals.ttc
     const { error: updErr } = await supabase.from('devis').update(updates).eq('id', devis.id)
