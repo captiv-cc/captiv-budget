@@ -49,6 +49,12 @@ export default function DevisPublic() {
   const [notFound, setNotFound] = useState(false)
   const [accepting, setAccepting] = useState(false)
   const [acceptModal, setAcceptModal] = useState(false)
+  // Formulaire signataire (Phase 2 Universign)
+  const [signName, setSignName] = useState('')
+  const [signFonction, setSignFonction] = useState('')
+  const [signEmail, setSignEmail] = useState('')
+  const [signError, setSignError] = useState(null)
+  const [signFallback, setSignFallback] = useState(false) // Universign non configuré
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,6 +65,8 @@ export default function DevisPublic() {
       setNotFound(true)
     } else {
       setData(res)
+      if (res.client?.email) setSignEmail((p) => p || res.client.email)
+      if (res.client?.contact_name) setSignName((p) => p || res.client.contact_name)
     }
     setLoading(false)
   }, [token])
@@ -67,6 +75,7 @@ export default function DevisPublic() {
     load()
   }, [load])
 
+  // Acceptation simple (fallback quand Universign n'est pas configuré)
   async function confirmAccept() {
     if (accepting) return
     setAccepting(true)
@@ -85,10 +94,45 @@ export default function DevisPublic() {
     }))
   }
 
+  // Signature Universign : crée la transaction et redirige vers la cérémonie.
+  async function startSignature() {
+    if (accepting) return
+    setSignError(null)
+    if (!signName.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(signEmail.trim())) {
+      setSignError('Renseignez votre nom et un email valide.')
+      return
+    }
+    setAccepting(true)
+    const { data: res, error } = await supabase.functions.invoke('devis-sign', {
+      body: {
+        token,
+        signer: { name: signName.trim(), email: signEmail.trim(), fonction: signFonction.trim() },
+      },
+    })
+    setAccepting(false)
+    if (res?.url) {
+      window.location.href = res.url
+      return
+    }
+    // Universign non configuré (501) ou fonction non déployée (404) → bascule
+    // sur le bon pour accord simple. La signature reste un plus, jamais un mur.
+    const status = error?.context?.status
+    if (status === 501 || status === 404 || res?.error === 'not_configured') {
+      setSignFallback(true)
+      return
+    }
+    if (res?.error === 'not_signable') {
+      load()
+      return
+    }
+    setSignError('La signature est indisponible pour le moment. Réessayez ou contactez votre interlocuteur.')
+  }
+
   function handleDownload() {
-    if (!data?.pdfUrl) return
+    const url = data?.signedPdfUrl || data?.pdfUrl
+    if (!url) return
     supabase.functions.invoke('devis-public', { body: { token, action: 'download' } })
-    window.open(data.pdfUrl, '_blank', 'noopener')
+    window.open(url, '_blank', 'noopener')
   }
 
   if (loading)
@@ -120,9 +164,11 @@ export default function DevisPublic() {
       </div>
     )
 
-  const { devis, project, org, pdfUrl, versions = [] } = data
+  const { devis, project, org, pdfUrl, signature, signedPdfUrl, versions = [] } = data
   const accepted = devis.status === 'accepte'
   const refused = devis.status === 'refuse'
+  const signaturePending = !accepted && !refused && signature?.status === 'started'
+  const displayPdfUrl = signedPdfUrl || pdfUrl
   const cover = project?.cover_url
   const orgName = org?.display_name || org?.legal_name || ''
   const newerVersion = versions.find((v) => !v.current && v.version_number > devis.version_number)
@@ -223,7 +269,11 @@ export default function DevisPublic() {
             </span>
             <div>
               <p className="text-sm font-bold text-white">
-                Devis accepté{devis.accepted_at ? ` le ${fmtDate(devis.accepted_at)}` : ''}
+                Devis {signature?.status === 'signed' ? 'signé' : 'accepté'}
+                {signature?.status === 'signed' && signature?.signer_name
+                  ? ` par ${signature.signer_name}`
+                  : ''}
+                {devis.accepted_at ? ` le ${fmtDate(devis.accepted_at)}` : ''}
               </p>
               <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
                 Merci pour votre confiance. {orgName} revient vers vous rapidement.
@@ -237,13 +287,43 @@ export default function DevisPublic() {
               Ce devis a été refusé.
             </p>
           </div>
+        ) : signaturePending ? (
+          <div className="flex flex-wrap items-center gap-3 px-5 py-4" style={glass}>
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm font-bold text-white">Signature en cours</p>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                Une signature a été initiée par {signature.signer_name}. Reprenez-la ou
+                recommencez avec un autre signataire.
+              </p>
+            </div>
+            {signature.resumeUrl && (
+              <a
+                href={signature.resumeUrl}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-transform hover:scale-[1.02]"
+                style={{
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                  boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                }}
+              >
+                <Check className="w-4 h-4" />
+                Reprendre la signature
+              </a>
+            )}
+            <button
+              onClick={() => setAcceptModal(true)}
+              className="text-xs px-3 py-2 rounded-lg font-semibold"
+              style={{ color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.15)' }}
+            >
+              Autre signataire
+            </button>
+          </div>
         ) : (
           pdfUrl && (
             <div className="flex flex-wrap items-center gap-3 px-5 py-4" style={glass}>
               <div className="flex-1 min-w-[200px]">
                 <p className="text-sm font-bold text-white">Ce devis vous convient ?</p>
                 <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                  Votre acceptation vaut bon pour accord et sera horodatée.
+                  Signature électronique via Universign : rapide, horodatée et à valeur légale.
                 </p>
               </div>
               <button
@@ -256,7 +336,7 @@ export default function DevisPublic() {
                 }}
               >
                 <Check className="w-4 h-4" />
-                Accepter ce devis
+                Signer ce devis
               </button>
             </div>
           )
@@ -292,13 +372,22 @@ export default function DevisPublic() {
               <div className="flex items-center gap-2 text-sm font-semibold text-white min-w-0">
                 <FileText className="w-4 h-4 text-blue-400 shrink-0" />
                 <span className="truncate">Devis V{devis.version_number}</span>
-                {devis.pdf_snapshot_at && (
+                {signedPdfUrl ? (
                   <span
-                    className="text-xs font-normal hidden sm:inline"
-                    style={{ color: 'rgba(255,255,255,0.45)' }}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                    style={{ color: '#4ade80', background: 'rgba(74,222,128,0.12)' }}
                   >
-                    édité le {fmtDate(devis.pdf_snapshot_at)}
+                    Document signé
                   </span>
+                ) : (
+                  devis.pdf_snapshot_at && (
+                    <span
+                      className="text-xs font-normal hidden sm:inline"
+                      style={{ color: 'rgba(255,255,255,0.45)' }}
+                    >
+                      édité le {fmtDate(devis.pdf_snapshot_at)}
+                    </span>
+                  )
                 )}
               </div>
               <button
@@ -313,7 +402,7 @@ export default function DevisPublic() {
                 Télécharger
               </button>
             </div>
-            <PdfPagesViewer url={pdfUrl} />
+            <PdfPagesViewer url={displayPdfUrl} />
           </div>
         ) : (
           <div className="p-10 text-center" style={glass}>
@@ -401,7 +490,7 @@ export default function DevisPublic() {
         </p>
       </div>
 
-      {/* ── Modale d'acceptation ──────────────────────────────────────────── */}
+      {/* ── Modale de signature ───────────────────────────────────────────── */}
       {acceptModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -410,44 +499,141 @@ export default function DevisPublic() {
         >
           <div
             className="w-full p-6"
-            style={{ ...glass, maxWidth: '420px', background: 'rgba(24,27,32,0.95)' }}
+            style={{ ...glass, maxWidth: '440px', background: 'rgba(24,27,32,0.95)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-bold text-white mb-2">Accepter ce devis</h3>
-            <p className="text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.65)' }}>
-              Vous acceptez le devis V{devis.version_number}
-              {devis.title ? ` « ${devis.title} »` : ''} émis par {orgName || 'l’émetteur'}. Cette
-              action vaut bon pour accord et sera horodatée.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setAcceptModal(false)}
-                className="px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
-                style={{ color: 'rgba(255,255,255,0.65)' }}
-              >
-                Annuler
-              </button>
-              <button
-                onClick={confirmAccept}
-                disabled={accepting}
-                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
-                style={{
-                  background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                  boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
-                }}
-              >
-                {accepting ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Check className="w-4 h-4" />
+            {signFallback ? (
+              <>
+                <h3 className="text-base font-bold text-white mb-2">Accepter ce devis</h3>
+                <p
+                  className="text-sm leading-relaxed mb-5"
+                  style={{ color: 'rgba(255,255,255,0.65)' }}
+                >
+                  Vous acceptez le devis V{devis.version_number}
+                  {devis.title ? ` « ${devis.title} »` : ''} émis par {orgName || 'l’émetteur'}.
+                  Cette action vaut bon pour accord et sera horodatée.
+                </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setAcceptModal(false)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold"
+                    style={{ color: 'rgba(255,255,255,0.65)' }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={confirmAccept}
+                    disabled={accepting}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
+                    style={{
+                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                      boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                    }}
+                  >
+                    {accepting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    Bon pour accord
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-bold text-white mb-2">Signer ce devis</h3>
+                <p
+                  className="text-sm leading-relaxed mb-4"
+                  style={{ color: 'rgba(255,255,255,0.65)' }}
+                >
+                  Devis V{devis.version_number}
+                  {devis.title ? ` « ${devis.title} »` : ''} émis par {orgName || 'l’émetteur'}.
+                  Vous allez être redirigé vers Universign, tiers de confiance, pour la signature
+                  électronique.
+                </p>
+                <div className="flex flex-col gap-3 mb-4">
+                  <SignInput
+                    label="Nom et prénom *"
+                    value={signName}
+                    onChange={setSignName}
+                    placeholder="Jean Dupont"
+                  />
+                  <SignInput
+                    label="Fonction"
+                    value={signFonction}
+                    onChange={setSignFonction}
+                    placeholder="Directeur de production (optionnel)"
+                  />
+                  <SignInput
+                    label="Email *"
+                    type="email"
+                    value={signEmail}
+                    onChange={setSignEmail}
+                    placeholder="jean@entreprise.fr"
+                  />
+                </div>
+                {signError && (
+                  <p className="text-xs mb-3" style={{ color: '#f87171' }}>
+                    {signError}
+                  </p>
                 )}
-                Bon pour accord
-              </button>
-            </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setAcceptModal(false)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold"
+                    style={{ color: 'rgba(255,255,255,0.65)' }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={startSignature}
+                    disabled={accepting}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
+                    style={{
+                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                      boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                    }}
+                  >
+                    {accepting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    Continuer vers la signature
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Champ du formulaire signataire ──────────────────────────────────────────
+
+function SignInput({ label, value, onChange, placeholder, type = 'text' }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span
+        className="text-[10px] font-bold uppercase tracking-widest"
+        style={{ color: 'rgba(255,255,255,0.45)' }}
+      >
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="px-3 py-2 rounded-lg text-sm text-white outline-none"
+        style={{
+          background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.14)',
+        }}
+      />
+    </label>
   )
 }
 

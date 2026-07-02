@@ -57,6 +57,27 @@ export async function sendDevisToClient({ devis, categories, globalAdj, project,
   }
 }
 
+// Dernière signature du devis (Phase 2) : null si aucune.
+export async function fetchDevisSignature(devisId) {
+  const { data } = await supabase
+    .from('devis_signatures')
+    .select('status, signer_name, signer_email, signer_fonction, signed_pdf_path, updated_at')
+    .eq('devis_id', devisId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data || null
+}
+
+// URL signée (1 h) du PDF signé, pour l'admin.
+export async function getSignedPdfUrl(signedPdfPath) {
+  if (!signedPdfPath) return null
+  const { data } = await supabase.storage
+    .from('devis-snapshots')
+    .createSignedUrl(signedPdfPath, 3600)
+  return data?.signedUrl || null
+}
+
 // Agrégat de tracking pour l'admin : { views, lastViewAt, downloads }
 export async function fetchDevisViewStats(devisId) {
   const { data, error } = await supabase

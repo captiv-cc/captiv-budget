@@ -112,6 +112,40 @@ Deno.serve(async (req) => {
     pdfUrl = signed?.signedUrl ?? null
   }
 
+  // État de signature (Phase 2) : dernière demande pour ce devis.
+  const { data: sig } = await supabase
+    .from('devis_signatures')
+    .select('status, signer_name, signer_fonction, signed_pdf_path, updated_at, proof')
+    .eq('devis_id', devis.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  let signature: Record<string, unknown> | null = null
+  let signedPdfUrl: string | null = null
+  if (sig) {
+    signature = {
+      status: sig.status,
+      signer_name: sig.signer_name,
+      signed_at: sig.status === 'signed' ? sig.updated_at : null,
+    }
+    if (sig.status === 'started') {
+      // URL de reprise de la cérémonie (stockée dans la réponse start)
+      const actions = (sig.proof as Record<string, unknown>)?.actions
+      if (Array.isArray(actions)) {
+        const a = actions.find(
+          (x) => typeof (x as Record<string, unknown>)?.url === 'string',
+        ) as Record<string, unknown> | undefined
+        if (a?.url) signature.resumeUrl = a.url
+      }
+    }
+    if (sig.signed_pdf_path) {
+      const { data: sp } = await supabase.storage
+        .from('devis-snapshots')
+        .createSignedUrl(sig.signed_pdf_path, 3600)
+      signedPdfUrl = sp?.signedUrl ?? null
+    }
+  }
+
   // Première consultation (pour la timeline client) : calculée AVANT
   // d'enregistrer la vue courante.
   const { data: firstView } = await supabase
@@ -159,6 +193,8 @@ Deno.serve(async (req) => {
     client: proj?.clients ?? null,
     org: proj?.organisations ?? null,
     pdfUrl,
+    signature,
+    signedPdfUrl,
     firstViewedAt: firstView?.created_at ?? null,
     versions: (versions || []).map((v) => ({
       version_number: v.version_number,

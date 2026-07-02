@@ -13,7 +13,13 @@ import DevisHistoryPanel from '../features/devis/components/DevisHistoryPanel'
 import { fetchUnseenCount, markHistorySeen } from '../lib/devisHistorySeen'
 import { duplicateDevisVersion } from '../lib/devisDuplicate'
 import { prompt } from '../lib/confirm'
-import { sendDevisToClient, getPublicDevisUrl, fetchDevisViewStats } from '../lib/devisEnvoi'
+import {
+  sendDevisToClient,
+  getPublicDevisUrl,
+  fetchDevisViewStats,
+  fetchDevisSignature,
+  getSignedPdfUrl,
+} from '../lib/devisEnvoi'
 import StatusSelect from '../features/devis/components/StatusSelect'
 import SynthBar from '../features/devis/components/SynthBar'
 import AddLineModal from '../features/devis/components/AddLineModal'
@@ -354,6 +360,19 @@ export default function DevisEditor({ embedded = false }) {
     }
   }, [devisId, isSent, isAccepted])
 
+  // Signature Universign (Phase 2) : signataire affiché dans le bandeau accepté
+  const [signatureInfo, setSignatureInfo] = useState(null)
+  useEffect(() => {
+    if (!devisId || !isAccepted) return undefined
+    let alive = true
+    fetchDevisSignature(devisId).then((s) => {
+      if (alive) setSignatureInfo(s)
+    })
+    return () => {
+      alive = false
+    }
+  }, [devisId, isAccepted])
+
   // ── Calcul synthèse global ────────────────────────────────────────────────
   // allLines / hasAnyRemise / synth viennent désormais du hook useDevis.
   // Affiche la colonne Remise si au moins une ligne a une remise, OU si forcée.
@@ -624,6 +643,13 @@ export default function DevisEditor({ embedded = false }) {
                   ? ` le ${new Date(devis.sent_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.`
                   : '.'}
             </strong>
+            {signatureInfo?.status === 'signed' && (
+              <>
+                {' '}
+                Signé par {signatureInfo.signer_name}
+                {signatureInfo.signer_fonction ? ` (${signatureInfo.signer_fonction})` : ''}.
+              </>
+            )}
             {viewStats &&
               (viewStats.views > 0 ? (
                 <>
@@ -637,6 +663,23 @@ export default function DevisEditor({ embedded = false }) {
                 <> Jamais ouvert par le client.</>
               ))}
           </span>
+          {signatureInfo?.signed_pdf_path && (
+            <button
+              onClick={async () => {
+                const url = await getSignedPdfUrl(signatureInfo.signed_pdf_path)
+                if (url) window.open(url, '_blank', 'noopener')
+                else notify.error('PDF signé indisponible')
+              }}
+              className="text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+              style={{
+                color: 'var(--green)',
+                background: 'rgba(0,200,117,.08)',
+                border: '1px solid rgba(0,200,117,.25)',
+              }}
+            >
+              PDF signé
+            </button>
+          )}
           <button
             onClick={dupliquerVersion}
             className="ml-auto text-xs font-semibold px-2 py-0.5 rounded shrink-0"
