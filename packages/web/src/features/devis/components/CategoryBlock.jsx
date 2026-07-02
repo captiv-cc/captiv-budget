@@ -93,6 +93,7 @@ export default function CategoryBlock({
           <div className="flex items-center gap-2">
             <button
               onClick={onToggle}
+              data-lock-allow
               style={{ color: 'var(--txt-3)' }}
               className="hover:text-white transition-colors shrink-0"
             >
@@ -185,6 +186,7 @@ export default function CategoryBlock({
             {/* Bouton notes */}
             <button
               onClick={() => setShowNotes((v) => !v)}
+              data-lock-allow
               title={showNotes ? 'Masquer les notes' : 'Afficher les notes'}
               className="transition-all"
               style={{
@@ -308,7 +310,7 @@ export default function CategoryBlock({
               borderRight: `1px solid ${accentColor}18`,
             }}
           >
-            Aucune ligne — utilisez la recherche ci-dessous pour en ajouter.
+            Aucune ligne. Utilisez la recherche ci-dessous pour en ajouter.
           </td>
         </tr>
       )}

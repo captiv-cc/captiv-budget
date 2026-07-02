@@ -129,6 +129,12 @@ begin
     return null;
   end if;
 
+  -- Suppression en cascade d'un devis entier : le devis parent n'existe plus,
+  -- inutile (et impossible, FK) de journaliser ses lignes/catégories.
+  if not exists (select 1 from devis where id = v_devis_id) then
+    return null;
+  end if;
+
   insert into devis_audit (devis_id, actor_id, actor_name, op, entity, entity_id, entity_label, changes)
   values (v_devis_id, v_actor, v_actor_name, tg_op, v_entity, v_entity_id, v_label, v_changes);
 

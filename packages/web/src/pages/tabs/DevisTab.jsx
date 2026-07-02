@@ -122,6 +122,34 @@ export default function DevisTab() {
     }
   }, [expandedLots, storageKey])
 
+  // ── Tracking lien client : vues par devis (Envoi client Phase 1) ───────────
+  const [viewsByDevis, setViewsByDevis] = useState({})
+  useEffect(() => {
+    const ids = (devisList || [])
+      .filter((d) => d.sent_at || d.status === 'envoye' || d.status === 'accepte')
+      .map((d) => d.id)
+    if (!ids.length) return undefined
+    let alive = true
+    supabase
+      .from('devis_public_events')
+      .select('devis_id, created_at')
+      .in('devis_id', ids)
+      .eq('type', 'view')
+      .then(({ data }) => {
+        if (!alive || !data) return
+        const map = {}
+        for (const e of data) {
+          const m = map[e.devis_id] || (map[e.devis_id] = { views: 0, lastViewAt: null })
+          m.views += 1
+          if (!m.lastViewAt || e.created_at > m.lastViewAt) m.lastViewAt = e.created_at
+        }
+        setViewsByDevis(map)
+      })
+    return () => {
+      alive = false
+    }
+  }, [devisList])
+
   const isExpanded = (lotId) => (expandedLots || {})[lotId] === true
   const toggleLot = (lotId) =>
     setExpandedLots((prev) => ({ ...(prev || {}), [lotId]: !(prev || {})[lotId] }))
@@ -760,6 +788,7 @@ export default function DevisTab() {
                 devisStats={devisStats}
                 projectId={projectId}
                 canEdit={canEdit}
+                viewsByDevis={viewsByDevis}
               />
             ))}
           </div>
@@ -827,6 +856,7 @@ export default function DevisTab() {
                       projectId={projectId}
                       canEdit={canEdit}
                       isArchived
+                      viewsByDevis={viewsByDevis}
                     />
                   ))}
                 </div>
@@ -866,6 +896,7 @@ function LotAccordion({
   projectId,
   canEdit = true,
   isArchived = false,
+  viewsByDevis = {},
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
@@ -1154,6 +1185,23 @@ function LotAccordion({
                           {dv.updated_at &&
                             dv.updated_at !== dv.created_at &&
                             ` · Modifié ${new Date(dv.updated_at).toLocaleDateString('fr-FR')}`}
+                          {dv.sent_at &&
+                            ` · Envoyé le ${new Date(dv.sent_at).toLocaleDateString('fr-FR')}`}
+                          {(dv.status === 'envoye' || dv.status === 'accepte') &&
+                            (viewsByDevis[dv.id]?.views ? (
+                              <span
+                                className="text-blue-500"
+                                title={
+                                  viewsByDevis[dv.id].lastViewAt
+                                    ? `Dernière consultation : ${new Date(viewsByDevis[dv.id].lastViewAt).toLocaleString('fr-FR')}`
+                                    : undefined
+                                }
+                              >
+                                {` · Vu ${viewsByDevis[dv.id].views} fois`}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300">{' · Jamais ouvert'}</span>
+                            ))}
                         </p>
                       </div>
 

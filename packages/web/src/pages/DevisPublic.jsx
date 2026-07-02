@@ -1,240 +1,453 @@
 /**
- * Vue publique du devis — accessible via /devis/public/:token
- * Partageable avec le client : ne montre PAS les coûts ni les marges
+ * DevisPublic — page client, accessible via /devis/public/:token
+ *
+ * Design aligné sur le portail projet (/share/*) : hero avec cover du projet
+ * floutée + logo org (SharePageHeader), fond ambiant liquid glass, cartes en
+ * verre. Thème sombre fixe (le PDF, blanc, ressort dessus).
+ *
+ * Contenu : timeline de statut (Envoyé → Consulté → Accepté), mot
+ * d'accompagnement personnalisé, PDF figé rendu en pages pdf.js (défilement
+ * OK sur mobile, contrairement à l'iframe), historique des versions envoyées
+ * du lot. Les infos émetteur/destinataire ne sont PAS répétées : elles sont
+ * déjà dans le PDF.
+ *
+ * Données : tout passe par l'edge function devis-public (service role).
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { calcLine, calcSynthese, fmtEur, TAUX_DEFAUT } from '../lib/cotisations'
-import { Film, Check, X } from 'lucide-react'
+import SharePageHeader from '../components/share/SharePageHeader'
+import PdfPagesViewer from '../components/PdfPagesViewer'
+import { Check, X, Download, FileText, RefreshCw, Mail, ArrowRight, Layers } from 'lucide-react'
+
+const fmtDate = (iso) =>
+  iso
+    ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : ''
+const fmtDateShort = (iso) =>
+  iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''
+
+// Carte "verre" du thème sombre public
+const glass = {
+  background: 'rgba(255,255,255,0.045)',
+  border: '1px solid rgba(255,255,255,0.09)',
+  borderRadius: '16px',
+  backdropFilter: 'blur(14px)',
+  WebkitBackdropFilter: 'blur(14px)',
+}
+
+const STATUS_CHIPS = {
+  envoye: { label: 'Envoyé', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
+  accepte: { label: 'Accepté', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+  refuse: { label: 'Refusé', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.08)' },
+}
 
 export default function DevisPublic() {
   const { token } = useParams()
-  const [devis, setDevis] = useState(null)
-  const [project, setProject] = useState(null)
-  const [client, setClient] = useState(null)
-  const [org, setOrg] = useState(null)
-  const [categories, setCategories] = useState([])
-  const [synth, setSynth] = useState(null)
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
-  const [accepted, setAccepted] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+  const [acceptModal, setAcceptModal] = useState(false)
 
   const load = useCallback(async () => {
-    const { data: dv } = await supabase.from('devis').select('*').eq('public_token', token).single()
-
-    if (!dv) {
+    setLoading(true)
+    const { data: res, error } = await supabase.functions.invoke('devis-public', {
+      body: { token, action: 'get' },
+    })
+    if (error || !res || res.error) {
       setNotFound(true)
-      setLoading(false)
-      return
+    } else {
+      setData(res)
     }
-    setDevis(dv)
-
-    const [{ data: proj }, { data: cats }, { data: lines }] = await Promise.all([
-      supabase
-        .from('projects')
-        .select('*, clients(*), organisations(*)')
-        .eq('id', dv.project_id)
-        .single(),
-      supabase.from('devis_categories').select('*').eq('devis_id', dv.id).order('sort_order'),
-      supabase.from('devis_lines').select('*').eq('devis_id', dv.id).order('sort_order'),
-    ])
-
-    setProject(proj)
-    setClient(proj?.clients)
-    setOrg(proj?.organisations)
-
-    const catsWithLines = (cats || [])
-      .map((cat) => ({
-        ...cat,
-        lines: (lines || []).filter(
-          (l) => l.category_id === cat.id && l.use_line && l.produit?.trim(),
-        ),
-      }))
-      .filter((c) => c.lines.length > 0)
-
-    setCategories(catsWithLines)
-    setSynth(calcSynthese(lines || [], dv.tva_rate || 20, dv.acompte_pct || 30, TAUX_DEFAUT))
-    setAccepted(dv.status === 'accepte')
     setLoading(false)
   }, [token])
 
   useEffect(() => {
     load()
-  }, [token, load])
+  }, [load])
 
-  async function handleAccept() {
-    await supabase.from('devis').update({ status: 'accepte' }).eq('id', devis.id)
-    setAccepted(true)
-    setDevis((d) => ({ ...d, status: 'accepte' }))
+  async function confirmAccept() {
+    if (accepting) return
+    setAccepting(true)
+    const { data: res, error } = await supabase.functions.invoke('devis-public', {
+      body: { token, action: 'accept' },
+    })
+    setAccepting(false)
+    setAcceptModal(false)
+    if (error || res?.error) {
+      load()
+      return
+    }
+    setData((d) => ({
+      ...d,
+      devis: { ...d.devis, status: 'accepte', accepted_at: new Date().toISOString() },
+    }))
+  }
+
+  function handleDownload() {
+    if (!data?.pdfUrl) return
+    supabase.functions.invoke('devis-public', { body: { token, action: 'download' } })
+    window.open(data.pdfUrl, '_blank', 'noopener')
   }
 
   if (loading)
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div
+        className="flex items-center justify-center min-h-screen"
+        style={{ background: '#0b0d10' }}
+      >
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
 
   if (notFound)
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-center p-8">
-        <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mb-4">
-          <X className="w-8 h-8 text-red-500" />
+      <div
+        className="flex flex-col items-center justify-center min-h-screen text-center p-8"
+        style={{ background: '#0b0d10' }}
+      >
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}
+        >
+          <X className="w-8 h-8 text-red-400" />
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Devis introuvable</h1>
-        <p className="text-gray-500 text-sm">Ce lien est invalide ou a expiré.</p>
+        <h1 className="text-xl font-bold text-white mb-2">Devis introuvable</h1>
+        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.55)' }}>
+          Ce lien est invalide ou a expiré.
+        </p>
       </div>
     )
 
+  const { devis, project, org, pdfUrl, versions = [] } = data
+  const accepted = devis.status === 'accepte'
+  const refused = devis.status === 'refuse'
+  const cover = project?.cover_url
+  const orgName = org?.display_name || org?.legal_name || ''
+  const newerVersion = versions.find((v) => !v.current && v.version_number > devis.version_number)
+  const mailHref = org?.email
+    ? `mailto:${org.email}?subject=${encodeURIComponent(`Devis V${devis.version_number}${project?.title ? ` · ${project.title}` : ''}`)}`
+    : null
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Film className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 text-sm">{org?.display_name || org?.legal_name || ''}</p>
-              <p className="text-xs text-gray-400">Devis V{devis?.version_number}</p>
-            </div>
-          </div>
-          {accepted ? (
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-              <Check className="w-4 h-4" /> Devis accepté
-            </div>
-          ) : (
-            <button onClick={handleAccept} className="btn-primary">
-              <Check className="w-4 h-4" /> Accepter ce devis
-            </button>
-          )}
+    <div className="min-h-screen relative" style={{ background: '#0b0d10' }}>
+      {/* ── Fond ambiant : cover projet floutée (liquid glass) ─────────────── */}
+      {cover && (
+        <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
+          <img
+            src={cover}
+            alt=""
+            className="w-full h-full object-cover"
+            style={{ filter: 'blur(90px) saturate(1.2)', transform: 'scale(1.3)', opacity: 0.16 }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{ background: 'linear-gradient(to bottom, rgba(11,13,16,0.2), #0b0d10 75%)' }}
+          />
         </div>
-      </header>
+      )}
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Info devis */}
-        <div className="grid grid-cols-2 gap-6 mb-8">
-          <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase mb-3">Émis par</p>
-            <p className="font-bold text-gray-900">{org?.legal_name || org?.display_name || ''}</p>
-            {org?.address && <p className="text-sm text-gray-500 mt-0.5">{org.address}</p>}
-            {org?.email && <p className="text-sm text-gray-500">{org.email}</p>}
-            {org?.siret && <p className="text-xs text-gray-400 mt-1">SIRET : {org.siret}</p>}
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-semibold text-gray-400 uppercase mb-3">
-              À l&apos;attention de
+      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 sm:gap-5">
+        {/* ── Hero portail ───────────────────────────────────────────────── */}
+        <SharePageHeader
+          kicker="Devis"
+          pageTitle={devis.title || `Devis V${devis.version_number}`}
+          project={{ title: project?.title, ref_projet: project?.ref_projet, cover_url: cover }}
+          org={org}
+          metaItems={[
+            { type: 'ref', value: `V${devis.version_number}` },
+            project?.ref_projet && { type: 'ref', value: project.ref_projet },
+            devis.sent_at && { type: 'label', value: `Envoyé le ${fmtDate(devis.sent_at)}` },
+          ].filter(Boolean)}
+          actions={
+            mailHref && (
+              <a
+                href={mailHref}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white backdrop-blur transition-colors"
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                }}
+                title={`Écrire à ${orgName}`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Une question ?</span>
+              </a>
+            )
+          }
+        />
+
+        {/* ── Version plus récente disponible ────────────────────────────── */}
+        {newerVersion && (
+          <a
+            href={`/devis/public/${newerVersion.token}`}
+            className="flex items-center gap-3 px-5 py-3 transition-transform hover:scale-[1.005]"
+            style={{
+              ...glass,
+              background: 'rgba(251,191,36,0.09)',
+              border: '1px solid rgba(251,191,36,0.3)',
+            }}
+          >
+            <Layers className="w-4 h-4 shrink-0" style={{ color: '#fbbf24' }} />
+            <p className="text-sm flex-1" style={{ color: 'rgba(255,255,255,0.85)' }}>
+              <strong style={{ color: '#fbbf24' }}>
+                Une version plus récente (V{newerVersion.version_number}) a été envoyée
+              </strong>
+              {newerVersion.sent_at ? ` le ${fmtDate(newerVersion.sent_at)}.` : '.'}
             </p>
-            <p className="font-bold text-gray-900">{client?.raison_sociale || client?.nom_commercial || '—'}</p>
-            {client?.contact_name && <p className="text-sm text-gray-500">{client.contact_name}</p>}
-            {client?.email && <p className="text-sm text-gray-500">{client.email}</p>}
-          </div>
-        </div>
+            <span
+              className="inline-flex items-center gap-1 text-xs font-bold shrink-0"
+              style={{ color: '#fbbf24' }}
+            >
+              Consulter <ArrowRight className="w-3.5 h-3.5" />
+            </span>
+          </a>
+        )}
 
-        <div className="card p-5 mb-6">
-          <div className="flex items-center gap-4">
+        {/* ── Statut / action ────────────────────────────────────────────── */}
+        {accepted ? (
+          <div
+            className="flex items-center gap-3 px-5 py-4"
+            style={{
+              ...glass,
+              background: 'rgba(34,197,94,0.10)',
+              border: '1px solid rgba(34,197,94,0.3)',
+            }}
+          >
+            <span
+              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: 'rgba(34,197,94,0.2)' }}
+            >
+              <Check className="w-5 h-5 text-green-400" />
+            </span>
             <div>
-              <p className="text-xs text-gray-400">Projet</p>
-              <p className="font-semibold text-gray-900">{project?.title}</p>
-            </div>
-            <div className="w-px h-8 bg-gray-200" />
-            <div>
-              <p className="text-xs text-gray-400">Version</p>
-              <p className="font-semibold text-gray-900">V{devis?.version_number}</p>
-            </div>
-            <div className="w-px h-8 bg-gray-200" />
-            <div>
-              <p className="text-xs text-gray-400">Date</p>
-              <p className="font-semibold text-gray-900">
-                {new Date(devis?.created_at).toLocaleDateString('fr-FR')}
+              <p className="text-sm font-bold text-white">
+                Devis accepté{devis.accepted_at ? ` le ${fmtDate(devis.accepted_at)}` : ''}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                Merci pour votre confiance. {orgName} revient vers vous rapidement.
               </p>
             </div>
           </div>
-        </div>
-
-        {/* Lignes (sans coûts ni marges) */}
-        <div className="card overflow-hidden mb-6">
-          {categories.map((cat) => (
-            <div key={cat.id}>
-              <div className="px-4 py-2 bg-slate-800 text-white text-xs font-bold uppercase tracking-wider">
-                {cat.name}
-              </div>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-xs font-semibold text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
-                    <th className="px-4 py-2 text-left">Désignation</th>
-                    <th className="px-4 py-2 text-left">Description</th>
-                    <th className="px-4 py-2 text-right w-16">Qté</th>
-                    <th className="px-4 py-2 text-center w-12">U</th>
-                    <th className="px-4 py-2 text-right w-28">Prix unit. HT</th>
-                    <th className="px-4 py-2 text-right w-28">Total HT</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {cat.lines.map((line) => {
-                    const c = calcLine(line, TAUX_DEFAUT)
-                    return (
-                      <tr key={line.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-medium text-sm">{line.produit}</td>
-                        <td className="px-4 py-2.5 text-sm text-gray-500">{line.description}</td>
-                        <td className="px-4 py-2.5 text-right text-sm">{line.quantite}</td>
-                        <td className="px-4 py-2.5 text-center text-xs text-gray-400">
-                          {line.unite}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-sm">{fmtEur(line.tarif_ht)}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-sm">
-                          {fmtEur(c.prixVenteHT)}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ))}
-        </div>
-
-        {/* Synthèse */}
-        <div className="flex justify-end">
-          <div className="w-72 card p-5 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Total HT</span>
-              <span className="font-semibold">{fmtEur(synth?.totalPrixVente)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">TVA {devis?.tva_rate || 20}%</span>
-              <span>{fmtEur(synth?.tva)}</span>
-            </div>
-            <div className="border-t border-gray-200 my-2" />
-            <div className="flex justify-between items-center py-2 px-3 bg-blue-600 rounded-lg text-white">
-              <span className="font-bold text-sm">TOTAL TTC</span>
-              <span className="font-bold text-lg">{fmtEur(synth?.totalTTC)}</span>
-            </div>
-            <div className="flex justify-between text-sm text-gray-500">
-              <span>Acompte {devis?.acompte_pct || 30}%</span>
-              <span>{fmtEur(synth?.acompte)}</span>
-            </div>
-            <div className="flex justify-between text-sm text-gray-500">
-              <span>Solde à réception</span>
-              <span>{fmtEur(synth?.solde)}</span>
-            </div>
+        ) : refused ? (
+          <div className="flex items-center gap-3 px-5 py-4" style={glass}>
+            <X className="w-5 h-5 shrink-0" style={{ color: 'rgba(255,255,255,0.5)' }} />
+            <p className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              Ce devis a été refusé.
+            </p>
           </div>
-        </div>
+        ) : (
+          pdfUrl && (
+            <div className="flex flex-wrap items-center gap-3 px-5 py-4" style={glass}>
+              <div className="flex-1 min-w-[200px]">
+                <p className="text-sm font-bold text-white">Ce devis vous convient ?</p>
+                <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                  Votre acceptation vaut bon pour accord et sera horodatée.
+                </p>
+              </div>
+              <button
+                onClick={() => setAcceptModal(true)}
+                disabled={accepting}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                  boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                }}
+              >
+                <Check className="w-4 h-4" />
+                Accepter ce devis
+              </button>
+            </div>
+          )
+        )}
 
-        {devis?.notes && (
-          <div className="mt-6 card p-5">
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Notes & Conditions</p>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{devis.notes}</p>
+        {/* ── Mot d'accompagnement ───────────────────────────────────────── */}
+        {devis.message_client && (
+          <div
+            className="px-5 py-4"
+            style={{ ...glass, borderLeft: '3px solid rgba(96,165,250,0.6)' }}
+          >
+            <p
+              className="text-sm leading-relaxed whitespace-pre-wrap"
+              style={{ color: 'rgba(255,255,255,0.85)' }}
+            >
+              {devis.message_client}
+            </p>
+            {orgName && (
+              <p className="text-xs mt-2 font-semibold" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                {orgName}
+              </p>
+            )}
           </div>
         )}
 
-        <p className="text-xs text-gray-400 text-center mt-8">
-          {org?.legal_name || org?.display_name || ''}
-          {org?.siret ? ' · SIRET ' + org.siret : ''}
+        {/* ── Document ───────────────────────────────────────────────────── */}
+        {pdfUrl ? (
+          <div style={{ ...glass, overflow: 'hidden' }}>
+            <div
+              className="flex items-center justify-between px-5 py-3"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold text-white min-w-0">
+                <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">Devis V{devis.version_number}</span>
+                {devis.pdf_snapshot_at && (
+                  <span
+                    className="text-xs font-normal hidden sm:inline"
+                    style={{ color: 'rgba(255,255,255,0.45)' }}
+                  >
+                    édité le {fmtDate(devis.pdf_snapshot_at)}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleDownload}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors shrink-0"
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Télécharger
+              </button>
+            </div>
+            <PdfPagesViewer url={pdfUrl} />
+          </div>
+        ) : (
+          <div className="p-10 text-center" style={glass}>
+            <FileText
+              className="w-8 h-8 mx-auto mb-3"
+              style={{ color: 'rgba(255,255,255,0.25)' }}
+            />
+            <p className="text-sm" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              Le document n&apos;est pas encore disponible. Contactez votre interlocuteur.
+            </p>
+          </div>
+        )}
+
+        {/* ── Versions envoyées ──────────────────────────────────────────── */}
+        {versions.length > 1 && (
+          <div style={glass}>
+            <div
+              className="flex items-center gap-2 px-5 py-3"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <Layers className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.5)' }} />
+              <p className="text-sm font-semibold text-white">Versions de la proposition</p>
+            </div>
+            {versions.map((v) => {
+              const chip = STATUS_CHIPS[v.status] || STATUS_CHIPS.envoye
+              return (
+                <a
+                  key={v.token}
+                  href={v.current ? undefined : `/devis/public/${v.token}`}
+                  className="flex items-center gap-3 px-5 py-3 transition-colors"
+                  style={{
+                    borderBottom: '1px solid rgba(255,255,255,0.05)',
+                    cursor: v.current ? 'default' : 'pointer',
+                    background: v.current ? 'rgba(255,255,255,0.03)' : 'transparent',
+                  }}
+                >
+                  <span
+                    className="font-mono text-xs font-bold px-2 py-0.5 rounded shrink-0"
+                    style={{
+                      background: 'rgba(255,255,255,0.1)',
+                      color: 'rgba(255,255,255,0.85)',
+                    }}
+                  >
+                    V{v.version_number}
+                  </span>
+                  <span className="text-sm text-white truncate flex-1">
+                    {v.title || `Devis V${v.version_number}`}
+                    {v.sent_at && (
+                      <span
+                        className="text-xs ml-2"
+                        style={{ color: 'rgba(255,255,255,0.4)' }}
+                      >
+                        envoyé le {fmtDateShort(v.sent_at)}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                    style={{ color: chip.color, background: chip.bg }}
+                  >
+                    {chip.label}
+                  </span>
+                  {v.current ? (
+                    <span
+                      className="text-[11px] shrink-0"
+                      style={{ color: 'rgba(255,255,255,0.4)' }}
+                    >
+                      Vous êtes ici
+                    </span>
+                  ) : (
+                    <ArrowRight
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: 'rgba(255,255,255,0.4)' }}
+                    />
+                  )}
+                </a>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Pied ───────────────────────────────────────────────────────── */}
+        <p className="text-center text-xs pb-4" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          Document confidentiel. Lien de consultation personnel, ne pas diffuser.
         </p>
       </div>
+
+      {/* ── Modale d'acceptation ──────────────────────────────────────────── */}
+      {acceptModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setAcceptModal(false)}
+        >
+          <div
+            className="w-full p-6"
+            style={{ ...glass, maxWidth: '420px', background: 'rgba(24,27,32,0.95)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-white mb-2">Accepter ce devis</h3>
+            <p className="text-sm leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              Vous acceptez le devis V{devis.version_number}
+              {devis.title ? ` « ${devis.title} »` : ''} émis par {orgName || 'l’émetteur'}. Cette
+              action vaut bon pour accord et sera horodatée.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setAcceptModal(false)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{ color: 'rgba(255,255,255,0.65)' }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmAccept}
+                disabled={accepting}
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                  boxShadow: '0 8px 24px rgba(34,197,94,0.25)',
+                }}
+              >
+                {accepting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                Bon pour accord
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

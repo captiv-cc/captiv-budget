@@ -1,0 +1,173 @@
+// ════════════════════════════════════════════════════════════════════════════
+// devis-public — Edge Function : accès client au devis (Envoi client Phase 1)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Point d'entrée unique de la page publique /devis/public/:token. Tourne en
+// service role : la page publique n'a plus AUCUN accès direct aux tables.
+//
+// API : POST { token, action }
+//   - action "get"      → données du devis + URL signée du PDF snapshot
+//                          + enregistre un événement "view"
+//   - action "download" → enregistre un événement "download" (fire & forget)
+//   - action "accept"   → passe le devis en "accepte" (uniquement depuis
+//                          "envoye") + événement "accept". La Phase 2 remplace
+//                          ce chemin par le flux de signature Universign.
+//
+// Sécurité :
+//   - le token (uuid non devinable) est le secret d'accès ;
+//   - on ne renvoie que les champs nécessaires au client (jamais les coûts,
+//     marges ou ids internes autres que la version) ;
+//   - PDF servi via URL signée (bucket privé), valide 1 h ;
+//   - déploiement : supabase functions deploy devis-public --no-verify-jwt
+// ════════════════════════════════════════════════════════════════════════════
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.0'
+import { corsHeaders } from '../_shared/cors.ts'
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
+  const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  if (!SUPABASE_URL || !SERVICE_ROLE) return json({ error: 'Config manquante' }, 500)
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE)
+
+  let payload: { token?: string; action?: string }
+  try {
+    payload = await req.json()
+  } catch {
+    return json({ error: 'JSON invalide' }, 400)
+  }
+  const { token, action = 'get' } = payload
+  if (!token || typeof token !== 'string') return json({ error: 'Token requis' }, 400)
+
+  // ── Résolution du devis par token ──────────────────────────────────────────
+  const { data: devis } = await supabase
+    .from('devis')
+    .select(
+      'id, version_number, title, status, sent_at, accepted_at, refused_at, ' +
+        'tva_rate, acompte_pct, notes, message_client, pdf_snapshot_path, pdf_snapshot_at, ' +
+        'project_id, lot_id',
+    )
+    .eq('public_token', token)
+    .maybeSingle()
+  if (!devis) return json({ error: 'not_found' }, 404)
+
+  const userAgent = req.headers.get('user-agent') || null
+  const logEvent = (type: string, meta: Record<string, unknown> = {}) =>
+    supabase.from('devis_public_events').insert({
+      devis_id: devis.id,
+      type,
+      user_agent: userAgent,
+      meta,
+    })
+
+  // ── action: accept ─────────────────────────────────────────────────────────
+  if (action === 'accept') {
+    if (devis.status === 'accepte') return json({ status: 'accepte' })
+    if (devis.status !== 'envoye') {
+      return json({ error: 'not_acceptable', status: devis.status }, 409)
+    }
+    const { error } = await supabase
+      .from('devis')
+      .update({ status: 'accepte' })
+      .eq('id', devis.id)
+      .eq('status', 'envoye') // garde anti-course
+    if (error) return json({ error: 'update_failed' }, 500)
+    await logEvent('accept')
+    return json({ status: 'accepte' })
+  }
+
+  // ── action: download (tracking seul) ───────────────────────────────────────
+  if (action === 'download') {
+    await logEvent('download')
+    return json({ ok: true })
+  }
+
+  // ── action: get ────────────────────────────────────────────────────────────
+  const { data: proj } = await supabase
+    .from('projects')
+    .select(
+      'title, ref_projet, cover_url, ' +
+        'clients(raison_sociale, nom_commercial, contact_name, email), ' +
+        'organisations(display_name, legal_name, address, email, phone, siret, ' +
+        'logo_url_clair, logo_url_sombre, logo_banner_url, brand_color)',
+    )
+    .eq('id', devis.project_id)
+    .maybeSingle()
+
+  let pdfUrl: string | null = null
+  if (devis.pdf_snapshot_path) {
+    const { data: signed } = await supabase.storage
+      .from('devis-snapshots')
+      .createSignedUrl(devis.pdf_snapshot_path, 3600)
+    pdfUrl = signed?.signedUrl ?? null
+  }
+
+  // Première consultation (pour la timeline client) : calculée AVANT
+  // d'enregistrer la vue courante.
+  const { data: firstView } = await supabase
+    .from('devis_public_events')
+    .select('created_at')
+    .eq('devis_id', devis.id)
+    .eq('type', 'view')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  // Autres versions ENVOYÉES du même lot : le client peut suivre l'historique
+  // de la proposition (V1 envoyée, V2 envoyée, V3 acceptée…).
+  let versionsQuery = supabase
+    .from('devis')
+    .select('version_number, title, status, sent_at, accepted_at, public_token')
+    .not('sent_at', 'is', null)
+    .order('version_number', { ascending: false })
+  versionsQuery = devis.lot_id
+    ? versionsQuery.eq('lot_id', devis.lot_id)
+    : versionsQuery.eq('project_id', devis.project_id)
+  const { data: versions } = await versionsQuery
+
+  // Tracking de vue (best effort, n'empêche jamais l'affichage)
+  try {
+    await logEvent('view')
+  } catch (_e) {
+    /* no-op */
+  }
+
+  return json({
+    devis: {
+      version_number: devis.version_number,
+      title: devis.title,
+      status: devis.status,
+      sent_at: devis.sent_at,
+      accepted_at: devis.accepted_at,
+      refused_at: devis.refused_at,
+      message_client: devis.message_client,
+      pdf_snapshot_at: devis.pdf_snapshot_at,
+    },
+    project: proj
+      ? { title: proj.title, ref_projet: proj.ref_projet, cover_url: proj.cover_url }
+      : null,
+    client: proj?.clients ?? null,
+    org: proj?.organisations ?? null,
+    pdfUrl,
+    firstViewedAt: firstView?.created_at ?? null,
+    versions: (versions || []).map((v) => ({
+      version_number: v.version_number,
+      title: v.title,
+      status: v.status,
+      sent_at: v.sent_at,
+      accepted_at: v.accepted_at,
+      token: v.public_token,
+      current: v.public_token === token,
+    })),
+  })
+})

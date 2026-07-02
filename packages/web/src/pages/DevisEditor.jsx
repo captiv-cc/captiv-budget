@@ -3,7 +3,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { notify } from '../lib/notify'
-import { REGIMES_SALARIES } from '../lib/cotisations'
 import { exportDevisPDF } from '../lib/pdfExport'
 import { BLOCS_CANONIQUES, getBlocInfo as _getBlocInfoByName } from '../lib/blocs'
 import { EMPTY_LINE } from '../features/devis/constants'
@@ -12,6 +11,9 @@ import { useProjectPresence } from '../hooks/useProjectPresence'
 import PresenceAvatars from '../components/PresenceAvatars'
 import DevisHistoryPanel from '../features/devis/components/DevisHistoryPanel'
 import { fetchUnseenCount, markHistorySeen } from '../lib/devisHistorySeen'
+import { duplicateDevisVersion } from '../lib/devisDuplicate'
+import { prompt } from '../lib/confirm'
+import { sendDevisToClient, getPublicDevisUrl, fetchDevisViewStats } from '../lib/devisEnvoi'
 import StatusSelect from '../features/devis/components/StatusSelect'
 import SynthBar from '../features/devis/components/SynthBar'
 import AddLineModal from '../features/devis/components/AddLineModal'
@@ -31,6 +33,9 @@ import {
   X,
   Pencil,
   History,
+  Send,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 
 // Re-export pour les modules qui importent BLOCS_CANONIQUES depuis DevisEditor
@@ -87,6 +92,45 @@ export default function DevisEditor({ embedded = false }) {
   const [pdfPreview, setPdfPreview] = useState(null)
   const [pdfLoading, setPdfLoading] = useState(false)
   const [unseenHistory, setUnseenHistory] = useState(0)
+
+  // ── Workflow statut : verrouillage des devis envoyés / acceptés ────────────
+  // Un devis envoyé ou accepté est verrouillé : le lien client affiche le devis
+  // en direct, donc on force le réflexe « nouvelle version » plutôt que la
+  // modification à chaud d'une version que le client a déjà reçue/validée.
+  // Déverrouillage explicite via la modale ; re-verrouillé à chaque changement
+  // de devis ou de statut.
+  const isSent = devis?.status === 'envoye'
+  const isAccepted = devis?.status === 'accepte'
+  const [unlockedEdit, setUnlockedEdit] = useState(false)
+  const [unlockModal, setUnlockModal] = useState(false)
+  useEffect(() => {
+    setUnlockedEdit(false)
+    setUnlockModal(false)
+  }, [devisId, devis?.status])
+  const editLocked = (isSent || isAccepted) && !unlockedEdit
+  const lastLockNotify = useRef(0)
+  const curV = devis?.version_number || 1
+  const nextV = curV + 1
+
+  // Bloque toute interaction d'édition dans la zone tableau/synthèse quand le
+  // devis est verrouillé. On ne cible que les éléments interactifs (inputs,
+  // boutons, cellules focusables, drag) pour laisser vivre scroll et sélection.
+  // Les contrôles de lecture (plier/déplier) portent data-lock-allow.
+  function guardLocked(e) {
+    if (!editLocked) return
+    const t = e.target
+    if (!t?.closest) return
+    if (t.closest('[data-lock-allow]')) return
+    if (!t.closest('input, textarea, select, button, [contenteditable="true"], [tabindex], [draggable="true"]'))
+      return
+    e.preventDefault()
+    e.stopPropagation()
+    const now = Date.now()
+    if (now - lastLockNotify.current > 2500) {
+      lastLockNotify.current = now
+      notify.warn(`Devis ${isAccepted ? 'accepté' : 'envoyé'} : verrouillé.`)
+    }
+  }
 
   // ── Raccourci clavier : Cmd/Ctrl+S = sauvegarder ───────────────────────────
   useEffect(() => {
@@ -234,74 +278,81 @@ export default function DevisEditor({ embedded = false }) {
   }
 
   // ── Dupliquer en nouvelle version ─────────────────────────────────────────
+  // Logique partagée (lib/devisDuplicate) : version par LOT, recopie complète
+  // (catégories, lignes, membres). Duplique la version PERSISTÉE → on force un
+  // save avant si des modifs locales sont en attente.
+  const [duplicating, setDuplicating] = useState(false)
   async function dupliquerVersion() {
-    const { data: versions } = await supabase
-      .from('devis')
-      .select('version_number')
-      .eq('project_id', projectId)
-      .order('version_number', { ascending: false })
-      .limit(1)
-
-    const nextVersion = (versions?.[0]?.version_number || 0) + 1
-
-    const { data: newDevis } = await supabase
-      .from('devis')
-      .insert({
-        project_id: projectId,
-        version_number: nextVersion,
-        title: devis?.title,
-        tva_rate: devis?.tva_rate,
-        acompte_pct: devis?.acompte_pct,
-        notes: devis?.notes,
-        status: 'brouillon',
-        marge_globale_pct: globalAdj.marge_globale_pct,
-        assurance_pct: globalAdj.assurance_pct,
-        remise_globale_pct: globalAdj.remise_globale_pct,
-        remise_globale_montant: globalAdj.remise_globale_montant,
-      })
-      .select()
-      .single()
-
-    if (!newDevis) return
-
-    for (const cat of categories) {
-      const { data: newCat } = await supabase
-        .from('devis_categories')
-        .insert({
-          devis_id: newDevis.id,
-          name: cat.name,
-          sort_order: cat.sort_order,
-          dans_marge: cat.dans_marge !== false,
-        })
-        .select()
-        .single()
-
-      if (newCat) {
-        await supabase.from('devis_lines').insert(
-          cat.lines.map((l) => ({
-            devis_id: newDevis.id,
-            category_id: newCat.id,
-            ref: l.ref,
-            produit: l.produit,
-            description: l.description,
-            regime: l.regime,
-            use_line: l.use_line,
-            dans_marge: true,
-            nb: l.nb ?? 1,
-            quantite: l.quantite,
-            unite: l.unite,
-            tarif_ht: l.tarif_ht,
-            cout_ht: l.cout_ht ?? null,
-            remise_pct: l.remise_pct,
-            sort_order: l.sort_order,
-            is_crew: REGIMES_SALARIES.includes(l.regime),
-          })),
-        )
+    if (duplicating) return
+    setDuplicating(true)
+    try {
+      if (dirty) {
+        saveNow()
+        // Laisse l'autosave/save en cours aboutir (doSave est séquentiel).
+        await new Promise((r) => setTimeout(r, 400))
       }
+      const newDevis = await duplicateDevisVersion(devisId, { createdBy: user?.id })
+      notify.success(`V${newDevis.version_number} créée`)
+      navigate(`/projets/${projectId}/devis/${newDevis.id}`)
+    } catch (err) {
+      console.error('[dupliquerVersion]', err)
+      notify.error(`Duplication impossible : ${err.message}`)
+    } finally {
+      setDuplicating(false)
     }
-
-    navigate(`/projets/${projectId}/devis/${newDevis.id}`)
   }
+
+  // ── Envoi au client (Phase 1) ──────────────────────────────────────────────
+  // Fige un PDF de la version courante (snapshot immuable montré au client),
+  // passe le devis en "Envoyé" et copie le lien public.
+  const [sending, setSending] = useState(false)
+  async function envoyerAuClient() {
+    if (sending) return
+    // Prompt combiné : confirme l'envoi + mot d'accompagnement (optionnel),
+    // affiché dans le hero de la page client. Annuler → null → abandon.
+    const message = await prompt({
+      title: `Envoyer la V${curV} au client`,
+      message: `Un PDF de la V${curV} est figé pour le client et le devis passe en « Envoyé ». Mot d'accompagnement (optionnel) :`,
+      placeholder: 'Bonjour, voici notre proposition pour…',
+      initialValue: devis?.message_client || '',
+      multiline: true,
+      confirmLabel: 'Figer et copier le lien',
+    })
+    if (message === null) return
+    setSending(true)
+    try {
+      if (dirty) {
+        saveNow()
+        await new Promise((r) => setTimeout(r, 400))
+      }
+      const { url } = await sendDevisToClient({ devis, categories, globalAdj, project, client, org, taux, message })
+      updateDevisField('status', 'envoye') // sync état local (le DB est déjà à jour)
+      try {
+        await navigator.clipboard.writeText(url)
+        notify.success('PDF figé, lien copié dans le presse-papier')
+      } catch {
+        notify.info(url, { duration: 12000 })
+      }
+    } catch (err) {
+      console.error('[envoyerAuClient]', err)
+      notify.error(`Envoi impossible : ${err.message}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // Stats de consultation du lien public (affichées dans le bandeau)
+  const [viewStats, setViewStats] = useState(null)
+  useEffect(() => {
+    if (!devisId || !(isSent || isAccepted)) return undefined
+    let alive = true
+    fetchDevisViewStats(devisId).then((s) => {
+      if (alive) setViewStats(s)
+    })
+    return () => {
+      alive = false
+    }
+  }, [devisId, isSent, isAccepted])
 
   // ── Calcul synthèse global ────────────────────────────────────────────────
   // allLines / hasAnyRemise / synth viennent désormais du hook useDevis.
@@ -413,8 +464,30 @@ export default function DevisEditor({ embedded = false }) {
               )}
               <StatusSelect
                 status={devis?.status}
-                onChange={(v) => updateDevisField('status', v)}
+                onChange={(v) => {
+                  // Passer en "Envoyé" à la main déclenche le vrai flux d'envoi
+                  // (snapshot PDF + lien), pas un simple changement d'étiquette.
+                  if (v === 'envoye' && devis?.status !== 'envoye') {
+                    envoyerAuClient()
+                    return
+                  }
+                  updateDevisField('status', v)
+                }}
               />
+              {(isSent || isAccepted) &&
+                (editLocked ? (
+                  <Lock
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: isAccepted ? 'var(--green)' : 'var(--blue)' }}
+                    title={`Devis ${isAccepted ? 'accepté' : 'envoyé'} : verrouillé`}
+                  />
+                ) : (
+                  <Unlock
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: 'var(--orange)' }}
+                    title="Déverrouillé pour modification"
+                  />
+                ))}
             </div>
           </div>
 
@@ -479,7 +552,7 @@ export default function DevisEditor({ embedded = false }) {
                 </span>
               )}
             </button>
-            <button onClick={dupliquerVersion} className="btn-secondary btn-sm">
+            <button onClick={dupliquerVersion} disabled={duplicating} className="btn-secondary btn-sm">
               <Copy className="w-3.5 h-3.5" />
               Dupliquer V{(devis?.version_number || 0) + 1}
             </button>
@@ -496,23 +569,143 @@ export default function DevisEditor({ embedded = false }) {
               )}
               PDF
             </button>
-            <button
-              onClick={() => {
-                const url = `${window.location.origin}/devis/public/${devis?.public_token}`
-                navigator.clipboard.writeText(url)
-                notify.success('Lien copié dans le presse-papier')
-              }}
-              className="btn-primary btn-sm"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              Lien client
-            </button>
+            {devis?.pdf_snapshot_path && (isSent || isAccepted) ? (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(getPublicDevisUrl(devis))
+                  notify.success('Lien copié dans le presse-papier')
+                }}
+                className="btn-primary btn-sm"
+                title="Copier le lien de consultation client"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Lien client
+              </button>
+            ) : (
+              <button
+                onClick={envoyerAuClient}
+                disabled={sending}
+                className="btn-primary btn-sm"
+                title="Figer un PDF et générer le lien client"
+              >
+                {sending ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                Envoyer au client
+              </button>
+            )}
           </div>
         </div>
       </header>
 
+      {/* ── Bandeau workflow statut ──────────────────────────────────────── */}
+      {editLocked && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 text-xs shrink-0"
+          style={{
+            background: isAccepted ? 'rgba(0,200,117,.08)' : 'rgba(59,130,246,.08)',
+            borderBottom: `1px solid ${isAccepted ? 'rgba(0,200,117,.25)' : 'rgba(59,130,246,.25)'}`,
+            color: 'var(--txt-2)',
+          }}
+        >
+          {isAccepted ? (
+            <Lock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--green)' }} />
+          ) : (
+            <Send className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--blue)' }} />
+          )}
+          <span>
+            <strong style={{ color: isAccepted ? 'var(--green)' : 'var(--blue)' }}>
+              {isAccepted ? 'Devis accepté' : 'Devis envoyé'}
+              {isAccepted && devis?.accepted_at
+                ? ` le ${new Date(devis.accepted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.`
+                : !isAccepted && devis?.sent_at
+                  ? ` le ${new Date(devis.sent_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}.`
+                  : '.'}
+            </strong>
+            {viewStats &&
+              (viewStats.views > 0 ? (
+                <>
+                  {' '}
+                  Vu {viewStats.views} fois
+                  {viewStats.lastViewAt &&
+                    `, dernier le ${new Date(viewStats.lastViewAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à ${new Date(viewStats.lastViewAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
+                  .
+                </>
+              ) : (
+                <> Jamais ouvert par le client.</>
+              ))}
+          </span>
+          <button
+            onClick={dupliquerVersion}
+            className="ml-auto text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+            style={{
+              color: 'var(--txt)',
+              background: 'rgba(255,255,255,.08)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            Créer la V{nextV}
+          </button>
+          <button
+            onClick={() => setUnlockModal(true)}
+            className="text-xs px-2 py-0.5 rounded shrink-0"
+            style={{ color: 'var(--txt-3)', border: '1px solid transparent' }}
+          >
+            Modifier la V{curV}…
+          </button>
+        </div>
+      )}
+      {(isSent || isAccepted) && !editLocked && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 text-xs shrink-0"
+          style={{
+            background: 'rgba(255,159,67,.10)',
+            borderBottom: '1px solid rgba(255,159,67,.3)',
+            color: 'var(--txt-2)',
+          }}
+        >
+          <Unlock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--orange)' }} />
+          <span>
+            <strong style={{ color: 'var(--orange)' }}>V{curV} déverrouillée.</strong> Le client
+            garde le PDF envoyé : renvoyez-le après vos modifications.
+          </span>
+          <button
+            onClick={envoyerAuClient}
+            disabled={sending}
+            className="ml-auto text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+            style={{
+              color: 'var(--txt)',
+              background: 'rgba(255,255,255,.08)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            Renvoyer au client
+          </button>
+          <button
+            onClick={() => setUnlockedEdit(false)}
+            className="text-xs font-semibold px-2 py-0.5 rounded shrink-0"
+            style={{
+              color: 'var(--txt-2)',
+              background: 'rgba(255,255,255,.06)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            Reverrouiller
+          </button>
+        </div>
+      )}
+
       {/* ── Table principale — pleine largeur ────────────────────────────── */}
-      <div className="flex-1 overflow-auto" style={{ paddingBottom: '80px' }}>
+      <div
+        className="flex-1 overflow-auto"
+        style={{ paddingBottom: '80px' }}
+        onClickCapture={guardLocked}
+        onMouseDownCapture={guardLocked}
+        onKeyDownCapture={guardLocked}
+        onDragStartCapture={guardLocked}
+      >
         <table
           className="devis-table w-full border-collapse"
           style={{ minWidth: showAnalyse ? '1310px' : '910px' }}
@@ -532,6 +725,7 @@ export default function DevisEditor({ embedded = false }) {
                           : setCollapsed(Object.fromEntries(categories.map((c) => [c.id, true])))
                       }
                       title={allCollapsed ? 'Tout développer' : 'Tout réduire'}
+                      data-lock-allow
                       className="flex items-center justify-center rounded transition-all"
                       style={{
                         width: '22px',
@@ -576,6 +770,7 @@ export default function DevisEditor({ embedded = false }) {
                 <th className="w-16">
                   <button
                     onClick={() => setShowRemise((p) => !p)}
+                    data-lock-allow
                     title={showRemise && !hasAnyRemise ? 'Masquer la colonne remise' : 'Remise'}
                     className="flex items-center gap-1 rounded transition-all"
                     style={{
@@ -599,6 +794,7 @@ export default function DevisEditor({ embedded = false }) {
                 <th className="w-5" title="Afficher la colonne remise">
                   <button
                     onClick={() => setShowRemise(true)}
+                    data-lock-allow
                     style={{ color: 'var(--txt-3)', opacity: 0.4, padding: '2px' }}
                     onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
                     onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.4')}
@@ -623,6 +819,7 @@ export default function DevisEditor({ embedded = false }) {
               <th className="w-20 text-right" style={{ paddingRight: '6px' }}>
                 <button
                   onClick={() => setShowAnalyse((p) => !p)}
+                  data-lock-allow
                   title={showAnalyse ? "Masquer l'analyse" : "Afficher l'analyse"}
                   className="flex items-center gap-1 ml-auto rounded transition-all"
                   style={{
@@ -780,23 +977,85 @@ export default function DevisEditor({ embedded = false }) {
       )}
 
       {/* ── Bandeau Synthèse — sticky bas pleine largeur ──────────────────── */}
-      <SynthBar
-        synth={synth}
-        devis={devis}
-        globalAdj={globalAdj}
-        onUpdateGlobal={updateGlobalAdj}
-        onUpdateDevis={updateDevisField}
-      />
+      <div
+        onClickCapture={guardLocked}
+        onMouseDownCapture={guardLocked}
+        onKeyDownCapture={guardLocked}
+      >
+        <SynthBar
+          synth={synth}
+          devis={devis}
+          globalAdj={globalAdj}
+          onUpdateGlobal={updateGlobalAdj}
+          onUpdateDevis={updateDevisField}
+        />
+      </div>
 
       {/* ── Prévisualisation PDF ─────────────────────────────────────────── */}
       <PdfPreviewModal
         open={Boolean(pdfPreview)}
         onClose={closePdfPreview}
-        title={`Devis${devis?.version_number ? ` V${devis.version_number}` : ''}${project?.title ? ` — ${project.title}` : ''}`}
+        title={`Devis${devis?.version_number ? ` V${devis.version_number}` : ''}${project?.title ? ` · ${project.title}` : ''}`}
         url={pdfPreview?.url || null}
         filename={pdfPreview?.filename || 'devis.pdf'}
         onDownload={() => pdfPreview?.download?.()}
       />
+
+      {/* ── Modale déverrouillage (devis envoyé/accepté) ─────────────────── */}
+      {unlockModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,.55)' }}
+          onClick={() => setUnlockModal(false)}
+        >
+          <div
+            className="rounded-xl p-5 mx-4"
+            style={{
+              width: '440px',
+              maxWidth: '100%',
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+              boxShadow: '0 16px 48px rgba(0,0,0,.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-bold mb-2" style={{ color: 'var(--txt)' }}>
+              Modifier la V{curV} {isAccepted ? 'acceptée' : 'envoyée'} ?
+            </h3>
+            <p className="text-xs leading-relaxed mb-4" style={{ color: 'var(--txt-2)' }}>
+              {isAccepted
+                ? `Le client a accepté la V${curV}. Pour changer le contenu, créez plutôt une V${nextV}.`
+                : `Le client a déjà reçu la V${curV}. Pour changer le contenu, créez plutôt une V${nextV}.`}
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setUnlockModal(false)} className="btn-ghost btn-sm">
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  setUnlockModal(false)
+                  setUnlockedEdit(true)
+                }}
+                className="btn-secondary btn-sm"
+                style={{ color: 'var(--orange)' }}
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                Modifier la V{curV}
+              </button>
+              <button
+                onClick={() => {
+                  setUnlockModal(false)
+                  dupliquerVersion()
+                }}
+                className="btn-primary btn-sm"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Créer la V{nextV}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Historique des changements (R4) ──────────────────────────────── */}
       <DevisHistoryPanel
