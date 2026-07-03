@@ -17,26 +17,40 @@ import { useNavigation, useNavigationState } from '@react-navigation/native'
 import { IconButton, BottomSheet } from './atoms'
 import { useAuth } from '../lib/AuthContext'
 import { useProjet } from '../lib/ProjetContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { navigationRef } from '../navigation/navigationRef'
 import { colors, fontWeight, spacing, radius } from '../theme'
 
-const PAGES = [
+// Pages projet poussées (MainStack). Pour les internes, la Carte n'est pas un
+// onglet → elle apparaît ici en page.
+const PAGES_EXTERNE = [
   { name: 'InfosProjet', icon: 'information-circle-outline', label: 'Infos projet' },
   { name: 'Equipe', icon: 'people-outline', label: 'Équipe & contacts' },
   { name: 'Logistique', icon: 'bed-outline', label: 'Logistique & VHR' },
   { name: 'Materiel', icon: 'cube-outline', label: 'Matériel' },
 ]
+const PAGES_INTERNE = [
+  ...PAGES_EXTERNE,
+  { name: 'CartePage', icon: 'map-outline', label: 'Plan / Carte' },
+]
 
 // Écrans poussés (hors tab bar) où le burger propose « Aller à » pour revenir.
-const PUSHED_SCREENS = [...PAGES.map((p) => p.name), 'Profil']
+const PUSHED_SCREENS = [...PAGES_INTERNE.map((p) => p.name), 'Profil', 'DevisEditor']
 
 // Sections de l'app (tab bar) — proposées dans le burger UNIQUEMENT depuis une
-// page projet (où il n'y a pas de tab bar pour revenir).
-const APP_SECTIONS = [
+// page projet (où il n'y a pas de tab bar pour revenir). Dépend du rôle.
+const SECTIONS_EXTERNE = [
   { name: 'Planning', icon: 'calendar-outline', label: 'Planning' },
   { name: 'Livrables', icon: 'checkbox-outline', label: 'Livrables' },
   { name: 'Notifications', icon: 'notifications-outline', label: 'Notifications' },
   { name: 'Carte', icon: 'map-outline', label: 'Plan' },
+]
+const SECTIONS_INTERNE = [
+  { name: 'Accueil', icon: 'home-outline', label: 'Accueil' },
+  { name: 'Planning', icon: 'calendar-outline', label: 'Planning' },
+  { name: 'Livrables', icon: 'checkbox-outline', label: 'Livrables' },
+  { name: 'Devis', icon: 'document-text-outline', label: 'Devis' },
+  { name: 'Notifications', icon: 'notifications-outline', label: 'Notifications' },
 ]
 
 export default function BurgerButton() {
@@ -45,6 +59,9 @@ export default function BurgerButton() {
   const nav = useNavigation()
   const { signOut } = useAuth()
   const { projet, projets, setProjetId } = useProjet()
+  const { isInternal } = usePermissions()
+  const PAGES = isInternal ? PAGES_INTERNE : PAGES_EXTERNE
+  const APP_SECTIONS = isInternal ? SECTIONS_INTERNE : SECTIONS_EXTERNE
 
   // Sommes-nous sur une page projet (vs un onglet) ? → propose le retour à l'app
   const currentRoute = useNavigationState((s) => s?.routes?.[s.index]?.name)

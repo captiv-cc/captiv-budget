@@ -12,19 +12,33 @@ import PlanningScreen from '../screens/PlanningScreen'
 import LivrablesScreen from '../screens/LivrablesScreen'
 import NotificationsScreen from '../screens/NotificationsScreen'
 import CarteScreen from '../screens/CarteScreen'
+import AccueilScreen from '../screens/AccueilScreen'
+import DevisListScreen from '../screens/DevisListScreen'
 import { colors, fontSize, fontWeight } from '../theme'
 import { useNotifications } from '../hooks/useNotifications'
+import { usePermissions } from '../hooks/usePermissions'
 
 const Tab = createBottomTabNavigator()
 
-const TABS = [
+// Onglets selon le RÔLE (un seul jeu par utilisateur, pas de switch) :
+//   externes (cadreurs/prestataires) → app terrain historique
+//   internes (admin/charge_prod/coordinateur) → app complète avec Accueil + Devis
+const TABS_EXTERNE = [
   { name: 'Planning', label: 'Planning', icon: 'calendar-outline', iconActive: 'calendar' },
   { name: 'Livrables', label: 'Livrables', icon: 'checkbox-outline', iconActive: 'checkbox' },
   { name: 'Notifications', label: 'Notifs', icon: 'notifications-outline', iconActive: 'notifications' },
   { name: 'Carte', label: 'Plan', icon: 'map-outline', iconActive: 'map' },
 ]
 
-function GlassTabBar({ state, descriptors, navigation }) {
+const TABS_INTERNE = [
+  { name: 'Accueil', label: 'Accueil', icon: 'home-outline', iconActive: 'home' },
+  { name: 'Planning', label: 'Planning', icon: 'calendar-outline', iconActive: 'calendar' },
+  { name: 'Livrables', label: 'Livrables', icon: 'checkbox-outline', iconActive: 'checkbox' },
+  { name: 'Devis', label: 'Devis', icon: 'document-text-outline', iconActive: 'document-text' },
+  { name: 'Notifications', label: 'Notifs', icon: 'notifications-outline', iconActive: 'notifications' },
+]
+
+function GlassTabBar({ state, descriptors, navigation, tabs }) {
   const insets = useSafeAreaInsets()
   const pb = Math.max(insets.bottom, 12)
   const { unreadCount } = useNotifications()
@@ -38,7 +52,7 @@ function GlassTabBar({ state, descriptors, navigation }) {
       <View style={styles.tabBarRow}>
         {state.routes.map((route, index) => {
           const focused = state.index === index
-          const meta = TABS.find((t) => t.name === route.name) ?? TABS[0]
+          const meta = tabs.find((t) => t.name === route.name) ?? tabs[0]
           const badge = route.name === 'Notifications' ? unreadCount : 0
           const onPress = () => {
             const event = navigation.emit({
@@ -82,15 +96,31 @@ function GlassTabBar({ state, descriptors, navigation }) {
 }
 
 export default function MainTabs() {
+  const { isInternal } = usePermissions()
+  const tabs = isInternal ? TABS_INTERNE : TABS_EXTERNE
+
   return (
     <Tab.Navigator
+      key={isInternal ? 'interne' : 'externe'} // routes différentes selon le rôle
       screenOptions={{ headerShown: false }}
-      tabBar={(props) => <GlassTabBar {...props} />}
+      tabBar={(props) => <GlassTabBar {...props} tabs={tabs} />}
     >
-      <Tab.Screen name="Planning" component={PlanningScreen} />
-      <Tab.Screen name="Livrables" component={LivrablesScreen} />
-      <Tab.Screen name="Notifications" component={NotificationsScreen} />
-      <Tab.Screen name="Carte" component={CarteScreen} />
+      {isInternal ? (
+        <>
+          <Tab.Screen name="Accueil" component={AccueilScreen} />
+          <Tab.Screen name="Planning" component={PlanningScreen} />
+          <Tab.Screen name="Livrables" component={LivrablesScreen} />
+          <Tab.Screen name="Devis" component={DevisListScreen} />
+          <Tab.Screen name="Notifications" component={NotificationsScreen} />
+        </>
+      ) : (
+        <>
+          <Tab.Screen name="Planning" component={PlanningScreen} />
+          <Tab.Screen name="Livrables" component={LivrablesScreen} />
+          <Tab.Screen name="Notifications" component={NotificationsScreen} />
+          <Tab.Screen name="Carte" component={CarteScreen} />
+        </>
+      )}
     </Tab.Navigator>
   )
 }

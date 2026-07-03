@@ -10,6 +10,8 @@ import InfosProjetScreen from '../screens/InfosProjetScreen'
 import LogistiqueScreen from '../screens/LogistiqueScreen'
 import MaterielScreen from '../screens/MaterielScreen'
 import ProfilScreen from '../screens/ProfilScreen'
+import CarteScreen from '../screens/CarteScreen'
+import DevisEditorScreen from '../screens/DevisEditorScreen'
 
 const Stack = createNativeStackNavigator()
 
@@ -30,6 +32,10 @@ export default function MainStack() {
       <Stack.Screen name="Logistique" component={LogistiqueScreen} />
       <Stack.Screen name="Materiel" component={MaterielScreen} />
       <Stack.Screen name="Profil" component={ProfilScreen} />
+      {/* Pour les internes, la Carte n'est pas un onglet → page poussée.
+          DevisEditor = éditeur natif d'une version de devis. */}
+      <Stack.Screen name="CartePage" component={CarteScreen} />
+      <Stack.Screen name="DevisEditor" component={DevisEditorScreen} />
     </Stack.Navigator>
   )
 }

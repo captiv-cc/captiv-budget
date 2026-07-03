@@ -54,19 +54,34 @@ export function ProjetProvider({ children }) {
   const fetchProjets = useCallback(async () => {
     if (!user?.id) return
     try {
-      const membres = await fetchMesMembres(user.id)
-      const ids = [...new Set(membres.map((m) => m.project_id))]
-      if (ids.length === 0) {
-        setProjets([])
-        setLoading(false)
-        return
+      // Internes (admin/charge_prod/coordinateur) : TOUS les projets de l'org
+      // (un admin n'est pas forcément « membre » de chaque projet). Externes :
+      // chaîne contacts.user_id → projet_membres → projects, comme avant.
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('role, org_id')
+        .eq('id', user.id)
+        .maybeSingle()
+      const isInternal = ['admin', 'charge_prod', 'coordinateur'].includes(prof?.role)
+
+      let ids = null // null = pas de filtre .in() (requête org)
+      if (!isInternal) {
+        const membres = await fetchMesMembres(user.id)
+        ids = [...new Set(membres.map((m) => m.project_id))]
+        if (ids.length === 0) {
+          setProjets([])
+          setLoading(false)
+          return
+        }
       }
 
-      const { data: rows, error } = await supabase
+      let query = supabase
         .from('projects')
         .select('id, title, status, date_debut, date_fin, lieu_text, realisateur, agence, note_prod, drive_url, ref_projet, cover_url, lat, lon, metadata')
-        .in('id', ids)
+      query = isInternal ? query.eq('org_id', prof.org_id) : query.in('id', ids)
+      const { data: rows, error } = await query
       if (error) throw error
+      if (isInternal) ids = (rows ?? []).map((r) => r.id)
 
       // Défaut = projet dont un déroulé est le plus proche d'aujourd'hui
       const today = aujourdhuiJour()

@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { IconButton } from '../components/atoms'
 import { ScreenHeader, Card, Badge, PressableScale } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { STATUT_LIVRABLE, STATUT_LIVRABLE_LABEL, formatDateCourte } from '@captiv/shared'
 import { colors, spacing, radius, type } from '../theme'
 import { useAuth } from '../lib/AuthContext'
@@ -35,6 +36,7 @@ const STATUT_VARIANT = {
 }
 
 export default function LivrablesScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const { user } = useAuth()
   const [filtre, setFiltre] = useState('tous')
@@ -63,7 +65,7 @@ export default function LivrablesScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      <ScreenHeader title="Livrables" leftMode="menu" right={<IconButton icon="filter-outline" iconSize={14} />} />
+      <ScreenHeader title="Livrables" leftMode={leftMode} right={<IconButton icon="filter-outline" iconSize={14} />} />
 
       {/* Projet courant */}
       <View style={styles.topPad}>

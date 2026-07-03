@@ -16,6 +16,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { Ionicons } from '@expo/vector-icons'
 
 import { ScreenHeader, Section, Card, PressableScale, HEADER_BASE_HEIGHT } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { RowSkeletonList } from '../components/Skeleton'
 import { colors, spacing, radius, type } from '../theme'
 import { supabase } from '../lib/supabase'
@@ -68,6 +69,7 @@ function cleanText(t) {
 }
 
 export default function LogistiqueScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const { projet } = useProjet()
@@ -141,7 +143,7 @@ export default function LogistiqueScreen() {
       <ScreenHeader
         title="Logistique & VHR"
         subtitle={projet?.title}
-        leftMode="menu"
+        leftMode={leftMode}
         scrollY={scrollY}
         overlay
       />

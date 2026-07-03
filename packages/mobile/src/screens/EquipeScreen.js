@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { Avatar } from '../components/atoms'
 import { ScreenHeader, Section, Card, Badge, HEADER_BASE_HEIGHT } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { RowSkeletonList } from '../components/Skeleton'
 import { colors, spacing, type } from '../theme'
 import { useProjet } from '../lib/ProjetContext'
@@ -18,6 +19,7 @@ import { useListEntrance } from '../hooks/useListEntrance'
 import MembreDetailSheet from './MembreDetailSheet'
 
 export default function EquipeScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const { projet } = useProjet()
@@ -53,7 +55,7 @@ export default function EquipeScreen() {
         )}
       </Animated.ScrollView>
 
-      <ScreenHeader title="Équipe & contacts" subtitle={projet?.title} leftMode="menu" scrollY={scrollY} overlay />
+      <ScreenHeader title="Équipe & contacts" subtitle={projet?.title} leftMode={leftMode} scrollY={scrollY} overlay />
 
       <MembreDetailSheet membre={selected} visible={!!selected} onClose={() => setSelected(null)} />
     </View>

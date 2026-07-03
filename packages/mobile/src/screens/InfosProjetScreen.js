@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 
 import { ScreenHeader, Section, Badge, PressableScale } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { RowSkeletonList } from '../components/Skeleton'
 import { colors, spacing, radius, type, gradients } from '../theme'
 import { useProjet } from '../lib/ProjetContext'
@@ -37,6 +38,7 @@ function fmtRange(a, b) {
 }
 
 export default function InfosProjetScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const { projet } = useProjet()
@@ -133,7 +135,7 @@ export default function InfosProjetScreen() {
         </View>
       </Animated.ScrollView>
 
-      <ScreenHeader title="Infos projet" subtitle={p?.title} leftMode="menu" scrollY={scrollY} overlay />
+      <ScreenHeader title="Infos projet" subtitle={p?.title} leftMode={leftMode} scrollY={scrollY} overlay />
     </View>
   )
 }

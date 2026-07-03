@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
 import { ScreenHeader, HEADER_BASE_HEIGHT } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { colors, spacing, radius, type } from '../theme'
 import { useProjet } from '../lib/ProjetContext'
 import { fetchLieuData } from '../lib/lieu'
@@ -33,6 +34,7 @@ function openMaps(lat, lng, label) {
 }
 
 export default function CarteScreen({ route }) {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const { projet } = useProjet()
   const webRef = useRef(null)
@@ -163,7 +165,7 @@ export default function CarteScreen({ route }) {
         )}
       </View>
 
-      <ScreenHeader title={headerTitle} subtitle={projet?.title} leftMode="menu" overlay />
+      <ScreenHeader title={headerTitle} subtitle={projet?.title} leftMode={leftMode} overlay />
     </View>
   )
 }

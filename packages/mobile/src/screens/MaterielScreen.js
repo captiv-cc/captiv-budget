@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar'
 import { Ionicons } from '@expo/vector-icons'
 
 import { ScreenHeader, Section, Badge, HEADER_BASE_HEIGHT } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { RowSkeletonList } from '../components/Skeleton'
 import { colors, spacing, radius, type } from '../theme'
 import { useProjet } from '../lib/ProjetContext'
@@ -21,6 +22,7 @@ const FLAG = {
 }
 
 export default function MaterielScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const { projet } = useProjet()
@@ -75,7 +77,7 @@ export default function MaterielScreen() {
         )}
       </Animated.ScrollView>
 
-      <ScreenHeader title="Matériel" subtitle={subtitle} leftMode="menu" scrollY={scrollY} overlay />
+      <ScreenHeader title="Matériel" subtitle={subtitle} leftMode={leftMode} scrollY={scrollY} overlay />
     </View>
   )
 }

@@ -29,7 +29,7 @@ export function useProfile() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, prenom, nom, email, avatar_url, role')
+        .select('id, full_name, prenom, nom, email, avatar_url, role, org_id')
         .eq('id', user.id)
         .maybeSingle()
       if (error) throw error

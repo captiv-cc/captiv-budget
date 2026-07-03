@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { Avatar, BottomSheet, Button, IconButton, Toggle } from '../components/atoms'
 import { ScreenHeader, Section, Card, Badge, PressableScale, HEADER_BASE_HEIGHT } from '../components/shared'
+import { useHeaderLeftMode } from '../hooks/useHeaderLeftMode'
 import { useAuth } from '../lib/AuthContext'
 import {
   DELAI_RAPPEL_MINUTES,
@@ -23,6 +24,7 @@ import { useProfile } from '../hooks/useProfile'
 import { sendTestPush } from '../lib/push'
 
 export default function ProfilScreen() {
+  const leftMode = useHeaderLeftMode()
   const insets = useSafeAreaInsets()
   const { signOut, user } = useAuth()
   const { profile } = useProfile()
@@ -136,7 +138,7 @@ export default function ProfilScreen() {
       {/* Header overlay (blur au scroll) */}
       <ScreenHeader
         title="Profil"
-        leftMode="menu"
+        leftMode={leftMode}
         right={<IconButton icon="pencil" iconSize={13} />}
         scrollY={scrollY}
         overlay
