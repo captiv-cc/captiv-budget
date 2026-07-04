@@ -62,6 +62,28 @@ export function NotificationsProvider({ children }) {
           setNotifications((prev) => [payload.new, ...prev])
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          // Condensation (ex. « devis modifié » ×N) : la notif existante est
+          // mise à jour côté serveur au lieu d'en empiler une nouvelle.
+          setNotifications((prev) => {
+            const exists = prev.some((n) => n.id === payload.new.id)
+            const next = exists
+              ? prev.map((n) => (n.id === payload.new.id ? payload.new : n))
+              : [payload.new, ...prev]
+            return next
+              .slice()
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          })
+        },
+      )
       .subscribe()
 
     return () => {

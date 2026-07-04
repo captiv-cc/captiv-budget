@@ -29,3 +29,22 @@ export function openCreneauFromPush(creneauId) {
     params: { openCreneauId: creneauId, ts: Date.now() },
   })
 }
+
+/**
+ * Extrait un devis_id depuis le payload d'une notif devis (data.devis_id ou
+ * link_web "/projets/<pid>/devis/<did>").
+ */
+export function devisIdFromNotif(data, linkWeb) {
+  if (data?.devis_id) return String(data.devis_id)
+  if (typeof linkWeb === 'string') {
+    const m = linkWeb.match(/devis\/([^/?#]+)/)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** Ouvre l'éditeur natif du devis (page poussée du stack racine). */
+export function openDevisFromPush(devisId) {
+  if (!devisId || !navigationRef.isReady()) return
+  navigationRef.navigate('DevisEditor', { devisId })
+}

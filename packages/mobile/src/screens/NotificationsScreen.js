@@ -14,7 +14,13 @@ import { formatRelatif, estAujourdhui, estHier } from '@captiv/shared'
 import { colors, spacing, radius, type, statusTint } from '../theme'
 import { useNotifications } from '../hooks/useNotifications'
 import { useListEntrance } from '../hooks/useListEntrance'
-import { creneauIdFromNotif, openCreneauFromPush } from '../navigation/navigationRef'
+import { usePermissions } from '../hooks/usePermissions'
+import {
+  creneauIdFromNotif,
+  openCreneauFromPush,
+  devisIdFromNotif,
+  openDevisFromPush,
+} from '../navigation/navigationRef'
 
 const TYPE_META = {
   creneau_assigne: { icon: 'calendar', tone: 'info' },
@@ -22,17 +28,30 @@ const TYPE_META = {
   creneau_annule: { icon: 'close', tone: 'danger' },
   livrable_valide: { icon: 'checkmark', tone: 'success' },
   mention: { icon: null, tone: 'accent' },
+  devis_consulte: { icon: 'eye', tone: 'info' },
+  devis_accepte: { icon: 'checkmark-done', tone: 'success' },
+  devis_refuse: { icon: 'close-circle', tone: 'danger' },
+  devis_relance: { icon: 'time', tone: 'warning' },
+  devis_expire: { icon: 'alert-circle', tone: 'warning' },
+  devis_modifie: { icon: 'create', tone: 'accent' },
 }
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets()
   const scrollY = useRef(new Animated.Value(0)).current
   const { notifications: notifs, unreadCount: nbNonLues, markAllRead, markRead, deleteNotif } = useNotifications()
+  const { isInternal } = usePermissions()
 
   const handlePress = (n) => {
     if (!n.lu) markRead(n.id)
     const creneauId = creneauIdFromNotif({ creneau_id: n.data?.creneau_id, deep_link: n.deep_link })
-    if (creneauId) openCreneauFromPush(creneauId)
+    if (creneauId) {
+      openCreneauFromPush(creneauId)
+      return
+    }
+    // Devis : réservé aux internes (les externes n'ont pas l'éditeur)
+    const devisId = isInternal ? devisIdFromNotif(n.data, n.link_web) : null
+    if (devisId) openDevisFromPush(devisId)
   }
 
   const { aujourdhui, hier, plusVieux } = useMemo(() => {
@@ -83,6 +102,7 @@ export default function NotificationsScreen() {
                     key={n.id}
                     notif={n}
                     index={runningIndex++}
+                    canOpenDevis={isInternal}
                     onPress={() => handlePress(n)}
                     onDelete={() => deleteNotif(n.id)}
                   />
@@ -108,12 +128,13 @@ export default function NotificationsScreen() {
   )
 }
 
-function NotifRow({ notif, index, onPress, onDelete }) {
+function NotifRow({ notif, index, canOpenDevis, onPress, onDelete }) {
   const entrance = useListEntrance(index)
   const meta = TYPE_META[notif.type] ?? TYPE_META.creneau_assigne
   const tint = statusTint[meta.tone]
   const isUnread = !notif.lu
   const hasCreneau = !!(notif.data?.creneau_id || notif.deep_link)
+  const hasDevis = !hasCreneau && canOpenDevis && !!devisIdFromNotif(notif.data, notif.link_web)
 
   return (
     <Animated.View style={entrance}>
@@ -134,8 +155,9 @@ function NotifRow({ notif, index, onPress, onDelete }) {
           <Text style={styles.titre} numberOfLines={1}>{notif.titre}</Text>
           {!!notif.corps && <Text style={styles.corps} numberOfLines={2}>{notif.corps}</Text>}
           <Text style={styles.time}>
+            {notif.data?.project_title ? `${notif.data.project_title}  ·  ` : ''}
             {formatRelatif(notif.created_at)}
-            {hasCreneau ? '  ·  Voir le créneau ›' : ''}
+            {hasCreneau ? '  ·  Voir le créneau ›' : hasDevis ? '  ·  Voir le devis ›' : ''}
           </Text>
         </View>
         <Pressable onPress={onDelete} hitSlop={10} style={styles.deleteBtn}>
