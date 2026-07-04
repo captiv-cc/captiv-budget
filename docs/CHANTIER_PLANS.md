@@ -37,7 +37,7 @@ vue par focale, échelle, cotations.
 
 | Décision | Valeur |
 |---|---|
-| Canvas | **tldraw v5** (Apache 2 → licence *"tldraw"* watermark par défaut ; React, undo/redo, layers, export image intégrés). PAS de Fabric.js / canvas custom. |
+| Canvas | **tldraw v5** — licence SDK tldraw (PAS Apache 2 contrairement au cadrage initial) : gratuit avec watermark « Made with tldraw », y compris en usage commercial, fonctionnalités complètes. **Décision Hugo 2026-07-05 : on garde le watermark** (pas de budget licence). PAS de Fabric.js / canvas custom. |
 | Collab | **Yjs + Supabase Realtime broadcast** — réutilise `useYjsCollab` (pattern Notes déroulé). `y-tldraw` **n'existe pas sur npm** → bridge custom ~100 lignes sur le modèle officiel `tldraw/tldraw-yjs-example` (`store.listen` ↔ `Y.Map` de records). |
 | Storage fonds | Bucket `plans` existant (privé, signed URLs) — rien à créer. |
 | Import | PNG/JPG natif, PDF rasterisé via pdf.js (déjà dans le projet). Pas de DWG/DXF en V1. |

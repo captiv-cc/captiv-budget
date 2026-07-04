@@ -54,11 +54,13 @@ export class ItemShapeUtil extends BaseBoxShapeUtil {
             <div
               style={{
                 marginTop: 2,
-                fontSize: 11,
-                fontWeight: 600,
+                fontSize: Math.max(10, Math.round(h * 0.17)),
+                fontWeight: 700,
                 color: couleur,
                 whiteSpace: 'nowrap',
-                textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                // Halo blanc : lisible sur fond de plan clair.
+                textShadow:
+                  '0 0 3px rgba(255,255,255,0.9), 0 0 3px rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.35)',
               }}
             >
               {label}

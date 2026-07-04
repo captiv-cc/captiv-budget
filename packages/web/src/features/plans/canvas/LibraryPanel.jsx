@@ -1,21 +1,27 @@
 // ════════════════════════════════════════════════════════════════════════════
-// LibraryPanel — bibliothèque d'éléments Captiv (panneau gauche de l'éditeur)
+// LibraryPanel — bibliothèque d'éléments Captiv (sidebar gauche de l'éditeur)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Rendu DANS le contexte <Tldraw> (useEditor). Clic sur un item → placé au
-// centre du viewport, sélectionné, prêt à déplacer. Caméras → shape
-// 'captiv-camera' (numéro auto) ; le reste → 'captiv-item'.
+// Colonne fixe HORS canvas (l'instance editor arrive en prop, posée au
+// onMount) : plus aucune collision avec l'UI native tldraw. Clic sur un item
+// → placé au centre du viewport à une taille proportionnelle au zoom,
+// sélectionné, prêt à déplacer. Caméras → 'captiv-camera' (numéro auto) ;
+// le reste → 'captiv-item'.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState } from 'react'
-import { useEditor, createShapeId } from 'tldraw'
+import { createShapeId } from 'tldraw'
 import { ChevronDown, ChevronRight, Search, Shapes, X } from 'lucide-react'
 import { CATALOG, Glyph, focaleToAngleDeg } from './shapes/catalog'
-import { CAMERA_SHAPE_TYPE, CAMERA_DEFAULT_H } from './shapes/CameraShapeUtil'
+import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
 
-export default function LibraryPanel() {
-  const editor = useEditor()
+// Tailles du catalogue calibrées pour un viewport de référence ~900px de
+// haut ; à la pose on met à l'échelle du viewport courant (fonds énormes ou
+// zoom fort → éléments toujours exploitables).
+const REF_VIEWPORT_H = 900
+
+export default function LibraryPanel({ editor }) {
   const [open, setOpen] = useState(true)
   const [search, setSearch] = useState('')
   const [openCats, setOpenCats] = useState(() => new Set(['cameras', 'lumiere']))
@@ -30,8 +36,12 @@ export default function LibraryPanel() {
   }
 
   function placeItem(item, layer) {
-    const center = editor.getViewportPageBounds().center
+    if (!editor) return
+    const viewport = editor.getViewportPageBounds()
+    const center = viewport.center
     const id = createShapeId()
+    // Facteur d'échelle : proportionnel à la hauteur visible du plan.
+    const k = Math.max(0.4, viewport.height / REF_VIEWPORT_H)
 
     if (item.isCamera) {
       // Numéro auto : max des numéros de caméras existantes + 1.
@@ -40,7 +50,8 @@ export default function LibraryPanel() {
         .filter((s) => s.type === CAMERA_SHAPE_TYPE)
       const numero = cams.reduce((m, s) => Math.max(m, s.props.numero || 0), 0) + 1
       const focale = 35
-      const h = CAMERA_DEFAULT_H
+      // Cône ≈ 18% de la hauteur visible.
+      const h = Math.round(viewport.height * 0.18)
       const w = Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
       editor.createShape({
         id,
@@ -51,15 +62,17 @@ export default function LibraryPanel() {
         props: { w, h, modele: item.label, focale, couleur: item.color, numero },
       })
     } else {
+      const w = Math.round((item.w || 60) * k)
+      const h = Math.round((item.h || 60) * k)
       editor.createShape({
         id,
         type: ITEM_SHAPE_TYPE,
-        x: center.x - (item.w || 60) / 2,
-        y: center.y - (item.h || 60) / 2,
+        x: center.x - w / 2,
+        y: center.y - h / 2,
         meta: { layer },
         props: {
-          w: item.w || 60,
-          h: item.h || 60,
+          w,
+          h,
           kind: item.kind,
           label: item.label,
           couleur: item.color,
@@ -78,23 +91,24 @@ export default function LibraryPanel() {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="absolute left-3 top-16 z-[300] flex items-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-lg"
-        style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-        title="Bibliothèque d'éléments"
-      >
-        <Shapes className="w-4 h-4" />
-        Bibliothèque
-      </button>
+      <div className="h-full flex flex-col shrink-0" style={{ borderRight: '1px solid var(--brd)', background: 'var(--bg-elev)' }}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="p-2.5"
+          style={{ color: 'var(--txt-2)' }}
+          title="Ouvrir la bibliothèque"
+        >
+          <Shapes className="w-4 h-4" />
+        </button>
+      </div>
     )
   }
 
   return (
     <div
-      className="absolute left-3 top-16 bottom-16 z-[300] w-52 flex flex-col rounded-xl overflow-hidden"
-      style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)' }}
+      className="h-full w-52 flex flex-col shrink-0 overflow-hidden"
+      style={{ background: 'var(--bg-elev)', borderRight: '1px solid var(--brd)' }}
     >
       <div className="flex items-center gap-2 px-3 py-2.5 shrink-0" style={{ borderBottom: '1px solid var(--brd)' }}>
         <Shapes className="w-4 h-4" style={{ color: 'var(--blue)' }} />

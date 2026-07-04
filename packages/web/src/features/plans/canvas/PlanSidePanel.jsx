@@ -1,8 +1,9 @@
 // ════════════════════════════════════════════════════════════════════════════
-// PlanSidePanel — panneau droit de l'éditeur : Layers | Propriétés
+// PlanSidePanel — sidebar droite de l'éditeur : Layers | Propriétés
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Rendu DANS le contexte <Tldraw>.
+// Colonne fixe HORS canvas (editor en prop, posé au onMount) : le panneau de
+// styles natif tldraw garde son coin haut-droit du canvas sans collision.
 //
 // Layers : couches fixes (catalog.LAYERS), assignées par meta.layer à la
 // création des shapes. Visibilité = meta.hidden sur chaque shape de la
@@ -15,7 +16,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState } from 'react'
-import { useEditor, useValue } from 'tldraw'
+import { useValue } from 'tldraw'
 import { Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon } from 'lucide-react'
 import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
@@ -23,16 +24,15 @@ import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
 
 const COULEURS = ['#4d9fff', '#ffce00', '#9c5ffd', '#ff5ac4', '#00c875', '#ff9f0a', '#ff4757', '#a8a8a8']
 
-export default function PlanSidePanel() {
-  const editor = useEditor()
+export default function PlanSidePanel({ editor }) {
   const [tab, setTab] = useState('layers')
 
   const selected = useValue('selection', () => editor.getSelectedShapes(), [editor])
 
   return (
     <div
-      className="absolute right-3 top-16 z-[300] w-60 rounded-xl overflow-hidden flex flex-col"
-      style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', maxHeight: 'calc(100% - 8rem)' }}
+      className="h-full w-60 shrink-0 overflow-hidden flex flex-col"
+      style={{ background: 'var(--bg-elev)', borderLeft: '1px solid var(--brd)' }}
     >
       {/* Tabs */}
       <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--brd)' }}>

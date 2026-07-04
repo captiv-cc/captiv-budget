@@ -51,7 +51,11 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
 
   component(shape) {
     const { w, h, couleur, showCone, numero, label, modele } = shape.props
-    const badge = 26
+    // Tailles proportionnelles au cône : lisible sur un petit croquis comme
+    // sur un fond de plan de 3000px (badge ~11% de la hauteur, bornés).
+    const badge = Math.max(22, Math.min(64, Math.round(h * 0.11)))
+    const fontBadge = Math.round(badge * 0.46)
+    const fontLabel = Math.max(11, Math.round(badge * 0.42))
     const apexX = w / 2
     const apexY = h
     const texte = label || `Cam ${numero}${modele ? ` / ${modele}` : ''}`
@@ -68,11 +72,11 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
             <path
               d={`M ${apexX} ${apexY} L 0 0 L ${w} 0 Z`}
               fill={couleur}
-              fillOpacity="0.14"
+              fillOpacity="0.22"
               stroke={couleur}
-              strokeOpacity="0.55"
-              strokeWidth="1.5"
-              strokeDasharray="5 4"
+              strokeOpacity="0.85"
+              strokeWidth={Math.max(1.5, badge * 0.08)}
+              strokeDasharray={`${badge * 0.3} ${badge * 0.22}`}
             />
           )}
           <circle
@@ -81,13 +85,13 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
             r={badge / 2}
             fill={couleur}
             stroke="#ffffff"
-            strokeWidth="2"
+            strokeWidth={Math.max(2, badge * 0.09)}
           />
           <text
             x={apexX}
-            y={apexY - badge / 2 + 4}
+            y={apexY - badge / 2 + fontBadge * 0.36}
             textAnchor="middle"
-            fontSize="12"
+            fontSize={fontBadge}
             fontWeight="700"
             fill="#ffffff"
           >
@@ -95,12 +99,18 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
           </text>
           <text
             x={apexX}
-            y={apexY + 14}
+            y={apexY + fontLabel + 4}
             textAnchor="middle"
-            fontSize="11"
-            fontWeight="600"
+            fontSize={fontLabel}
+            fontWeight="700"
             fill={couleur}
-            style={{ paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.55)', strokeWidth: 3 }}
+            style={{
+              // Halo double (blanc épais) : lisible sur fond de plan clair
+              // comme sur canvas sombre.
+              paintOrder: 'stroke',
+              stroke: 'rgba(255,255,255,0.9)',
+              strokeWidth: fontLabel * 0.35,
+            }}
           >
             {texte}
           </text>

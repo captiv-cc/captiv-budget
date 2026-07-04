@@ -35,6 +35,17 @@ function getShapeVisibility(shape) {
   return shape.meta?.hidden ? 'hidden' : 'inherit'
 }
 
+// UI native élaguée : le menu principal fait doublon avec notre top bar
+// (export, etc.). On garde la toolbar, le zoom, les pages (multi-configs
+// J1/J2), les quick actions (undo/redo) et le StylePanel (couleurs du dessin
+// libre — plus de collision depuis que nos panneaux sont hors canvas).
+const TLDRAW_COMPONENTS = {
+  MainMenu: null,
+  HelpMenu: null,
+  DebugMenu: null,
+  DebugPanel: null,
+}
+
 export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   const { user, org } = useAuth()
   const [canvas, setCanvas] = useState(null)
@@ -125,9 +136,11 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
 
   // ── Montage tldraw : lecture seule + insertion du fond ────────────────────
   const editorRef = useRef(null)
+  const [editorInstance, setEditorInstance] = useState(null)
   const handleMount = useCallback(
     (editor) => {
       editorRef.current = editor
+      setEditorInstance(editor)
       if (readOnly) {
         editor.updateInstanceState({ isReadonly: true })
         return
@@ -363,31 +376,35 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className="flex-1 relative">
-        {loadError ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-sm" style={{ color: 'var(--red)' }}>
-              Impossible de charger le plan : {loadError}
+      {/* Corps : bibliothèque | canvas | layers-propriétés */}
+      <div className="flex-1 flex min-h-0">
+        {!readOnly && editorInstance && <LibraryPanel editor={editorInstance} />}
+
+        <div className="flex-1 relative min-w-0">
+          {loadError ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-sm" style={{ color: 'var(--red)' }}>
+                Impossible de charger le plan : {loadError}
+              </div>
             </div>
-          </div>
-        ) : !canvas ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--txt-3)' }}>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Chargement du plan…
-          </div>
-        ) : (
-          <Tldraw
-            store={store}
-            shapeUtils={CUSTOM_SHAPE_UTILS}
-            getShapeVisibility={getShapeVisibility}
-            inferDarkMode
-            onMount={handleMount}
-          >
-            {!readOnly && <LibraryPanel />}
-            {!readOnly && <PlanSidePanel />}
-          </Tldraw>
-        )}
+          ) : !canvas ? (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm" style={{ color: 'var(--txt-3)' }}>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Chargement du plan…
+            </div>
+          ) : (
+            <Tldraw
+              store={store}
+              shapeUtils={CUSTOM_SHAPE_UTILS}
+              getShapeVisibility={getShapeVisibility}
+              components={TLDRAW_COMPONENTS}
+              inferDarkMode
+              onMount={handleMount}
+            />
+          )}
+        </div>
+
+        {!readOnly && editorInstance && <PlanSidePanel editor={editorInstance} />}
       </div>
     </div>
   )
