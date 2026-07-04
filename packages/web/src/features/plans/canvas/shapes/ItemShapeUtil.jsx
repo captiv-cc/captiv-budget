@@ -69,7 +69,11 @@ export class ItemShapeUtil extends BaseBoxShapeUtil {
     )
   }
 
-  indicator(shape) {
-    return <rect width={shape.props.w} height={shape.props.h} />
+  // tldraw v5 : l'indicateur de sélection est un Path2D (indicator() JSX est
+  // déprécié et n'est plus rendu).
+  getIndicatorPath(shape) {
+    const path = new Path2D()
+    path.rect(0, 0, shape.props.w, shape.props.h)
+    return path
   }
 }
