@@ -110,6 +110,24 @@ function LayersTab({ editor }) {
     })
   }
 
+  // Opacité par couche : pilote la prop native `opacity` de chaque shape
+  // (0.1 → 1). Cas d'usage principal : atténuer le fond de plan pour faire
+  // ressortir le dispositif.
+  function setLayerOpacity(layerKey, opacity) {
+    const shapes = byLayer.get(layerKey) || []
+    if (!shapes.length) return
+    editor.run(() => {
+      shapes.forEach((s) => {
+        if (s.isLocked) {
+          editor.updateShape({ id: s.id, type: s.type, isLocked: false })
+          editor.updateShape({ id: s.id, type: s.type, opacity, isLocked: true })
+        } else {
+          editor.updateShape({ id: s.id, type: s.type, opacity })
+        }
+      })
+    })
+  }
+
   return (
     <div className="py-1">
       {LAYERS.map((layer) => {
@@ -117,36 +135,57 @@ function LayersTab({ editor }) {
         const count = shapes.length
         const allHidden = count > 0 && shapes.every((s) => s.meta?.hidden)
         const allLocked = count > 0 && shapes.every((s) => s.isLocked)
+        const opacity = count > 0 ? (shapes[0].opacity ?? 1) : 1
         return (
           <div
             key={layer.key}
-            className="flex items-center gap-1.5 px-3 py-2"
+            className="px-3 py-1.5"
             style={{ opacity: count === 0 ? 0.45 : 1 }}
           >
-            <button
-              type="button"
-              onClick={() => setLayerHidden(layer.key, !allHidden)}
-              disabled={count === 0}
-              title={allHidden ? 'Afficher' : 'Masquer'}
-              style={{ color: allHidden ? 'var(--txt-3)' : 'var(--txt-2)' }}
-            >
-              {allHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setLayerLocked(layer.key, !allLocked)}
-              disabled={count === 0}
-              title={allLocked ? 'Déverrouiller' : 'Verrouiller'}
-              style={{ color: allLocked ? 'var(--orange, #ff9f0a)' : 'var(--txt-3)' }}
-            >
-              {allLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
-            </button>
-            <span className="flex-1 text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
-              {layer.label}
-            </span>
-            <span className="text-[11px] font-semibold" style={{ color: 'var(--txt-3)' }}>
-              {count || ''}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setLayerHidden(layer.key, !allHidden)}
+                disabled={count === 0}
+                title={allHidden ? 'Afficher' : 'Masquer'}
+                style={{ color: allHidden ? 'var(--txt-3)' : 'var(--txt-2)' }}
+              >
+                {allHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLayerLocked(layer.key, !allLocked)}
+                disabled={count === 0}
+                title={allLocked ? 'Déverrouiller' : 'Verrouiller'}
+                style={{ color: allLocked ? 'var(--orange, #ff9f0a)' : 'var(--txt-3)' }}
+              >
+                {allLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
+              </button>
+              <span className="flex-1 text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                {layer.label}
+              </span>
+              {count > 0 && opacity < 1 && (
+                <span className="text-[10px] font-semibold" style={{ color: 'var(--txt-3)' }}>
+                  {Math.round(opacity * 100)}%
+                </span>
+              )}
+              <span className="text-[11px] font-semibold" style={{ color: 'var(--txt-3)' }}>
+                {count || ''}
+              </span>
+            </div>
+            {count > 0 && (
+              <input
+                type="range"
+                min="10"
+                max="100"
+                step="5"
+                value={Math.round(opacity * 100)}
+                onChange={(e) => setLayerOpacity(layer.key, Number(e.target.value) / 100)}
+                className="w-full mt-1"
+                style={{ accentColor: 'var(--blue)', height: 3 }}
+                title={`Opacité ${layer.label}`}
+              />
+            )}
           </div>
         )
       })}
