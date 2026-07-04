@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Tldraw } from 'tldraw'
+import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { ArrowLeft, Download, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
@@ -35,6 +35,26 @@ function getShapeVisibility(shape) {
   return shape.meta?.hidden ? 'hidden' : 'inherit'
 }
 
+// StylePanel contextuel : pour une sélection 100% Captiv (caméras/items),
+// le panneau natif se réduirait à un slider d'opacité orphelin → on le
+// masque (nos Propriétés font le travail). Il reste pour le dessin libre.
+function CaptivStylePanel(props) {
+  const editor = useEditor()
+  const onlyCaptiv = useValue(
+    'selection-only-captiv',
+    () => {
+      const sel = editor.getSelectedShapes()
+      return (
+        sel.length > 0 &&
+        sel.every((s) => s.type === CameraShapeUtil.type || s.type === ItemShapeUtil.type)
+      )
+    },
+    [editor],
+  )
+  if (onlyCaptiv) return null
+  return <DefaultStylePanel {...props} />
+}
+
 // UI native élaguée : le menu principal fait doublon avec notre top bar
 // (export, etc.). On garde la toolbar, le zoom, les pages (multi-configs
 // J1/J2), les quick actions (undo/redo) et le StylePanel (couleurs du dessin
@@ -44,6 +64,7 @@ const TLDRAW_COMPONENTS = {
   HelpMenu: null,
   DebugMenu: null,
   DebugPanel: null,
+  StylePanel: CaptivStylePanel,
 }
 
 export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
