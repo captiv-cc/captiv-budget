@@ -180,6 +180,7 @@ export async function ensureFondShape(editor, fondRow) {
     type: 'image',
     x: 0,
     y: 0,
+    meta: { layer: 'fond' },
     props: { w: media.w, h: media.h, assetId: FOND_ASSET_ID },
   })
   editor.sendToBack([FOND_SHAPE_ID])

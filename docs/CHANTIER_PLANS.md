@@ -160,9 +160,29 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
 - [ ] Changement de fond en cours de session non répercuté live (réouvrir) —
       accepté pour l'instant
 
-**Phase 2 (3-4 sem, MVP)** — bibliothèque Captiv (~30 icônes) en shapes
-custom, layers (visibility/lock), panel propriétés, export PDF, preview
-miniature (snapshot au save), liste enrichie.
+**Phase 2** ✅ première passe livrée (2026-07-05) — cible UX = mockup Hugo
+- [x] Shapes custom : `captiv-camera` (cône de vue = géométrie de la box,
+      apex bas-centre, focale → largeur via FOV plein format, badge numéroté
+      auto, rotation native) et `captiv-item` (glyphe par kind + label)
+- [x] Catalogue ~32 éléments (shapes/catalog.jsx) : caméras (FX6, FX3, A7S,
+      drone, Ronin, jib, épaule), lumière, son, personnes, structures,
+      régie, signalétique — glyphes SVG schématiques (vraies icônes en V2)
+- [x] LibraryPanel gauche (catégories, recherche, clic → placé au centre)
+- [x] PlanSidePanel droit : onglets Layers | Propriétés + résumé sélection
+      caméra (focale, angle) comme le mockup
+- [x] Layers fixes par meta.layer (fond/zones/caméras/éclairage/son/
+      personnes/structures/annotations) : œil = meta.hidden (via
+      getShapeVisibility) et cadenas = isLocked — états DANS les shapes donc
+      partagés en collab et persistés (comportement Figma)
+- [x] Propriétés caméra : label, modèle, focale presets (14→135mm, recalcule
+      le cône), couleur, cône on/off ; item : label, couleur
+- [x] Export PNG (toImage ×2) et PDF A4 (jspdf, déjà dans le projet)
+- [x] Miniature : JPEG dataURL (~480px) généré à la fermeture de l'éditeur
+      → plans_canvas.snapshot_svg (colonne réutilisée, contenu dataURL) →
+      affichée dans les cards de la liste
+- [ ] Reste Phase 2+ : drag-drop depuis la bibliothèque (clic-placement en
+      V1), curseurs collaborateurs nommés sur le canvas, "Nouveau layer"
+      libre, vraies icônes designées, bouton Versions (snapshots figés)
 
 **Phase 3 (Client)** — tokens de partage, route publique + Edge Function,
 commentaires ancrés realtime, bouton Valider, PDF avec légende.

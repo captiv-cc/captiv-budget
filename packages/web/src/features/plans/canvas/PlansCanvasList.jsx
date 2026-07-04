@@ -172,6 +172,20 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--brd-hov, var(--txt-3))' }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--brd)' }}
               >
+                {/* Miniature (générée à la fermeture de l'éditeur) */}
+                {row.snapshot_svg?.startsWith('data:image') && (
+                  <div
+                    className="mb-2.5 rounded-lg overflow-hidden flex items-center justify-center"
+                    style={{ background: '#fff', height: 110, border: '1px solid var(--brd)' }}
+                  >
+                    <img
+                      src={row.snapshot_svg}
+                      alt=""
+                      className="max-w-full max-h-full object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
                 <div className="flex items-start gap-2.5">
                   <div
                     className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"

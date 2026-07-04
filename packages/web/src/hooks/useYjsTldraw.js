@@ -57,11 +57,20 @@ export function encodeDocState(doc) {
  *                                          ou distant) pour déclencher l'autosave
  * @param {object}  [opts.assetStore]    — TLAssetStore custom (upload/resolve),
  *                                          cf. makeCaptivAssetStore
+ * @param {Array}   [opts.extraShapeUtils] — ShapeUtils custom (caméra, items…),
+ *                                          à passer aussi à <Tldraw shapeUtils>
  * @param {boolean} [opts.enabled=true]
  *
  * @returns {{ store, doc, status, peers, myUserMeta }}
  */
-export function useYjsTldraw({ canvasId, initialStateB64, onDirty, assetStore, enabled = true }) {
+export function useYjsTldraw({
+  canvasId,
+  initialStateB64,
+  onDirty,
+  assetStore,
+  extraShapeUtils,
+  enabled = true,
+}) {
   const { doc, status, peers, myUserMeta } = useYjsCollab({
     docId: canvasId,
     scope: 'plan-canvas',
@@ -69,11 +78,11 @@ export function useYjsTldraw({ canvasId, initialStateB64, onDirty, assetStore, e
   })
 
   // Un TLStore par canvas. Recréé si on change de plan (clé = canvasId).
-  // assetStore volontairement hors deps : figé à la création du store.
+  // assetStore / extraShapeUtils volontairement hors deps : figés à la création.
   const store = useMemo(
     () =>
       createTLStore({
-        shapeUtils: [...defaultShapeUtils],
+        shapeUtils: [...defaultShapeUtils, ...(extraShapeUtils || [])],
         bindingUtils: [...defaultBindingUtils],
         ...(assetStore ? { assets: assetStore } : {}),
       }),

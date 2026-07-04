@@ -15,15 +15,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
 import { makeCaptivAssetStore, ensureFondShape } from '../../../lib/plansCanvasFond'
 import { useYjsTldraw, encodeDocState } from '../../../hooks/useYjsTldraw'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
+import { CameraShapeUtil } from './shapes/CameraShapeUtil'
+import { ItemShapeUtil } from './shapes/ItemShapeUtil'
+import LibraryPanel from './LibraryPanel'
+import PlanSidePanel from './PlanSidePanel'
 
 const AUTOSAVE_MS = 2000
+const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil]
+
+// Visibilité par couche : meta.hidden posé par le panneau Layers.
+function getShapeVisibility(shape) {
+  return shape.meta?.hidden ? 'hidden' : 'inherit'
+}
 
 export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   const { user, org } = useAuth()
@@ -107,14 +117,17 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     initialStateB64: canvas?.ydoc_state || null,
     onDirty,
     assetStore,
+    extraShapeUtils: CUSTOM_SHAPE_UTILS,
     // On attend d'avoir chargé la row pour ne pas rater la restauration.
     enabled: Boolean(canvas),
   })
   docRef.current = doc
 
   // ── Montage tldraw : lecture seule + insertion du fond ────────────────────
+  const editorRef = useRef(null)
   const handleMount = useCallback(
     (editor) => {
+      editorRef.current = editor
       if (readOnly) {
         editor.updateInstanceState({ isReadonly: true })
         return
@@ -130,6 +143,71 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     },
     [readOnly],
   )
+
+  // ── Export PNG / PDF ───────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false)
+
+  async function exportImage() {
+    const editor = editorRef.current
+    const ids = editor ? [...editor.getCurrentPageShapeIds()] : []
+    if (!ids.length) {
+      notify.error('Rien à exporter : le plan est vide')
+      return null
+    }
+    const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: 2, padding: 24 })
+    return blob
+  }
+
+  async function handleExport(format) {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const blob = await exportImage()
+      if (!blob) return
+      const nomFichier = (canvas?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
+      if (format === 'png') {
+        triggerDownload(URL.createObjectURL(blob), `${nomFichier}.png`)
+      } else {
+        const { jsPDF } = await import('jspdf')
+        const dataUrl = await blobToDataURL(blob)
+        const img = await loadImg(dataUrl)
+        const landscape = img.width >= img.height
+        const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
+        const pw = pdf.internal.pageSize.getWidth()
+        const ph = pdf.internal.pageSize.getHeight()
+        const margin = 8
+        const ratio = Math.min((pw - margin * 2) / img.width, (ph - margin * 2) / img.height)
+        const w = img.width * ratio
+        const h = img.height * ratio
+        pdf.addImage(dataUrl, 'PNG', (pw - w) / 2, (ph - h) / 2, w, h)
+        pdf.save(`${nomFichier}.pdf`)
+      }
+    } catch (err) {
+      notify.error('Export échoué : ' + (err?.message || err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // ── Fermeture : miniature (dataURL jpeg) + flush save ─────────────────────
+  async function handleClose() {
+    const editor = editorRef.current
+    if (!readOnly && editor) {
+      try {
+        const ids = [...editor.getCurrentPageShapeIds()]
+        if (ids.length) {
+          const bounds = editor.getCurrentPageBounds()
+          const scale = Math.min(1, 480 / Math.max(bounds?.width || 480, bounds?.height || 480))
+          const { blob } = await editor.toImage(ids, { format: 'jpeg', background: true, scale, quality: 0.8 })
+          const dataUrl = await blobToDataURL(blob)
+          await updateCanvas(canvasId, { snapshot_svg: dataUrl, updated_by: user?.id })
+        }
+      } catch {
+        // Miniature best-effort : ne bloque jamais la fermeture.
+      }
+    }
+    onClose()
+  }
 
   // ── Renommage + catégorie (top bar) ────────────────────────────────────────
   async function saveTitle(next) {
@@ -162,7 +240,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors"
           style={{ color: 'var(--txt-2)' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hov)' }}
@@ -214,6 +292,32 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
                 ))}
             </select>
           )}
+        </div>
+
+        {/* Export */}
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleExport('png')}
+            disabled={exporting}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+            style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)', opacity: exporting ? 0.6 : 1 }}
+            title="Exporter en PNG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            PNG
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport('pdf')}
+            disabled={exporting}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+            style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)', opacity: exporting ? 0.6 : 1 }}
+            title="Exporter en PDF"
+          >
+            <Download className="w-3.5 h-3.5" />
+            PDF
+          </button>
         </div>
 
         {/* Présence */}
@@ -273,11 +377,50 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             Chargement du plan…
           </div>
         ) : (
-          <Tldraw store={store} inferDarkMode onMount={handleMount} />
+          <Tldraw
+            store={store}
+            shapeUtils={CUSTOM_SHAPE_UTILS}
+            getShapeVisibility={getShapeVisibility}
+            inferDarkMode
+            onMount={handleMount}
+          >
+            {!readOnly && <LibraryPanel />}
+            {!readOnly && <PlanSidePanel />}
+          </Tldraw>
         )}
       </div>
     </div>
   )
 
   return createPortal(body, document.body)
+}
+
+/* ─── Helpers export ─────────────────────────────────────────────────────── */
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+function loadImg(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
 }
