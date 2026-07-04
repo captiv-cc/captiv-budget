@@ -56,9 +56,21 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
     const badge = Math.max(22, Math.min(64, Math.round(h * 0.11)))
     const fontBadge = Math.round(badge * 0.46)
     const fontLabel = Math.max(11, Math.round(badge * 0.42))
+    const traitCone = Math.max(1.5, badge * 0.07)
     const apexX = w / 2
     const apexY = h
+    const badgeCy = apexY - badge / 2
     const texte = label || `Cam ${numero}${modele ? ` / ${modele}` : ''}`
+
+    // Pastille label : fond plein couleur + texte blanc (lisible sur plan
+    // dense), largeur approximée depuis la longueur du texte.
+    const pillW = Math.round(texte.length * fontLabel * 0.62 + fontLabel * 1.4)
+    const pillH = Math.round(fontLabel * 1.7)
+    const pillY = apexY + badge * 0.25
+
+    // Le texte ne doit JAMAIS tourner avec la caméra : contre-rotation du
+    // groupe badge+pastille autour du centre du badge.
+    const deg = ((shape.rotation || 0) * 180) / Math.PI
 
     return (
       <HTMLContainer style={{ pointerEvents: 'all' }}>
@@ -69,51 +81,66 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
           style={{ position: 'absolute', inset: 0, overflow: 'visible' }}
         >
           {showCone && (
-            <path
-              d={`M ${apexX} ${apexY} L 0 0 L ${w} 0 Z`}
-              fill={couleur}
-              fillOpacity="0.22"
-              stroke={couleur}
-              strokeOpacity="0.85"
-              strokeWidth={Math.max(1.5, badge * 0.08)}
-              strokeDasharray={`${badge * 0.3} ${badge * 0.22}`}
-            />
+            <g>
+              {/* Liseré blanc sous le trait couleur : contraste sur les
+                  zones denses du fond de plan. */}
+              <path
+                d={`M ${apexX} ${apexY} L 0 0 L ${w} 0 Z`}
+                fill={couleur}
+                fillOpacity="0.22"
+                stroke="#ffffff"
+                strokeOpacity="0.9"
+                strokeWidth={traitCone * 2.2}
+              />
+              <path
+                d={`M ${apexX} ${apexY} L 0 0 L ${w} 0 Z`}
+                fill="none"
+                stroke={couleur}
+                strokeWidth={traitCone}
+                strokeDasharray={`${badge * 0.3} ${badge * 0.22}`}
+              />
+            </g>
           )}
-          <circle
-            cx={apexX}
-            cy={apexY - badge / 2}
-            r={badge / 2}
-            fill={couleur}
-            stroke="#ffffff"
-            strokeWidth={Math.max(2, badge * 0.09)}
-          />
-          <text
-            x={apexX}
-            y={apexY - badge / 2 + fontBadge * 0.36}
-            textAnchor="middle"
-            fontSize={fontBadge}
-            fontWeight="700"
-            fill="#ffffff"
-          >
-            {numero}
-          </text>
-          <text
-            x={apexX}
-            y={apexY + fontLabel + 4}
-            textAnchor="middle"
-            fontSize={fontLabel}
-            fontWeight="700"
-            fill={couleur}
-            style={{
-              // Halo double (blanc épais) : lisible sur fond de plan clair
-              // comme sur canvas sombre.
-              paintOrder: 'stroke',
-              stroke: 'rgba(255,255,255,0.9)',
-              strokeWidth: fontLabel * 0.35,
-            }}
-          >
-            {texte}
-          </text>
+          <g transform={`rotate(${-deg} ${apexX} ${badgeCy})`}>
+            <circle
+              cx={apexX}
+              cy={badgeCy}
+              r={badge / 2}
+              fill={couleur}
+              stroke="#ffffff"
+              strokeWidth={Math.max(2, badge * 0.09)}
+            />
+            <text
+              x={apexX}
+              y={badgeCy + fontBadge * 0.36}
+              textAnchor="middle"
+              fontSize={fontBadge}
+              fontWeight="700"
+              fill="#ffffff"
+            >
+              {numero}
+            </text>
+            <rect
+              x={apexX - pillW / 2}
+              y={pillY}
+              width={pillW}
+              height={pillH}
+              rx={pillH / 2}
+              fill={couleur}
+              stroke="#ffffff"
+              strokeWidth={Math.max(1.5, badge * 0.05)}
+            />
+            <text
+              x={apexX}
+              y={pillY + pillH / 2 + fontLabel * 0.36}
+              textAnchor="middle"
+              fontSize={fontLabel}
+              fontWeight="700"
+              fill="#ffffff"
+            >
+              {texte}
+            </text>
+          </g>
         </svg>
       </HTMLContainer>
     )

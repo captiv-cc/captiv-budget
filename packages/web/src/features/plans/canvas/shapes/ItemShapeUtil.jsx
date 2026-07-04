@@ -35,6 +35,9 @@ export class ItemShapeUtil extends BaseBoxShapeUtil {
   component(shape) {
     const { w, h, kind, label, couleur } = shape.props
     const cat = catalogItem(kind)
+    const fontLabel = Math.max(10, Math.round(h * 0.17))
+    // Le label ne tourne pas avec l'élément (contre-rotation).
+    const deg = ((shape.rotation || 0) * 180) / Math.PI
     return (
       <HTMLContainer style={{ pointerEvents: 'all' }}>
         <div
@@ -47,20 +50,32 @@ export class ItemShapeUtil extends BaseBoxShapeUtil {
             overflow: 'visible',
           }}
         >
-          <div style={{ width: w, height: h }}>
+          <div
+            style={{
+              width: w,
+              height: h,
+              // Halo blanc derrière le glyphe : détache l'icône des zones
+              // denses du fond de plan.
+              filter:
+                'drop-shadow(0 0 2px rgba(255,255,255,0.9)) drop-shadow(0 0 5px rgba(255,255,255,0.7))',
+            }}
+          >
             <Glyph glyph={cat?.glyph} color={couleur} label={label} />
           </div>
           {label ? (
             <div
               style={{
-                marginTop: 2,
-                fontSize: Math.max(10, Math.round(h * 0.17)),
+                marginTop: 3,
+                transform: `rotate(${-deg}deg)`,
+                fontSize: fontLabel,
                 fontWeight: 700,
-                color: couleur,
+                color: '#fff',
+                background: couleur,
+                border: '1.5px solid rgba(255,255,255,0.9)',
+                borderRadius: fontLabel,
+                padding: `${Math.round(fontLabel * 0.18)}px ${Math.round(fontLabel * 0.65)}px`,
                 whiteSpace: 'nowrap',
-                // Halo blanc : lisible sur fond de plan clair.
-                textShadow:
-                  '0 0 3px rgba(255,255,255,0.9), 0 0 3px rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.35)',
+                lineHeight: 1.25,
               }}
             >
               {label}
