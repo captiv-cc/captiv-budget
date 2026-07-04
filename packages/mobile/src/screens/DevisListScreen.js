@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   versionBadge: {
-    backgroundColor: 'rgba(59,130,246,0.14)',
+    backgroundColor: colors.brand.blueBg,
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,

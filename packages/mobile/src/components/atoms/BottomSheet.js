@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   },
   sheetSurface: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,22,0.85)' : '#141416',
+    backgroundColor: Platform.OS === 'ios' ? colors.glass.dialog : '#141416',
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
     borderWidth: 0.5,
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: colors.glass.insetHighlightStrong,
   },
   content: {
     flex: 1,

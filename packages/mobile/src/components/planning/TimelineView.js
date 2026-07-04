@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     height: HEADER_HEIGHT,
     borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: colors.glass.border,
   },
   laneHead: {
     paddingHorizontal: 6,
@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.glass.borderSubtle,
   },
   laneCol: {
     position: 'absolute',

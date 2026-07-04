@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: colors.glass.insetHighlightStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },

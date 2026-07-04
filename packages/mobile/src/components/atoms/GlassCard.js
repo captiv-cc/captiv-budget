@@ -62,7 +62,7 @@ export default function GlassCard({
       style={[
         styles.wrapper,
         surfaceStyle,
-        { backgroundColor: 'rgba(20,20,22,0.85)' },
+        { backgroundColor: colors.glass.dialog },
         style,
       ]}
       {...rest}

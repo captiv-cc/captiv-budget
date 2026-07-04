@@ -7,11 +7,12 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
-import { View, Text, Pressable, ScrollView, StyleSheet, Linking } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, Linking } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { BottomSheet, Avatar } from '../components/atoms'
-import { colors, fontWeight, spacing, radius } from '../theme'
+import { Badge, PressableScale } from '../components/shared'
+import { colors, fontWeight, spacing, radius, type, statusTint } from '../theme'
 
 const JOURS_1 = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
 
@@ -64,11 +65,11 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
         <View style={{ flex: 1 }}>
           <View style={styles.nameRow}>
             <Text style={styles.nom} numberOfLines={1}>{membre.nom}</Text>
-            {membre.is_me && <View style={styles.moiTag}><Text style={styles.moiTagText}>MOI</Text></View>}
+            {membre.is_me && <Badge tone="info" variant="solid">MOI</Badge>}
           </View>
           {!!membre.poste && <Text style={styles.poste}>{membre.poste}</Text>}
           <View style={styles.metaRow}>
-            <View style={styles.catBadge}><Text style={styles.catText}>{membre.category}</Text></View>
+            <Badge tone="neutral">{membre.category}</Badge>
             {!!membre.secteur && (
               <View style={styles.secteur}>
                 <Ionicons name="location-outline" size={11} color={colors.textMuted} />
@@ -81,7 +82,8 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
 
       {/* Contact */}
       <View style={styles.contactRow}>
-        <Pressable
+        <PressableScale
+          haptic="light"
           onPress={call}
           disabled={!membre.phone}
           style={[styles.contactBtn, !membre.phone && styles.contactBtnDisabled]}
@@ -90,8 +92,9 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
           <Text style={[styles.contactLabel, !membre.phone && { color: colors.textDim }]}>
             {membre.phone ?? 'Pas de numéro'}
           </Text>
-        </Pressable>
-        <Pressable
+        </PressableScale>
+        <PressableScale
+          haptic="light"
           onPress={mail}
           disabled={!membre.email}
           style={[styles.contactBtn, !membre.email && styles.contactBtnDisabled]}
@@ -100,7 +103,7 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
           <Text style={[styles.contactLabel, !membre.email && { color: colors.textDim }]} numberOfLines={1}>
             {membre.email ?? 'Pas d’email'}
           </Text>
-        </Pressable>
+        </PressableScale>
       </View>
 
       {/* Présence / sessions */}
@@ -138,7 +141,7 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
                     <View style={styles.travelRow}>
                       {(s.arrivalDate || s.arrival_time) && (
                         <View style={styles.travelItem}>
-                          <Ionicons name="airplane" size={11} color="#34D399" style={{ transform: [{ rotate: '45deg' }] }} />
+                          <Ionicons name="airplane" size={11} color={statusTint.success.fg} style={{ transform: [{ rotate: '45deg' }] }} />
                           <Text style={styles.travel}>
                             Arrivée {fmtDate(s.arrivalDate ?? s.arrival)}{s.arrival_time ? ` · ${hhmm(s.arrival_time)}` : ''}
                           </Text>
@@ -146,7 +149,7 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
                       )}
                       {(s.departureDate || s.departure_time) && (
                         <View style={styles.travelItem}>
-                          <Ionicons name="airplane" size={11} color="#FBBF24" style={{ transform: [{ rotate: '135deg' }] }} />
+                          <Ionicons name="airplane" size={11} color={statusTint.warning.fg} style={{ transform: [{ rotate: '135deg' }] }} />
                           <Text style={styles.travel}>
                             Départ {fmtDate(s.departureDate ?? s.departure)}{s.departure_time ? ` · ${hhmm(s.departure_time)}` : ''}
                           </Text>
@@ -167,20 +170,11 @@ export default function MembreDetailSheet({ membre, visible, onClose }) {
 const styles = StyleSheet.create({
   head: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  nom: { fontSize: 19, color: '#fff', fontWeight: fontWeight.bold, letterSpacing: -0.3, flexShrink: 1 },
-  poste: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  nom: { ...type.title, fontSize: 19, color: '#fff', flexShrink: 1 },
+  poste: { ...type.subhead, color: colors.textSecondary, marginTop: 2 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 6 },
-  catBadge: {
-    backgroundColor: colors.glass.base,
-    borderWidth: 0.5,
-    borderColor: colors.glass.border,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  catText: { fontSize: 9, color: colors.textSecondary, fontWeight: fontWeight.bold, letterSpacing: 0.4 },
   secteur: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  secteurText: { fontSize: 11, color: colors.textMuted },
+  secteurText: { ...type.caption, color: colors.textMuted },
   contactRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl },
   contactBtn: {
     flex: 1,
@@ -195,15 +189,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   contactBtnDisabled: { opacity: 0.5 },
-  contactLabel: { fontSize: 13, color: '#fff', fontWeight: fontWeight.medium, flexShrink: 1 },
+  contactLabel: { ...type.subhead, color: '#fff', fontWeight: fontWeight.medium, flexShrink: 1 },
   section: { marginTop: spacing.xxl, maxHeight: 320 },
-  sectionLabel: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.bold,
-    letterSpacing: 0.6,
-    marginBottom: spacing.md,
-  },
+  sectionLabel: { ...type.overline, color: colors.textSecondary, marginBottom: spacing.md },
   sessionCard: {
     backgroundColor: colors.glass.subtle,
     borderWidth: 0.5,
@@ -214,9 +202,9 @@ const styles = StyleSheet.create({
   },
   sessionHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  sessionLabel: { fontSize: 13, color: '#fff', fontWeight: fontWeight.semibold },
-  sessionLieu: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-  sessionDates: { fontSize: 12, color: colors.textSecondary, fontWeight: fontWeight.medium },
+  sessionLabel: { ...type.subhead, color: '#fff', fontWeight: fontWeight.semibold },
+  sessionLieu: { ...type.caption, color: colors.textMuted, marginTop: 1 },
+  sessionDates: { ...type.footnote, color: colors.textSecondary, fontWeight: fontWeight.medium },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   chip: {
     paddingHorizontal: 7,
@@ -227,5 +215,5 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 10, fontWeight: fontWeight.bold, letterSpacing: 0.2 },
   travelRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, marginTop: 2 },
   travelItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  travel: { fontSize: 11, color: colors.textSecondary, fontWeight: fontWeight.medium },
+  travel: { ...type.caption, color: colors.textSecondary, fontWeight: fontWeight.medium },
 })

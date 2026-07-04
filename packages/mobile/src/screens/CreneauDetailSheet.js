@@ -31,7 +31,7 @@ import {
   STATUT_CRENEAU_COLOR,
   TYPE_CRENEAU_LABEL,
 } from '@captiv/shared'
-import { colors, fontSize, fontWeight, spacing, radius } from '../theme'
+import { colors, fontSize, fontWeight, spacing, radius, statusTint } from '../theme'
 import { useCreneau } from '../hooks/useCreneau'
 import { effectiveCouleurCreneau } from '../lib/derouleColors'
 import { setCreneauStatut } from '../lib/creneauStatut'
@@ -555,8 +555,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: 'rgba(245,158,11,0.1)',
-    borderColor: 'rgba(245,158,11,0.35)',
+    backgroundColor: statusTint.warning.bg,
+    borderColor: statusTint.warning.border,
     borderWidth: 0.5,
     borderRadius: radius.lg,
     padding: spacing.lg,
@@ -634,8 +634,8 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   moiTag: {
-    backgroundColor: 'rgba(59,130,246,0.18)',
-    borderColor: 'rgba(96,165,250,0.3)',
+    backgroundColor: statusTint.info.bg,
+    borderColor: colors.brand.blueBorder,
     borderWidth: 0.5,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   dropdownItemActive: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: colors.glass.base,
   },
   dropdownText: {
     fontSize: 13,

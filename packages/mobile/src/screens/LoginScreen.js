@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   },
   sep: {
     height: 0.5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.glass.borderSubtle,
     marginVertical: 4,
   },
   contactText: {
