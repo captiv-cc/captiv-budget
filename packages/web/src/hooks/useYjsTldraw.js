@@ -55,11 +55,13 @@ export function encodeDocState(doc) {
  *                                          au doc à l'init (origin 'persist')
  * @param {function} [opts.onDirty]      — appelé à chaque update du doc (local
  *                                          ou distant) pour déclencher l'autosave
+ * @param {object}  [opts.assetStore]    — TLAssetStore custom (upload/resolve),
+ *                                          cf. makeCaptivAssetStore
  * @param {boolean} [opts.enabled=true]
  *
  * @returns {{ store, doc, status, peers, myUserMeta }}
  */
-export function useYjsTldraw({ canvasId, initialStateB64, onDirty, enabled = true }) {
+export function useYjsTldraw({ canvasId, initialStateB64, onDirty, assetStore, enabled = true }) {
   const { doc, status, peers, myUserMeta } = useYjsCollab({
     docId: canvasId,
     scope: 'plan-canvas',
@@ -67,11 +69,13 @@ export function useYjsTldraw({ canvasId, initialStateB64, onDirty, enabled = tru
   })
 
   // Un TLStore par canvas. Recréé si on change de plan (clé = canvasId).
+  // assetStore volontairement hors deps : figé à la création du store.
   const store = useMemo(
     () =>
       createTLStore({
         shapeUtils: [...defaultShapeUtils],
         bindingUtils: [...defaultBindingUtils],
+        ...(assetStore ? { assets: assetStore } : {}),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canvasId],

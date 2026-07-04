@@ -138,17 +138,27 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
 
 ## Phasage
 
-**Phase 0 — POC (cette session)** ✅ objectif : valider la stack
-- [x] Migration `plans_canvas` + `plans_canvas_versions` + RLS
-- [x] `npm i tldraw` (v5)
+**Phase 0 — POC** ✅ livrée (2026-07-05, commit 4e8fea3)
+- [x] Migration `plans_canvas` + `plans_canvas_versions` + RLS (appliquée)
+- [x] `npm i tldraw` (v5, lazy chunk)
 - [x] PlansTab sub-nav sans casser l'existant
 - [x] PlanEditor minimal : tldraw + bridge Yjs + autosave + restauration
-- [ ] Test : create, shapes, refresh → état retrouvé ; 2 navigateurs → sync + présence
-- [ ] Commit `feat(plans) — POC bootstrap tldraw + Yjs + BDD`
+- [x] Test validé par Hugo : persistance + sync 2 navigateurs + présence
 
-**Phase 1 (1 sem)** — fond de plan affiché dans le canvas (image du fond en
-shape verrouillée arrière-plan), création depuis un fond, titre/catégorie
-éditables, suppression/archivage propre.
+**Phase 1** ✅ livrée (2026-07-05)
+- [x] Modale de création (titre, catégorie, fond choisi dans la bibliothèque)
+- [x] Fond affiché dans le canvas : asset tldraw avec chemin storage en meta
+      (`captivStoragePath`), résolu par client en object URL via TLAssetStore
+      custom (`makeCaptivAssetStore`) — jamais d'URL signée ni de base64 dans
+      le doc Yjs. PDF rasterisé page 1 (~2500px max) par client. Shape
+      verrouillée + envoyée derrière, ids déterministes (shape:fond).
+- [x] Images collées/déposées dans le canvas : upload bucket plans sous
+      `<project_id>/canvas/<canvas_id>/`, même mécanique de résolution.
+- [x] Titre renommable + catégorie changeable dans la top bar de l'éditeur
+- [x] Lecture seule pour les membres sans can_edit_outil (isReadonly tldraw)
+- [x] Archivage / restauration / suppression (V0)
+- [ ] Changement de fond en cours de session non répercuté live (réouvrir) —
+      accepté pour l'instant
 
 **Phase 2 (3-4 sem, MVP)** — bibliothèque Captiv (~30 icônes) en shapes
 custom, layers (visibility/lock), panel propriétés, export PDF, preview

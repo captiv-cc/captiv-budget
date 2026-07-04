@@ -11,15 +11,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Archive, Loader2, PenTool, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import {
   listCanvases,
-  createCanvas,
   archiveCanvas,
   restoreCanvas,
   deleteCanvas,
 } from '../../../lib/plansCanvas'
 import { listPlanCategories } from '../../../lib/plans'
-import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
 import { confirm } from '../../../lib/confirm'
+import PlanCreateModal from './PlanCreateModal'
 
 function fmtDate(iso) {
   if (!iso) return ''
@@ -27,10 +26,9 @@ function fmtDate(iso) {
 }
 
 export default function PlansCanvasList({ projectId, orgId, canEdit, archived = false, onOpen }) {
-  const { user } = useAuth()
   const [rows, setRows] = useState(null)
   const [categories, setCategories] = useState([])
-  const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -63,19 +61,10 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
     [rows, archived],
   )
 
-  async function handleCreate() {
-    const titre = window.prompt('Titre du plan ?', 'Plan caméra')
-    if (!titre?.trim()) return
-    setCreating(true)
-    try {
-      const row = await createCanvas({ projectId, titre, userId: user?.id })
-      setRows((prev) => [row, ...(prev || [])])
-      onOpen?.(row.id)
-    } catch (err) {
-      notify.error('Création impossible : ' + (err?.message || err))
-    } finally {
-      setCreating(false)
-    }
+  function handleCreated(row) {
+    setCreateOpen(false)
+    setRows((prev) => [row, ...(prev || [])])
+    onOpen?.(row.id)
   }
 
   async function handleArchive(row) {
@@ -130,15 +119,23 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
         <div className="mb-4">
           <button
             type="button"
-            onClick={handleCreate}
-            disabled={creating}
+            onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-md transition-colors"
-            style={{ background: 'var(--blue)', color: '#fff', opacity: creating ? 0.6 : 1 }}
+            style={{ background: 'var(--blue)', color: '#fff' }}
           >
             <Plus className="w-4 h-4" />
             Nouveau plan
           </button>
         </div>
+      )}
+
+      {createOpen && (
+        <PlanCreateModal
+          projectId={projectId}
+          orgId={orgId}
+          onClose={() => setCreateOpen(false)}
+          onCreated={handleCreated}
+        />
       )}
 
       {visible.length === 0 ? (

@@ -136,7 +136,7 @@ export default function PlansTab() {
             </div>
           }
         >
-          <PlanEditor canvasId={canvasId} onClose={closeCanvas} />
+          <PlanEditor canvasId={canvasId} onClose={closeCanvas} readOnly={!canEdit} />
         </Suspense>
       )}
     </>
