@@ -34,6 +34,8 @@ const TYPE_META = {
   devis_relance: { icon: 'time', tone: 'warning' },
   devis_expire: { icon: 'alert-circle', tone: 'warning' },
   devis_modifie: { icon: 'create', tone: 'accent' },
+  plan_commentaire: { icon: 'chatbubble-ellipses', tone: 'warning' },
+  plan_valide: { icon: 'checkmark-done', tone: 'success' },
 }
 
 export default function NotificationsScreen() {

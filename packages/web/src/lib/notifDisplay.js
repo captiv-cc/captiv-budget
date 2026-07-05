@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // Partagé entre la cloche (NotificationsBell) et le widget de la homepage.
 
-import { Bell, Check, X, Eye, Clock, AlertTriangle, Calendar, Pencil } from 'lucide-react'
+import { Bell, Check, X, Eye, Clock, AlertTriangle, Calendar, Pencil, MessageCircle, BadgeCheck } from 'lucide-react'
 
 export const NOTIF_TYPE_STYLE = {
   devis_consulte: { icon: Eye, color: 'var(--blue)' },
@@ -15,6 +15,8 @@ export const NOTIF_TYPE_STYLE = {
   creneau_assigne: { icon: Calendar, color: 'var(--blue)' },
   creneau_modifie: { icon: Calendar, color: 'var(--orange)' },
   creneau_annule: { icon: Calendar, color: 'var(--red)' },
+  plan_commentaire: { icon: MessageCircle, color: '#facc15' },
+  plan_valide: { icon: BadgeCheck, color: 'var(--green)' },
 }
 
 export const NOTIF_FALLBACK_STYLE = { icon: Bell, color: 'var(--txt-3)' }

@@ -345,6 +345,12 @@ const DEVIS_PREFS = [
   { key: 'devis_modifications', label: 'Modifications', hint: 'Un membre modifie un devis que vous avez créé ou envoyé' },
 ]
 
+// Catégories de notifications plans éditables (même mécanique)
+const PLANS_PREFS = [
+  { key: 'plans_commentaires', label: 'Commentaires', hint: 'Un destinataire du lien de partage annote le plan' },
+  { key: 'plans_validations', label: 'Validations', hint: 'Un destinataire valide le plan' },
+]
+
 function NotifSettingsModal({ onClose }) {
   const { user, profile, org } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -440,6 +446,38 @@ function NotifSettingsModal({ onClose }) {
           </p>
           <div className="flex flex-col gap-2.5">
             {DEVIS_PREFS.map((p) => (
+              <label
+                key={p.key}
+                className="flex items-center justify-between gap-3 cursor-pointer"
+              >
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                    {p.label}
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                    {p.hint}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  className="toggle"
+                  checked={prefs[p.key] !== false}
+                  onChange={(e) => setPrefs((prev) => ({ ...prev, [p.key]: e.target.checked }))}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <p
+            className="text-[10px] font-bold uppercase tracking-widest mb-2"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            Plans
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {PLANS_PREFS.map((p) => (
               <label
                 key={p.key}
                 className="flex items-center justify-between gap-3 cursor-pointer"

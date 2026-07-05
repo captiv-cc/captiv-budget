@@ -16,6 +16,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.43.0'
 import { corsHeaders } from '../_shared/cors.ts'
+import { resolvePlanRecipients, sendPlanNotification } from '../_shared/plansNotify.ts'
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
   // ── Validation du token ─────────────────────────────────────────────────
   const { data: share } = await supabase
     .from('plans_canvas_share_tokens')
-    .select('id, canvas_id, permissions, expires_at, revoked_at, view_count')
+    .select('id, canvas_id, permissions, expires_at, revoked_at, view_count, created_by, label')
     .eq('token', token)
     .maybeSingle()
   if (!share) return json({ error: 'not_found' }, 404)
@@ -151,10 +152,28 @@ Deno.serve(async (req) => {
       .select('id, parent_id, anchor_x, anchor_y, body, author_type, author_client_name, resolved, created_at')
       .single()
     if (error) return json({ error: error.message }, 500)
+
+    // Notification desk/mobile : créateur du plan + créateur du lien.
+    const recipients = await resolvePlanRecipients(
+      supabase,
+      canvas,
+      'quotidien',
+      'plans_commentaires',
+      [share.created_by],
+    )
+    await sendPlanNotification({
+      userIds: recipients,
+      type: 'plan_commentaire',
+      titre: `Commentaire sur « ${canvas.titre} »`,
+      corps: `${clientName} : ${body.slice(0, 140)}${body.length > 140 ? '…' : ''}`,
+      plan: canvas,
+      supabase,
+    })
+
     return json({ comment })
   }
 
-  // ── VALIDATE : validation client du plan ────────────────────────────────
+  // ── VALIDATE : validation du plan par le destinataire ───────────────────
   if (action === 'validate') {
     if (canvas.statut === 'valide') return json({ ok: true, statut: 'valide' })
     const { error } = await supabase
@@ -162,6 +181,24 @@ Deno.serve(async (req) => {
       .update({ statut: 'valide' })
       .eq('id', canvas.id)
     if (error) return json({ error: error.message }, 500)
+
+    // Notification majeure : créateur + créateur du lien + admins/charge_prod.
+    const recipients = await resolvePlanRecipients(
+      supabase,
+      canvas,
+      'majeur',
+      'plans_validations',
+      [share.created_by],
+    )
+    await sendPlanNotification({
+      userIds: recipients,
+      type: 'plan_valide',
+      titre: `Plan validé : « ${canvas.titre} »`,
+      corps: share.label ? `Validé via le lien « ${share.label} »` : 'Validé via le lien de partage',
+      plan: canvas,
+      supabase,
+    })
+
     return json({ ok: true, statut: 'valide' })
   }
 
