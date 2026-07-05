@@ -29,6 +29,9 @@ export const cameraShapeProps = {
   couleur: T.string,
   showCone: T.boolean,
   numero: T.number,
+  // Type de support (Trépied, Épaule, Grue…) — le modèle (FX6…) est choisi
+  // dans Propriétés. Optionnel : shapes d'avant la bibliothèque v2.
+  support: T.string.optional(),
   // Offset manuel de la pastille (espace écran, non-roté). Optionnels :
   // les shapes créées avant cette version n'ont pas ces props.
   labelDx: T.number.optional(),
@@ -42,7 +45,10 @@ function cameraLayout(props) {
   const fontBadge = Math.round(badge * 0.46)
   const fontLabel = Math.max(11, Math.round(badge * 0.42))
   const texte =
-    props.label || `Cam ${props.numero}${props.modele ? ` / ${props.modele}` : ''}`
+    props.label ||
+    `Cam ${props.numero}${
+      props.modele ? ` / ${props.modele}` : props.support ? ` · ${props.support}` : ''
+    }`
   const pillW = Math.round(texte.length * fontLabel * 0.62 + fontLabel * 1.4)
   const pillH = Math.round(fontLabel * 1.7)
   const apexX = w / 2
@@ -78,6 +84,7 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
       couleur: '#4d9fff',
       showCone: true,
       numero: 1,
+      support: '',
       labelDx: 0,
       labelDy: 0,
     }

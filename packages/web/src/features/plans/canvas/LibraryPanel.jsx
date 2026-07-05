@@ -2,29 +2,187 @@
 // LibraryPanel — bibliothèque d'éléments Captiv (sidebar gauche de l'éditeur)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Colonne fixe HORS canvas (l'instance editor arrive en prop, posée au
-// onMount) : plus aucune collision avec l'UI native tldraw. Clic sur un item
-// → placé au centre du viewport à une taille proportionnelle au zoom,
-// sélectionné, prêt à déplacer. Caméras → 'captiv-camera' (numéro auto) ;
-// le reste → 'captiv-item'.
+// v2 (cadrage Hugo 2026-07-05) :
+//   - caméras par TYPE DE SUPPORT (trépied, épaule, grue, cable-cam, spider,
+//     travelling…), le modèle (FX6, BURANO…) se choisit dans Propriétés ;
+//   - rangée « Récents » (6 derniers posés, localStorage) ;
+//   - grille 3 colonnes avec labels ;
+//   - clic → posé au centre du viewport, OU drag & drop vers le canvas
+//     (dataTransfer custom, drop géré par PlanEditor) ;
+//   - recherche avec synonymes (item.tags).
+//
+// Le placement crée la bonne shape selon camKind : 'box' → captiv-camera,
+// 'rail' → captiv-railcam, 'spider' → captiv-spidercam, sinon captiv-item.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState } from 'react'
 import { createShapeId } from 'tldraw'
-import { ChevronDown, ChevronRight, Search, Shapes, X } from 'lucide-react'
-import { CATALOG, Glyph, focaleToAngleDeg } from './shapes/catalog'
+import { ChevronDown, ChevronRight, Clock, Search, Shapes, X } from 'lucide-react'
+import { CATALOG, Glyph, focaleToAngleDeg, catalogItem } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
-import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
+import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
+import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
+import { nextCamNumero } from './shapes/camUtils'
 
-// Tailles du catalogue calibrées pour un viewport de référence ~900px de
-// haut ; à la pose on met à l'échelle du viewport courant (fonds énormes ou
-// zoom fort → éléments toujours exploitables).
+export const LIB_DRAG_MIME = 'application/x-captiv-lib-item'
+const RECENTS_KEY = 'plans-lib-recents'
+// Tailles calibrées pour un viewport de référence ~900px de haut.
 const REF_VIEWPORT_H = 900
+
+function loadRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]')
+    return Array.isArray(raw) ? raw : []
+  } catch {
+    return []
+  }
+}
+
+function pushRecent(kind) {
+  const next = [kind, ...loadRecents().filter((k) => k !== kind)].slice(0, 6)
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next))
+  } catch {
+    /* noop */
+  }
+  return next
+}
+
+/**
+ * Pose un item du catalogue sur le canvas au point page donné (ou au centre
+ * du viewport). Exporté : utilisé aussi par le drop handler de PlanEditor.
+ */
+export function placeCatalogItem(editor, kind, pagePoint = null) {
+  const item = catalogItem(kind)
+  if (!editor || !item) return
+  const viewport = editor.getViewportPageBounds()
+  const at = pagePoint || viewport.center
+  const k = Math.max(0.4, viewport.height / REF_VIEWPORT_H)
+  const id = createShapeId()
+
+  if (item.camKind === 'box') {
+    const numero = nextCamNumero(editor)
+    const focale = 35
+    const h = Math.round(viewport.height * 0.18)
+    const w = Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
+    editor.createShape({
+      id,
+      type: CAMERA_SHAPE_TYPE,
+      x: at.x - w / 2,
+      // L'apex (position caméra) au point de drop, pas le centre du cône.
+      y: at.y - h,
+      meta: { layer: 'cameras' },
+      props: { w, h, modele: '', support: item.short || item.label, focale, couleur: item.color, numero },
+    })
+  } else if (item.camKind === 'rail') {
+    const numero = nextCamNumero(editor)
+    const len = viewport.width * 0.3
+    const points =
+      item.railKind === 'travelling'
+        ? [
+            { x: 0, y: 0 },
+            { x: len / 2, y: -len * 0.12 },
+            { x: len, y: 0 },
+          ]
+        : [
+            { x: 0, y: 0 },
+            { x: len, y: 0 },
+          ]
+    editor.createShape({
+      id,
+      type: RAILCAM_SHAPE_TYPE,
+      x: at.x - len / 2,
+      y: at.y,
+      meta: { layer: 'cameras' },
+      props: {
+        points,
+        spline: item.railKind === 'travelling',
+        railKind: item.railKind,
+        camT: 0.5,
+        modele: '',
+        support: item.short || item.label,
+        couleur: item.color,
+        numero,
+      },
+    })
+  } else if (item.camKind === 'spider') {
+    const numero = nextCamNumero(editor)
+    const w = viewport.width * 0.28
+    const h = viewport.height * 0.28
+    editor.createShape({
+      id,
+      type: SPIDERCAM_SHAPE_TYPE,
+      x: at.x - w / 2,
+      y: at.y - h / 2,
+      meta: { layer: 'cameras' },
+      props: {
+        points: [
+          { x: 0, y: 0 },
+          { x: w, y: 0 },
+          { x: w, y: h },
+          { x: 0, y: h },
+        ],
+        modele: '',
+        support: item.short || item.label,
+        couleur: item.color,
+        numero,
+      },
+    })
+  } else {
+    const w = Math.round((item.w || 60) * k)
+    const h = Math.round((item.h || 60) * k)
+    editor.createShape({
+      id,
+      type: 'captiv-item',
+      x: at.x - w / 2,
+      y: at.y - h / 2,
+      meta: { layer: item.layer },
+      props: { w, h, kind: item.kind, label: item.label, couleur: item.color },
+    })
+  }
+  editor.setSelectedShapes([id])
+  editor.setCurrentTool('select')
+  return pushRecent(kind)
+}
+
+/* ─── Tuile d'item ──────────────────────────────────────────────────────── */
+
+function ItemTile({ item, onPlace }) {
+  return (
+    <button
+      type="button"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(LIB_DRAG_MIME, item.kind)
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
+      onClick={() => onPlace(item.kind)}
+      className="flex flex-col items-center gap-1 p-1.5 rounded-lg transition-colors"
+      style={{ background: 'var(--bg)', border: '1px solid var(--brd)' }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = item.color }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--brd)' }}
+      title={`${item.label} — clic ou glisser sur le plan`}
+    >
+      <div className="w-7 h-7">
+        <Glyph glyph={item.glyph} color={item.color} label={item.label} />
+      </div>
+      <span
+        className="text-[9px] font-semibold leading-tight text-center w-full truncate"
+        style={{ color: 'var(--txt-2)' }}
+      >
+        {item.short || item.label}
+      </span>
+    </button>
+  )
+}
+
+/* ─── Panneau ───────────────────────────────────────────────────────────── */
 
 export default function LibraryPanel({ editor }) {
   const [open, setOpen] = useState(true)
   const [search, setSearch] = useState('')
-  const [openCats, setOpenCats] = useState(() => new Set(['cameras', 'lumiere']))
+  const [openCats, setOpenCats] = useState(() => new Set(['cameras']))
+  const [recents, setRecents] = useState(loadRecents)
 
   function toggleCat(key) {
     setOpenCats((prev) => {
@@ -35,59 +193,32 @@ export default function LibraryPanel({ editor }) {
     })
   }
 
-  function placeItem(item, layer) {
+  function handlePlace(kind) {
     if (!editor) return
-    const viewport = editor.getViewportPageBounds()
-    const center = viewport.center
-    const id = createShapeId()
-    // Facteur d'échelle : proportionnel à la hauteur visible du plan.
-    const k = Math.max(0.4, viewport.height / REF_VIEWPORT_H)
-
-    if (item.isCamera) {
-      // Numéro auto : max des numéros de caméras existantes + 1.
-      const cams = editor
-        .getCurrentPageShapes()
-        .filter((s) => s.type === CAMERA_SHAPE_TYPE)
-      const numero = cams.reduce((m, s) => Math.max(m, s.props.numero || 0), 0) + 1
-      const focale = 35
-      // Cône ≈ 18% de la hauteur visible.
-      const h = Math.round(viewport.height * 0.18)
-      const w = Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
-      editor.createShape({
-        id,
-        type: CAMERA_SHAPE_TYPE,
-        x: center.x - w / 2,
-        y: center.y - h / 2,
-        meta: { layer: 'cameras' },
-        props: { w, h, modele: item.label, focale, couleur: item.color, numero },
-      })
-    } else {
-      const w = Math.round((item.w || 60) * k)
-      const h = Math.round((item.h || 60) * k)
-      editor.createShape({
-        id,
-        type: ITEM_SHAPE_TYPE,
-        x: center.x - w / 2,
-        y: center.y - h / 2,
-        meta: { layer },
-        props: {
-          w,
-          h,
-          kind: item.kind,
-          label: item.label,
-          couleur: item.color,
-        },
-      })
-    }
-    editor.setSelectedShapes([id])
-    editor.setCurrentTool('select')
+    const next = placeCatalogItem(editor, kind)
+    if (next) setRecents(next)
   }
 
-  const q = search.trim().toLowerCase()
-  const cats = CATALOG.map((c) => ({
-    ...c,
-    items: q ? c.items.filter((i) => i.label.toLowerCase().includes(q)) : c.items,
-  })).filter((c) => c.items.length > 0)
+  const q = search
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+  const matches = (item) => {
+    if (!q) return true
+    const hay = [item.label, item.short, ...(item.tags || [])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+    return hay.includes(q)
+  }
+
+  const cats = CATALOG.map((c) => ({ ...c, items: c.items.filter(matches) })).filter(
+    (c) => c.items.length > 0,
+  )
+  const recentItems = q ? [] : recents.map((kind) => catalogItem(kind)).filter(Boolean)
 
   if (!open) {
     return (
@@ -107,7 +238,7 @@ export default function LibraryPanel({ editor }) {
 
   return (
     <div
-      className="h-full w-52 flex flex-col shrink-0 overflow-hidden"
+      className="h-full w-56 flex flex-col shrink-0 overflow-hidden"
       style={{ background: 'var(--bg-elev)', borderRight: '1px solid var(--brd)' }}
     >
       <div className="flex items-center gap-2 px-3 py-2.5 shrink-0" style={{ borderBottom: '1px solid var(--brd)' }}>
@@ -138,6 +269,24 @@ export default function LibraryPanel({ editor }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
+        {/* Récents */}
+        {recentItems.length > 0 && (
+          <div className="mb-1">
+            <div
+              className="flex items-center gap-1 px-1.5 py-1.5 text-[11px] font-bold uppercase tracking-wide"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              <Clock className="w-3 h-3" />
+              Récents
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 px-1">
+              {recentItems.map((item) => (
+                <ItemTile key={`recent-${item.kind}`} item={item} onPlace={handlePlace} />
+              ))}
+            </div>
+          </div>
+        )}
+
         {cats.map((catGroup) => {
           const isOpen = q || openCats.has(catGroup.key)
           return (
@@ -152,39 +301,9 @@ export default function LibraryPanel({ editor }) {
                 {catGroup.label}
               </button>
               {isOpen && (
-                <div className="grid grid-cols-2 gap-1.5 px-1">
+                <div className="grid grid-cols-3 gap-1.5 px-1">
                   {catGroup.items.map((item) => (
-                    <button
-                      key={item.kind}
-                      type="button"
-                      onClick={() => placeItem(item, catGroup.layer)}
-                      className="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors"
-                      style={{ background: 'var(--bg)', border: '1px solid var(--brd)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = item.color }}
-                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--brd)' }}
-                      title={`Ajouter ${item.label}`}
-                    >
-                      <div className="w-8 h-8">
-                        {item.isCamera ? (
-                          <svg viewBox="0 0 40 40" width="100%" height="100%">
-                            <path
-                              d="M20 34 L8 8 L32 8 Z"
-                              fill={item.color}
-                              fillOpacity="0.15"
-                              stroke={item.color}
-                              strokeWidth="1.5"
-                              strokeDasharray="3 3"
-                            />
-                            <circle cx="20" cy="30" r="6" fill={item.color} />
-                          </svg>
-                        ) : (
-                          <Glyph glyph={item.glyph} color={item.color} label={item.label} />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-semibold leading-tight text-center" style={{ color: 'var(--txt-2)' }}>
-                        {item.label}
-                      </span>
-                    </button>
+                    <ItemTile key={item.kind} item={item} onPlace={handlePlace} />
                   ))}
                 </div>
               )}

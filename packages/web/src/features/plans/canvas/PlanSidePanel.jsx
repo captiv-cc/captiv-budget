@@ -18,9 +18,11 @@
 import { useState } from 'react'
 import { useValue } from 'tldraw'
 import { Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon } from 'lucide-react'
-import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg } from './shapes/catalog'
+import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg, CAMERA_MODELES } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
+import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
+import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
 
 const COULEURS = ['#4d9fff', '#ffce00', '#9c5ffd', '#ff5ac4', '#00c875', '#ff9f0a', '#ff4757', '#a8a8a8']
 
@@ -214,6 +216,9 @@ function PropsTab({ editor, selected }) {
 
   const shape = selected[0]
   if (shape.type === CAMERA_SHAPE_TYPE) return <CameraProps editor={editor} shape={shape} />
+  if (shape.type === RAILCAM_SHAPE_TYPE || shape.type === SPIDERCAM_SHAPE_TYPE) {
+    return <RiggedCamProps editor={editor} shape={shape} />
+  }
   if (shape.type === ITEM_SHAPE_TYPE) return <ItemProps editor={editor} shape={shape} />
   return (
     <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--txt-3)' }}>
@@ -286,16 +291,7 @@ function CameraProps({ editor, shape }) {
           style={inputStyle}
         />
       </Field>
-      <Field label="Modèle">
-        <input
-          type="text"
-          defaultValue={props.modele}
-          key={`${shape.id}-modele`}
-          onBlur={(e) => update({ modele: e.target.value })}
-          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
-          style={inputStyle}
-        />
-      </Field>
+      <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
       <Field label={`Focale (angle réel ${angleReel}°)`}>
         <div className="flex items-center gap-1 flex-wrap">
           {FOCALES.map((f) => (
@@ -336,6 +332,84 @@ function CameraProps({ editor, shape }) {
   )
 }
 
+// Modèle : presets Captiv (datalist) + saisie libre.
+function ModeleField({ shapeId, value, onChange }) {
+  const listId = `cam-modeles-${shapeId}`
+  return (
+    <Field label="Modèle">
+      <input
+        type="text"
+        defaultValue={value}
+        key={`${shapeId}-modele`}
+        list={listId}
+        placeholder="FX6, BURANO…"
+        onBlur={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          // Sélection dans la datalist : applique tout de suite.
+          if (CAMERA_MODELES.includes(e.target.value)) onChange(e.target.value)
+        }}
+        className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+        style={inputStyle}
+      />
+      <datalist id={listId}>
+        {CAMERA_MODELES.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+    </Field>
+  )
+}
+
+// Cable-cam / travelling / spider : pas de focale ni cône, mais label,
+// modèle, couleur (+ courbe pour le travelling).
+function RiggedCamProps({ editor, shape }) {
+  const { props } = shape
+  const update = (patch) =>
+    editor.updateShape({ id: shape.id, type: shape.type, props: patch })
+  const isRail = shape.type === RAILCAM_SHAPE_TYPE
+
+  return (
+    <div className="py-1">
+      <Field label="Label">
+        <input
+          type="text"
+          defaultValue={props.label}
+          key={shape.id}
+          placeholder={`Cam ${props.numero} · ${props.support || ''}`}
+          onBlur={(e) => update({ label: e.target.value })}
+          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+          style={inputStyle}
+        />
+      </Field>
+      <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
+      <Field label="Couleur">
+        <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
+      </Field>
+      {isRail && props.railKind === 'travelling' && (
+        <Field label="Trajectoire">
+          <button
+            type="button"
+            onClick={() => update({ spline: !props.spline })}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: props.spline ? 'var(--blue-bg)' : 'var(--bg)',
+              color: props.spline ? 'var(--blue)' : 'var(--txt-3)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            {props.spline ? 'Courbe' : 'Droite'}
+          </button>
+        </Field>
+      )}
+      <div className="px-3 py-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        {isRail
+          ? 'Poignées : extrémités du rail, position de la caméra, pastille.'
+          : 'Poignées : les 4 points d’accroche ; la caméra suit l’intersection.'}
+      </div>
+    </div>
+  )
+}
+
 function ItemProps({ editor, shape }) {
   const { props } = shape
   const update = (patch) =>
@@ -363,9 +437,11 @@ function ItemProps({ editor, shape }) {
 /* ─── Résumé sélection (bas de panneau, onglet Layers) ──────────────────── */
 
 function SelectionSummary({ shape }) {
-  if (shape.type !== CAMERA_SHAPE_TYPE) return null
+  const isCam = [CAMERA_SHAPE_TYPE, RAILCAM_SHAPE_TYPE, SPIDERCAM_SHAPE_TYPE].includes(shape.type)
+  if (!isCam) return null
   const { props } = shape
-  const angle = Math.round((2 * Math.atan(props.w / 2 / props.h) * 180) / Math.PI)
+  const isBox = shape.type === CAMERA_SHAPE_TYPE
+  const angle = isBox ? Math.round((2 * Math.atan(props.w / 2 / props.h) * 180) / Math.PI) : null
   return (
     <div className="shrink-0 px-3 py-2.5" style={{ borderTop: '1px solid var(--brd)' }}>
       <div className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--txt-3)' }}>
@@ -378,18 +454,28 @@ function SelectionSummary({ shape }) {
         >
           {props.numero}
         </span>
-        <span className="text-xs font-bold" style={{ color: 'var(--txt)' }}>
-          {props.label || `Cam ${props.numero} · ${props.modele}`}
+        <span className="text-xs font-bold truncate" style={{ color: 'var(--txt)' }}>
+          {props.label || `Cam ${props.numero}${props.modele ? ` · ${props.modele}` : props.support ? ` · ${props.support}` : ''}`}
         </span>
       </div>
-      <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
-        <span>Focale</span>
-        <span className="font-semibold">{props.focale} mm</span>
-      </div>
-      <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
-        <span>Angle vue</span>
-        <span className="font-semibold">{angle}°</span>
-      </div>
+      {props.support && (
+        <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
+          <span>Support</span>
+          <span className="font-semibold">{props.support}</span>
+        </div>
+      )}
+      {isBox && (
+        <>
+          <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
+            <span>Focale</span>
+            <span className="font-semibold">{props.focale} mm</span>
+          </div>
+          <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
+            <span>Angle vue</span>
+            <span className="font-semibold">{angle}°</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -30,11 +30,14 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
 import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
-import LibraryPanel from './LibraryPanel'
+import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
+import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
+import { CAPTIV_SHAPE_TYPES } from './shapes/camUtils'
+import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 
 const AUTOSAVE_MS = 2000
-const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil]
+const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil, RailCamShapeUtil, SpiderCamShapeUtil]
 
 // Visibilité par couche : meta.hidden posé par le panneau Layers.
 function getShapeVisibility(shape) {
@@ -50,10 +53,7 @@ function CaptivStylePanel(props) {
     'selection-only-captiv',
     () => {
       const sel = editor.getSelectedShapes()
-      return (
-        sel.length > 0 &&
-        sel.every((s) => s.type === CameraShapeUtil.type || s.type === ItemShapeUtil.type)
-      )
+      return sel.length > 0 && sel.every((s) => CAPTIV_SHAPE_TYPES.includes(s.type))
     },
     [editor],
   )
@@ -464,7 +464,25 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
       <div className="flex-1 flex min-h-0">
         {!readOnly && editorInstance && <LibraryPanel editor={editorInstance} />}
 
-        <div className="flex-1 relative min-w-0">
+        <div
+          className="flex-1 relative min-w-0"
+          // Drag & drop depuis la bibliothèque : posé au point exact du drop.
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes(LIB_DRAG_MIME)) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+            }
+          }}
+          onDrop={(e) => {
+            const kind = e.dataTransfer.getData(LIB_DRAG_MIME)
+            const editor = editorRef.current
+            if (!kind || !editor) return
+            e.preventDefault()
+            e.stopPropagation()
+            const point = editor.screenToPage({ x: e.clientX, y: e.clientY })
+            placeCatalogItem(editor, kind, point)
+          }}
+        >
           {loadError ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-sm" style={{ color: 'var(--red)' }}>
