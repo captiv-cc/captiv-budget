@@ -20,6 +20,8 @@ export const spiderCamShapeProps = {
   support: T.string.optional(),
   couleur: T.string,
   numero: T.number,
+  // Taille du badge figée à la pose (uniforme entre caméras du plan).
+  uiScale: T.number.optional(),
   labelDx: T.number.optional(),
   labelDy: T.number.optional(),
 }
@@ -31,7 +33,7 @@ function spiderLayout(props) {
     Math.hypot(p2.x - p0.x, p2.y - p0.y),
     Math.hypot(p3.x - p1.x, p3.y - p1.y),
   )
-  const badge = Math.max(20, Math.min(56, Math.round(span * 0.06)))
+  const badge = props.uiScale || Math.max(20, Math.min(56, Math.round(span * 0.06)))
   const fontBadge = Math.round(badge * 0.46)
   const fontLabel = Math.max(11, Math.round(badge * 0.42))
   const texte =

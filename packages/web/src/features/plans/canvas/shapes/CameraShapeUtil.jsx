@@ -32,6 +32,14 @@ export const cameraShapeProps = {
   // Type de support (Trépied, Épaule, Grue…) — le modèle (FX6…) est choisi
   // dans Propriétés. Optionnel : shapes d'avant la bibliothèque v2.
   support: T.string.optional(),
+  // Taille du badge/pastille en px page, figée à la pose (uniforme entre
+  // toutes les caméras d'un plan, indépendante de l'empattement du cône).
+  uiScale: T.number.optional(),
+  // Caméra mobile (épaule, steadicam, ronin, drone…) : anneau pointillé
+  // autour du badge, cône off par défaut.
+  mobile: T.boolean.optional(),
+  // Rendu spécifique ('grue' : châssis + bras jusqu'à la tête caméra).
+  variante: T.string.optional(),
   // Offset manuel de la pastille (espace écran, non-roté). Optionnels :
   // les shapes créées avant cette version n'ont pas ces props.
   labelDx: T.number.optional(),
@@ -41,7 +49,9 @@ export const cameraShapeProps = {
 // Dimensions dérivées, partagées entre component / handles.
 function cameraLayout(props) {
   const { w, h } = props
-  const badge = Math.max(22, Math.min(64, Math.round(h * 0.11)))
+  // uiScale (posé à la création) prime : badge identique pour toutes les
+  // caméras du plan. Fallback legacy : proportionnel au cône.
+  const badge = props.uiScale || Math.max(22, Math.min(64, Math.round(h * 0.11)))
   const fontBadge = Math.round(badge * 0.46)
   const fontLabel = Math.max(11, Math.round(badge * 0.42))
   const texte =
@@ -171,6 +181,39 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
               />
             </g>
           )}
+          {/* Grue : châssis + bras jusqu'à la tête caméra (tourne avec la
+              shape, contrairement au badge/pastille) */}
+          {shape.props.variante === 'grue' && (
+            <g>
+              <line
+                x1={L.apexX}
+                y1={L.apexY + L.badge * 2.4}
+                x2={L.apexX}
+                y2={L.apexY}
+                stroke="#ffffff"
+                strokeOpacity="0.9"
+                strokeWidth={Math.max(3, L.badge * 0.22)}
+              />
+              <line
+                x1={L.apexX}
+                y1={L.apexY + L.badge * 2.4}
+                x2={L.apexX}
+                y2={L.apexY}
+                stroke={couleur}
+                strokeWidth={Math.max(2, L.badge * 0.13)}
+              />
+              <rect
+                x={L.apexX - L.badge * 0.55}
+                y={L.apexY + L.badge * 2.4 - L.badge * 0.4}
+                width={L.badge * 1.1}
+                height={L.badge * 0.8}
+                rx={L.badge * 0.12}
+                fill={couleur}
+                stroke="#ffffff"
+                strokeWidth={Math.max(1.5, L.badge * 0.07)}
+              />
+            </g>
+          )}
           <g transform={`rotate(${-deg} ${L.apexX} ${L.badgeCy})`}>
             {/* Ligne de rappel badge → pastille quand elle est décalée */}
             {offset > L.badge * 0.9 && (
@@ -182,6 +225,18 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
                 stroke={couleur}
                 strokeWidth={Math.max(1.2, L.badge * 0.05)}
                 strokeDasharray={`${L.badge * 0.14} ${L.badge * 0.14}`}
+              />
+            )}
+            {/* Caméra mobile : anneau pointillé (rayon d'évolution) */}
+            {shape.props.mobile && (
+              <circle
+                cx={L.apexX}
+                cy={L.badgeCy}
+                r={L.badge * 0.82}
+                fill="none"
+                stroke={couleur}
+                strokeWidth={Math.max(1.5, L.badge * 0.06)}
+                strokeDasharray={`${L.badge * 0.18} ${L.badge * 0.14}`}
               />
             )}
             <circle

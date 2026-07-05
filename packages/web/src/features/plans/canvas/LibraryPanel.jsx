@@ -58,11 +58,14 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
   const viewport = editor.getViewportPageBounds()
   const at = pagePoint || viewport.center
   const k = Math.max(0.4, viewport.height / REF_VIEWPORT_H)
+  // Taille de badge UNIFORME pour toutes les caméras posées à ce niveau de
+  // zoom : indépendante de l'empattement (cône, rail, croix spider).
+  const uiScale = Math.round(Math.max(20, Math.min(64, viewport.height * 0.032)))
   const id = createShapeId()
 
   if (item.camKind === 'box') {
     const numero = nextCamNumero(editor)
-    const focale = 35
+    const focale = item.defaultFocale || 35
     const h = Math.round(viewport.height * 0.18)
     const w = Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
     editor.createShape({
@@ -72,22 +75,30 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
       // L'apex (position caméra) au point de drop, pas le centre du cône.
       y: at.y - h,
       meta: { layer: 'cameras' },
-      props: { w, h, modele: '', support: item.short || item.label, focale, couleur: item.color, numero },
+      props: {
+        w,
+        h,
+        modele: '',
+        support: item.short || item.label,
+        focale,
+        couleur: item.color,
+        numero,
+        uiScale,
+        // Mobiles : anneau pointillé, cône masqué par défaut (activable).
+        mobile: !!item.mobile,
+        showCone: !item.mobile,
+        variante: item.variante || '',
+      },
     })
   } else if (item.camKind === 'rail') {
     const numero = nextCamNumero(editor)
     const len = viewport.width * 0.3
-    const points =
-      item.railKind === 'travelling'
-        ? [
-            { x: 0, y: 0 },
-            { x: len / 2, y: -len * 0.12 },
-            { x: len, y: 0 },
-          ]
-        : [
-            { x: 0, y: 0 },
-            { x: len, y: 0 },
-          ]
+    // Travelling : on démarre à 2 points (droit) ; on ajoute des points via
+    // les poignées « + » au milieu des segments.
+    const points = [
+      { x: 0, y: 0 },
+      { x: len, y: 0 },
+    ]
     editor.createShape({
       id,
       type: RAILCAM_SHAPE_TYPE,
@@ -96,13 +107,14 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
       meta: { layer: 'cameras' },
       props: {
         points,
-        spline: item.railKind === 'travelling',
+        spline: false,
         railKind: item.railKind,
         camT: 0.5,
         modele: '',
         support: item.short || item.label,
         couleur: item.color,
         numero,
+        uiScale,
       },
     })
   } else if (item.camKind === 'spider') {
@@ -126,6 +138,7 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
         support: item.short || item.label,
         couleur: item.color,
         numero,
+        uiScale,
       },
     })
   } else {

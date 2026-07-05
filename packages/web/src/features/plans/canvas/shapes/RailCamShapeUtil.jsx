@@ -27,6 +27,8 @@ export const railCamShapeProps = {
   support: T.string.optional(),
   couleur: T.string,
   numero: T.number,
+  // Taille du badge figée à la pose (uniforme entre caméras du plan).
+  uiScale: T.number.optional(),
   labelDx: T.number.optional(),
   labelDy: T.number.optional(),
 }
@@ -34,12 +36,12 @@ export const railCamShapeProps = {
 function railLayout(props) {
   const pts = sampleRail(props.points, props.spline)
   const cam = pointAtT(pts, props.camT)
-  // Échelle visuelle dérivée de la longueur du rail (badge borné).
+  // uiScale prime ; fallback legacy : dérivé de la longueur du rail.
   let len = 0
   for (let i = 1; i < pts.length; i += 1) {
     len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
   }
-  const badge = Math.max(20, Math.min(56, Math.round(len * 0.055)))
+  const badge = props.uiScale || Math.max(20, Math.min(56, Math.round(len * 0.055)))
   const fontBadge = Math.round(badge * 0.46)
   const fontLabel = Math.max(11, Math.round(badge * 0.42))
   const texte =
@@ -94,11 +96,11 @@ export class RailCamShapeUtil extends ShapeUtil {
   }
 
   getHandles(shape) {
-    const { points, camT, spline } = shape.props
+    const { points, camT, spline, railKind } = shape.props
     const pts = sampleRail(points, spline)
     const cam = pointAtT(pts, camT)
     const L = railLayout(shape.props)
-    return [
+    const handles = [
       ...points.map((p, i) => ({
         id: `p${i}`,
         type: 'vertex',
@@ -109,10 +111,67 @@ export class RailCamShapeUtil extends ShapeUtil {
       { id: 'cam', type: 'vertex', x: cam.x, y: cam.y, canSnap: false },
       { id: 'label', type: 'vertex', x: L.pillCx, y: L.pillCy, canSnap: false },
     ]
+    // Travelling : poignées « + » au milieu des segments pour ajouter un
+    // point (glisser pour créer, comme la shape line native).
+    if (railKind === 'travelling') {
+      for (let i = 0; i < points.length - 1; i += 1) {
+        handles.push({
+          id: `mid${i}`,
+          type: 'create',
+          x: (points[i].x + points[i + 1].x) / 2,
+          y: (points[i].y + points[i + 1].y) / 2,
+          canSnap: false,
+        })
+      }
+    }
+    return handles
+  }
+
+  // Double-clic sur un point intermédiaire : suppression (min 2 points).
+  onDoubleClickHandle(shape, handle) {
+    if (!handle.id.startsWith('p')) return undefined
+    const props = shape.props
+    if (props.points.length <= 2) return undefined
+    const idx = Number(handle.id.slice(1))
+    if (Number.isNaN(idx)) return undefined
+    const points = props.points.filter((_, i) => i !== idx)
+    return {
+      id: shape.id,
+      type: shape.type,
+      props: { points, spline: props.spline && points.length >= 3 },
+    }
+  }
+
+  // tldraw garde le MÊME id de poignée pendant tout le drag : l'insertion
+  // depuis une poignée « create » doit être idempotente (1er appel = insère,
+  // suivants = déplace le point inséré).
+  onHandleDragStart() {
+    this._midInsert = null
+  }
+
+  onHandleDragEnd() {
+    this._midInsert = null
+  }
+
+  onHandleDragCancel() {
+    this._midInsert = null
   }
 
   onHandleDrag(shape, { handle }) {
     const props = shape.props
+    if (handle.id.startsWith('mid')) {
+      const idx = Number(handle.id.slice(3))
+      if (Number.isNaN(idx)) return undefined
+      const points = [...props.points]
+      if (this._midInsert === `${shape.id}:${handle.id}`) {
+        // Point déjà inséré pendant ce drag : on le déplace.
+        points[idx + 1] = { x: handle.x, y: handle.y }
+      } else {
+        points.splice(idx + 1, 0, { x: handle.x, y: handle.y })
+        this._midInsert = `${shape.id}:${handle.id}`
+      }
+      return { id: shape.id, type: shape.type, props: { points } }
+    }
     if (handle.id === 'cam') {
       const pts = sampleRail(props.points, props.spline)
       return {

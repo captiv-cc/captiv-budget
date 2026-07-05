@@ -121,6 +121,13 @@ const GLYPHS = {
       <path d="M14 8 h12" stroke={c} {...S} />
     </>
   ),
+  cam_lensbox: (c) => (
+    <>
+      <rect x="6" y="22" width="16" height="12" rx="2" stroke={c} {...S} />
+      <path d="M22 26 L34 22 M22 30 L34 34 M34 22 V34" stroke={c} {...S} />
+      <circle cx="14" cy="28" r="2.5" fill={c} />
+    </>
+  ),
   cam_cable: (c) => (
     <>
       <path d="M4 20 H36" stroke={c} {...S} strokeDasharray="4 3" />
@@ -338,15 +345,18 @@ export const CATALOG = [
     layer: 'cameras',
     // Un item = un TYPE DE SUPPORT ; le modèle (FX6, BURANO…) se choisit
     // dans Propriétés (presets CAMERA_MODELES + saisie libre).
+    // mobile: true → caméra qui se déplace (anneau pointillé, cône off par
+    // défaut). variante: rendu spécifique dans CameraShapeUtil.
     items: [
       { kind: 'cam_plateau', label: 'Trépied / plateau', short: 'Trépied', camKind: 'box', glyph: 'cam_plateau', color: CAM, tags: ['fixe', 'pied', 'plateau'] },
-      { kind: 'cam_epaule', label: 'Épaule', short: 'Épaule', camKind: 'box', glyph: 'cam_epaule', color: CAM, tags: ['mobile', 'porté'] },
-      { kind: 'cam_steadicam', label: 'Steadicam', short: 'Steadicam', camKind: 'box', glyph: 'cam_steadicam', color: CAM, tags: ['steady', 'stab'] },
-      { kind: 'cam_ronin', label: 'Ronin', short: 'Ronin', camKind: 'box', glyph: 'cam_ronin', color: CAM, tags: ['gimbal', 'stab'] },
-      { kind: 'cam_grue', label: 'Grue', short: 'Grue', camKind: 'box', glyph: 'cam_grue', color: '#ff5ac4', tags: ['jib', 'bras'] },
-      { kind: 'cam_drone', label: 'Drone', short: 'Drone', camKind: 'box', glyph: 'cam_drone', color: '#9c5ffd', tags: ['aérien', 'fpv'] },
+      { kind: 'cam_lensbox', label: 'Lensbox (longue focale)', short: 'Lensbox', camKind: 'box', glyph: 'cam_lensbox', color: CAM, defaultFocale: 135, tags: ['longue focale', 'télé', 'box'] },
+      { kind: 'cam_epaule', label: 'Épaule', short: 'Épaule', camKind: 'box', glyph: 'cam_epaule', color: CAM, mobile: true, tags: ['mobile', 'porté'] },
+      { kind: 'cam_steadicam', label: 'Steadicam', short: 'Steadicam', camKind: 'box', glyph: 'cam_steadicam', color: CAM, mobile: true, tags: ['steady', 'stab'] },
+      { kind: 'cam_ronin', label: 'Ronin', short: 'Ronin', camKind: 'box', glyph: 'cam_ronin', color: CAM, mobile: true, tags: ['gimbal', 'stab'] },
+      { kind: 'cam_grue', label: 'Grue', short: 'Grue', camKind: 'box', glyph: 'cam_grue', color: '#ff5ac4', variante: 'grue', tags: ['jib', 'bras'] },
+      { kind: 'cam_drone', label: 'Drone', short: 'Drone', camKind: 'box', glyph: 'cam_drone', color: '#9c5ffd', mobile: true, tags: ['aérien', 'fpv'] },
       { kind: 'cam_ptz', label: 'PTZ', short: 'PTZ', camKind: 'box', glyph: 'cam_ptz', color: CAM, tags: ['tourelle', 'remote', 'robot'] },
-      { kind: 'cam_pov', label: 'POV / Minicam', short: 'POV', camKind: 'box', glyph: 'cam_pov', color: CAM, tags: ['gopro', 'embarquée', 'minicam'] },
+      { kind: 'cam_pov', label: 'POV / Minicam', short: 'POV', camKind: 'box', glyph: 'cam_pov', color: CAM, mobile: true, tags: ['gopro', 'embarquée', 'minicam'] },
       { kind: 'cam_cable', label: 'Cable-cam', short: 'Cable-cam', camKind: 'rail', railKind: 'cable', glyph: 'cam_cable', color: '#ff9f0a', tags: ['câble', 'ligne'] },
       { kind: 'cam_spider', label: 'Spider cam', short: 'Spider', camKind: 'spider', glyph: 'cam_spider', color: '#ff9f0a', tags: ['araignée', '4 points'] },
       { kind: 'cam_travelling', label: 'Travelling / Slider', short: 'Travelling', camKind: 'rail', railKind: 'travelling', glyph: 'cam_travelling', color: CAM, tags: ['slider', 'rail', 'dolly'] },

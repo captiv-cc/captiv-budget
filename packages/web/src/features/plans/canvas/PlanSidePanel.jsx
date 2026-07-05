@@ -385,7 +385,7 @@ function RiggedCamProps({ editor, shape }) {
       <Field label="Couleur">
         <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
       </Field>
-      {isRail && props.railKind === 'travelling' && (
+      {isRail && props.railKind === 'travelling' && props.points.length >= 3 && (
         <Field label="Trajectoire">
           <button
             type="button"
@@ -403,7 +403,9 @@ function RiggedCamProps({ editor, shape }) {
       )}
       <div className="px-3 py-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
         {isRail
-          ? 'Poignées : extrémités du rail, position de la caméra, pastille.'
+          ? props.railKind === 'travelling'
+            ? 'Glisse le « + » au milieu d’un segment pour ajouter un point ; double-clic sur un point pour le supprimer. La caméra coulisse le long du rail.'
+            : 'Poignées : extrémités du câble, position de la caméra, pastille.'
           : 'Poignées : les 4 points d’accroche ; la caméra suit l’intersection.'}
       </div>
     </div>
