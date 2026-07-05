@@ -207,8 +207,20 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
       plan », téléchargement PNG
 - [ ] PDF avec légende (repoussé en Phase 4 avec cotations/échelle)
 
-**Phase 4 (Différenciation)** — cônes de vue par focale, cotations, zones
-nommées avec surface, versionning visuel, templates de configuration.
+**Phase 4 (Différenciation)** ✅ cœur livré (2026-07-05)
+- [x] Cônes de vue par focale (livrés dès la Phase 2)
+- [x] Échelle du plan : étalonnage 2 clics + distance réelle (bouton
+      Échelle, vert quand définie) → plans_canvas.echelle_ratio (m/px) +
+      meta.metersPerPx de la page tldraw (lue par les shapes, synchronisée
+      collab, embarquée dans le doc → la page publique affiche les mètres)
+- [x] CotationShape ('captiv-cote') : 2 poignées, traits d'extrémité,
+      étiquette de distance auto (m si échelle, px sinon), layer Cotations
+- [x] ZoneShape ('captiv-zone') : rectangle translucide nommé + dimensions
+      réelles et surface (« 12 × 8 m · 96 m² », toggle), layer Zones,
+      reprise dans la légende de la page publique
+- [x] Bibliothèque : catégorie « Zones & mesures »
+- [ ] Versionning avec snapshots visuels, templates de configuration, PDF
+      avec légende — backlog Phase 4+
 
 **Phase 5 (Intégration DESK)** — liens plan ↔ déroulé (config active par
 créneau horaire), ↔ équipe (cadreur assigné à une position), ↔ matériel
