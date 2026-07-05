@@ -21,7 +21,9 @@ import { Check, Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon, MessageCircle
 import { replyToComment, setCommentResolved } from '../../../lib/plansCanvasShare'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
-import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg, CAMERA_MODELES } from './shapes/catalog'
+import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg, CAMERA_MODELES, CABLE_TYPES } from './shapes/catalog'
+import { CABLE_SHAPE_TYPE, cableLengthPx } from './shapes/CableShapeUtil'
+import { FocaleCalc } from './FocaleCalc'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
@@ -452,6 +454,7 @@ function PropsTab({ editor, selected }) {
   if (shape.type === ITEM_SHAPE_TYPE) return <ItemProps editor={editor} shape={shape} />
   if (shape.type === ZONE_SHAPE_TYPE) return <ZoneProps editor={editor} shape={shape} />
   if (shape.type === COTE_SHAPE_TYPE) return <CoteProps editor={editor} shape={shape} />
+  if (shape.type === CABLE_SHAPE_TYPE) return <CableProps editor={editor} shape={shape} />
   return (
     <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--txt-3)' }}>
       Pas de propriétés Captiv pour cet élément ({shape.type})
@@ -607,6 +610,9 @@ function CameraProps({ editor, shape }) {
           {props.showCone ? 'Affiché' : 'Masqué'}
         </button>
       </Field>
+
+      {/* Calculateur focale intégré (capteur pré-rempli, mesure sur plan) */}
+      <CameraCalcSection shape={shape} setFocale={setFocale} />
     </div>
   )
 }
@@ -688,6 +694,33 @@ function RiggedCamProps({ editor, shape }) {
             : 'Poignées : extrémités du câble, position de la caméra, pastille.'
           : 'Poignées : les 4 points d’accroche ; la caméra suit l’intersection.'}
       </div>
+    </div>
+  )
+}
+
+// Section repliable « Calcul focale » des Propriétés caméra.
+function CameraCalcSection({ shape, setFocale }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="px-3 py-2" style={{ borderTop: '1px solid var(--brd)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left text-[11px] font-bold"
+        style={{ color: 'var(--txt-2)' }}
+      >
+        {open ? '▾' : '▸'} Calcul focale
+      </button>
+      {open && (
+        <div className="mt-2">
+          <FocaleCalc
+            defaultModele={shape.props.modele}
+            canMeasure
+            measureShapeId={shape.id}
+            onApplyFocale={(f) => setFocale(f)}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -792,6 +825,76 @@ function CoteProps({ editor, shape }) {
       </div>
       <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
         Poignées : les deux extrémités de la mesure.
+      </div>
+    </div>
+  )
+}
+
+function CableProps({ editor, shape }) {
+  const { props } = shape
+  const update = (patch) =>
+    editor.updateShape({ id: shape.id, type: shape.type, props: patch })
+  const mpp = pageMetersPerPx(editor)
+  const lenPx = cableLengthPx(props)
+
+  return (
+    <div className="py-1">
+      <Field label="Type de câble">
+        <select
+          value={props.cableType}
+          onChange={(e) => update({ cableType: e.target.value })}
+          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+          style={inputStyle}
+        >
+          {Object.entries(CABLE_TYPES).map(([key, t]) => (
+            <option key={key} value={key}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Label (optionnel)">
+        <input
+          type="text"
+          defaultValue={props.label}
+          key={shape.id}
+          placeholder="SDI CAM 2 → régie"
+          onBlur={(e) => update({ label: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+          style={inputStyle}
+        />
+      </Field>
+      {props.points.length >= 3 && (
+        <Field label="Trajectoire">
+          <button
+            type="button"
+            onClick={() => update({ spline: !props.spline })}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: props.spline ? 'var(--blue-bg)' : 'var(--bg)',
+              color: props.spline ? 'var(--blue)' : 'var(--txt-3)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            {props.spline ? 'Courbe' : 'Droite'}
+          </button>
+        </Field>
+      )}
+      <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-2)' }}>
+        {mpp > 0 ? (
+          <>
+            Longueur : <span className="font-semibold">{fmtMeters(lenPx * mpp)} m</span>
+          </>
+        ) : (
+          'Définis l’échelle du plan (bouton Échelle) pour le métrage.'
+        )}
+      </div>
+      <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        Glisse le « + » au milieu d’un segment pour ajouter un point ;
+        double-clic sur un point pour le supprimer.
       </div>
     </div>
   )

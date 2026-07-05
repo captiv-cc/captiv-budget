@@ -23,6 +23,7 @@ import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
+import { CableShapeUtil } from './shapes/CableShapeUtil'
 
 const CUSTOM_SHAPE_UTILS = [
   CameraShapeUtil,
@@ -31,6 +32,7 @@ const CUSTOM_SHAPE_UTILS = [
   SpiderCamShapeUtil,
   ZoneShapeUtil,
   CotationShapeUtil,
+  CableShapeUtil,
 ]
 
 const READONLY_COMPONENTS = {

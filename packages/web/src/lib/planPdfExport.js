@@ -97,6 +97,10 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
       pdf.setFillColor(r, g, b)
       if (entry.kind === 'cam') {
         pdf.circle(lx + 1.5, ly - 1.2, 1.5, 'F')
+      } else if (entry.kind === 'cable') {
+        pdf.setDrawColor(r, g, b)
+        pdf.setLineWidth(0.9)
+        pdf.line(lx, ly - 1.2, lx + 3.4, ly - 1.2)
       } else {
         pdf.rect(lx, ly - 2.6, 3, 3, 'F')
       }

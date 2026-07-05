@@ -18,6 +18,7 @@ export const LAYERS = [
   { key: 'son', label: 'Son' },
   { key: 'personnes', label: 'Personnes' },
   { key: 'structures', label: 'Structures' },
+  { key: 'cables', label: 'Câbles' },
   { key: 'cotations', label: 'Cotations' },
   { key: 'annotations', label: 'Annotations' },
 ]
@@ -53,6 +54,38 @@ export const CAMERA_MODELES = [
 export function focaleToAngleDeg(focale) {
   if (!focale || focale <= 0) return 54
   return Math.round((2 * Math.atan(36 / (2 * focale)) * 180) / Math.PI)
+}
+
+/* ─── Capteurs par modèle (largeur mm — full frame par défaut, décision
+       Hugo ; les PTZ recevront leurs vraies valeurs plus tard) ──────────── */
+
+export const SENSOR_FULL_FRAME_W = 36
+
+export const CAMERA_SENSORS = {
+  FX3: 36,
+  FX6: 36,
+  FX9: 36,
+  PLV100: 36,
+  BURANO: 36,
+  'PTZ FR7': 36,
+  'PTZ UE100': 36,
+  'PTZ UE150': 36,
+  'PTZ UE160': 36,
+}
+
+/* ─── Types de câbles (couleurs actées Hugo 2026-07-05 + tirets pour
+       l'impression N&B et les teintes proches) ───────────────────────────── */
+
+export const CABLE_TYPES = {
+  elec: { label: 'Élec / alim', color: '#4b5563', dash: null },
+  sdi: { label: 'Vidéo / SDI', color: '#15803d', dash: null },
+  hdmi: { label: 'Vidéo / HDMI', color: '#4ade80', dash: '7 4' },
+  fibre: { label: 'Fibre optique', color: '#f97316', dash: null },
+  reseau: { label: 'Réseau', color: '#3b82f6', dash: null },
+  audio: { label: 'Audio', color: '#8b5cf6', dash: null },
+  dmx: { label: 'DMX / lumière', color: '#eab308', dash: null },
+  hf: { label: 'HF / antennes', color: '#ec4899', dash: '2 4' },
+  autre: { label: 'Autre', color: '#9ca3af', dash: '5 4' },
 }
 
 /* ─── Glyphes SVG (vue de dessus, viewBox 0 0 40 40) ───────────────────── */
@@ -152,6 +185,13 @@ const GLYPHS = {
       <path d="M4 24 C14 16 26 16 36 24" stroke={c} {...S} fill="none" />
       <path d="M9 25 l-2 4 M17 20.5 l-1.5 4.2 M25 20.5 l1.5 4.2 M31 25 l2 4" stroke={c} strokeWidth="1.6" />
       <circle cx="20" cy="19" r="5" fill={c} stroke="#fff" strokeWidth="1.4" />
+    </>
+  ),
+  cable: (c) => (
+    <>
+      <path d="M4 28 C12 28 12 12 20 12 C28 12 28 28 36 28" stroke={c} {...S} fill="none" />
+      <circle cx="4" cy="28" r="2.5" fill={c} />
+      <circle cx="36" cy="28" r="2.5" fill={c} />
     </>
   ),
   zone: (c) => (
@@ -375,6 +415,22 @@ export const CATALOG = [
       { kind: 'cam_spider', label: 'Spider cam', short: 'Spider', camKind: 'spider', glyph: 'cam_spider', color: '#ff9f0a', tags: ['araignée', '4 points'] },
       { kind: 'cam_travelling', label: 'Travelling / Slider', short: 'Travelling', camKind: 'rail', railKind: 'travelling', glyph: 'cam_travelling', color: CAM, tags: ['slider', 'rail', 'dolly'] },
     ],
+  },
+  {
+    key: 'cables',
+    label: 'Câbles',
+    layer: 'cables',
+    // Une tuile par type : clic → active l'outil de tracé clic-par-clic.
+    items: Object.entries(CABLE_TYPES).map(([key, t]) => ({
+      kind: `cable_${key}`,
+      label: t.label,
+      short: t.label,
+      special: 'cable',
+      cableType: key,
+      glyph: 'cable',
+      color: t.color,
+      tags: ['câble', 'cable', t.label.toLowerCase()],
+    })),
   },
   {
     key: 'zones_mesures',

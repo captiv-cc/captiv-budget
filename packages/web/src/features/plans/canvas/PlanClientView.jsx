@@ -40,9 +40,10 @@ import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
 import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
-import { ZoneShapeUtil, ZONE_SHAPE_TYPE } from './shapes/ZoneShapeUtil'
+import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
-import { CAM_SHAPE_TYPES } from './shapes/camUtils'
+import { CableShapeUtil } from './shapes/CableShapeUtil'
+import { buildLegend } from './shapes/legend'
 
 const CUSTOM_SHAPE_UTILS = [
   CameraShapeUtil,
@@ -51,6 +52,7 @@ const CUSTOM_SHAPE_UTILS = [
   SpiderCamShapeUtil,
   ZoneShapeUtil,
   CotationShapeUtil,
+  CableShapeUtil,
 ]
 
 // UI tldraw minimale : navigation/zoom uniquement.
@@ -78,35 +80,6 @@ const ERROR_LABELS = {
   not_found: 'Ce lien de plan n’existe pas ou a été supprimé.',
   revoked: 'Ce lien de partage a été désactivé.',
   expired: 'Ce lien de partage a expiré.',
-}
-
-/* ─── Légende dérivée des shapes du doc ─────────────────────────────────── */
-
-function buildLegend(records) {
-  const entries = []
-  const camGroups = new Map() // support → { color, count }
-  const itemGroups = new Map() // label → { color, count }
-  records.forEach((r) => {
-    if (r.typeName !== 'shape') return
-    if (CAM_SHAPE_TYPES.includes(r.type)) {
-      const key = r.props?.support || 'Caméra'
-      const g = camGroups.get(key) || { color: r.props?.couleur || '#4d9fff', count: 0 }
-      g.count += 1
-      camGroups.set(key, g)
-    } else if (r.type === 'captiv-item') {
-      const key = r.props?.label || 'Élément'
-      const g = itemGroups.get(key) || { color: r.props?.couleur || '#a8a8a8', count: 0 }
-      g.count += 1
-      itemGroups.set(key, g)
-    } else if (r.type === ZONE_SHAPE_TYPE) {
-      entries.push({ label: `Zone ${r.props?.label || ''}`.trim(), color: r.props?.couleur || '#9c5ffd', kind: 'item' })
-    }
-  })
-  camGroups.forEach((g, key) => entries.push({ label: `${key} (${g.count})`, color: g.color, kind: 'cam' }))
-  itemGroups.forEach((g, key) =>
-    entries.push({ label: g.count > 1 ? `${key} (${g.count})` : key, color: g.color, kind: 'item' }),
-  )
-  return entries.slice(0, 12)
 }
 
 export default function PlanClientView() {
@@ -469,6 +442,8 @@ export default function PlanClientView() {
                   <div key={entry.label} className="flex items-center gap-2">
                     {entry.kind === 'cam' ? (
                       <span className="w-3 h-3 rounded-full shrink-0" style={{ background: entry.color }} />
+                    ) : entry.kind === 'cable' ? (
+                      <span className="w-3.5 h-[3px] rounded-full shrink-0" style={{ background: entry.color }} />
                     ) : (
                       <span className="w-3 h-3 rounded-[3px] shrink-0" style={{ border: `2px solid ${entry.color}` }} />
                     )}

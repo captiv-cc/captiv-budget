@@ -16,7 +16,7 @@ import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Download, History, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
+import { ArrowLeft, Calculator, Download, History, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import {
   getCanvas,
   saveCanvasState,
@@ -43,8 +43,10 @@ import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
+import { CableShapeUtil, CableTool } from './shapes/CableShapeUtil'
 import { CAPTIV_SHAPE_TYPES } from './shapes/camUtils'
-import { setPageMetersPerPx } from './shapes/scale'
+import { setPageMetersPerPx, pageMetersPerPx } from './shapes/scale'
+import { FocaleCalcModal } from './FocaleCalc'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 import PlanShareModal from './PlanShareModal'
@@ -67,7 +69,9 @@ const CUSTOM_SHAPE_UTILS = [
   SpiderCamShapeUtil,
   ZoneShapeUtil,
   CotationShapeUtil,
+  CableShapeUtil,
 ]
+const CUSTOM_TOOLS = [CableTool]
 
 // Visibilité par couche : meta.hidden posé par le panneau Layers.
 function getShapeVisibility(shape) {
@@ -227,6 +231,46 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     },
     [readOnly],
   )
+
+  // ── Calculateur focale (standalone) + mesure de distance sur le plan ──────
+  const [calcOpen, setCalcOpen] = useState(false)
+  const [measureReq, setMeasureReq] = useState(null) // { shapeId } | null
+
+  useEffect(() => {
+    const onReq = (e) => {
+      const editor = editorRef.current
+      if (!editor) return
+      if (!pageMetersPerPx(editor)) {
+        notify.error('Définis d’abord l’échelle du plan (bouton Échelle)')
+        return
+      }
+      setMeasureReq({ shapeId: e.detail?.shapeId || null })
+    }
+    window.addEventListener('captiv-plan-measure', onReq)
+    return () => window.removeEventListener('captiv-plan-measure', onReq)
+  }, [])
+
+  function handleMeasureClick(e) {
+    const editor = editorRef.current
+    if (!editor || !measureReq) return
+    const target = editor.screenToPage({ x: e.clientX, y: e.clientY })
+    let origin = null
+    if (measureReq.shapeId) {
+      const shape = editor.getShape(measureReq.shapeId)
+      if (shape) {
+        // Apex de la caméra (position réelle de la cam dans le cône).
+        const transform = editor.getShapePageTransform(shape.id)
+        origin = transform.applyToPoint({ x: shape.props.w / 2, y: shape.props.h })
+      }
+    }
+    const mpp = pageMetersPerPx(editor)
+    if (origin && mpp) {
+      const meters = Math.hypot(target.x - origin.x, target.y - origin.y) * mpp
+      window.dispatchEvent(new CustomEvent('captiv-plan-measure-result', { detail: { meters } }))
+      notify.success(`Distance mesurée : ${meters.toFixed(1)} m`)
+    }
+    setMeasureReq(null)
+  }
 
   // ── Étalonnage de l'échelle (2 clics + distance réelle) ───────────────────
   const [calibrating, setCalibrating] = useState(false)
@@ -616,6 +660,17 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           {!readOnly && canvas && (
             <button
               type="button"
+              onClick={() => setCalcOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+              title="Calcul focale / distance / hauteur de sujet"
+            >
+              <Calculator className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {!readOnly && canvas && (
+            <button
+              type="button"
               onClick={() => setVersionsOpen(true)}
               className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
               style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
@@ -762,6 +817,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             <Tldraw
               store={store}
               shapeUtils={CUSTOM_SHAPE_UTILS}
+              tools={CUSTOM_TOOLS}
               getShapeVisibility={getShapeVisibility}
               components={TLDRAW_COMPONENTS}
               inferDarkMode
@@ -776,6 +832,22 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
                 }}
               />
             </Tldraw>
+          )}
+
+          {/* Mesure de distance (calcul focale) : 1 clic sur le sujet */}
+          {measureReq && (
+            <div
+              className="absolute inset-0"
+              style={{ zIndex: 500, cursor: 'crosshair' }}
+              onClick={handleMeasureClick}
+            >
+              <div
+                className="absolute top-3 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-2 rounded-lg pointer-events-none"
+                style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+              >
+                Clique le sujet sur le plan — distance mesurée depuis la caméra
+              </div>
+            </div>
           )}
 
           {/* Étalonnage : capture des 2 clics + repères visuels */}
@@ -903,6 +975,8 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           onDuplicate={duplicateViewedVersion}
         />
       )}
+
+      {calcOpen && <FocaleCalcModal onClose={() => setCalcOpen(false)} />}
 
       {fondModalOpen && canvas && (
         <FondPickerModal

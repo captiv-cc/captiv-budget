@@ -73,6 +73,11 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
     : Math.round(Math.max(16, Math.min(64, viewport.height * 0.024)))
   const id = createShapeId()
 
+  if (item.special === 'cable') {
+    // Active l'outil de tracé clic-par-clic avec le type choisi.
+    editor.setCurrentTool('captiv-cable', { cableType: item.cableType })
+    return pushRecent(kind)
+  }
   if (item.special === 'zone') {
     const w = Math.round(viewport.width * 0.24)
     const h = Math.round(viewport.height * 0.2)
