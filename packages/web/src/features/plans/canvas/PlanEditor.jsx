@@ -15,10 +15,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Download, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
+import { ArrowLeft, Download, Image as ImageIcon, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
-import { makeCaptivAssetStore, ensureFondShape } from '../../../lib/plansCanvasFond'
+import {
+  makeCaptivAssetStore,
+  ensureFondShape,
+  FOND_SHAPE_ID,
+  FOND_ASSET_ID,
+} from '../../../lib/plansCanvasFond'
+import FondPickerModal from './FondPickerModal'
 import { useYjsTldraw, encodeDocState } from '../../../hooks/useYjsTldraw'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
@@ -178,6 +184,51 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     [readOnly],
   )
 
+  // ── Remplacement du fond de plan ───────────────────────────────────────────
+  const [fondModalOpen, setFondModalOpen] = useState(false)
+
+  async function replaceFond(fond) {
+    const editor = editorRef.current
+    if (!editor) return
+    try {
+      // 1. Persiste le choix sur la row.
+      await updateCanvas(canvasId, { fond_id: fond?.id || null, updated_by: user?.id })
+      setCanvas((p) => ({ ...p, fond_id: fond?.id || null }))
+
+      // 2. Retire l'ancien fond du document (en mémorisant son état visuel).
+      const old = editor.getShape(FOND_SHAPE_ID)
+      const prevState = old ? { opacity: old.opacity, hidden: old.meta?.hidden } : null
+      if (old) {
+        if (old.isLocked) editor.updateShape({ id: old.id, type: old.type, isLocked: false })
+        editor.deleteShapes([FOND_SHAPE_ID])
+      }
+      if (editor.getAsset(FOND_ASSET_ID)) editor.deleteAssets([FOND_ASSET_ID])
+
+      // 3. Insère le nouveau (synchronisé Yjs → visible en live chez les
+      //    collaborateurs), en réappliquant opacité/visibilité de couche.
+      if (fond) {
+        await ensureFondShape(editor, fond)
+        if (prevState && (prevState.opacity != null || prevState.hidden)) {
+          const created = editor.getShape(FOND_SHAPE_ID)
+          if (created) {
+            editor.updateShape({ id: created.id, type: created.type, isLocked: false })
+            editor.updateShape({
+              id: created.id,
+              type: created.type,
+              opacity: prevState.opacity ?? 1,
+              meta: { ...created.meta, hidden: prevState.hidden || false },
+              isLocked: true,
+            })
+          }
+        }
+      }
+      setFondModalOpen(false)
+      notify.success(fond ? 'Fond de plan remplacé' : 'Fond de plan retiré')
+    } catch (err) {
+      notify.error('Remplacement du fond échoué : ' + (err?.message || err))
+    }
+  }
+
   // ── Export PNG / PDF ───────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false)
 
@@ -328,8 +379,20 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           )}
         </div>
 
-        {/* Export */}
+        {/* Fond + Export */}
         <div className="flex items-center gap-1.5">
+          {!readOnly && canvas && (
+            <button
+              type="button"
+              onClick={() => setFondModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+              title="Remplacer ou retirer le fond de plan"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              Fond
+            </button>
+          )}
           <button
             type="button"
             onClick={() => handleExport('png')}
@@ -427,6 +490,15 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
 
         {!readOnly && editorInstance && <PlanSidePanel editor={editorInstance} />}
       </div>
+
+      {fondModalOpen && canvas && (
+        <FondPickerModal
+          projectId={canvas.project_id}
+          currentFondId={canvas.fond_id}
+          onClose={() => setFondModalOpen(false)}
+          onPick={replaceFond}
+        />
+      )}
     </div>
   )
 
