@@ -49,6 +49,26 @@ export function encodeDocState(doc) {
 }
 
 /**
+ * Encode un état COMPACTÉ : reconstruit un doc neuf depuis les valeurs
+ * courantes (sans l'historique CRDT / tombstones, qui grossit indéfiniment).
+ * À n'utiliser que quand AUCUN pair n'est connecté : un doc compacté n'a pas
+ * d'historique commun avec les docs vivants des autres clients.
+ */
+export function compactDocState(doc) {
+  const fresh = new Y.Doc()
+  const source = doc.getMap(Y_MAP_KEY)
+  const target = fresh.getMap(Y_MAP_KEY)
+  fresh.transact(() => {
+    source.forEach((record, key) => {
+      target.set(key, record)
+    })
+  })
+  const encoded = uint8ToBase64(Y.encodeStateAsUpdate(fresh))
+  fresh.destroy()
+  return encoded
+}
+
+/**
  * @param {object} opts
  * @param {string}  opts.canvasId        — plans_canvas.id (docId du channel)
  * @param {string}  [opts.initialStateB64] — ydoc_state persisté (base64), appliqué

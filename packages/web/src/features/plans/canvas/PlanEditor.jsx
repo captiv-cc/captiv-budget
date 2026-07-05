@@ -48,7 +48,7 @@ import {
   FOND_ASSET_ID,
 } from '../../../lib/plansCanvasFond'
 import FondPickerModal from './FondPickerModal'
-import { useYjsTldraw, encodeDocState } from '../../../hooks/useYjsTldraw'
+import { useYjsTldraw, encodeDocState, compactDocState } from '../../../hooks/useYjsTldraw'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
 import { confirm } from '../../../lib/confirm'
@@ -307,12 +307,28 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   const docRef = useRef(null)
   const pendingRef = useRef(false)
 
+  // Peers frais pour l'élection du « sauveur » (flushSave est un callback figé).
+  const peersRef = useRef([])
+
   const flushSave = useCallback(async () => {
-    if (!docRef.current) return
+    const doc = docRef.current
+    if (!doc) return
+    // Élection : quand plusieurs éditeurs sont présents, seul le client au
+    // plus petit clientID écrit (tous ont le même état CRDT — inutile que
+    // chacun sauve toutes les 2 s).
+    const peers = peersRef.current
+    if (peers.length && Math.min(...peers.map((p) => p.clientId)) < doc.clientID) {
+      pendingRef.current = false
+      setSaveState('saved')
+      return
+    }
     pendingRef.current = false
     setSaveState('saving')
     try {
-      await saveCanvasState(canvasId, encodeDocState(docRef.current), { userId: user?.id })
+      // Seul au monde → on en profite pour COMPACTER l'état persisté
+      // (l'historique CRDT grossit indéfiniment sinon).
+      const state = peers.length === 0 ? compactDocState(doc) : encodeDocState(doc)
+      await saveCanvasState(canvasId, state, { userId: user?.id })
       // Si de nouvelles modifs sont arrivées pendant l'écriture, on reste dirty.
       setSaveState(pendingRef.current ? 'dirty' : 'saved')
     } catch (err) {
@@ -349,6 +365,26 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     enabled: Boolean(canvas),
   })
   docRef.current = doc
+  peersRef.current = peers
+
+  // Miniature périodique : la vignette de la card ne dépend plus d'une
+  // fermeture propre de l'onglet (toutes les 2 min, sauveur élu uniquement).
+  useEffect(() => {
+    if (readOnly) return undefined
+    const interval = setInterval(async () => {
+      const editor = editorRef.current
+      const currentPeers = peersRef.current
+      if (!editor) return
+      if (currentPeers.length && Math.min(...currentPeers.map((p) => p.clientId)) < docRef.current?.clientID) return
+      try {
+        const dataUrl = await makeThumbnail()
+        if (dataUrl) await updateCanvas(canvasId, { snapshot_svg: dataUrl })
+      } catch {
+        /* best effort */
+      }
+    }, 120000)
+    return () => clearInterval(interval)
+  }, [readOnly, canvasId, makeThumbnail])
 
   // ── Montage tldraw : lecture seule + insertion du fond ────────────────────
   const editorRef = useRef(null)
