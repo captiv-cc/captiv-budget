@@ -20,7 +20,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calculator, Crosshair, X } from 'lucide-react'
-import { CAMERA_SENSORS, SENSOR_FULL_FRAME_W } from './shapes/catalog'
+import { CAMERA_SENSORS, CAMERA_MODELES, SENSOR_FULL_FRAME_W } from './shapes/catalog'
 
 const fieldStyle = { background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }
 
@@ -47,6 +47,7 @@ function fmt(n, decimals = 1) {
  * @param {function} [props.onApplyFocale] — (focaleFFmm) => applique au cône
  */
 export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShapeId = null, onApplyFocale }) {
+  const [modele, setModele] = useState(defaultModele)
   const [sensorW, setSensorW] = useState(() => CAMERA_SENSORS[defaultModele] || SENSOR_FULL_FRAME_W)
   const [ratio, setRatio] = useState('169') // '169' vidéo | '32' photo
   const [target, setTarget] = useState('focale')
@@ -90,6 +91,13 @@ export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShap
   // Équivalent full frame quand le capteur est plus petit.
   const crop = SENSOR_FULL_FRAME_W / sensorW
   const showFFEq = Math.abs(crop - 1) > 0.01 && target === 'focale' && result
+
+  // Angle de vue horizontal correspondant (éq. FF) + garde-fou plausibilité.
+  const focaleFF = target === 'focale' && result ? result.raw * crop : null
+  const angleH = focaleFF
+    ? Math.round((2 * Math.atan(SENSOR_FULL_FRAME_W / (2 * focaleFF)) * 180) / Math.PI)
+    : null
+  const horsPlage = focaleFF != null && (focaleFF > 800 || focaleFF < 8)
 
   const inputs = {
     focale: (
@@ -137,6 +145,32 @@ export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShap
 
   return (
     <div className="flex flex-col gap-2.5">
+      {/* Caméra (presets) — masqué quand le modèle vient de la cam sélectionnée */}
+      {!defaultModele && (
+        <label>
+          <span className="block text-[10px] font-semibold mb-0.5" style={{ color: 'var(--txt-3)' }}>
+            Caméra (optionnel — pré-remplit le capteur)
+          </span>
+          <input
+            type="text"
+            value={modele}
+            list="focale-calc-modeles"
+            onChange={(e) => {
+              setModele(e.target.value)
+              if (CAMERA_SENSORS[e.target.value]) setSensorW(CAMERA_SENSORS[e.target.value])
+            }}
+            placeholder="FX6, BURANO…"
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={fieldStyle}
+          />
+          <datalist id="focale-calc-modeles">
+            {CAMERA_MODELES.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+        </label>
+      )}
+
       {/* Capteur */}
       <div className="flex items-end gap-2">
         <label className="flex-1 min-w-0">
@@ -215,10 +249,21 @@ export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShap
               ≈ {fmt(result.raw * crop)} mm éq. full frame (crop ×{fmt(crop, 2)})
             </div>
           )}
+          {angleH != null && (
+            <div className="text-[10px] text-right" style={{ color: 'var(--txt-2)' }}>
+              Angle de vue horizontal ≈ {angleH}°
+            </div>
+          )}
           {/* Formule appliquée, en léger */}
           <div className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
             {formula}
           </div>
+          {horsPlage && (
+            <div className="text-[10px] mt-1 font-semibold" style={{ color: 'var(--orange, #ff9f0a)' }}>
+              Hors plage des optiques courantes — vérifie la distance et la
+              hauteur du sujet (cadres-tu vraiment {hauteur || '?'} m à {distance || '?'} m ?).
+            </div>
+          )}
           {target === 'focale' && onApplyFocale && (
             <button
               type="button"

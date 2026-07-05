@@ -48,13 +48,8 @@ function cableLayout(props, mpp) {
   const type = cableMeta(props)
   const metrage = mpp > 0 ? `${fmtMeters(lenPx * mpp)} m` : null
   const texte = [props.label || type.label, metrage].filter(Boolean).join(' · ')
-  const fontLabel = 10
-  const pillW = Math.round(texte.length * fontLabel * 0.62 + fontLabel * 1.2)
-  const pillH = Math.round(fontLabel * 1.6)
   const mid = pointAtT(pts, 0.5)
-  const pillCx = mid.x + (props.labelDx ?? 0)
-  const pillCy = mid.y - pillH * 1.1 + (props.labelDy ?? 0)
-  return { pts, type, texte, fontLabel, pillW, pillH, mid, pillCx, pillCy }
+  return { pts, type, texte, mid }
 }
 
 export class CableShapeUtil extends ShapeUtil {
@@ -95,7 +90,6 @@ export class CableShapeUtil extends ShapeUtil {
 
   getHandles(shape) {
     const { points } = shape.props
-    const L = cableLayout(shape.props, 0)
     const handles = points.map((p, i) => ({
       id: `p${i}`,
       type: 'vertex',
@@ -112,7 +106,6 @@ export class CableShapeUtil extends ShapeUtil {
         canSnap: false,
       })
     }
-    handles.push({ id: 'label', type: 'vertex', x: L.pillCx, y: L.pillCy, canSnap: false })
     return handles
   }
 
@@ -130,17 +123,6 @@ export class CableShapeUtil extends ShapeUtil {
 
   onHandleDrag(shape, { handle }) {
     const props = shape.props
-    if (handle.id === 'label') {
-      const L = cableLayout({ ...props, labelDx: 0, labelDy: 0 }, 0)
-      return {
-        id: shape.id,
-        type: shape.type,
-        props: {
-          labelDx: Math.round(handle.x - L.pillCx),
-          labelDy: Math.round(handle.y - L.pillCy),
-        },
-      }
-    }
     if (handle.id.startsWith('mid')) {
       const idx = Number(handle.id.slice(3))
       if (Number.isNaN(idx)) return undefined
@@ -184,8 +166,15 @@ export class CableShapeUtil extends ShapeUtil {
     const L = cableLayout(shape.props, mpp)
     const path = railSvgPath(L.pts)
     const trait = 3
-    const offset = Math.hypot(shape.props.labelDx ?? 0, shape.props.labelDy ?? 0)
     const isSelected = this.editor.getOnlySelectedShapeId?.() === shape.id
+
+    // Label discret le long du câble : orienté sur la tangente au milieu,
+    // retourné si nécessaire pour rester lisible, décalé au-dessus du trait.
+    let labelDeg = (L.mid.angle * 180) / Math.PI
+    if (labelDeg > 90 || labelDeg < -90) labelDeg += 180
+    const rad = (labelDeg * Math.PI) / 180
+    const labelX = L.mid.x + Math.sin(rad) * 7
+    const labelY = L.mid.y - Math.cos(rad) * 7
 
     return (
       <HTMLContainer style={{ pointerEvents: 'all' }}>
@@ -217,27 +206,16 @@ export class CableShapeUtil extends ShapeUtil {
                 </g>
               )
             })}
-          {/* Ligne de rappel + étiquette */}
-          {offset > L.pillH * 1.5 && (
-            <line x1={L.mid.x} y1={L.mid.y} x2={L.pillCx} y2={L.pillCy} stroke={L.type.color} strokeWidth="1" strokeDasharray="4 4" />
-          )}
-          <rect
-            x={L.pillCx - L.pillW / 2}
-            y={L.pillCy - L.pillH / 2}
-            width={L.pillW}
-            height={L.pillH}
-            rx={L.pillH / 2}
-            fill={L.type.color}
-            stroke="#ffffff"
-            strokeWidth="1.2"
-          />
+          {/* Label discret, une fois, le long du câble */}
           <text
-            x={L.pillCx}
-            y={L.pillCy + L.fontLabel * 0.36}
+            x={labelX}
+            y={labelY}
+            transform={`rotate(${labelDeg} ${labelX} ${labelY})`}
             textAnchor="middle"
-            fontSize={L.fontLabel}
-            fontWeight="700"
-            fill="#ffffff"
+            fontSize="9"
+            fontWeight="600"
+            fill={L.type.color}
+            style={{ paintOrder: 'stroke', stroke: 'rgba(255,255,255,0.9)', strokeWidth: 2.5 }}
           >
             {L.texte}
           </text>

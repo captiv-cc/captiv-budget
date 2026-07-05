@@ -95,6 +95,31 @@ function CaptivStylePanel(props) {
   return <DefaultStylePanel {...props} />
 }
 
+// Bandeau d'aide de l'outil plume (câbles) : visible tant que l'outil est
+// actif — comment tracer, comment terminer, comment annuler.
+function CableToolHint() {
+  const editor = useEditor()
+  const isActive = useValue('is-cable-tool', () => editor.getCurrentToolId() === 'captiv-cable', [editor])
+  if (!isActive) return null
+  return (
+    <div
+      className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-3 text-xs px-3.5 py-2 rounded-lg pointer-events-none"
+      style={{ zIndex: 400, background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)', boxShadow: '0 4px 16px rgba(0,0,0,0.3)' }}
+    >
+      <span className="font-bold">Tracé de câble</span>
+      <span style={{ color: 'var(--txt-2)' }}>
+        <b>Clic</b> : ajouter un point
+      </span>
+      <span style={{ color: 'var(--txt-2)' }}>
+        <b>Double-clic</b> ou <b>Entrée</b> : terminer
+      </span>
+      <span style={{ color: 'var(--txt-2)' }}>
+        <b>Échap</b> : annuler
+      </span>
+    </div>
+  )
+}
+
 // UI native élaguée : le menu principal fait doublon avec notre top bar
 // (export, etc.). On garde la toolbar, le zoom, les pages (multi-configs
 // J1/J2), les quick actions (undo/redo) et le StylePanel (couleurs du dessin
@@ -831,6 +856,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
                   if (c) focusComment(c)
                 }}
               />
+              <CableToolHint />
             </Tldraw>
           )}
 
