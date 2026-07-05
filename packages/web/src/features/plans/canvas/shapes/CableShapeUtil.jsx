@@ -12,12 +12,25 @@
 // l'étiquette affiche le métrage (déplaçable, ligne de rappel).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { ShapeUtil, StateNode, Polyline2d, Vec, HTMLContainer, T, createShapeId } from 'tldraw'
+import {
+  ShapeUtil,
+  BindingUtil,
+  StateNode,
+  Polyline2d,
+  Vec,
+  HTMLContainer,
+  T,
+  createShapeId,
+} from 'tldraw'
 import { CABLE_TYPES } from './catalog'
 import { sampleRail, pointAtT, nearestT, railSvgPath } from './railMath'
 import { fmtMeters } from './scale'
 
 export const CABLE_SHAPE_TYPE = 'captiv-cable'
+export const CABLE_BINDING_TYPE = 'captiv-cable-anchor'
+
+// Types de shapes sur lesquels un câble peut s'ancrer (box avec props.w/h).
+const BINDABLE_TYPES = ['captiv-camera', 'captiv-item', 'captiv-zone']
 
 export const cableShapeProps = {
   points: T.arrayOf(T.object({ x: T.number, y: T.number })),
@@ -118,8 +131,15 @@ export class CableShapeUtil extends ShapeUtil {
     this._midInsert = null
   }
 
-  onHandleDragEnd() {
+  onHandleDragEnd(current, info) {
     this._midInsert = null
+    // Extrémité relâchée : (ré)ancrage magnétique sur l'élément dessous.
+    const handleId = info?.handle?.id
+    if (handleId === 'p0') {
+      bindCableEnd(this.editor, current, 'start')
+    } else if (handleId === `p${current.props.points.length - 1}`) {
+      bindCableEnd(this.editor, current, 'end')
+    }
   }
 
   onHandleDragCancel() {
@@ -248,6 +268,82 @@ export class CableShapeUtil extends ShapeUtil {
   }
 }
 
+/* ─── Câbles magnétiques : ancrage des extrémités sur les éléments ──────── */
+//
+// Une extrémité déposée SUR une caméra / un élément / une zone s'y ancre
+// (binding tldraw) : quand la cible bouge, l'extrémité du câble la suit.
+// L'ancre est normalisée (0..1) dans l'espace local de la cible.
+
+/** Cible ancrable sous un point page (exclut le câble lui-même et le fond). */
+export function findCableBindTarget(editor, pagePoint, excludeId) {
+  return (
+    editor.getShapeAtPoint(pagePoint, {
+      hitInside: true,
+      filter: (s) =>
+        s.id !== excludeId && s.id !== 'shape:fond' && BINDABLE_TYPES.includes(s.type),
+    }) || null
+  )
+}
+
+/** (Ré)ancre une extrémité de câble : supprime l'ancien binding, crée le nouveau. */
+export function bindCableEnd(editor, cable, end) {
+  const points = cable.props.points
+  const local = end === 'start' ? points[0] : points[points.length - 1]
+  const pagePoint = { x: cable.x + local.x, y: cable.y + local.y }
+  // Retire l'ancrage existant de cette extrémité.
+  const existing = editor
+    .getBindingsFromShape(cable, CABLE_BINDING_TYPE)
+    .filter((b) => b.props.end === end)
+  if (existing.length) editor.deleteBindings(existing)
+
+  const target = findCableBindTarget(editor, pagePoint, cable.id)
+  if (!target) return
+  const inv = editor.getShapePageTransform(target.id).clone().invert()
+  const tl = inv.applyToPoint(pagePoint)
+  const anchor = {
+    x: Math.max(0, Math.min(1, tl.x / (target.props.w || 1))),
+    y: Math.max(0, Math.min(1, tl.y / (target.props.h || 1))),
+  }
+  editor.createBinding({
+    type: CABLE_BINDING_TYPE,
+    fromId: cable.id,
+    toId: target.id,
+    props: { end, anchor },
+  })
+}
+
+export class CableBindingUtil extends BindingUtil {
+  static type = CABLE_BINDING_TYPE
+
+  static props = {
+    end: T.string, // 'start' | 'end'
+    anchor: T.object({ x: T.number, y: T.number }),
+  }
+
+  getDefaultProps() {
+    return { end: 'end', anchor: { x: 0.5, y: 0.5 } }
+  }
+
+  // La cible bouge → l'extrémité du câble suit son point d'ancrage.
+  onAfterChangeToShape({ binding }) {
+    const editor = this.editor
+    const cable = editor.getShape(binding.fromId)
+    const target = editor.getShape(binding.toId)
+    if (!cable || !target) return
+    const pagePoint = editor.getShapePageTransform(target.id).applyToPoint({
+      x: binding.props.anchor.x * (target.props.w || 0),
+      y: binding.props.anchor.y * (target.props.h || 0),
+    })
+    const local = { x: pagePoint.x - cable.x, y: pagePoint.y - cable.y }
+    const points = [...cable.props.points]
+    const idx = binding.props.end === 'start' ? 0 : points.length - 1
+    const current = points[idx]
+    if (Math.hypot(current.x - local.x, current.y - local.y) < 0.5) return
+    points[idx] = local
+    editor.updateShape({ id: cable.id, type: cable.type, props: { points } })
+  }
+}
+
 /* ─── CableTool — tracé clic-par-clic (plume) ───────────────────────────── */
 
 const CLICK_EPSILON = 3
@@ -351,6 +447,14 @@ export class CableTool extends StateNode {
   _complete() {
     const id = this._finalize()
     this.editor.setCurrentTool('select')
-    if (id) this.editor.setSelectedShapes([id])
+    if (id) {
+      this.editor.setSelectedShapes([id])
+      // Ancrage magnétique des deux extrémités si posées sur un élément.
+      const cable = this.editor.getShape(id)
+      if (cable) {
+        bindCableEnd(this.editor, cable, 'start')
+        bindCableEnd(this.editor, cable, 'end')
+      }
+    }
   }
 }

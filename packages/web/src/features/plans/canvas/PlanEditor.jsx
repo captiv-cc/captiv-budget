@@ -58,7 +58,7 @@ import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
-import { CableShapeUtil, CableTool } from './shapes/CableShapeUtil'
+import { CableShapeUtil, CableTool, CableBindingUtil } from './shapes/CableShapeUtil'
 import { CAPTIV_SHAPE_TYPES } from './shapes/camUtils'
 import { setPageMetersPerPx, pageMetersPerPx } from './shapes/scale'
 import { FocaleCalcModal } from './FocaleCalc'
@@ -88,6 +88,7 @@ const CUSTOM_SHAPE_UTILS = [
   CableShapeUtil,
 ]
 const CUSTOM_TOOLS = [CableTool]
+const CUSTOM_BINDING_UTILS = [CableBindingUtil]
 
 // Visibilité par couche : meta.hidden posé par le panneau Layers.
 function getShapeVisibility(shape) {
@@ -282,6 +283,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     onDirty,
     assetStore,
     extraShapeUtils: CUSTOM_SHAPE_UTILS,
+    extraBindingUtils: CUSTOM_BINDING_UTILS,
     // On attend d'avoir chargé la row pour ne pas rater la restauration.
     enabled: Boolean(canvas),
   })
@@ -876,6 +878,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             <Tldraw
               store={store}
               shapeUtils={CUSTOM_SHAPE_UTILS}
+              bindingUtils={CUSTOM_BINDING_UTILS}
               tools={CUSTOM_TOOLS}
               getShapeVisibility={getShapeVisibility}
               components={TLDRAW_COMPONENTS}

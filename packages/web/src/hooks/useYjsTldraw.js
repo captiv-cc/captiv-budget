@@ -59,6 +59,7 @@ export function encodeDocState(doc) {
  *                                          cf. makeCaptivAssetStore
  * @param {Array}   [opts.extraShapeUtils] — ShapeUtils custom (caméra, items…),
  *                                          à passer aussi à <Tldraw shapeUtils>
+ * @param {Array}   [opts.extraBindingUtils] — BindingUtils custom (ancrage câbles)
  * @param {boolean} [opts.enabled=true]
  *
  * @returns {{ store, doc, status, peers, myUserMeta }}
@@ -69,6 +70,7 @@ export function useYjsTldraw({
   onDirty,
   assetStore,
   extraShapeUtils,
+  extraBindingUtils,
   enabled = true,
 }) {
   const { doc, status, peers, myUserMeta } = useYjsCollab({
@@ -83,7 +85,7 @@ export function useYjsTldraw({
     () =>
       createTLStore({
         shapeUtils: [...defaultShapeUtils, ...(extraShapeUtils || [])],
-        bindingUtils: [...defaultBindingUtils],
+        bindingUtils: [...defaultBindingUtils, ...(extraBindingUtils || [])],
         ...(assetStore ? { assets: assetStore } : {}),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

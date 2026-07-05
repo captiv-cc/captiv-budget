@@ -42,7 +42,7 @@ import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
-import { CableShapeUtil } from './shapes/CableShapeUtil'
+import { CableShapeUtil, CableBindingUtil } from './shapes/CableShapeUtil'
 import { buildLegend } from './shapes/legend'
 
 const CUSTOM_SHAPE_UTILS = [
@@ -152,7 +152,7 @@ export default function PlanClientView() {
     if (!data?.ydocState) return { store: null, legend: [] }
     const s = createTLStore({
       shapeUtils: [...defaultShapeUtils, ...CUSTOM_SHAPE_UTILS],
-      bindingUtils: [...defaultBindingUtils],
+      bindingUtils: [...defaultBindingUtils, CableBindingUtil],
       assets: assetStore,
     })
     let entries = []

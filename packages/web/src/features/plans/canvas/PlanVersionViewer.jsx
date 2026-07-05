@@ -23,7 +23,7 @@ import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
-import { CableShapeUtil } from './shapes/CableShapeUtil'
+import { CableShapeUtil, CableBindingUtil } from './shapes/CableShapeUtil'
 
 const CUSTOM_SHAPE_UTILS = [
   CameraShapeUtil,
@@ -60,7 +60,7 @@ export default function PlanVersionViewer({ canvas, version, ydocState, onClose,
   const store = useMemo(() => {
     const s = createTLStore({
       shapeUtils: [...defaultShapeUtils, ...CUSTOM_SHAPE_UTILS],
-      bindingUtils: [...defaultBindingUtils],
+      bindingUtils: [...defaultBindingUtils, CableBindingUtil],
       // Résolution authentifiée desk (le contexte ne sert qu'à l'upload,
       // impossible ici : lecture seule).
       assets: makeCaptivAssetStore(() => ({})),
