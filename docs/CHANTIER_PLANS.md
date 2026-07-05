@@ -230,6 +230,38 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
 - [ ] Templates de configuration réutilisables (org) — backlog Phase 4+
       (la duplication couvre le besoin intra-projet)
 
+**Sprint « outil complet » — passe 1** ✅ (2026-07-05/06, 15 axes validés
+par Hugo sur les 18 proposés après audit ; exclus : #3 « assigné à » pas
+encore, #9 cartouche PDF pro à travailler EN SESSION COMMUNE, #18
+bibliothèque org plus tard)
+- [x] Tailles réelles : realW/realH (m) sur les items du catalogue ; à la
+      pose, si l'échelle est définie, l'item prend sa taille réelle
+- [x] Nomenclature (menu Exporter) : caméras/items/zones/câbles agrégés,
+      métrage câbles avec marge paramétrable (10 % défaut), export CSV
+      (BOM + séparateur ;) ; top bar réorganisée en menus Plan ▾ / Exporter ▾
+- [x] Câbles magnétiques : binding custom 'captiv-cable-anchor' — les
+      extrémités s'ancrent aux caméras/items/zones et suivent leurs
+      déplacements ; labels coulissants le long du câble
+- [x] Raccourcis capture C (câble, dernier type mémorisé) / X (zone) /
+      M (cotation), aide « ? » discrète en bas à droite, alerte (toast,
+      1×/session) quand on modifie un plan au statut « validé »
+- [x] Robustesse : sauveur élu (multi-éditeurs → seul le plus petit
+      clientID persiste), compaction du ydoc quand on est seul (purge des
+      tombstones CRDT), miniature rafraîchie toutes les 2 min, tests
+      vitest railMath + scale (27 cas)
+
+**Sprint « outil complet » — passe 2** (à faire)
+- [ ] #7 Panneau Propriétés : sections repliables + édition groupée
+      multi-sélection
+- [ ] #8 Onglet « Éléments » : liste de tout le contenu + zoom-to au clic
+- [ ] #11 Commentaires internes ancrés (l'équipe pose des marqueurs côté desk)
+- [ ] #12 Curseurs nommés live sur le canvas (awareness → rendu)
+- [ ] #13 Comparaison de versions (overlay calques)
+
+**Backlog hors sprint** : #9 cartouche PDF pro (session commune avec Hugo,
+ne pas faire seul), #3 champ « assigné à », #18 bibliothèque org, tailles
+capteur réelles des PTZ (Hugo les fournit).
+
 **Phase 5 (Intégration DESK)** — liens plan ↔ déroulé (config active par
 créneau horaire), ↔ équipe (cadreur assigné à une position), ↔ matériel
 (la FX6 #1 du module Matériel sur le plan), vue plan dans le brief créneau.
