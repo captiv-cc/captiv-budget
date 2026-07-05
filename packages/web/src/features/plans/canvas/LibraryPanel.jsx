@@ -120,7 +120,9 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
         points,
         spline: false,
         railKind: item.railKind,
-        camT: 0.5,
+        // Travelling : caméra décentrée pour ne pas recouvrir la poignée
+        // « + » d'ajout de point (au milieu du segment).
+        camT: item.railKind === 'travelling' ? 0.3 : 0.5,
         modele: '',
         support: item.short || item.label,
         couleur: item.color,

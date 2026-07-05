@@ -221,6 +221,9 @@ export class RailCamShapeUtil extends ShapeUtil {
             const next = shape.props.points[i + 1]
             const mx = (p.x + next.x) / 2
             const my = (p.y + next.y) / 2
+            // Sous le badge caméra → on ne dessine pas (la poignée native
+            // resterait masquée et le clic irait à la caméra).
+            if (Math.hypot(mx - L.cam.x, my - L.cam.y) < L.badge * 0.9) return null
             const r = Math.max(7, L.badge * 0.3)
             return (
               <g key={`plus-${i}`} opacity="0.85">
