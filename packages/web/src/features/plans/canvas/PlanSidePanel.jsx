@@ -222,7 +222,8 @@ function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) 
         <div className="flex flex-col items-center gap-1.5 px-3 py-8 text-center">
           <MessageCircle className="w-5 h-5" style={{ color: 'var(--txt-3)' }} />
           <div className="text-xs" style={{ color: 'var(--txt-3)' }}>
-            Aucun commentaire. Le client peut en poser via le lien de partage.
+            Aucun commentaire. Les destinataires du lien de partage peuvent
+            annoter le plan.
           </div>
         </div>
       )}

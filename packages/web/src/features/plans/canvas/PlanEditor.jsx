@@ -40,8 +40,8 @@ import PlanShareModal from './PlanShareModal'
 import PlanCommentMarkers from './PlanCommentMarkers'
 
 const STATUT_BADGE = {
-  partage_client: { label: 'Partagé client', color: '#4d9fff' },
-  valide: { label: 'Validé client', color: '#00c875' },
+  partage_client: { label: 'Partagé', color: '#4d9fff' },
+  valide: { label: 'Validé', color: '#00c875' },
 }
 
 const AUTOSAVE_MS = 2000
@@ -441,10 +441,10 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
               onClick={() => setShareOpen(true)}
               className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
               style={{ background: 'var(--blue)', color: '#fff' }}
-              title="Partager le plan au client (lien lecture seule + commentaires)"
+              title="Partager le plan (lien lecture seule + commentaires)"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Partager au client</span>
+              <span className="hidden sm:inline">Partager</span>
             </button>
           )}
           {!readOnly && canvas && (

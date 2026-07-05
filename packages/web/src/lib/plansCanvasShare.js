@@ -12,29 +12,35 @@ import { supabase } from './supabase'
 
 /* ─── Tokens ────────────────────────────────────────────────────────────── */
 
-/** Token actif (non révoqué, non expiré) le plus récent du plan, sinon null. */
-export async function getActiveShareToken(canvasId) {
+/** Liens actifs (non révoqués, non expirés) du plan, du plus récent au plus ancien. */
+export async function listActiveShareTokens(canvasId) {
   const { data, error } = await supabase
     .from('plans_canvas_share_tokens')
     .select('*')
     .eq('canvas_id', canvasId)
     .is('revoked_at', null)
     .order('created_at', { ascending: false })
-    .limit(1)
   if (error) throw error
-  const row = data?.[0]
-  if (!row) return null
-  if (row.expires_at && new Date(row.expires_at) < new Date()) return null
-  return row
+  const now = new Date()
+  return (data ?? []).filter((row) => !row.expires_at || new Date(row.expires_at) > now)
 }
 
-export async function createShareToken({ canvasId, permissions = 'comment', expiresInDays = null, userId = null }) {
-  const expires_at = expiresInDays
-    ? new Date(Date.now() + expiresInDays * 24 * 3600 * 1000).toISOString()
-    : null
+export async function createShareToken({
+  canvasId,
+  label = null,
+  permissions = 'comment',
+  expiresAt = null,
+  userId = null,
+}) {
   const { data, error } = await supabase
     .from('plans_canvas_share_tokens')
-    .insert({ canvas_id: canvasId, permissions, expires_at, created_by: userId })
+    .insert({
+      canvas_id: canvasId,
+      label: label?.trim() || null,
+      permissions,
+      expires_at: expiresAt,
+      created_by: userId,
+    })
     .select('*')
     .single()
   if (error) throw error
