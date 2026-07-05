@@ -5,10 +5,12 @@
 import { CAMERA_SHAPE_TYPE } from './CameraShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './RailCamShapeUtil'
 import { SPIDERCAM_SHAPE_TYPE } from './SpiderCamShapeUtil'
+import { ZONE_SHAPE_TYPE } from './ZoneShapeUtil'
+import { COTE_SHAPE_TYPE } from './CotationShapeUtil'
 
 export const CAM_SHAPE_TYPES = [CAMERA_SHAPE_TYPE, RAILCAM_SHAPE_TYPE, SPIDERCAM_SHAPE_TYPE]
 
-export const CAPTIV_SHAPE_TYPES = [...CAM_SHAPE_TYPES, 'captiv-item']
+export const CAPTIV_SHAPE_TYPES = [...CAM_SHAPE_TYPES, 'captiv-item', ZONE_SHAPE_TYPE, COTE_SHAPE_TYPE]
 
 /** Prochain numéro de caméra libre, tous types confondus (box/rail/spider). */
 export function nextCamNumero(editor) {

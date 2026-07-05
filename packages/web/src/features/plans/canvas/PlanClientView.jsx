@@ -39,9 +39,18 @@ import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
 import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
+import { ZoneShapeUtil, ZONE_SHAPE_TYPE } from './shapes/ZoneShapeUtil'
+import { CotationShapeUtil } from './shapes/CotationShapeUtil'
 import { CAM_SHAPE_TYPES } from './shapes/camUtils'
 
-const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil, RailCamShapeUtil, SpiderCamShapeUtil]
+const CUSTOM_SHAPE_UTILS = [
+  CameraShapeUtil,
+  ItemShapeUtil,
+  RailCamShapeUtil,
+  SpiderCamShapeUtil,
+  ZoneShapeUtil,
+  CotationShapeUtil,
+]
 
 // UI tldraw minimale : navigation/zoom uniquement.
 const READONLY_COMPONENTS = {
@@ -88,6 +97,8 @@ function buildLegend(records) {
       const g = itemGroups.get(key) || { color: r.props?.couleur || '#a8a8a8', count: 0 }
       g.count += 1
       itemGroups.set(key, g)
+    } else if (r.type === ZONE_SHAPE_TYPE) {
+      entries.push({ label: `Zone ${r.props?.label || ''}`.trim(), color: r.props?.couleur || '#9c5ffd', kind: 'item' })
     }
   })
   camGroups.forEach((g, key) => entries.push({ label: `${key} (${g.count})`, color: g.color, kind: 'cam' }))

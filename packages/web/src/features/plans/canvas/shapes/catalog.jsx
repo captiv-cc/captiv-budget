@@ -18,6 +18,7 @@ export const LAYERS = [
   { key: 'son', label: 'Son' },
   { key: 'personnes', label: 'Personnes' },
   { key: 'structures', label: 'Structures' },
+  { key: 'cotations', label: 'Cotations' },
   { key: 'annotations', label: 'Annotations' },
 ]
 
@@ -151,6 +152,19 @@ const GLYPHS = {
       <path d="M4 24 C14 16 26 16 36 24" stroke={c} {...S} fill="none" />
       <path d="M9 25 l-2 4 M17 20.5 l-1.5 4.2 M25 20.5 l1.5 4.2 M31 25 l2 4" stroke={c} strokeWidth="1.6" />
       <circle cx="20" cy="19" r="5" fill={c} stroke="#fff" strokeWidth="1.4" />
+    </>
+  ),
+  zone: (c) => (
+    <>
+      <rect x="5" y="8" width="30" height="24" rx="2" stroke={c} {...S} strokeDasharray="4 3" fill={c} fillOpacity="0.12" />
+      <text x="20" y="24" textAnchor="middle" fontSize="9" fontWeight="700" fill={c}>ZONE</text>
+    </>
+  ),
+  cote: (c) => (
+    <>
+      <path d="M6 20 H34" stroke={c} {...S} />
+      <path d="M6 14 V26 M34 14 V26" stroke={c} {...S} />
+      <text x="20" y="13" textAnchor="middle" fontSize="8" fontWeight="700" fill={c}>12 m</text>
     </>
   ),
   fresnel: (c) => (
@@ -360,6 +374,15 @@ export const CATALOG = [
       { kind: 'cam_cable', label: 'Cable-cam', short: 'Cable-cam', camKind: 'rail', railKind: 'cable', glyph: 'cam_cable', color: '#ff9f0a', tags: ['câble', 'ligne'] },
       { kind: 'cam_spider', label: 'Spider cam', short: 'Spider', camKind: 'spider', glyph: 'cam_spider', color: '#ff9f0a', tags: ['araignée', '4 points'] },
       { kind: 'cam_travelling', label: 'Travelling / Slider', short: 'Travelling', camKind: 'rail', railKind: 'travelling', glyph: 'cam_travelling', color: CAM, tags: ['slider', 'rail', 'dolly'] },
+    ],
+  },
+  {
+    key: 'zones_mesures',
+    label: 'Zones & mesures',
+    layer: 'zones',
+    items: [
+      { kind: 'zone', label: 'Zone nommée', short: 'Zone', special: 'zone', glyph: 'zone', color: '#9c5ffd', tags: ['surface', 'rect', 'scène', 'public'] },
+      { kind: 'cotation', label: 'Cotation', short: 'Cote', special: 'cote', glyph: 'cote', color: '#a8a8a8', tags: ['mesure', 'distance', 'mètre'] },
     ],
   },
   {

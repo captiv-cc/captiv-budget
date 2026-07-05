@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Download, Image as ImageIcon, Loader2, Share2, Users, Wifi, WifiOff } from 'lucide-react'
+import { ArrowLeft, Download, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
 import { listComments, subscribeToComments } from '../../../lib/plansCanvasShare'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
@@ -33,7 +33,10 @@ import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
 import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
 import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
+import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
+import { CotationShapeUtil } from './shapes/CotationShapeUtil'
 import { CAPTIV_SHAPE_TYPES } from './shapes/camUtils'
+import { setPageMetersPerPx } from './shapes/scale'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 import PlanShareModal from './PlanShareModal'
@@ -46,7 +49,14 @@ const STATUT_BADGE = {
 }
 
 const AUTOSAVE_MS = 2000
-const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil, RailCamShapeUtil, SpiderCamShapeUtil]
+const CUSTOM_SHAPE_UTILS = [
+  CameraShapeUtil,
+  ItemShapeUtil,
+  RailCamShapeUtil,
+  SpiderCamShapeUtil,
+  ZoneShapeUtil,
+  CotationShapeUtil,
+]
 
 // Visibilité par couche : meta.hidden posé par le panneau Layers.
 function getShapeVisibility(shape) {
@@ -181,6 +191,20 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
         editor.updateInstanceState({ isReadonly: true })
         return
       }
+      // Réplique l'échelle persistée dans la meta de page (lue par les
+      // cotations/zones). Léger différé : laisse la sync Yjs initiale poser
+      // une éventuelle meta déjà présente dans le doc.
+      const ratio = canvasRef.current?.echelle_ratio
+      if (ratio) {
+        setTimeout(() => {
+          try {
+            const page = editor.getCurrentPage()
+            if (page && !page.meta?.metersPerPx) setPageMetersPerPx(editor, Number(ratio))
+          } catch {
+            /* noop */
+          }
+        }, 600)
+      }
       const fondId = canvasRef.current?.fond_id
       if (!fondId) return
       // Fire and forget : le fond apparaît dès que le fichier est téléchargé.
@@ -192,6 +216,53 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     },
     [readOnly],
   )
+
+  // ── Étalonnage de l'échelle (2 clics + distance réelle) ───────────────────
+  const [calibrating, setCalibrating] = useState(false)
+  const [calibPoints, setCalibPoints] = useState([]) // [{page:{x,y}, screen:{x,y}}]
+  const [calibMeters, setCalibMeters] = useState('')
+
+  function startCalibration() {
+    setCalibrating(true)
+    setCalibPoints([])
+    setCalibMeters('')
+  }
+
+  function cancelCalibration() {
+    setCalibrating(false)
+    setCalibPoints([])
+  }
+
+  function handleCalibClick(e) {
+    const editor = editorRef.current
+    if (!editor) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const page = editor.screenToPage({ x: e.clientX, y: e.clientY })
+    const point = { page, screen: { x: e.clientX - rect.left, y: e.clientY - rect.top } }
+    setCalibPoints((prev) => (prev.length >= 2 ? prev : [...prev, point]))
+  }
+
+  async function applyCalibration(e) {
+    e.preventDefault()
+    const meters = parseFloat(String(calibMeters).replace(',', '.'))
+    if (!meters || meters <= 0 || calibPoints.length !== 2) return
+    const [p1, p2] = calibPoints
+    const distPx = Math.hypot(p2.page.x - p1.page.x, p2.page.y - p1.page.y)
+    if (distPx < 1) {
+      notify.error('Les deux points sont trop proches')
+      return
+    }
+    const metersPerPx = meters / distPx
+    try {
+      setPageMetersPerPx(editorRef.current, metersPerPx)
+      await updateCanvas(canvasId, { echelle_ratio: metersPerPx, updated_by: user?.id })
+      setCanvas((p) => ({ ...p, echelle_ratio: metersPerPx }))
+      notify.success('Échelle définie : les cotations et zones affichent des mètres')
+    } catch (err) {
+      notify.error('Enregistrement de l’échelle impossible : ' + (err?.message || err))
+    }
+    cancelCalibration()
+  }
 
   // ── Partage client + commentaires ancrés ──────────────────────────────────
   const [shareOpen, setShareOpen] = useState(false)
@@ -481,6 +552,26 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           {!readOnly && canvas && (
             <button
               type="button"
+              onClick={calibrating ? cancelCalibration : startCalibration}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+              style={{
+                background: calibrating ? 'var(--blue-bg)' : 'var(--bg)',
+                border: '1px solid var(--brd)',
+                color: calibrating ? 'var(--blue)' : canvas.echelle_ratio ? 'var(--green, #00c875)' : 'var(--txt-2)',
+              }}
+              title={
+                canvas.echelle_ratio
+                  ? `Échelle définie : 1 m ≈ ${Math.round(1 / Number(canvas.echelle_ratio))} px — cliquer pour ré-étalonner`
+                  : 'Définir l’échelle : cliquer 2 points de distance connue sur le plan'
+              }
+            >
+              <Ruler className="w-3.5 h-3.5" />
+              {calibrating ? 'Annuler' : 'Échelle'}
+            </button>
+          )}
+          {!readOnly && canvas && (
+            <button
+              type="button"
               onClick={() => setFondModalOpen(true)}
               className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
               style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
@@ -609,6 +700,78 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
                 }}
               />
             </Tldraw>
+          )}
+
+          {/* Étalonnage : capture des 2 clics + repères visuels */}
+          {calibrating && (
+            <div
+              className="absolute inset-0"
+              style={{ zIndex: 500, cursor: 'crosshair' }}
+              onClick={handleCalibClick}
+            >
+              <div
+                className="absolute top-3 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-2 rounded-lg pointer-events-none"
+                style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+              >
+                {calibPoints.length === 0
+                  ? 'Clique un premier point de distance connue (ex : un côté de la scène)'
+                  : calibPoints.length === 1
+                    ? 'Clique le second point'
+                    : 'Indique la distance réelle'}
+              </div>
+              <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                {calibPoints.length === 2 && (
+                  <line
+                    x1={calibPoints[0].screen.x}
+                    y1={calibPoints[0].screen.y}
+                    x2={calibPoints[1].screen.x}
+                    y2={calibPoints[1].screen.y}
+                    stroke="var(--blue)"
+                    strokeWidth="2"
+                    strokeDasharray="6 4"
+                  />
+                )}
+                {calibPoints.map((p, i) => (
+                  <circle key={i} cx={p.screen.x} cy={p.screen.y} r="5" fill="var(--blue)" stroke="#fff" strokeWidth="2" />
+                ))}
+              </svg>
+            </div>
+          )}
+
+          {/* Distance réelle entre les 2 points */}
+          {calibrating && calibPoints.length === 2 && (
+            <form
+              onSubmit={applyCalibration}
+              className="absolute left-1/2 top-16 -translate-x-1/2 flex items-center gap-2 p-3 rounded-xl"
+              style={{ zIndex: 600, background: 'var(--bg-elev)', border: '1px solid var(--brd)', boxShadow: '0 8px 30px rgba(0,0,0,0.4)' }}
+            >
+              <span className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                Distance réelle :
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={calibMeters}
+                onChange={(e) => setCalibMeters(e.target.value)}
+                autoFocus
+                placeholder="12,5"
+                className="w-20 text-sm px-2 py-1.5 rounded-md outline-none"
+                style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+              />
+              <span className="text-xs font-semibold" style={{ color: 'var(--txt-2)' }}>
+                m
+              </span>
+              <button
+                type="submit"
+                className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                style={{ background: 'var(--blue)', color: '#fff' }}
+              >
+                Définir
+              </button>
+              <button type="button" onClick={cancelCalibration} className="p-1" style={{ color: 'var(--txt-3)' }}>
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </form>
           )}
         </div>
 

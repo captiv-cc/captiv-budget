@@ -26,7 +26,10 @@ import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
 import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
+import { ZONE_SHAPE_TYPE } from './shapes/ZoneShapeUtil'
+import { COTE_SHAPE_TYPE } from './shapes/CotationShapeUtil'
 import { CAM_SHAPE_TYPES } from './shapes/camUtils'
+import { fmtMeters, pageMetersPerPx } from './shapes/scale'
 
 const COULEURS = ['#4d9fff', '#ffce00', '#9c5ffd', '#ff5ac4', '#00c875', '#ff9f0a', '#ff4757', '#a8a8a8']
 
@@ -447,6 +450,8 @@ function PropsTab({ editor, selected }) {
     return <RiggedCamProps editor={editor} shape={shape} />
   }
   if (shape.type === ITEM_SHAPE_TYPE) return <ItemProps editor={editor} shape={shape} />
+  if (shape.type === ZONE_SHAPE_TYPE) return <ZoneProps editor={editor} shape={shape} />
+  if (shape.type === COTE_SHAPE_TYPE) return <CoteProps editor={editor} shape={shape} />
   return (
     <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--txt-3)' }}>
       Pas de propriétés Captiv pour cet élément ({shape.type})
@@ -707,6 +712,87 @@ function ItemProps({ editor, shape }) {
       <Field label="Couleur">
         <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
       </Field>
+    </div>
+  )
+}
+
+function ZoneProps({ editor, shape }) {
+  const { props } = shape
+  const update = (patch) =>
+    editor.updateShape({ id: shape.id, type: shape.type, props: patch })
+  const mpp = pageMetersPerPx(editor)
+
+  return (
+    <div className="py-1">
+      <Field label="Nom de la zone">
+        <input
+          type="text"
+          defaultValue={props.label}
+          key={shape.id}
+          onBlur={(e) => update({ label: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+          }}
+          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+          style={inputStyle}
+        />
+      </Field>
+      <Field label="Couleur">
+        <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
+      </Field>
+      <Field label="Dimensions et surface">
+        <button
+          type="button"
+          onClick={() => update({ showDims: !props.showDims })}
+          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+          style={{
+            background: props.showDims ? 'var(--blue-bg)' : 'var(--bg)',
+            color: props.showDims ? 'var(--blue)' : 'var(--txt-3)',
+            border: '1px solid var(--brd)',
+          }}
+        >
+          {props.showDims ? 'Affichées' : 'Masquées'}
+        </button>
+      </Field>
+      {mpp > 0 ? (
+        <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-2)' }}>
+          {fmtMeters(props.w * mpp)} × {fmtMeters(props.h * mpp)} m ·{' '}
+          <span className="font-semibold">{fmtMeters(props.w * mpp * props.h * mpp)} m²</span>
+        </div>
+      ) : (
+        <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+          Définis l’échelle du plan (bouton Échelle) pour afficher les mètres.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CoteProps({ editor, shape }) {
+  const { props } = shape
+  const update = (patch) =>
+    editor.updateShape({ id: shape.id, type: shape.type, props: patch })
+  const [a, b] = props.points
+  const lenPx = Math.hypot(b.x - a.x, b.y - a.y)
+  const mpp = pageMetersPerPx(editor)
+
+  return (
+    <div className="py-1">
+      <Field label="Couleur">
+        <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
+      </Field>
+      <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-2)' }}>
+        {mpp > 0 ? (
+          <>
+            Distance : <span className="font-semibold">{fmtMeters(lenPx * mpp)} m</span>
+          </>
+        ) : (
+          'Définis l’échelle du plan (bouton Échelle) pour afficher les mètres.'
+        )}
+      </div>
+      <div className="px-3 py-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        Poignées : les deux extrémités de la mesure.
+      </div>
     </div>
   )
 }

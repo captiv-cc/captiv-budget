@@ -22,6 +22,8 @@ import { CATALOG, Glyph, focaleToAngleDeg, catalogItem } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
 import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
+import { ZONE_SHAPE_TYPE } from './shapes/ZoneShapeUtil'
+import { COTE_SHAPE_TYPE } from './shapes/CotationShapeUtil'
 import { nextCamNumero, CAM_SHAPE_TYPES } from './shapes/camUtils'
 
 export const LIB_DRAG_MIME = 'application/x-captiv-lib-item'
@@ -70,6 +72,42 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
     ? existing[Math.floor(existing.length / 2)]
     : Math.round(Math.max(16, Math.min(64, viewport.height * 0.024)))
   const id = createShapeId()
+
+  if (item.special === 'zone') {
+    const w = Math.round(viewport.width * 0.24)
+    const h = Math.round(viewport.height * 0.2)
+    editor.createShape({
+      id,
+      type: ZONE_SHAPE_TYPE,
+      x: at.x - w / 2,
+      y: at.y - h / 2,
+      meta: { layer: 'zones' },
+      props: { w, h, label: 'Zone', couleur: item.color, showDims: true },
+    })
+    editor.setSelectedShapes([id])
+    editor.setCurrentTool('select')
+    return pushRecent(kind)
+  }
+  if (item.special === 'cote') {
+    const len = Math.round(viewport.width * 0.22)
+    editor.createShape({
+      id,
+      type: COTE_SHAPE_TYPE,
+      x: at.x - len / 2,
+      y: at.y,
+      meta: { layer: 'cotations' },
+      props: {
+        points: [
+          { x: 0, y: 0 },
+          { x: len, y: 0 },
+        ],
+        couleur: item.color,
+      },
+    })
+    editor.setSelectedShapes([id])
+    editor.setCurrentTool('select')
+    return pushRecent(kind)
+  }
 
   if (item.camKind === 'box') {
     const numero = nextCamNumero(editor)
