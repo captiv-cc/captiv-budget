@@ -15,9 +15,12 @@
 // cône, couleur, cône on/off) et item (label, couleur).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useValue } from 'tldraw'
-import { Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon } from 'lucide-react'
+import { Check, Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon, MessageCircle, RotateCcw, Send } from 'lucide-react'
+import { replyToComment, setCommentResolved } from '../../../lib/plansCanvasShare'
+import { useAuth } from '../../../contexts/AuthContext'
+import { notify } from '../../../lib/notify'
 import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg, CAMERA_MODELES } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
@@ -27,10 +30,22 @@ import { CAM_SHAPE_TYPES } from './shapes/camUtils'
 
 const COULEURS = ['#4d9fff', '#ffce00', '#9c5ffd', '#ff5ac4', '#00c875', '#ff9f0a', '#ff4757', '#a8a8a8']
 
-export default function PlanSidePanel({ editor }) {
+export default function PlanSidePanel({
+  editor,
+  canvasId,
+  comments = [],
+  selectedCommentId = null,
+  onFocusComment,
+}) {
   const [tab, setTab] = useState('layers')
 
   const selected = useValue('selection', () => editor.getSelectedShapes(), [editor])
+  const unresolvedCount = comments.filter((c) => !c.parent_id && !c.resolved).length
+
+  // Un clic sur un marqueur du canvas bascule sur l'onglet Commentaires.
+  useEffect(() => {
+    if (selectedCommentId) setTab('comments')
+  }, [selectedCommentId])
 
   return (
     <div
@@ -42,6 +57,7 @@ export default function PlanSidePanel({ editor }) {
         {[
           ['layers', 'Layers'],
           ['props', 'Propriétés'],
+          ['comments', unresolvedCount ? `Comms (${unresolvedCount})` : 'Comms'],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -59,11 +75,173 @@ export default function PlanSidePanel({ editor }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'layers' ? <LayersTab editor={editor} /> : <PropsTab editor={editor} selected={selected} />}
+        {tab === 'layers' ? (
+          <LayersTab editor={editor} />
+        ) : tab === 'props' ? (
+          <PropsTab editor={editor} selected={selected} />
+        ) : (
+          <CommentsTab
+            canvasId={canvasId}
+            comments={comments}
+            selectedCommentId={selectedCommentId}
+            onFocusComment={onFocusComment}
+          />
+        )}
       </div>
 
       {/* Résumé sélection (toujours visible, comme le mockup) */}
       {selected.length === 1 && tab === 'layers' && <SelectionSummary shape={selected[0]} />}
+    </div>
+  )
+}
+
+/* ─── Commentaires (clients + réponses desk) ────────────────────────────── */
+
+function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) {
+  const { user } = useAuth()
+  const [replyTo, setReplyTo] = useState(null)
+  const [showResolved, setShowResolved] = useState(false)
+
+  const roots = comments.filter((c) => !c.parent_id)
+  const open = roots.filter((c) => !c.resolved)
+  const resolved = roots.filter((c) => c.resolved)
+  const repliesOf = (id) => comments.filter((c) => c.parent_id === id)
+
+  async function sendReply(parent, body) {
+    if (!body.trim()) return
+    try {
+      await replyToComment({ canvasId, parentId: parent.id, body, userId: user?.id })
+      setReplyTo(null)
+      // Le refetch arrive par realtime.
+    } catch (err) {
+      notify.error('Réponse impossible : ' + (err?.message || err))
+    }
+  }
+
+  async function toggleResolved(comment) {
+    try {
+      await setCommentResolved(comment.id, !comment.resolved)
+    } catch (err) {
+      notify.error('Erreur : ' + (err?.message || err))
+    }
+  }
+
+  function CommentCard({ comment, index }) {
+    const isSelected = comment.id === selectedCommentId
+    return (
+      <div
+        className="mx-2 mb-2 p-2.5 rounded-lg cursor-pointer"
+        style={{
+          background: 'var(--bg)',
+          border: isSelected ? '1px solid #facc15' : '1px solid var(--brd)',
+        }}
+        onClick={() => onFocusComment?.(comment)}
+      >
+        <div className="flex items-center gap-1.5 mb-1">
+          {index != null && (
+            <span
+              className="w-4.5 h-4.5 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+              style={{ background: '#facc15', color: '#1c1917' }}
+            >
+              {index + 1}
+            </span>
+          )}
+          <span className="flex-1 text-[11px] font-bold truncate" style={{ color: 'var(--txt)' }}>
+            {comment.author_type === 'client'
+              ? comment.author_client_name || 'Client'
+              : comment.author?.full_name || 'Équipe'}
+          </span>
+          <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            {new Date(comment.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+          </span>
+        </div>
+        <div className="text-xs whitespace-pre-wrap" style={{ color: 'var(--txt-2)' }}>
+          {comment.body}
+        </div>
+
+        {repliesOf(comment.id).map((r) => (
+          <div key={r.id} className="mt-1.5 pl-2 py-1" style={{ borderLeft: '2px solid var(--brd)' }}>
+            <div className="text-[10px] font-bold" style={{ color: 'var(--txt-3)' }}>
+              {r.author_type === 'client' ? r.author_client_name || 'Client' : r.author?.full_name || 'Équipe'}
+            </div>
+            <div className="text-xs" style={{ color: 'var(--txt-2)' }}>
+              {r.body}
+            </div>
+          </div>
+        ))}
+
+        <div className="flex items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}
+            className="text-[10px] font-semibold px-1.5 py-1 rounded"
+            style={{ color: 'var(--blue)' }}
+          >
+            Répondre
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleResolved(comment)}
+            className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded"
+            style={{ color: comment.resolved ? 'var(--txt-3)' : 'var(--green, #00c875)' }}
+          >
+            {comment.resolved ? <RotateCcw className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+            {comment.resolved ? 'Rouvrir' : 'Résoudre'}
+          </button>
+        </div>
+
+        {replyTo === comment.id && (
+          <form
+            className="flex items-center gap-1 mt-1.5"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault()
+              sendReply(comment, e.currentTarget.elements.reply.value)
+            }}
+          >
+            <input
+              name="reply"
+              type="text"
+              autoFocus
+              placeholder="Répondre…"
+              className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md outline-none"
+              style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+            />
+            <button type="submit" className="p-1.5 rounded-md" style={{ color: 'var(--blue)' }}>
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </form>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="py-2">
+      {open.length === 0 && resolved.length === 0 && (
+        <div className="flex flex-col items-center gap-1.5 px-3 py-8 text-center">
+          <MessageCircle className="w-5 h-5" style={{ color: 'var(--txt-3)' }} />
+          <div className="text-xs" style={{ color: 'var(--txt-3)' }}>
+            Aucun commentaire. Le client peut en poser via le lien de partage.
+          </div>
+        </div>
+      )}
+      {open.map((c, i) => (
+        <CommentCard key={c.id} comment={c} index={i} />
+      ))}
+      {resolved.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowResolved((v) => !v)}
+            className="w-full text-left px-3 py-1.5 text-[11px] font-bold"
+            style={{ color: 'var(--txt-3)' }}
+          >
+            {showResolved ? '▾' : '▸'} Résolus ({resolved.length})
+          </button>
+          {showResolved && resolved.map((c) => <CommentCard key={c.id} comment={c} index={null} />)}
+        </>
+      )}
     </div>
   )
 }

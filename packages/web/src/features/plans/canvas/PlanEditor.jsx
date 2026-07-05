@@ -15,8 +15,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Download, Image as ImageIcon, Loader2, Users, Wifi, WifiOff } from 'lucide-react'
+import { ArrowLeft, Download, Image as ImageIcon, Loader2, Share2, Users, Wifi, WifiOff } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
+import { listComments, subscribeToComments } from '../../../lib/plansCanvasShare'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
 import {
   makeCaptivAssetStore,
@@ -35,6 +36,13 @@ import { SpiderCamShapeUtil } from './shapes/SpiderCamShapeUtil'
 import { CAPTIV_SHAPE_TYPES } from './shapes/camUtils'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
+import PlanShareModal from './PlanShareModal'
+import PlanCommentMarkers from './PlanCommentMarkers'
+
+const STATUT_BADGE = {
+  partage_client: { label: 'Partagé client', color: '#4d9fff' },
+  valide: { label: 'Validé client', color: '#00c875' },
+}
 
 const AUTOSAVE_MS = 2000
 const CUSTOM_SHAPE_UTILS = [CameraShapeUtil, ItemShapeUtil, RailCamShapeUtil, SpiderCamShapeUtil]
@@ -183,6 +191,40 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     },
     [readOnly],
   )
+
+  // ── Partage client + commentaires ancrés ──────────────────────────────────
+  const [shareOpen, setShareOpen] = useState(false)
+  const [comments, setComments] = useState([])
+  const [selectedCommentId, setSelectedCommentId] = useState(null)
+
+  useEffect(() => {
+    if (!canvas?.id) return undefined
+    let alive = true
+    const refresh = () =>
+      listComments(canvasId)
+        .then((rows) => {
+          if (alive) setComments(rows)
+        })
+        .catch(() => {})
+    refresh()
+    const unsubscribe = subscribeToComments(canvasId, refresh)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas?.id, canvasId])
+
+  const focusComment = useCallback((comment) => {
+    setSelectedCommentId(comment.id)
+    const editor = editorRef.current
+    if (editor && comment.anchor_x != null) {
+      editor.centerOnPoint(
+        { x: Number(comment.anchor_x), y: Number(comment.anchor_y) },
+        { animation: { duration: 250 } },
+      )
+    }
+  }, [])
 
   // ── Remplacement du fond de plan ───────────────────────────────────────────
   const [fondModalOpen, setFondModalOpen] = useState(false)
@@ -359,6 +401,18 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
               {canvas?.titre || 'Plan'}
             </button>
           )}
+          {canvas && STATUT_BADGE[canvas.statut] && (
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+              style={{
+                background: `${STATUT_BADGE[canvas.statut].color}22`,
+                color: STATUT_BADGE[canvas.statut].color,
+                border: `1px solid ${STATUT_BADGE[canvas.statut].color}55`,
+              }}
+            >
+              {STATUT_BADGE[canvas.statut].label}
+            </span>
+          )}
           {!readOnly && canvas && (
             <select
               value={canvas.category_id || ''}
@@ -379,8 +433,20 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           )}
         </div>
 
-        {/* Fond + Export */}
+        {/* Partage + Fond + Export */}
         <div className="flex items-center gap-1.5">
+          {!readOnly && canvas && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+              style={{ background: 'var(--blue)', color: '#fff' }}
+              title="Partager le plan au client (lien lecture seule + commentaires)"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Partager au client</span>
+            </button>
+          )}
           {!readOnly && canvas && (
             <button
               type="button"
@@ -502,12 +568,37 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
               components={TLDRAW_COMPONENTS}
               inferDarkMode
               onMount={handleMount}
-            />
+            >
+              <PlanCommentMarkers
+                comments={comments}
+                selectedId={selectedCommentId}
+                onSelect={(id) => {
+                  const c = comments.find((x) => x.id === id)
+                  if (c) focusComment(c)
+                }}
+              />
+            </Tldraw>
           )}
         </div>
 
-        {!readOnly && editorInstance && <PlanSidePanel editor={editorInstance} />}
+        {!readOnly && editorInstance && (
+          <PlanSidePanel
+            editor={editorInstance}
+            canvasId={canvasId}
+            comments={comments}
+            selectedCommentId={selectedCommentId}
+            onFocusComment={focusComment}
+          />
+        )}
       </div>
+
+      {shareOpen && canvas && (
+        <PlanShareModal
+          canvas={canvas}
+          onClose={() => setShareOpen(false)}
+          onStatutChange={(statut) => setCanvas((p) => ({ ...p, statut }))}
+        />
+      )}
 
       {fondModalOpen && canvas && (
         <FondPickerModal

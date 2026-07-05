@@ -25,6 +25,11 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
+const STATUT_CHIP = {
+  partage_client: { label: 'Partagé', color: '#4d9fff' },
+  valide: { label: 'Validé', color: '#00c875' },
+}
+
 export default function PlansCanvasList({ projectId, orgId, canEdit, archived = false, onOpen }) {
   const [rows, setRows] = useState(null)
   const [categories, setCategories] = useState([])
@@ -197,13 +202,24 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
                     <div className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
                       {row.titre}
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                    <div className="flex items-center gap-1.5 mt-1 text-[11px] flex-wrap" style={{ color: 'var(--txt-3)' }}>
                       {cat && (
                         <span
                           className="px-1.5 py-0.5 rounded font-semibold"
                           style={{ background: `${cat.color}22`, color: cat.color }}
                         >
                           {cat.label}
+                        </span>
+                      )}
+                      {STATUT_CHIP[row.statut] && (
+                        <span
+                          className="px-1.5 py-0.5 rounded font-semibold"
+                          style={{
+                            background: `${STATUT_CHIP[row.statut].color}22`,
+                            color: STATUT_CHIP[row.statut].color,
+                          }}
+                        >
+                          {STATUT_CHIP[row.statut].label}
                         </span>
                       )}
                       <span>Modifié le {fmtDate(row.updated_at)}</span>

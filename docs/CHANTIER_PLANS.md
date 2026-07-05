@@ -185,8 +185,27 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
       V1), curseurs collaborateurs nommés sur le canvas, "Nouveau layer"
       libre, vraies icônes designées, bouton Versions (snapshots figés)
 
-**Phase 3 (Client)** — tokens de partage, route publique + Edge Function,
-commentaires ancrés realtime, bouton Valider, PDF avec légende.
+**Phase 3 (Client)** ✅ livrée (2026-07-05) — à ACTIVER : appliquer
+`20260705b_plans_canvas_share.sql` + `supabase functions deploy plans-public
+--no-verify-jwt`
+- [x] Tables plans_canvas_share_tokens (view|comment, expiration, révocation,
+      compteur de vues) + plans_canvas_comments (ancrage page x/y, threads
+      parent_id, auteur user/client, resolved) + realtime commentaires
+- [x] Edge function plans-public : get (plan + ydocState + org/projet +
+      commentaires), sign-assets (URLs signées restreintes au project_id),
+      comment (permissions comment), validate (statut → valide)
+- [x] Desk : bouton « Partager au client » (modale lien : permissions,
+      validité 7/30/90j/∞, copier, révoquer, vues) ; statut brouillon →
+      partage_client ; badge statut top bar + chips liste
+- [x] Desk : commentaires realtime — marqueurs jaunes numérotés sur le
+      canvas, onglet « Comms » (threads, répondre, résoudre/rouvrir,
+      résolus repliés), clic marqueur ↔ liste, centrage sur l'ancre
+- [x] Page publique /plans/share/:token (lazy) : tldraw lecture seule (doc
+      reconstruit du ydoc_state, assets via URLs signées, PDF rasterisés
+      client), SharePageHeader liquid glass, mode « Commenter » (clic sur le
+      plan → bulle nom+message, nom mémorisé), threads, bouton « Valider le
+      plan », téléchargement PNG
+- [ ] PDF avec légende (repoussé en Phase 4 avec cotations/échelle)
 
 **Phase 4 (Différenciation)** — cônes de vue par focale, cotations, zones
 nommées avec surface, versionning visuel, templates de configuration.
