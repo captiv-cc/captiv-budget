@@ -33,6 +33,7 @@ import {
 import { supabase } from '../../../lib/supabase'
 import { notify } from '../../../lib/notify'
 import { mediaFromBlob } from '../../../lib/planMedia'
+import { exportPlanPdf } from '../../../lib/planPdfExport'
 import { base64ToUint8 } from '../../../hooks/useYjsTldraw'
 import PlanCommentMarkers from './PlanCommentMarkers'
 import { CameraShapeUtil } from './shapes/CameraShapeUtil'
@@ -278,10 +279,10 @@ export default function PlanClientView() {
     if (exporting) return
     setExporting(true)
     try {
-      const blob = await exportImage()
-      if (!blob) return
-      const nom = (data?.plan?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
       if (format === 'png') {
+        const blob = await exportImage()
+        if (!blob) return
+        const nom = (data?.plan?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
         const a = document.createElement('a')
         a.href = URL.createObjectURL(blob)
         a.download = `${nom}.png`
@@ -289,26 +290,12 @@ export default function PlanClientView() {
         a.click()
         a.remove()
       } else {
-        const { jsPDF } = await import('jspdf')
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
+        const orgLabel = data?.org?.display_name || data?.org?.legal_name || 'Captiv'
+        await exportPlanPdf(editorRef.current, {
+          titre: data?.plan?.titre || 'Plan technique',
+          sousTitre: data?.project?.title || '',
+          footer: `Généré par ${orgLabel}`,
         })
-        const img = await new Promise((resolve, reject) => {
-          const el = new Image()
-          el.onload = () => resolve(el)
-          el.onerror = reject
-          el.src = dataUrl
-        })
-        const landscape = img.width >= img.height
-        const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
-        const pw = pdf.internal.pageSize.getWidth()
-        const ph = pdf.internal.pageSize.getHeight()
-        const ratio = Math.min((pw - 16) / img.width, (ph - 16) / img.height)
-        pdf.addImage(dataUrl, 'PNG', (pw - img.width * ratio) / 2, (ph - img.height * ratio) / 2, img.width * ratio, img.height * ratio)
-        pdf.save(`${nom}.pdf`)
       }
     } finally {
       setExporting(false)

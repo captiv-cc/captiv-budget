@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Download, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
+import { ArrowLeft, Download, History, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
 import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
 import { listComments, subscribeToComments } from '../../../lib/plansCanvasShare'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
@@ -40,7 +40,9 @@ import { setPageMetersPerPx } from './shapes/scale'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 import PlanShareModal from './PlanShareModal'
+import PlanVersionsModal from './PlanVersionsModal'
 import PlanCommentMarkers from './PlanCommentMarkers'
+import { exportPlanPdf } from '../../../lib/planPdfExport'
 
 const STATUT_BADGE = {
   brouillon: { label: 'Brouillon', color: '#a8a8a8' },
@@ -361,25 +363,19 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     if (exporting) return
     setExporting(true)
     try {
-      const blob = await exportImage()
-      if (!blob) return
-      const nomFichier = (canvas?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
       if (format === 'png') {
+        const blob = await exportImage()
+        if (!blob) return
+        const nomFichier = (canvas?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
         triggerDownload(URL.createObjectURL(blob), `${nomFichier}.png`)
       } else {
-        const { jsPDF } = await import('jspdf')
-        const dataUrl = await blobToDataURL(blob)
-        const img = await loadImg(dataUrl)
-        const landscape = img.width >= img.height
-        const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
-        const pw = pdf.internal.pageSize.getWidth()
-        const ph = pdf.internal.pageSize.getHeight()
-        const margin = 8
-        const ratio = Math.min((pw - margin * 2) / img.width, (ph - margin * 2) / img.height)
-        const w = img.width * ratio
-        const h = img.height * ratio
-        pdf.addImage(dataUrl, 'PNG', (pw - w) / 2, (ph - h) / 2, w, h)
-        pdf.save(`${nomFichier}.pdf`)
+        const catLabel = categories.find((c) => c.id === canvas?.category_id)?.label
+        const ok = await exportPlanPdf(editorRef.current, {
+          titre: canvas?.titre || 'Plan technique',
+          sousTitre: catLabel || '',
+          footer: 'Généré par Captiv DESK',
+        })
+        if (!ok) notify.error('Rien à exporter : le plan est vide')
       }
     } catch (err) {
       notify.error('Export échoué : ' + (err?.message || err))
@@ -388,19 +384,28 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     }
   }
 
+  // ── Miniature JPEG de l'état courant (cards + versions) ──────────────────
+  const makeThumbnail = useCallback(async () => {
+    const editor = editorRef.current
+    if (!editor) return null
+    const ids = [...editor.getCurrentPageShapeIds()]
+    if (!ids.length) return null
+    const bounds = editor.getCurrentPageBounds()
+    const scale = Math.min(1, 480 / Math.max(bounds?.width || 480, bounds?.height || 480))
+    const { blob } = await editor.toImage(ids, { format: 'jpeg', background: true, scale, quality: 0.8 })
+    return blobToDataURL(blob)
+  }, [])
+
+  // ── Versions figées ────────────────────────────────────────────────────────
+  const [versionsOpen, setVersionsOpen] = useState(false)
+
   // ── Fermeture : miniature (dataURL jpeg) + flush save ─────────────────────
   async function handleClose() {
     const editor = editorRef.current
     if (!readOnly && editor) {
       try {
-        const ids = [...editor.getCurrentPageShapeIds()]
-        if (ids.length) {
-          const bounds = editor.getCurrentPageBounds()
-          const scale = Math.min(1, 480 / Math.max(bounds?.width || 480, bounds?.height || 480))
-          const { blob } = await editor.toImage(ids, { format: 'jpeg', background: true, scale, quality: 0.8 })
-          const dataUrl = await blobToDataURL(blob)
-          await updateCanvas(canvasId, { snapshot_svg: dataUrl, updated_by: user?.id })
-        }
+        const dataUrl = await makeThumbnail()
+        if (dataUrl) await updateCanvas(canvasId, { snapshot_svg: dataUrl, updated_by: user?.id })
       } catch {
         // Miniature best-effort : ne bloque jamais la fermeture.
       }
@@ -547,6 +552,18 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             >
               <Share2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Partager</span>
+            </button>
+          )}
+          {!readOnly && canvas && (
+            <button
+              type="button"
+              onClick={() => setVersionsOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+              title="Versions figées du plan (créer / restaurer)"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Versions</span>
             </button>
           )}
           {!readOnly && canvas && (
@@ -791,6 +808,19 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           canvas={canvas}
           onClose={() => setShareOpen(false)}
           onStatutChange={(statut) => setCanvas((p) => ({ ...p, statut }))}
+        />
+      )}
+
+      {versionsOpen && canvas && editorInstance && (
+        <PlanVersionsModal
+          canvas={canvas}
+          editor={editorInstance}
+          getYdocState={() => (docRef.current ? encodeDocState(docRef.current) : null)}
+          makeSnapshot={makeThumbnail}
+          onClose={() => setVersionsOpen(false)}
+          onVersionCreated={(row) =>
+            setCanvas((p) => ({ ...p, version_current: row.version + 1 }))
+          }
         />
       )}
 

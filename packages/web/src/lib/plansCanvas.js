@@ -91,3 +91,79 @@ export async function deleteCanvas(canvasId) {
   const { error } = await supabase.from('plans_canvas').delete().eq('id', canvasId)
   if (error) throw error
 }
+
+/** Duplique un plan (contenu compris), statut brouillon. */
+export async function duplicateCanvas(canvas, { userId = null } = {}) {
+  const { data: full } = await supabase
+    .from('plans_canvas')
+    .select('ydoc_state, snapshot_svg')
+    .eq('id', canvas.id)
+    .single()
+  const { data, error } = await supabase
+    .from('plans_canvas')
+    .insert({
+      project_id: canvas.project_id,
+      titre: `${canvas.titre} (copie)`,
+      description: canvas.description,
+      category_id: canvas.category_id,
+      fond_id: canvas.fond_id,
+      echelle_ratio: canvas.echelle_ratio,
+      ydoc_state: full?.ydoc_state ?? null,
+      snapshot_svg: full?.snapshot_svg ?? null,
+      statut: 'brouillon',
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select(CANVAS_FIELDS)
+    .single()
+  if (error) throw error
+  return data
+}
+
+/* ─── Versions figées ("Créer une version") ─────────────────────────────── */
+
+export async function listCanvasVersions(canvasId) {
+  const { data, error } = await supabase
+    .from('plans_canvas_versions')
+    .select('id, version, commentaire, snapshot_svg, created_at, author:profiles(full_name)')
+    .eq('canvas_id', canvasId)
+    .order('version', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+/**
+ * Fige l'état courant en version N (= version_current), puis passe le plan
+ * en version N+1.
+ */
+export async function createCanvasVersion({ canvasId, version, ydocState, snapshotSvg, commentaire, userId }) {
+  const { data, error } = await supabase
+    .from('plans_canvas_versions')
+    .insert({
+      canvas_id: canvasId,
+      version,
+      ydoc_state: ydocState,
+      snapshot_svg: snapshotSvg ?? null,
+      commentaire: commentaire?.trim() || null,
+      created_by: userId,
+    })
+    .select('id, version, commentaire, snapshot_svg, created_at, author:profiles(full_name)')
+    .single()
+  if (error) throw error
+  await supabase
+    .from('plans_canvas')
+    .update({ version_current: version + 1, updated_by: userId })
+    .eq('id', canvasId)
+  return data
+}
+
+/** État Yjs d'une version figée (pour restauration). */
+export async function getCanvasVersionState(versionId) {
+  const { data, error } = await supabase
+    .from('plans_canvas_versions')
+    .select('ydoc_state')
+    .eq('id', versionId)
+    .single()
+  if (error) throw error
+  return data?.ydoc_state ?? null
+}

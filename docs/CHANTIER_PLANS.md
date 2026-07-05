@@ -219,8 +219,16 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
       réelles et surface (« 12 × 8 m · 96 m² », toggle), layer Zones,
       reprise dans la légende de la page publique
 - [x] Bibliothèque : catégorie « Zones & mesures »
-- [ ] Versionning avec snapshots visuels, templates de configuration, PDF
-      avec légende — backlog Phase 4+
+- [x] Versionning : bouton « Versions » → figer l'état courant (snapshot
+      JPEG + commentaire, table plans_canvas_versions, version_current++),
+      liste avec vignettes/auteur/date, restauration (remplace shapes/assets/
+      bindings, propagée collab via le bridge)
+- [x] Duplication d'un plan depuis la card (contenu compris, statut brouillon)
+- [x] PDF avec légende (lib/planPdfExport partagée desk + page publique) :
+      A4 paysage, bandeau titre·catégorie/projet·date, colonne légende
+      dérivée du contenu, pied de page
+- [ ] Templates de configuration réutilisables (org) — backlog Phase 4+
+      (la duplication couvre le besoin intra-projet)
 
 **Phase 5 (Intégration DESK)** — liens plan ↔ déroulé (config active par
 créneau horaire), ↔ équipe (cadreur assigné à une position), ↔ matériel

@@ -8,13 +8,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Archive, Loader2, PenTool, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Archive, Copy, Loader2, PenTool, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import {
   listCanvases,
   archiveCanvas,
   restoreCanvas,
   deleteCanvas,
+  duplicateCanvas,
 } from '../../../lib/plansCanvas'
+import { useAuth } from '../../../contexts/AuthContext'
 import { listPlanCategories } from '../../../lib/plans'
 import { notify } from '../../../lib/notify'
 import { confirm } from '../../../lib/confirm'
@@ -31,6 +33,7 @@ const STATUT_CHIP = {
 }
 
 export default function PlansCanvasList({ projectId, orgId, canEdit, archived = false, onOpen }) {
+  const { user } = useAuth()
   const [rows, setRows] = useState(null)
   const [categories, setCategories] = useState([])
   const [createOpen, setCreateOpen] = useState(false)
@@ -70,6 +73,16 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
     setCreateOpen(false)
     setRows((prev) => [row, ...(prev || [])])
     onOpen?.(row.id)
+  }
+
+  async function handleDuplicate(row) {
+    try {
+      const copy = await duplicateCanvas(row, { userId: user?.id })
+      setRows((prev) => [copy, ...(prev || [])])
+      notify.success('Plan dupliqué')
+    } catch (err) {
+      notify.error('Duplication impossible : ' + (err?.message || err))
+    }
   }
 
   async function handleArchive(row) {
@@ -252,15 +265,26 @@ export default function PlansCanvasList({ projectId, orgId, canEdit, archived = 
                           </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleArchive(row)}
-                          className="p-1.5 rounded-md"
-                          style={{ color: 'var(--txt-3)' }}
-                          title="Archiver"
-                        >
-                          <Archive className="w-3.5 h-3.5" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicate(row)}
+                            className="p-1.5 rounded-md"
+                            style={{ color: 'var(--txt-3)' }}
+                            title="Dupliquer (contenu compris)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleArchive(row)}
+                            className="p-1.5 rounded-md"
+                            style={{ color: 'var(--txt-3)' }}
+                            title="Archiver"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
