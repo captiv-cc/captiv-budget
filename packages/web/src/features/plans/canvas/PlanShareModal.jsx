@@ -27,6 +27,7 @@ export default function PlanShareModal({ canvas, onClose, onStatutChange }) {
   const [tokens, setTokens] = useState(null)
   const [label, setLabel] = useState('')
   const [permissions, setPermissions] = useState('comment')
+  const [mode, setMode] = useState('live')
   const [expiresAt, setExpiresAt] = useState('')
   const [busy, setBusy] = useState(false)
   const [copiedId, setCopiedId] = useState(null)
@@ -45,6 +46,7 @@ export default function PlanShareModal({ canvas, onClose, onStatutChange }) {
         canvasId: canvas.id,
         label,
         permissions,
+        mode,
         expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
         userId: user?.id,
       })
@@ -159,6 +161,27 @@ export default function PlanShareModal({ canvas, onClose, onStatutChange }) {
               </select>
             </label>
 
+            <label className="block mb-3">
+              <span className="block text-xs font-semibold mb-1" style={{ color: 'var(--txt-2)' }}>
+                Contenu partagé
+              </span>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                className="w-full text-sm px-3 py-2 rounded-md outline-none"
+                style={{ ...fieldStyle, background: 'var(--bg-elev)' }}
+              >
+                <option value="live">Plan en cours (suit les modifications)</option>
+                <option value="frozen">Dernière version figée uniquement</option>
+              </select>
+              {mode === 'frozen' && (
+                <span className="block text-[11px] mt-1" style={{ color: 'var(--txt-3)' }}>
+                  Le destinataire ne voit que les révisions figées (bouton
+                  Versions) — le travail en cours reste invisible.
+                </span>
+              )}
+            </label>
+
             <label className="block mb-4">
               <span className="block text-xs font-semibold mb-1" style={{ color: 'var(--txt-2)' }}>
                 Expiration (optionnelle)
@@ -221,6 +244,7 @@ export default function PlanShareModal({ canvas, onClose, onStatutChange }) {
                       </span>
                       <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
                         · {row.permissions === 'comment' ? 'commentaires' : 'lecture seule'}
+                        {row.mode === 'frozen' && ' · version figée'}
                         {row.expires_at &&
                           ` · expire le ${new Date(row.expires_at).toLocaleDateString('fr-FR')}`}
                       </span>

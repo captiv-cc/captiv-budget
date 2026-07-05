@@ -25,11 +25,35 @@ import { confirm } from '../../../lib/confirm'
 // Types de records remplacés à la restauration (les pages/documents restent).
 const RESTORE_TYPES = new Set(['shape', 'asset', 'binding'])
 
+/**
+ * Remplace le contenu du plan par un état figé (source 'user' → propagé aux
+ * collaborateurs par le bridge Yjs). Partagé avec PlanVersionViewer.
+ */
+export function restoreStateIntoEditor(editor, stateB64) {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, base64ToUint8(stateB64))
+  const snapRecords = []
+  doc.getMap('tldraw_records').forEach((r) => {
+    if (r?.id && RESTORE_TYPES.has(r.typeName)) snapRecords.push(r)
+  })
+  doc.destroy()
+
+  const currentIds = editor.store
+    .allRecords()
+    .filter((r) => RESTORE_TYPES.has(r.typeName))
+    .map((r) => r.id)
+  editor.run(() => {
+    if (currentIds.length) editor.store.remove(currentIds)
+    if (snapRecords.length) editor.store.put(snapRecords)
+  })
+}
+
 export default function PlanVersionsModal({
   canvas,
   editor,
   getYdocState, // () => base64 de l'état courant (encodeDocState du doc live)
   makeSnapshot, // () => Promise<dataURL JPEG> (miniature)
+  onOpenVersion, // (row) => ouvre le viewer lecture seule de la version
   onClose,
   onVersionCreated,
 }) {
@@ -84,23 +108,7 @@ export default function PlanVersionsModal({
     try {
       const stateB64 = await getCanvasVersionState(row.id)
       if (!stateB64) throw new Error('version vide')
-      const doc = new Y.Doc()
-      Y.applyUpdate(doc, base64ToUint8(stateB64))
-      const snapRecords = []
-      doc.getMap('tldraw_records').forEach((r) => {
-        if (r?.id && RESTORE_TYPES.has(r.typeName)) snapRecords.push(r)
-      })
-      doc.destroy()
-
-      const currentIds = editor.store
-        .allRecords()
-        .filter((r) => RESTORE_TYPES.has(r.typeName))
-        .map((r) => r.id)
-      // Source 'user' → le bridge Yjs propage la restauration aux autres.
-      editor.run(() => {
-        if (currentIds.length) editor.store.remove(currentIds)
-        if (snapRecords.length) editor.store.put(snapRecords)
-      })
+      restoreStateIntoEditor(editor, stateB64)
       notify.success(`Version ${row.version} restaurée`)
       onClose()
     } catch (err) {
@@ -177,8 +185,17 @@ export default function PlanVersionsModal({
             versions.map((v) => (
               <div
                 key={v.id}
-                className="flex items-center gap-3 rounded-xl p-2.5 mb-2"
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpenVersion?.(v)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onOpenVersion?.(v)
+                }}
+                className="flex items-center gap-3 rounded-xl p-2.5 mb-2 cursor-pointer transition-colors"
                 style={{ background: 'var(--bg)', border: '1px solid var(--brd)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--blue)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--brd)' }}
+                title="Ouvrir cette version en lecture seule"
               >
                 {v.snapshot_svg?.startsWith('data:image') ? (
                   <img
@@ -212,7 +229,10 @@ export default function PlanVersionsModal({
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRestore(v)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRestore(v)
+                  }}
                   disabled={busy}
                   className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
                   style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}

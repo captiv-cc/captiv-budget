@@ -92,8 +92,11 @@ export async function deleteCanvas(canvasId) {
   if (error) throw error
 }
 
-/** Duplique un plan (contenu compris), statut brouillon. */
-export async function duplicateCanvas(canvas, { userId = null } = {}) {
+/**
+ * Duplique un plan (contenu compris), statut brouillon.
+ * ydocState/titre optionnels : dupliquer depuis une VERSION figée.
+ */
+export async function duplicateCanvas(canvas, { userId = null, ydocState = undefined, titre = undefined } = {}) {
   const { data: full } = await supabase
     .from('plans_canvas')
     .select('ydoc_state, snapshot_svg')
@@ -103,13 +106,13 @@ export async function duplicateCanvas(canvas, { userId = null } = {}) {
     .from('plans_canvas')
     .insert({
       project_id: canvas.project_id,
-      titre: `${canvas.titre} (copie)`,
+      titre: titre || `${canvas.titre} (copie)`,
       description: canvas.description,
       category_id: canvas.category_id,
       fond_id: canvas.fond_id,
       echelle_ratio: canvas.echelle_ratio,
-      ydoc_state: full?.ydoc_state ?? null,
-      snapshot_svg: full?.snapshot_svg ?? null,
+      ydoc_state: ydocState !== undefined ? ydocState : (full?.ydoc_state ?? null),
+      snapshot_svg: ydocState !== undefined ? null : (full?.snapshot_svg ?? null),
       statut: 'brouillon',
       created_by: userId,
       updated_by: userId,

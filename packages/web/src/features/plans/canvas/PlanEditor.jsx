@@ -12,11 +12,18 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { ArrowLeft, Download, History, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
-import { getCanvas, saveCanvasState, updateCanvas } from '../../../lib/plansCanvas'
+import {
+  getCanvas,
+  saveCanvasState,
+  updateCanvas,
+  duplicateCanvas,
+  getCanvasVersionState,
+} from '../../../lib/plansCanvas'
 import { listComments, subscribeToComments } from '../../../lib/plansCanvasShare'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
 import {
@@ -29,6 +36,7 @@ import FondPickerModal from './FondPickerModal'
 import { useYjsTldraw, encodeDocState } from '../../../hooks/useYjsTldraw'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
+import { confirm } from '../../../lib/confirm'
 import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
 import { RailCamShapeUtil } from './shapes/RailCamShapeUtil'
@@ -40,7 +48,8 @@ import { setPageMetersPerPx } from './shapes/scale'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 import PlanShareModal from './PlanShareModal'
-import PlanVersionsModal from './PlanVersionsModal'
+import PlanVersionsModal, { restoreStateIntoEditor } from './PlanVersionsModal'
+import PlanVersionViewer from './PlanVersionViewer'
 import PlanCommentMarkers from './PlanCommentMarkers'
 import { exportPlanPdf } from '../../../lib/planPdfExport'
 
@@ -396,8 +405,49 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     return blobToDataURL(blob)
   }, [])
 
-  // ── Versions figées ────────────────────────────────────────────────────────
+  // ── Versions figées : liste, viewer lecture seule, restauration, dupli ────
   const [versionsOpen, setVersionsOpen] = useState(false)
+  const [viewingVersion, setViewingVersion] = useState(null) // { row, state }
+  const [, setSearchParams] = useSearchParams()
+
+  async function openVersion(row) {
+    try {
+      const state = await getCanvasVersionState(row.id)
+      if (!state) throw new Error('version vide')
+      setVersionsOpen(false)
+      setViewingVersion({ row, state })
+    } catch (err) {
+      notify.error('Ouverture impossible : ' + (err?.message || err))
+    }
+  }
+
+  function restoreViewedVersion() {
+    if (!viewingVersion || !editorRef.current) return
+    restoreStateIntoEditor(editorRef.current, viewingVersion.state)
+    notify.success(`Version ${viewingVersion.row.version} restaurée`)
+    setViewingVersion(null)
+  }
+
+  async function duplicateViewedVersion() {
+    if (!viewingVersion || !canvas) return
+    try {
+      const copy = await duplicateCanvas(canvas, {
+        userId: user?.id,
+        ydocState: viewingVersion.state,
+        titre: `${canvas.titre} (depuis V${viewingVersion.row.version})`,
+      })
+      setViewingVersion(null)
+      notify.success('Nouveau plan créé, ouverture…')
+      // Bascule l'éditeur sur le nouveau plan (?canvas=).
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev)
+        p.set('canvas', copy.id)
+        return p
+      })
+    } catch (err) {
+      notify.error('Duplication impossible : ' + (err?.message || err))
+    }
+  }
 
   // ── Fermeture : miniature (dataURL jpeg) + flush save ─────────────────────
   async function handleClose() {
@@ -489,6 +539,15 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             >
               {canvas?.titre || 'Plan'}
             </button>
+          )}
+          {canvas && (
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+              style={{ background: 'var(--bg)', color: 'var(--txt-3)', border: '1px solid var(--brd)' }}
+              title="Version en cours — fige-la via le bouton Versions"
+            >
+              V{canvas.version_current || 1} · en cours
+            </span>
           )}
           {canvas && STATUT_BADGE[canvas.statut] && (
             readOnly ? (
@@ -817,10 +876,31 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           editor={editorInstance}
           getYdocState={() => (docRef.current ? encodeDocState(docRef.current) : null)}
           makeSnapshot={makeThumbnail}
+          onOpenVersion={openVersion}
           onClose={() => setVersionsOpen(false)}
           onVersionCreated={(row) =>
             setCanvas((p) => ({ ...p, version_current: row.version + 1 }))
           }
+        />
+      )}
+
+      {viewingVersion && canvas && (
+        <PlanVersionViewer
+          canvas={canvas}
+          version={viewingVersion.row}
+          ydocState={viewingVersion.state}
+          onClose={() => setViewingVersion(null)}
+          onRestore={async () => {
+            const ok = await confirm({
+              title: `Restaurer la version ${viewingVersion.row.version}`,
+              message:
+                'Le contenu actuel du plan sera remplacé pour tout le monde. Fige d’abord une version si tu veux pouvoir revenir à l’état actuel.',
+              confirmLabel: 'Restaurer',
+              danger: true,
+            })
+            if (ok) restoreViewedVersion()
+          }}
+          onDuplicate={duplicateViewedVersion}
         />
       )}
 

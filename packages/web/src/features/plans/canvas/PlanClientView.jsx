@@ -359,7 +359,18 @@ export default function PlanClientView() {
           <div className="text-[10px] font-bold tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>
             PLAN TECHNIQUE{project?.title ? ` · ${project.title.toUpperCase()}` : ''}
           </div>
-          <div className="text-sm font-bold text-white truncate leading-tight">{plan.titre}</div>
+          <div className="text-sm font-bold text-white truncate leading-tight">
+            {plan.titre}
+            {plan.version != null && (
+              <span
+                className="ml-2 align-middle text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                style={{ background: 'rgba(77,159,255,0.18)', color: '#4d9fff', border: '1px solid rgba(77,159,255,0.4)' }}
+                title="Version figée diffusée par l’équipe"
+              >
+                V{plan.version}
+              </span>
+            )}
+          </div>
         </div>
         <button
           type="button"

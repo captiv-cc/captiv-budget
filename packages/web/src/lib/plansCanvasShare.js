@@ -29,6 +29,7 @@ export async function createShareToken({
   canvasId,
   label = null,
   permissions = 'comment',
+  mode = 'live',
   expiresAt = null,
   userId = null,
 }) {
@@ -38,6 +39,7 @@ export async function createShareToken({
       canvas_id: canvasId,
       label: label?.trim() || null,
       permissions,
+      mode,
       expires_at: expiresAt,
       created_by: userId,
     })

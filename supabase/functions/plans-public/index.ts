@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
   // ── Validation du token ─────────────────────────────────────────────────
   const { data: share } = await supabase
     .from('plans_canvas_share_tokens')
-    .select('id, canvas_id, permissions, expires_at, revoked_at, view_count, created_by, label')
+    .select('id, canvas_id, permissions, expires_at, revoked_at, view_count, created_by, label, mode')
     .eq('token', token)
     .maybeSingle()
   if (!share) return json({ error: 'not_found' }, 404)
@@ -73,6 +73,22 @@ Deno.serve(async (req) => {
 
   // ── GET : payload complet de la page publique ───────────────────────────
   if (action === 'get') {
+    // Contenu : plan en cours (live) ou dernière version figée (frozen).
+    let ydocState = canvas.ydoc_state
+    let frozenVersion: number | null = null
+    if (share.mode === 'frozen') {
+      const { data: versions } = await supabase
+        .from('plans_canvas_versions')
+        .select('ydoc_state, version')
+        .eq('canvas_id', canvas.id)
+        .order('version', { ascending: false })
+        .limit(1)
+      if (versions?.[0]?.ydoc_state) {
+        ydocState = versions[0].ydoc_state
+        frozenVersion = versions[0].version
+      }
+    }
+
     const { data: project } = await supabase
       .from('projects')
       .select(
@@ -101,8 +117,9 @@ Deno.serve(async (req) => {
         description: canvas.description,
         statut: canvas.statut,
         updated_at: canvas.updated_at,
+        version: frozenVersion,
       },
-      ydocState: canvas.ydoc_state,
+      ydocState,
       permissions: share.permissions,
       project: project
         ? { title: project.title, ref_projet: project.ref_projet, cover_url: project.cover_url }
