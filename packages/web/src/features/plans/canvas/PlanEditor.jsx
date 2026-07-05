@@ -163,6 +163,67 @@ function DropMenu({ label, icon: Icon, items }) {
   )
 }
 
+// Aide discrète : bouton « ? » en bas à droite du canvas → raccourcis.
+const SHORTCUTS = [
+  ['V', 'Sélection'],
+  ['H', 'Main (déplacer la vue)'],
+  ['C', 'Câble (dernier type utilisé)'],
+  ['X', 'Zone nommée'],
+  ['M', 'Cotation'],
+  ['D', 'Dessin libre'],
+  ['T', 'Texte'],
+  ['Suppr', 'Supprimer la sélection'],
+  ['⌘Z / ⌘⇧Z', 'Annuler / rétablir'],
+  ['⌘D', 'Dupliquer la sélection'],
+]
+
+function ShortcutsHelp() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="absolute bottom-3 right-3" style={{ zIndex: 400 }}>
+      {open && (
+        <div
+          className="absolute bottom-9 right-0 w-60 rounded-xl p-3"
+          style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+        >
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--txt-3)' }}>
+            Raccourcis
+          </div>
+          {SHORTCUTS.map(([key, label]) => (
+            <div key={key} className="flex items-center gap-2 py-0.5">
+              <kbd
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)', minWidth: 24, textAlign: 'center' }}
+              >
+                {key}
+              </kbd>
+              <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
+                {label}
+              </span>
+            </div>
+          ))}
+          <div className="text-[10px] mt-2 pt-2" style={{ color: 'var(--txt-3)', borderTop: '1px solid var(--brd)' }}>
+            Câble : clic par clic, double-clic pour terminer, Échap pour annuler.
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-7 h-7 rounded-full text-xs font-bold"
+        style={{
+          background: open ? 'var(--blue)' : 'var(--bg-elev)',
+          border: '1px solid var(--brd)',
+          color: open ? '#fff' : 'var(--txt-3)',
+        }}
+        title="Raccourcis clavier"
+      >
+        ?
+      </button>
+    </div>
+  )
+}
+
 // Bandeau d'aide de l'outil plume (câbles) : visible tant que l'outil est
 // actif — comment tracer, comment terminer, comment annuler.
 function CableToolHint() {
@@ -329,6 +390,60 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   // ── Calculateur focale (standalone) + mesure de distance sur le plan ──────
   const [calcOpen, setCalcOpen] = useState(false)
   const [nomenclatureOpen, setNomenclatureOpen] = useState(false)
+
+  // ── Raccourcis clavier Captiv (C câble, X zone, M cotation) ───────────────
+  // Capture : on court-circuite les raccourcis natifs tldraw sur ces touches.
+  useEffect(() => {
+    if (readOnly) return undefined
+    const onKey = (e) => {
+      const editor = editorRef.current
+      if (!editor || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        target?.isContentEditable
+      )
+        return
+      const key = e.key.toLowerCase()
+      if (key === 'c') {
+        const last = localStorage.getItem('plans-last-cable') || 'sdi'
+        editor.setCurrentTool('captiv-cable', { cableType: last })
+      } else if (key === 'x') {
+        placeCatalogItem(editor, 'zone')
+      } else if (key === 'm') {
+        placeCatalogItem(editor, 'cotation')
+      } else {
+        return
+      }
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [readOnly])
+
+  // ── Alerte : modification d'un plan VALIDÉ (une fois par session) ──────────
+  const validWarnedRef = useRef(false)
+  useEffect(() => {
+    if (readOnly || !editorInstance || canvas?.statut !== 'valide') {
+      validWarnedRef.current = false
+      return undefined
+    }
+    const unlisten = editorInstance.store.listen(
+      () => {
+        if (validWarnedRef.current) return
+        validWarnedRef.current = true
+        notify.error(
+          'Ce plan est VALIDÉ : tes modifications seront visibles par les destinataires. Repasse-le en « Partagé » ou fige une nouvelle version.',
+          { duration: 7000 },
+        )
+      },
+      { source: 'user', scope: 'document' },
+    )
+    return unlisten
+  }, [readOnly, editorInstance, canvas?.statut])
   const [measureReq, setMeasureReq] = useState(null) // { shapeId } | null
 
   useEffect(() => {
@@ -894,6 +1009,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
                 }}
               />
               <CableToolHint />
+              {!readOnly && <ShortcutsHelp />}
             </Tldraw>
           )}
 

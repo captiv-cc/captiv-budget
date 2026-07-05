@@ -77,6 +77,11 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
   if (item.special === 'cable') {
     // Active l'outil de tracé clic-par-clic avec le type choisi.
     editor.setCurrentTool('captiv-cable', { cableType: item.cableType })
+    try {
+      localStorage.setItem('plans-last-cable', item.cableType) // raccourci C
+    } catch {
+      /* noop */
+    }
     return pushRecent(kind)
   }
   if (item.special === 'zone') {
