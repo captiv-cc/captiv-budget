@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
+import { notify } from '../../../lib/notify'
 import { mediaFromBlob } from '../../../lib/planMedia'
 import { base64ToUint8 } from '../../../hooks/useYjsTldraw'
 import PlanCommentMarkers from './PlanCommentMarkers'
@@ -105,6 +106,7 @@ export default function PlanClientView() {
   const [commentMode, setCommentMode] = useState(false)
   const [draft, setDraft] = useState(null) // { x, y } en coords page
   const [validating, setValidating] = useState(false)
+  const [validateOpen, setValidateOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const editorRef = useRef(null)
   const loadedRef = useRef(null)
@@ -236,8 +238,6 @@ export default function PlanClientView() {
 
   async function handleValidate() {
     if (validating) return
-    // eslint-disable-next-line no-alert
-    if (!window.confirm('Valider ce plan ? Votre validation sera visible par l’équipe.')) return
     setValidating(true)
     try {
       const { data: res, error: err } = await supabase.functions.invoke('plans-public', {
@@ -245,9 +245,10 @@ export default function PlanClientView() {
       })
       if (err || res?.error) throw new Error(res?.error || 'validation impossible')
       setData((p) => ({ ...p, plan: { ...p.plan, statut: 'valide' } }))
+      setValidateOpen(false)
+      notify.success('Plan validé, merci !')
     } catch (e) {
-      // eslint-disable-next-line no-alert
-      window.alert('Validation impossible : ' + e.message)
+      notify.error('Validation impossible : ' + e.message)
     } finally {
       setValidating(false)
     }
@@ -387,12 +388,11 @@ export default function PlanClientView() {
         {!isValide ? (
           <button
             type="button"
-            onClick={handleValidate}
-            disabled={validating}
+            onClick={() => setValidateOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold"
-            style={{ background: '#00c875', color: '#04140c', opacity: validating ? 0.6 : 1 }}
+            style={{ background: '#00c875', color: '#04140c' }}
           >
-            {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            <Check className="w-3.5 h-3.5" />
             Valider
           </button>
         ) : (
@@ -525,6 +525,56 @@ export default function PlanClientView() {
           </div>
         </div>
       </div>
+
+      {/* Modale de validation (remplace le confirm natif du navigateur) */}
+      {validateOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center p-4"
+          style={{ zIndex: 700, background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => !validating && setValidateOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl p-5"
+            style={{ background: '#16181d', border: '1px solid rgba(255,255,255,0.15)', boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}
+          >
+            <div className="flex items-center gap-2.5 mb-2">
+              <span
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(0,200,117,0.15)' }}
+              >
+                <BadgeCheck className="w-4.5 h-4.5" style={{ color: '#00c875' }} />
+              </span>
+              <div className="text-sm font-bold text-white">Valider ce plan ?</div>
+            </div>
+            <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.65)' }}>
+              Votre validation confirme que le plan « {plan.titre} » vous convient.
+              Elle sera visible immédiatement par l’équipe {orgName}.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setValidateOpen(false)}
+                disabled={validating}
+                className="text-xs font-semibold px-3.5 py-2 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.8)', border: '1px solid rgba(255,255,255,0.15)' }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleValidate}
+                disabled={validating}
+                className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg"
+                style={{ background: '#00c875', color: '#04140c', opacity: validating ? 0.6 : 1 }}
+              >
+                {validating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Valider le plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -552,8 +602,7 @@ function SidebarComment({ comment, index, replies, isSelected, canComment, onFoc
       setBody('')
       setReplyOpen(false)
     } catch (err) {
-      // eslint-disable-next-line no-alert
-      window.alert('Envoi impossible : ' + err.message)
+      notify.error('Envoi impossible : ' + err.message)
     } finally {
       setBusy(false)
     }
@@ -660,8 +709,7 @@ function CommentDraftBubble({ editorRef, draft, onCancel, onSubmit }) {
     try {
       await onSubmit({ body: body.trim(), clientName: name.trim() || 'Client' })
     } catch (err) {
-      // eslint-disable-next-line no-alert
-      window.alert('Envoi impossible : ' + err.message)
+      notify.error('Envoi impossible : ' + err.message)
     } finally {
       setBusy(false)
     }

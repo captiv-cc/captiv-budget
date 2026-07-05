@@ -40,6 +40,7 @@ import PlanShareModal from './PlanShareModal'
 import PlanCommentMarkers from './PlanCommentMarkers'
 
 const STATUT_BADGE = {
+  brouillon: { label: 'Brouillon', color: '#a8a8a8' },
   partage_client: { label: 'Partagé', color: '#4d9fff' },
   valide: { label: 'Validé', color: '#00c875' },
 }
@@ -336,6 +337,18 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     onClose()
   }
 
+  // Statut pilotable par l'équipe : valider / dévalider manuellement
+  // (ex. le destinataire a validé oralement, ou le plan a changé après
+  // validation et doit repasser en « Partagé »).
+  async function saveStatut(statut) {
+    setCanvas((p) => ({ ...p, statut }))
+    try {
+      await updateCanvas(canvasId, { statut, updated_by: user?.id })
+    } catch (err) {
+      notify.error('Changement de statut impossible : ' + (err?.message || err))
+    }
+  }
+
   // ── Renommage + catégorie (top bar) ────────────────────────────────────────
   async function saveTitle(next) {
     setEditingTitle(false)
@@ -402,16 +415,34 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             </button>
           )}
           {canvas && STATUT_BADGE[canvas.statut] && (
-            <span
-              className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
-              style={{
-                background: `${STATUT_BADGE[canvas.statut].color}22`,
-                color: STATUT_BADGE[canvas.statut].color,
-                border: `1px solid ${STATUT_BADGE[canvas.statut].color}55`,
-              }}
-            >
-              {STATUT_BADGE[canvas.statut].label}
-            </span>
+            readOnly ? (
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                style={{
+                  background: `${STATUT_BADGE[canvas.statut].color}22`,
+                  color: STATUT_BADGE[canvas.statut].color,
+                  border: `1px solid ${STATUT_BADGE[canvas.statut].color}55`,
+                }}
+              >
+                {STATUT_BADGE[canvas.statut].label}
+              </span>
+            ) : (
+              <select
+                value={canvas.statut}
+                onChange={(e) => saveStatut(e.target.value)}
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 outline-none cursor-pointer"
+                style={{
+                  background: `${STATUT_BADGE[canvas.statut].color}22`,
+                  color: STATUT_BADGE[canvas.statut].color,
+                  border: `1px solid ${STATUT_BADGE[canvas.statut].color}55`,
+                }}
+                title="Statut du plan : valider ou dévalider manuellement"
+              >
+                <option value="brouillon">Brouillon</option>
+                <option value="partage_client">Partagé</option>
+                <option value="valide">Validé</option>
+              </select>
+            )
           )}
           {!readOnly && canvas && (
             <select
