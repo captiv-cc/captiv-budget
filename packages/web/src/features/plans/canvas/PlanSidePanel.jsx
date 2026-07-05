@@ -139,40 +139,32 @@ function LayersTab({ editor }) {
         return (
           <div
             key={layer.key}
-            className="px-3 py-1.5"
+            className="group flex items-center gap-1.5 px-3 py-2"
             style={{ opacity: count === 0 ? 0.45 : 1 }}
           >
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setLayerHidden(layer.key, !allHidden)}
-                disabled={count === 0}
-                title={allHidden ? 'Afficher' : 'Masquer'}
-                style={{ color: allHidden ? 'var(--txt-3)' : 'var(--txt-2)' }}
-              >
-                {allHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => setLayerLocked(layer.key, !allLocked)}
-                disabled={count === 0}
-                title={allLocked ? 'Déverrouiller' : 'Verrouiller'}
-                style={{ color: allLocked ? 'var(--orange, #ff9f0a)' : 'var(--txt-3)' }}
-              >
-                {allLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
-              </button>
-              <span className="flex-1 text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
-                {layer.label}
-              </span>
-              {count > 0 && opacity < 1 && (
-                <span className="text-[10px] font-semibold" style={{ color: 'var(--txt-3)' }}>
-                  {Math.round(opacity * 100)}%
-                </span>
-              )}
-              <span className="text-[11px] font-semibold" style={{ color: 'var(--txt-3)' }}>
-                {count || ''}
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setLayerHidden(layer.key, !allHidden)}
+              disabled={count === 0}
+              title={allHidden ? 'Afficher' : 'Masquer'}
+              style={{ color: allHidden ? 'var(--txt-3)' : 'var(--txt-2)' }}
+            >
+              {allHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayerLocked(layer.key, !allLocked)}
+              disabled={count === 0}
+              title={allLocked ? 'Déverrouiller' : 'Verrouiller'}
+              style={{ color: allLocked ? 'var(--orange, #ff9f0a)' : 'var(--txt-3)' }}
+            >
+              {allLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
+            </button>
+            <span className="flex-1 text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
+              {layer.label}
+            </span>
+            {/* Opacité : slider compact, révélé au survol de la ligne
+                (reste visible si la couche est atténuée). */}
             {count > 0 && (
               <input
                 type="range"
@@ -181,11 +173,21 @@ function LayersTab({ editor }) {
                 step="5"
                 value={Math.round(opacity * 100)}
                 onChange={(e) => setLayerOpacity(layer.key, Number(e.target.value) / 100)}
-                className="w-full mt-1"
-                style={{ accentColor: 'var(--blue)', height: 3 }}
-                title={`Opacité ${layer.label}`}
+                className={`w-14 shrink-0 transition-opacity ${
+                  opacity < 1 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                }`}
+                style={{ accentColor: 'var(--blue)', height: 2 }}
+                title={`Opacité ${layer.label} : ${Math.round(opacity * 100)}%`}
               />
             )}
+            {count > 0 && opacity < 1 && (
+              <span className="text-[10px] font-semibold w-7 text-right shrink-0" style={{ color: 'var(--txt-3)' }}>
+                {Math.round(opacity * 100)}%
+              </span>
+            )}
+            <span className="text-[11px] font-semibold w-3 text-right shrink-0" style={{ color: 'var(--txt-3)' }}>
+              {count || ''}
+            </span>
           </div>
         )
       })}

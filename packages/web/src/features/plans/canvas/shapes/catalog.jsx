@@ -25,6 +25,9 @@ export const DEFAULT_LAYER = 'annotations'
 
 /** Layer d'une shape (meta.layer, sinon annotations). */
 export function shapeLayer(shape) {
+  // Compat : les fonds créés avant l'assignation meta.layer sont reconnus
+  // par leur id déterministe (ensureFondShape → 'shape:fond').
+  if (shape?.id === 'shape:fond') return 'fond'
   return shape?.meta?.layer || DEFAULT_LAYER
 }
 
