@@ -157,8 +157,9 @@ que `?plan=<id>` du viewer fonds) → overlay plein écran, pas de route dédié
 - [x] Titre renommable + catégorie changeable dans la top bar de l'éditeur
 - [x] Lecture seule pour les membres sans can_edit_outil (isReadonly tldraw)
 - [x] Archivage / restauration / suppression (V0)
-- [ ] Changement de fond en cours de session non répercuté live (réouvrir) —
-      accepté pour l'instant
+- [x] Remplacement/retrait du fond depuis l'éditeur (bouton « Fond » →
+      FondPickerModal) — passe par le doc Yjs, donc répercuté en LIVE chez
+      les collaborateurs (l'ancienne limite « réouvrir » est levée)
 
 **Phase 2** ✅ première passe livrée (2026-07-05) — cible UX = mockup Hugo
 - [x] Shapes custom : `captiv-camera` (cône de vue = géométrie de la box,
