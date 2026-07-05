@@ -23,6 +23,7 @@ import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { ITEM_SHAPE_TYPE } from './shapes/ItemShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
 import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
+import { CAM_SHAPE_TYPES } from './shapes/camUtils'
 
 const COULEURS = ['#4d9fff', '#ffce00', '#9c5ffd', '#ff5ac4', '#00c875', '#ff9f0a', '#ff4757', '#a8a8a8']
 
@@ -193,10 +194,57 @@ function LayersTab({ editor }) {
           </div>
         )
       })}
+      {/* Taille globale des badges caméra */}
+      <BadgeSizeRow editor={editor} />
       <div className="flex items-center gap-1.5 px-3 py-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
         <LayersIcon className="w-3 h-3" />
         Les éléments rejoignent leur couche à la création
       </div>
+    </div>
+  )
+}
+
+// Applique une taille de badge uniforme à TOUTES les caméras du plan
+// (S/M/L relatif à la hauteur visible actuelle).
+function BadgeSizeRow({ editor }) {
+  const cams = useValue(
+    'cam-shapes',
+    () => editor.getCurrentPageShapes().filter((s) => CAM_SHAPE_TYPES.includes(s.type)),
+    [editor],
+  )
+  if (!cams.length) return null
+
+  function apply(factor) {
+    const vh = editor.getViewportPageBounds().height
+    const uiScale = Math.round(Math.max(12, Math.min(80, vh * factor)))
+    editor.run(() => {
+      cams.forEach((s) => {
+        editor.updateShape({ id: s.id, type: s.type, props: { uiScale } })
+      })
+    })
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-2" style={{ borderTop: '1px solid var(--brd)' }}>
+      <span className="flex-1 text-[11px] font-semibold" style={{ color: 'var(--txt-3)' }}>
+        Badges caméra
+      </span>
+      {[
+        ['S', 0.016],
+        ['M', 0.024],
+        ['L', 0.034],
+      ].map(([label, factor]) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => apply(factor)}
+          className="text-[11px] font-bold w-6 h-6 rounded-md"
+          style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+          title={`Taille ${label} (relative au zoom actuel)`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -264,6 +312,29 @@ function ColorRow({ value, onChange }) {
   )
 }
 
+// Numéro de caméra : éditable directement (re-numérotation manuelle).
+function NumeroField({ shape, update }) {
+  return (
+    <Field label="Numéro">
+      <input
+        type="number"
+        min="1"
+        defaultValue={shape.props.numero}
+        key={`${shape.id}-numero`}
+        onBlur={(e) => {
+          const n = Math.max(1, Math.round(Number(e.target.value) || 1))
+          if (n !== shape.props.numero) update({ numero: n })
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+        }}
+        className="w-20 text-xs px-2 py-1.5 rounded-md outline-none"
+        style={inputStyle}
+      />
+    </Field>
+  )
+}
+
 function CameraProps({ editor, shape }) {
   const { props } = shape
   const update = (patch) =>
@@ -276,10 +347,34 @@ function CameraProps({ editor, shape }) {
     update({ focale, w })
   }
 
+  // Activer le cône d'une caméra mobile : la box compacte (autour du badge)
+  // doit grandir pour accueillir le cône.
+  function toggleCone() {
+    const next = !props.showCone
+    const badge = props.uiScale || 30
+    if (next && props.h < badge * 4) {
+      const h = badge * 8
+      const angle = focaleToAngleDeg(props.focale)
+      const w = Math.max(40, Math.round(2 * h * Math.tan(((angle / 2) * Math.PI) / 180)))
+      const dh = h - props.h
+      // Garde l'apex (position caméra) en place : la box grandit vers le haut.
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        x: shape.x - (w - props.w) / 2,
+        y: shape.y - dh,
+        props: { showCone: true, h, w },
+      })
+      return
+    }
+    update({ showCone: next })
+  }
+
   const angleReel = Math.round((2 * Math.atan(props.w / 2 / props.h) * 180) / Math.PI)
 
   return (
     <div className="py-1">
+      <NumeroField shape={shape} update={update} />
       <Field label="Label">
         <input
           type="text"
@@ -317,7 +412,7 @@ function CameraProps({ editor, shape }) {
       <Field label="Cône de vue">
         <button
           type="button"
-          onClick={() => update({ showCone: !props.showCone })}
+          onClick={toggleCone}
           className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
           style={{
             background: props.showCone ? 'var(--blue-bg)' : 'var(--bg)',
@@ -370,6 +465,7 @@ function RiggedCamProps({ editor, shape }) {
 
   return (
     <div className="py-1">
+      <NumeroField shape={shape} update={update} />
       <Field label="Label">
         <input
           type="text"

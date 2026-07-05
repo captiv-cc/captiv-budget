@@ -40,6 +40,10 @@ export const cameraShapeProps = {
   mobile: T.boolean.optional(),
   // Rendu spécifique ('grue' : châssis + bras jusqu'à la tête caméra).
   variante: T.string.optional(),
+  // Grue : position du châssis relative à l'apex (poignée dédiée, le bras
+  // s'oriente librement sans tourner le cône).
+  baseDx: T.number.optional(),
+  baseDy: T.number.optional(),
   // Offset manuel de la pastille (espace écran, non-roté). Optionnels :
   // les shapes créées avant cette version n'ont pas ces props.
   labelDx: T.number.optional(),
@@ -112,7 +116,7 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
     const L = cameraLayout(shape.props)
     const rot = shape.rotation || 0
     const q = rotatePoint(L.pillCx, L.pillCy, L.apexX, L.badgeCy, -rot)
-    return [
+    const handles = [
       {
         id: 'label',
         type: 'vertex',
@@ -121,11 +125,32 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
         canSnap: false,
       },
     ]
+    // Grue : poignée du châssis (le bras suit).
+    if (shape.props.variante === 'grue') {
+      handles.push({
+        id: 'base',
+        type: 'vertex',
+        x: L.apexX + (shape.props.baseDx ?? 0),
+        y: L.apexY + (shape.props.baseDy ?? L.badge * 2.4),
+        canSnap: false,
+      })
+    }
+    return handles
   }
 
   onHandleDrag(shape, { handle }) {
-    if (handle.id !== 'label') return undefined
     const L = cameraLayout(shape.props)
+    if (handle.id === 'base') {
+      return {
+        id: shape.id,
+        type: shape.type,
+        props: {
+          baseDx: Math.round(handle.x - L.apexX),
+          baseDy: Math.round(handle.y - L.apexY),
+        },
+      }
+    }
+    if (handle.id !== 'label') return undefined
     const rot = shape.rotation || 0
     // Inverse de getHandles : local → repère contre-roté de la pastille.
     const p = rotatePoint(handle.x, handle.y, L.apexX, L.badgeCy, rot)
@@ -181,39 +206,47 @@ export class CameraShapeUtil extends BaseBoxShapeUtil {
               />
             </g>
           )}
-          {/* Grue : châssis + bras jusqu'à la tête caméra (tourne avec la
-              shape, contrairement au badge/pastille) */}
-          {shape.props.variante === 'grue' && (
-            <g>
-              <line
-                x1={L.apexX}
-                y1={L.apexY + L.badge * 2.4}
-                x2={L.apexX}
-                y2={L.apexY}
-                stroke="#ffffff"
-                strokeOpacity="0.9"
-                strokeWidth={Math.max(3, L.badge * 0.22)}
-              />
-              <line
-                x1={L.apexX}
-                y1={L.apexY + L.badge * 2.4}
-                x2={L.apexX}
-                y2={L.apexY}
-                stroke={couleur}
-                strokeWidth={Math.max(2, L.badge * 0.13)}
-              />
-              <rect
-                x={L.apexX - L.badge * 0.55}
-                y={L.apexY + L.badge * 2.4 - L.badge * 0.4}
-                width={L.badge * 1.1}
-                height={L.badge * 0.8}
-                rx={L.badge * 0.12}
-                fill={couleur}
-                stroke="#ffffff"
-                strokeWidth={Math.max(1.5, L.badge * 0.07)}
-              />
-            </g>
-          )}
+          {/* Grue : châssis + bras jusqu'à la tête caméra. Le châssis a sa
+              propre poignée (baseDx/baseDy) : le bras s'oriente librement
+              sans toucher au cône. */}
+          {shape.props.variante === 'grue' && (() => {
+            const baseX = L.apexX + (shape.props.baseDx ?? 0)
+            const baseY = L.apexY + (shape.props.baseDy ?? L.badge * 2.4)
+            const armDeg =
+              (Math.atan2(L.apexY - baseY, L.apexX - baseX) * 180) / Math.PI + 90
+            return (
+              <g>
+                <line
+                  x1={baseX}
+                  y1={baseY}
+                  x2={L.apexX}
+                  y2={L.apexY}
+                  stroke="#ffffff"
+                  strokeOpacity="0.9"
+                  strokeWidth={Math.max(3, L.badge * 0.22)}
+                />
+                <line
+                  x1={baseX}
+                  y1={baseY}
+                  x2={L.apexX}
+                  y2={L.apexY}
+                  stroke={couleur}
+                  strokeWidth={Math.max(2, L.badge * 0.13)}
+                />
+                <rect
+                  x={baseX - L.badge * 0.55}
+                  y={baseY - L.badge * 0.4}
+                  width={L.badge * 1.1}
+                  height={L.badge * 0.8}
+                  rx={L.badge * 0.12}
+                  fill={couleur}
+                  stroke="#ffffff"
+                  strokeWidth={Math.max(1.5, L.badge * 0.07)}
+                  transform={`rotate(${armDeg} ${baseX} ${baseY})`}
+                />
+              </g>
+            )
+          })()}
           <g transform={`rotate(${-deg} ${L.apexX} ${L.badgeCy})`}>
             {/* Ligne de rappel badge → pastille quand elle est décalée */}
             {offset > L.badge * 0.9 && (

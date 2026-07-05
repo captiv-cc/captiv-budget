@@ -22,7 +22,7 @@ import { CATALOG, Glyph, focaleToAngleDeg, catalogItem } from './shapes/catalog'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
 import { RAILCAM_SHAPE_TYPE } from './shapes/RailCamShapeUtil'
 import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
-import { nextCamNumero } from './shapes/camUtils'
+import { nextCamNumero, CAM_SHAPE_TYPES } from './shapes/camUtils'
 
 export const LIB_DRAG_MIME = 'application/x-captiv-lib-item'
 const RECENTS_KEY = 'plans-lib-recents'
@@ -58,16 +58,27 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
   const viewport = editor.getViewportPageBounds()
   const at = pagePoint || viewport.center
   const k = Math.max(0.4, viewport.height / REF_VIEWPORT_H)
-  // Taille de badge UNIFORME pour toutes les caméras posées à ce niveau de
-  // zoom : indépendante de l'empattement (cône, rail, croix spider).
-  const uiScale = Math.round(Math.max(20, Math.min(64, viewport.height * 0.032)))
+  // Taille de badge UNIFORME : hérite de la taille des caméras déjà posées
+  // (médiane), sinon défaut dérivé du viewport. Réglable globalement via le
+  // panneau Layers (S/M/L).
+  const existing = editor
+    .getCurrentPageShapes()
+    .filter((s) => CAM_SHAPE_TYPES.includes(s.type) && s.props.uiScale)
+    .map((s) => s.props.uiScale)
+    .sort((a, b) => a - b)
+  const uiScale = existing.length
+    ? existing[Math.floor(existing.length / 2)]
+    : Math.round(Math.max(16, Math.min(64, viewport.height * 0.024)))
   const id = createShapeId()
 
   if (item.camKind === 'box') {
     const numero = nextCamNumero(editor)
     const focale = item.defaultFocale || 35
-    const h = Math.round(viewport.height * 0.18)
-    const w = Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
+    // Mobiles (cône off) : box compacte autour du badge — pas d'espace mort.
+    const h = item.mobile ? Math.round(uiScale * 2.2) : Math.round(viewport.height * 0.18)
+    const w = item.mobile
+      ? Math.round(uiScale * 2.2)
+      : Math.round(2 * h * Math.tan(((focaleToAngleDeg(focale) / 2) * Math.PI) / 180))
     editor.createShape({
       id,
       type: CAMERA_SHAPE_TYPE,

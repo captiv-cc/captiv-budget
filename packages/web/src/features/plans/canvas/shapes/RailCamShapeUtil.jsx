@@ -212,6 +212,29 @@ export class RailCamShapeUtil extends ShapeUtil {
     const trait = Math.max(2, L.badge * 0.1)
     const first = L.pts[0]
     const last = L.pts[L.pts.length - 1]
+    // Affordance « + » au milieu des segments quand le rail est sélectionné
+    // (la poignée native 'create' est discrète — on la souligne).
+    const isSelected = this.editor.getOnlySelectedShapeId?.() === shape.id
+    const plusMarks =
+      isSelected && railKind === 'travelling'
+        ? shape.props.points.slice(0, -1).map((p, i) => {
+            const next = shape.props.points[i + 1]
+            const mx = (p.x + next.x) / 2
+            const my = (p.y + next.y) / 2
+            const r = Math.max(7, L.badge * 0.3)
+            return (
+              <g key={`plus-${i}`} opacity="0.85">
+                <circle cx={mx} cy={my} r={r} fill="#ffffff" stroke={couleur} strokeWidth={1.5} />
+                <path
+                  d={`M ${mx - r * 0.45} ${my} H ${mx + r * 0.45} M ${mx} ${my - r * 0.45} V ${my + r * 0.45}`}
+                  stroke={couleur}
+                  strokeWidth={Math.max(1.5, r * 0.2)}
+                  strokeLinecap="round"
+                />
+              </g>
+            )
+          })
+        : null
 
     // Traverses du travelling (petits ticks perpendiculaires).
     const ticks = []
@@ -261,6 +284,7 @@ export class RailCamShapeUtil extends ShapeUtil {
               transform={railKind === 'cable' ? `rotate(45 ${p.x} ${p.y})` : undefined}
             />
           ))}
+          {plusMarks}
           {/* Ligne de rappel pastille */}
           {Math.hypot(shape.props.labelDx ?? 0, shape.props.labelDy ?? 0) > L.badge * 0.9 && (
             <line
