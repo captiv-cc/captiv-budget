@@ -16,7 +16,22 @@ import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Tldraw, DefaultStylePanel, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { ArrowLeft, Calculator, Download, History, Image as ImageIcon, Loader2, Ruler, Share2, Users, Wifi, WifiOff, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Calculator,
+  ChevronDown,
+  ClipboardList,
+  Download,
+  History,
+  Image as ImageIcon,
+  Loader2,
+  Ruler,
+  Share2,
+  Users,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react'
 import {
   getCanvas,
   saveCanvasState,
@@ -50,6 +65,7 @@ import { FocaleCalcModal } from './FocaleCalc'
 import LibraryPanel, { LIB_DRAG_MIME, placeCatalogItem } from './LibraryPanel'
 import PlanSidePanel from './PlanSidePanel'
 import PlanShareModal from './PlanShareModal'
+import NomenclatureModal from './NomenclatureModal'
 import PlanVersionsModal, { restoreStateIntoEditor } from './PlanVersionsModal'
 import PlanVersionViewer from './PlanVersionViewer'
 import PlanCommentMarkers from './PlanCommentMarkers'
@@ -93,6 +109,57 @@ function CaptivStylePanel(props) {
   )
   if (onlyCaptiv) return null
   return <DefaultStylePanel {...props} />
+}
+
+// Menu déroulant compact de la top bar (Plan ▾ / Exporter ▾).
+function DropMenu({ label, icon: Icon, items }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+        style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+      >
+        {Icon && <Icon className="w-3.5 h-3.5" />}
+        {label}
+        <ChevronDown className="w-3 h-3" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[95]" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 top-full mt-1 z-[96] min-w-[190px] rounded-lg py-1"
+            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+          >
+            {items.filter(Boolean).map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  item.onClick()
+                }}
+                className="w-full flex items-center gap-2 text-left text-xs font-semibold px-3 py-2"
+                style={{ color: item.color || 'var(--txt-2)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hov)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                {item.icon && <item.icon className="w-3.5 h-3.5" />}
+                <span className="flex-1">{item.label}</span>
+                {item.badge && (
+                  <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 // Bandeau d'aide de l'outil plume (câbles) : visible tant que l'outil est
@@ -259,6 +326,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
 
   // ── Calculateur focale (standalone) + mesure de distance sur le plan ──────
   const [calcOpen, setCalcOpen] = useState(false)
+  const [nomenclatureOpen, setNomenclatureOpen] = useState(false)
   const [measureReq, setMeasureReq] = useState(null) // { shapeId } | null
 
   useEffect(() => {
@@ -694,71 +762,37 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             </button>
           )}
           {!readOnly && canvas && (
-            <button
-              type="button"
-              onClick={() => setVersionsOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
-              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-              title="Versions figées du plan (créer / restaurer)"
-            >
-              <History className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Versions</span>
-            </button>
+            <DropMenu
+              label="Plan"
+              icon={ImageIcon}
+              items={[
+                { label: 'Fond de plan…', icon: ImageIcon, onClick: () => setFondModalOpen(true) },
+                {
+                  label: canvas.echelle_ratio ? 'Ré-étalonner l’échelle…' : 'Définir l’échelle…',
+                  icon: Ruler,
+                  color: canvas.echelle_ratio ? 'var(--green, #00c875)' : undefined,
+                  badge: canvas.echelle_ratio
+                    ? `1 m ≈ ${Math.round(1 / Number(canvas.echelle_ratio))} px`
+                    : undefined,
+                  onClick: startCalibration,
+                },
+                { label: 'Versions…', icon: History, onClick: () => setVersionsOpen(true) },
+              ]}
+            />
           )}
-          {!readOnly && canvas && (
-            <button
-              type="button"
-              onClick={calibrating ? cancelCalibration : startCalibration}
-              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
-              style={{
-                background: calibrating ? 'var(--blue-bg)' : 'var(--bg)',
-                border: '1px solid var(--brd)',
-                color: calibrating ? 'var(--blue)' : canvas.echelle_ratio ? 'var(--green, #00c875)' : 'var(--txt-2)',
-              }}
-              title={
-                canvas.echelle_ratio
-                  ? `Échelle définie : 1 m ≈ ${Math.round(1 / Number(canvas.echelle_ratio))} px — cliquer pour ré-étalonner`
-                  : 'Définir l’échelle : cliquer 2 points de distance connue sur le plan'
-              }
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              {calibrating ? 'Annuler' : 'Échelle'}
-            </button>
-          )}
-          {!readOnly && canvas && (
-            <button
-              type="button"
-              onClick={() => setFondModalOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
-              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-              title="Remplacer ou retirer le fond de plan"
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              Fond
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => handleExport('png')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
-            style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)', opacity: exporting ? 0.6 : 1 }}
-            title="Exporter en PNG"
-          >
-            <Download className="w-3.5 h-3.5" />
-            PNG
-          </button>
-          <button
-            type="button"
-            onClick={() => handleExport('pdf')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
-            style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)', opacity: exporting ? 0.6 : 1 }}
-            title="Exporter en PDF"
-          >
-            <Download className="w-3.5 h-3.5" />
-            PDF
-          </button>
+          <DropMenu
+            label="Exporter"
+            icon={Download}
+            items={[
+              { label: 'Image PNG', icon: Download, onClick: () => handleExport('png') },
+              { label: 'PDF avec légende', icon: Download, onClick: () => handleExport('pdf') },
+              !readOnly && {
+                label: 'Nomenclature…',
+                icon: ClipboardList,
+                onClick: () => setNomenclatureOpen(true),
+              },
+            ]}
+          />
         </div>
 
         {/* Présence */}
@@ -884,14 +918,18 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
               onClick={handleCalibClick}
             >
               <div
-                className="absolute top-3 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-2 rounded-lg pointer-events-none"
+                className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg"
                 style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                onClick={(e) => e.stopPropagation()}
               >
                 {calibPoints.length === 0
                   ? 'Clique un premier point de distance connue (ex : un côté de la scène)'
                   : calibPoints.length === 1
                     ? 'Clique le second point'
                     : 'Indique la distance réelle'}
+                <button type="button" onClick={cancelCalibration} style={{ color: 'var(--txt-3)' }} title="Annuler l'étalonnage">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
               <svg className="absolute inset-0 w-full h-full pointer-events-none">
                 {calibPoints.length === 2 && (
@@ -1003,6 +1041,14 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
       )}
 
       {calcOpen && <FocaleCalcModal onClose={() => setCalcOpen(false)} />}
+
+      {nomenclatureOpen && canvas && editorInstance && (
+        <NomenclatureModal
+          editor={editorInstance}
+          canvas={canvas}
+          onClose={() => setNomenclatureOpen(false)}
+        />
+      )}
 
       {fondModalOpen && canvas && (
         <FondPickerModal
