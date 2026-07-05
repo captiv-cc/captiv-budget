@@ -38,8 +38,8 @@ export class ZoneShapeUtil extends BaseBoxShapeUtil {
     // Échelle de la page (posée par l'étalonnage, synchronisée via le doc).
     const page = this.editor.getPage(shape.parentId) || this.editor.getCurrentPage()
     const mpp = Number(page?.meta?.metersPerPx) || 0
-    const fontName = Math.max(12, Math.min(40, Math.round(Math.min(w, h) * 0.13)))
-    const fontDims = Math.max(10, Math.round(fontName * 0.62))
+    const fontName = Math.max(11, Math.min(22, Math.round(Math.min(w, h) * 0.07)))
+    const fontDims = Math.max(9, Math.round(fontName * 0.6))
 
     let dims = null
     if (showDims && mpp > 0) {

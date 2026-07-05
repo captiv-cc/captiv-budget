@@ -86,7 +86,7 @@ export class CotationShapeUtil extends ShapeUtil {
     const mpp = Number(page?.meta?.metersPerPx) || 0
     const texte = mpp > 0 ? `${fmtMeters(lenPx * mpp)} m` : `${Math.round(lenPx)} px`
 
-    const fontLabel = Math.max(11, Math.min(22, Math.round(lenPx * 0.07)))
+    const fontLabel = Math.max(10, Math.min(15, Math.round(lenPx * 0.045)))
     const pillW = Math.round(texte.length * fontLabel * 0.62 + fontLabel * 1.2)
     const pillH = Math.round(fontLabel * 1.6)
     const trait = Math.max(1.5, fontLabel * 0.12)
