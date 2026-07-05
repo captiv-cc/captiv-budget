@@ -25,6 +25,7 @@ import { SPIDERCAM_SHAPE_TYPE } from './shapes/SpiderCamShapeUtil'
 import { ZONE_SHAPE_TYPE } from './shapes/ZoneShapeUtil'
 import { COTE_SHAPE_TYPE } from './shapes/CotationShapeUtil'
 import { nextCamNumero, CAM_SHAPE_TYPES } from './shapes/camUtils'
+import { pageMetersPerPx } from './shapes/scale'
 
 export const LIB_DRAG_MIME = 'application/x-captiv-lib-item'
 const RECENTS_KEY = 'plans-lib-recents'
@@ -198,8 +199,19 @@ export function placeCatalogItem(editor, kind, pagePoint = null) {
       },
     })
   } else {
-    const w = Math.round((item.w || 60) * k)
-    const h = Math.round((item.h || 60) * k)
+    // Taille RÉELLE si l'échelle du plan est définie et que l'item a une
+    // emprise en mètres (un SkyPanel fait 65 cm, pas 10 % du viewport) ;
+    // sinon fallback proportionnel au viewport.
+    const mpp = pageMetersPerPx(editor)
+    let w
+    let h
+    if (mpp > 0 && item.realW) {
+      w = Math.max(8, Math.round(item.realW / mpp))
+      h = Math.max(8, Math.round((item.realH || item.realW) / mpp))
+    } else {
+      w = Math.round((item.w || 60) * k)
+      h = Math.round((item.h || 60) * k)
+    }
     editor.createShape({
       id,
       type: 'captiv-item',
