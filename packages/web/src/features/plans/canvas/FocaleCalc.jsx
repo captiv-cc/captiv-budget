@@ -92,12 +92,11 @@ export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShap
   const crop = SENSOR_FULL_FRAME_W / sensorW
   const showFFEq = Math.abs(crop - 1) > 0.01 && target === 'focale' && result
 
-  // Angle de vue horizontal correspondant (éq. FF) + garde-fou plausibilité.
+  // Angle de vue horizontal correspondant (éq. FF).
   const focaleFF = target === 'focale' && result ? result.raw * crop : null
   const angleH = focaleFF
     ? Math.round((2 * Math.atan(SENSOR_FULL_FRAME_W / (2 * focaleFF)) * 180) / Math.PI)
     : null
-  const horsPlage = focaleFF != null && (focaleFF > 800 || focaleFF < 8)
 
   const inputs = {
     focale: (
@@ -258,12 +257,6 @@ export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShap
           <div className="text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
             {formula}
           </div>
-          {horsPlage && (
-            <div className="text-[10px] mt-1 font-semibold" style={{ color: 'var(--orange, #ff9f0a)' }}>
-              Hors plage des optiques courantes — vérifie la distance et la
-              hauteur du sujet (cadres-tu vraiment {hauteur || '?'} m à {distance || '?'} m ?).
-            </div>
-          )}
           {target === 'focale' && onApplyFocale && (
             <button
               type="button"

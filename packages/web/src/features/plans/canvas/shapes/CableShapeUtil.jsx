@@ -14,7 +14,7 @@
 
 import { ShapeUtil, StateNode, Polyline2d, Vec, HTMLContainer, T, createShapeId } from 'tldraw'
 import { CABLE_TYPES } from './catalog'
-import { sampleRail, pointAtT, railSvgPath } from './railMath'
+import { sampleRail, pointAtT, nearestT, railSvgPath } from './railMath'
 import { fmtMeters } from './scale'
 
 export const CABLE_SHAPE_TYPE = 'captiv-cable'
@@ -24,6 +24,8 @@ export const cableShapeProps = {
   cableType: T.string,
   label: T.string,
   spline: T.boolean,
+  // Position du label LE LONG du câble (0..1, poignée coulissante).
+  labelT: T.number.optional(),
   labelDx: T.number.optional(),
   labelDy: T.number.optional(),
 }
@@ -48,7 +50,7 @@ function cableLayout(props, mpp) {
   const type = cableMeta(props)
   const metrage = mpp > 0 ? `${fmtMeters(lenPx * mpp)} m` : null
   const texte = [props.label || type.label, metrage].filter(Boolean).join(' · ')
-  const mid = pointAtT(pts, 0.5)
+  const mid = pointAtT(pts, props.labelT ?? 0.35)
   return { pts, type, texte, mid }
 }
 
@@ -106,6 +108,9 @@ export class CableShapeUtil extends ShapeUtil {
         canSnap: false,
       })
     }
+    // Poignée du label : coulisse le long du câble.
+    const L = cableLayout(shape.props, 0)
+    handles.push({ id: 'label', type: 'vertex', x: L.mid.x, y: L.mid.y, canSnap: false })
     return handles
   }
 
@@ -123,6 +128,14 @@ export class CableShapeUtil extends ShapeUtil {
 
   onHandleDrag(shape, { handle }) {
     const props = shape.props
+    if (handle.id === 'label') {
+      const pts = sampleRail(props.points, props.spline)
+      return {
+        id: shape.id,
+        type: shape.type,
+        props: { labelT: nearestT(pts, { x: handle.x, y: handle.y }) },
+      }
+    }
     if (handle.id.startsWith('mid')) {
       const idx = Number(handle.id.slice(3))
       if (Number.isNaN(idx)) return undefined
