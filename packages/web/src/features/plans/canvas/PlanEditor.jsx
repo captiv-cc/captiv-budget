@@ -367,25 +367,6 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   docRef.current = doc
   peersRef.current = peers
 
-  // Miniature périodique : la vignette de la card ne dépend plus d'une
-  // fermeture propre de l'onglet (toutes les 2 min, sauveur élu uniquement).
-  useEffect(() => {
-    if (readOnly) return undefined
-    const interval = setInterval(async () => {
-      const editor = editorRef.current
-      const currentPeers = peersRef.current
-      if (!editor) return
-      if (currentPeers.length && Math.min(...currentPeers.map((p) => p.clientId)) < docRef.current?.clientID) return
-      try {
-        const dataUrl = await makeThumbnail()
-        if (dataUrl) await updateCanvas(canvasId, { snapshot_svg: dataUrl })
-      } catch {
-        /* best effort */
-      }
-    }, 120000)
-    return () => clearInterval(interval)
-  }, [readOnly, canvasId, makeThumbnail])
-
   // ── Montage tldraw : lecture seule + insertion du fond ────────────────────
   const editorRef = useRef(null)
   const [editorInstance, setEditorInstance] = useState(null)
@@ -694,6 +675,24 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     const { blob } = await editor.toImage(ids, { format: 'jpeg', background: true, scale, quality: 0.8 })
     return blobToDataURL(blob)
   }, [])
+
+  // Miniature périodique : la vignette de la card ne dépend plus d'une
+  // fermeture propre de l'onglet (toutes les 2 min, sauveur élu uniquement).
+  useEffect(() => {
+    if (readOnly) return undefined
+    const interval = setInterval(async () => {
+      const currentPeers = peersRef.current
+      if (!editorRef.current) return
+      if (currentPeers.length && Math.min(...currentPeers.map((p) => p.clientId)) < docRef.current?.clientID) return
+      try {
+        const dataUrl = await makeThumbnail()
+        if (dataUrl) await updateCanvas(canvasId, { snapshot_svg: dataUrl })
+      } catch {
+        /* best effort */
+      }
+    }, 120000)
+    return () => clearInterval(interval)
+  }, [readOnly, canvasId, makeThumbnail])
 
   // ── Versions figées : liste, viewer lecture seule, restauration, dupli ────
   const [versionsOpen, setVersionsOpen] = useState(false)
