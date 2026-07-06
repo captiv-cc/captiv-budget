@@ -436,15 +436,14 @@ function BadgeSizeRow({ editor }) {
 /* ─── Propriétés ─────────────────────────────────────────────────────────── */
 
 function PropsTab({ editor, selected }) {
-  if (selected.length !== 1) {
+  if (selected.length === 0) {
     return (
       <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--txt-3)' }}>
-        {selected.length === 0
-          ? 'Sélectionne un élément pour éditer ses propriétés'
-          : `${selected.length} éléments sélectionnés`}
+        Sélectionne un élément pour éditer ses propriétés
       </div>
     )
   }
+  if (selected.length > 1) return <MultiProps editor={editor} selected={selected} />
 
   const shape = selected[0]
   if (shape.type === CAMERA_SHAPE_TYPE) return <CameraProps editor={editor} shape={shape} />
@@ -462,6 +461,169 @@ function PropsTab({ editor, selected }) {
   )
 }
 
+/* ─── Édition groupée (multi-sélection) ─────────────────────────────────── */
+
+const TYPE_LABELS = {
+  [CAMERA_SHAPE_TYPE]: ['caméra', 'caméras'],
+  [RAILCAM_SHAPE_TYPE]: ['caméra', 'caméras'],
+  [SPIDERCAM_SHAPE_TYPE]: ['caméra', 'caméras'],
+  [ITEM_SHAPE_TYPE]: ['élément', 'éléments'],
+  [ZONE_SHAPE_TYPE]: ['zone', 'zones'],
+  [COTE_SHAPE_TYPE]: ['cotation', 'cotations'],
+  [CABLE_SHAPE_TYPE]: ['câble', 'câbles'],
+}
+const TYPE_LABEL_OTHER = ['autre', 'autres']
+
+function MultiProps({ editor, selected }) {
+  // Décompte lisible par famille ("3 caméras · 2 câbles · 1 zone").
+  const counts = new Map()
+  selected.forEach((s) => {
+    const label = TYPE_LABELS[s.type] || TYPE_LABEL_OTHER
+    counts.set(label, (counts.get(label) || 0) + 1)
+  })
+  const breakdown = [...counts.entries()]
+    .map(([label, n]) => `${n} ${label[n > 1 ? 1 : 0]}`)
+    .join(' · ')
+
+  const allCams = selected.every((s) => CAM_SHAPE_TYPES.includes(s.type))
+  const allBoxCams = selected.every((s) => s.type === CAMERA_SHAPE_TYPE)
+  const allCables = selected.every((s) => s.type === CABLE_SHAPE_TYPE)
+  const allZones = selected.every((s) => s.type === ZONE_SHAPE_TYPE)
+  const allHaveCouleur = selected.every((s) => s.props.couleur !== undefined)
+
+  // Valeur commune d'une prop (null si la sélection diverge).
+  const common = (key) => {
+    const v = selected[0].props[key]
+    return selected.every((s) => s.props[key] === v) ? v : null
+  }
+
+  function updateAll(patch) {
+    editor.run(() => {
+      selected.forEach((s) =>
+        editor.updateShape({
+          id: s.id,
+          type: s.type,
+          props: typeof patch === 'function' ? patch(s) : patch,
+        }),
+      )
+    })
+  }
+
+  // Focale groupée : le cône de chaque caméra garde SA hauteur (la largeur
+  // suit l'angle de la nouvelle focale, caméra par caméra).
+  function setFocaleAll(focale) {
+    const angle = focaleToAngleDeg(focale)
+    updateAll((s) => ({
+      focale,
+      w: Math.max(40, Math.round(2 * s.props.h * Math.tan(((angle / 2) * Math.PI) / 180))),
+    }))
+  }
+
+  const conesOn = allBoxCams && selected.every((s) => s.props.showCone)
+
+  return (
+    <div className="py-1">
+      <div className="px-3 pt-2 text-xs font-bold" style={{ color: 'var(--txt)' }}>
+        {breakdown}
+      </div>
+      <div className="px-3 pb-1 text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        Les modifications s’appliquent à toute la sélection.
+      </div>
+
+      {allHaveCouleur && (
+        <Field label="Couleur">
+          <ColorRow value={common('couleur')} onChange={(couleur) => updateAll({ couleur })} />
+        </Field>
+      )}
+
+      {allCams && (
+        <ModeleField
+          shapeId={`multi-${selected.length}`}
+          value={common('modele') || ''}
+          onChange={(modele) => updateAll({ modele })}
+        />
+      )}
+
+      {allBoxCams && (
+        <>
+          <Field label="Focale">
+            <div className="flex items-center gap-1 flex-wrap">
+              {FOCALES.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFocaleAll(f)}
+                  className="text-[11px] font-semibold px-2 py-1 rounded-md"
+                  style={{
+                    background: common('focale') === f ? 'var(--blue)' : 'var(--bg)',
+                    color: common('focale') === f ? '#fff' : 'var(--txt-2)',
+                    border: '1px solid var(--brd)',
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Cônes de vue">
+            <button
+              type="button"
+              onClick={() =>
+                editor.run(() => {
+                  selected.forEach((s) => applyCameraCone(editor, s, !conesOn))
+                })
+              }
+              className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+              style={{
+                background: conesOn ? 'var(--blue-bg)' : 'var(--bg)',
+                color: conesOn ? 'var(--blue)' : 'var(--txt-3)',
+                border: '1px solid var(--brd)',
+              }}
+            >
+              {conesOn ? 'Affichés' : 'Masqués'}
+            </button>
+          </Field>
+        </>
+      )}
+
+      {allCables && (
+        <Field label="Type de câble">
+          <select
+            value={common('cableType') || ''}
+            onChange={(e) => e.target.value && updateAll({ cableType: e.target.value })}
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+          >
+            {common('cableType') == null && <option value="">— mixte —</option>}
+            {Object.entries(CABLE_TYPES).map(([key, t]) => (
+              <option key={key} value={key}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {allZones && (
+        <Field label="Dimensions et surface">
+          <button
+            type="button"
+            onClick={() => updateAll({ showDims: !selected.every((s) => s.props.showDims) })}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: selected.every((s) => s.props.showDims) ? 'var(--blue-bg)' : 'var(--bg)',
+              color: selected.every((s) => s.props.showDims) ? 'var(--blue)' : 'var(--txt-3)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            {selected.every((s) => s.props.showDims) ? 'Affichées' : 'Masquées'}
+          </button>
+        </Field>
+      )}
+    </div>
+  )
+}
+
 function Field({ label, children }) {
   return (
     <label className="block px-3 py-2">
@@ -471,6 +633,56 @@ function Field({ label, children }) {
       {children}
     </label>
   )
+}
+
+// Section repliable des Propriétés — état mémorisé par section (localStorage).
+function Section({ id, label, children, defaultOpen = true }) {
+  const storageKey = `plans-props-${id}`
+  const [open, setOpen] = useState(() => {
+    const saved = localStorage.getItem(storageKey)
+    return saved == null ? defaultOpen : saved === '1'
+  })
+  return (
+    <div style={{ borderBottom: '1px solid var(--brd)' }}>
+      <button
+        type="button"
+        onClick={() =>
+          setOpen((v) => {
+            localStorage.setItem(storageKey, v ? '0' : '1')
+            return !v
+          })
+        }
+        className="w-full flex items-center gap-1.5 text-left text-[11px] font-bold px-3 py-2"
+        style={{ color: 'var(--txt-2)' }}
+      >
+        <span style={{ color: 'var(--txt-3)' }}>{open ? '▾' : '▸'}</span>
+        {label}
+      </button>
+      {open && <div className="pb-1">{children}</div>}
+    </div>
+  )
+}
+
+// Cône d'une caméra box : à l'activation sur une caméra mobile (box compacte
+// autour du badge), la box grandit vers le haut pour accueillir le cône,
+// apex (position caméra) inchangé.
+function applyCameraCone(editor, shape, next) {
+  const { props } = shape
+  const badge = props.uiScale || 30
+  if (next && props.h < badge * 4) {
+    const h = badge * 8
+    const angle = focaleToAngleDeg(props.focale)
+    const w = Math.max(40, Math.round(2 * h * Math.tan(((angle / 2) * Math.PI) / 180)))
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      x: shape.x - (w - props.w) / 2,
+      y: shape.y - (h - props.h),
+      props: { showCone: true, h, w },
+    })
+    return
+  }
+  editor.updateShape({ id: shape.id, type: shape.type, props: { showCone: next } })
 }
 
 const inputStyle = {
@@ -534,85 +746,67 @@ function CameraProps({ editor, shape }) {
     update({ focale, w })
   }
 
-  // Activer le cône d'une caméra mobile : la box compacte (autour du badge)
-  // doit grandir pour accueillir le cône.
-  function toggleCone() {
-    const next = !props.showCone
-    const badge = props.uiScale || 30
-    if (next && props.h < badge * 4) {
-      const h = badge * 8
-      const angle = focaleToAngleDeg(props.focale)
-      const w = Math.max(40, Math.round(2 * h * Math.tan(((angle / 2) * Math.PI) / 180)))
-      const dh = h - props.h
-      // Garde l'apex (position caméra) en place : la box grandit vers le haut.
-      editor.updateShape({
-        id: shape.id,
-        type: shape.type,
-        x: shape.x - (w - props.w) / 2,
-        y: shape.y - dh,
-        props: { showCone: true, h, w },
-      })
-      return
-    }
-    update({ showCone: next })
-  }
-
   const angleReel = Math.round((2 * Math.atan(props.w / 2 / props.h) * 180) / Math.PI)
 
   return (
     <div className="py-1">
-      <NumeroField shape={shape} update={update} />
-      <Field label="Label">
-        <input
-          type="text"
-          defaultValue={props.label}
-          key={shape.id}
-          placeholder={`Cam ${props.numero} / ${props.modele}`}
-          onBlur={(e) => update({ label: e.target.value })}
-          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
-          style={inputStyle}
-        />
-      </Field>
-      <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
-      <Field label={`Focale (angle réel ${angleReel}°)`}>
-        <div className="flex items-center gap-1 flex-wrap">
-          {FOCALES.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFocale(f)}
-              className="text-[11px] font-semibold px-2 py-1 rounded-md"
-              style={{
-                background: props.focale === f ? 'var(--blue)' : 'var(--bg)',
-                color: props.focale === f ? '#fff' : 'var(--txt-2)',
-                border: '1px solid var(--brd)',
-              }}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </Field>
-      <Field label="Couleur">
-        <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
-      </Field>
-      <Field label="Cône de vue">
-        <button
-          type="button"
-          onClick={toggleCone}
-          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-          style={{
-            background: props.showCone ? 'var(--blue-bg)' : 'var(--bg)',
-            color: props.showCone ? 'var(--blue)' : 'var(--txt-3)',
-            border: '1px solid var(--brd)',
-          }}
-        >
-          {props.showCone ? 'Affiché' : 'Masqué'}
-        </button>
-      </Field>
-
-      {/* Calculateur focale intégré (capteur pré-rempli, mesure sur plan) */}
-      <CameraCalcSection shape={shape} setFocale={setFocale} />
+      <Section id="cam-identite" label="Identité">
+        <NumeroField shape={shape} update={update} />
+        <Field label="Label">
+          <input
+            type="text"
+            defaultValue={props.label}
+            key={shape.id}
+            placeholder={`Cam ${props.numero} / ${props.modele}`}
+            onBlur={(e) => update({ label: e.target.value })}
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+          />
+        </Field>
+        <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
+      </Section>
+      <Section id="cam-optique" label="Optique">
+        <Field label={`Focale (angle réel ${angleReel}°)`}>
+          <div className="flex items-center gap-1 flex-wrap">
+            {FOCALES.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFocale(f)}
+                className="text-[11px] font-semibold px-2 py-1 rounded-md"
+                style={{
+                  background: props.focale === f ? 'var(--blue)' : 'var(--bg)',
+                  color: props.focale === f ? '#fff' : 'var(--txt-2)',
+                  border: '1px solid var(--brd)',
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Cône de vue">
+          <button
+            type="button"
+            onClick={() => applyCameraCone(editor, shape, !props.showCone)}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: props.showCone ? 'var(--blue-bg)' : 'var(--bg)',
+              color: props.showCone ? 'var(--blue)' : 'var(--txt-3)',
+              border: '1px solid var(--brd)',
+            }}
+          >
+            {props.showCone ? 'Affiché' : 'Masqué'}
+          </button>
+        </Field>
+        {/* Calculateur focale intégré (capteur pré-rempli, mesure sur plan) */}
+        <CameraCalcSection shape={shape} setFocale={setFocale} />
+      </Section>
+      <Section id="cam-apparence" label="Apparence">
+        <Field label="Couleur">
+          <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
+        </Field>
+      </Section>
     </div>
   )
 }
@@ -655,38 +849,42 @@ function RiggedCamProps({ editor, shape }) {
 
   return (
     <div className="py-1">
-      <NumeroField shape={shape} update={update} />
-      <Field label="Label">
-        <input
-          type="text"
-          defaultValue={props.label}
-          key={shape.id}
-          placeholder={`Cam ${props.numero} · ${props.support || ''}`}
-          onBlur={(e) => update({ label: e.target.value })}
-          className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
-          style={inputStyle}
-        />
-      </Field>
-      <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
-      <Field label="Couleur">
-        <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
-      </Field>
-      {isRail && props.railKind === 'travelling' && props.points.length >= 3 && (
-        <Field label="Trajectoire">
-          <button
-            type="button"
-            onClick={() => update({ spline: !props.spline })}
-            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
-            style={{
-              background: props.spline ? 'var(--blue-bg)' : 'var(--bg)',
-              color: props.spline ? 'var(--blue)' : 'var(--txt-3)',
-              border: '1px solid var(--brd)',
-            }}
-          >
-            {props.spline ? 'Courbe' : 'Droite'}
-          </button>
+      <Section id="rig-identite" label="Identité">
+        <NumeroField shape={shape} update={update} />
+        <Field label="Label">
+          <input
+            type="text"
+            defaultValue={props.label}
+            key={shape.id}
+            placeholder={`Cam ${props.numero} · ${props.support || ''}`}
+            onBlur={(e) => update({ label: e.target.value })}
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+          />
         </Field>
-      )}
+        <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
+      </Section>
+      <Section id="rig-apparence" label="Apparence">
+        <Field label="Couleur">
+          <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
+        </Field>
+        {isRail && props.railKind === 'travelling' && props.points.length >= 3 && (
+          <Field label="Trajectoire">
+            <button
+              type="button"
+              onClick={() => update({ spline: !props.spline })}
+              className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+              style={{
+                background: props.spline ? 'var(--blue-bg)' : 'var(--bg)',
+                color: props.spline ? 'var(--blue)' : 'var(--txt-3)',
+                border: '1px solid var(--brd)',
+              }}
+            >
+              {props.spline ? 'Courbe' : 'Droite'}
+            </button>
+          </Field>
+        )}
+      </Section>
       <div className="px-3 py-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
         {isRail
           ? props.railKind === 'travelling'
