@@ -17,7 +17,8 @@
 
 import { useEffect, useState } from 'react'
 import { useValue } from 'tldraw'
-import { Check, Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon, MessageCircle, RotateCcw, Send } from 'lucide-react'
+import { Check, Eye, EyeOff, Lock, LockOpen, Layers as LayersIcon, MessageCircle, RotateCcw, Search, Send } from 'lucide-react'
+import { FOND_SHAPE_ID } from '../../../lib/plansCanvasFond'
 import { replyToComment, setCommentResolved } from '../../../lib/plansCanvasShare'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
@@ -61,7 +62,8 @@ export default function PlanSidePanel({
       <div className="flex shrink-0" style={{ borderBottom: '1px solid var(--brd)' }}>
         {[
           ['layers', 'Layers'],
-          ['props', 'Propriétés'],
+          ['props', 'Props'],
+          ['elements', 'Éléments'],
           ['comments', unresolvedCount ? `Comms (${unresolvedCount})` : 'Comms'],
         ].map(([key, label]) => (
           <button
@@ -84,6 +86,8 @@ export default function PlanSidePanel({
           <LayersTab editor={editor} />
         ) : tab === 'props' ? (
           <PropsTab editor={editor} selected={selected} />
+        ) : tab === 'elements' ? (
+          <ElementsTab editor={editor} />
         ) : (
           <CommentsTab
             canvasId={canvasId}
@@ -384,6 +388,131 @@ function LayersTab({ editor }) {
         <LayersIcon className="w-3 h-3" />
         Les éléments rejoignent leur couche à la création
       </div>
+    </div>
+  )
+}
+
+/* ─── Éléments : inventaire du plan, clic = sélection + zoom ─────────────── */
+
+// Titre + sous-titre lisibles d'une shape pour la liste (et la recherche).
+function elementInfo(s, mpp) {
+  const p = s.props || {}
+  if (CAM_SHAPE_TYPES.includes(s.type)) {
+    return {
+      title: p.label || `Cam ${p.numero}`,
+      sub: [p.modele, p.support].filter(Boolean).join(' · '),
+      color: p.couleur,
+      badge: p.numero,
+    }
+  }
+  if (s.type === ITEM_SHAPE_TYPE) return { title: p.label || 'Élément', sub: '', color: p.couleur }
+  if (s.type === ZONE_SHAPE_TYPE) {
+    return {
+      title: p.label || 'Zone',
+      sub: mpp > 0 ? `${fmtMeters(p.w * mpp)} × ${fmtMeters(p.h * mpp)} m` : 'zone',
+      color: p.couleur,
+    }
+  }
+  if (s.type === COTE_SHAPE_TYPE) {
+    const [a, b] = p.points
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    return { title: mpp > 0 ? `Cote · ${fmtMeters(len * mpp)} m` : 'Cotation', sub: '', color: p.couleur }
+  }
+  if (s.type === CABLE_SHAPE_TYPE) {
+    const t = CABLE_TYPES[p.cableType]
+    const len = mpp > 0 ? ` · ${fmtMeters(cableLengthPx(p) * mpp)} m` : ''
+    return { title: `${t?.label || 'Câble'}${len}`, sub: p.label || '', color: t?.color }
+  }
+  return { title: s.type === 'text' ? (p.text || 'Texte') : s.type === 'draw' ? 'Dessin' : s.type, sub: '' }
+}
+
+function ElementsTab({ editor }) {
+  const [q, setQ] = useState('')
+  const shapes = useValue(
+    'elements-list',
+    () => editor.getCurrentPageShapes().filter((s) => s.id !== FOND_SHAPE_ID),
+    [editor],
+  )
+  const mpp = useValue('elements-mpp', () => pageMetersPerPx(editor), [editor])
+
+  // Groupé par couche, dans l'ordre des LAYERS.
+  const byLayer = new Map()
+  shapes.forEach((s) => {
+    const key = shapeLayer(s)
+    if (!byLayer.has(key)) byLayer.set(key, [])
+    byLayer.get(key).push({ shape: s, info: elementInfo(s, mpp) })
+  })
+
+  const needle = q.trim().toLowerCase()
+  const match = ({ info }) =>
+    !needle || `${info.title} ${info.sub}`.toLowerCase().includes(needle)
+
+  function focusShape(s) {
+    editor.setSelectedShapes([s.id])
+    editor.zoomToSelection({ animation: { duration: 250 } })
+  }
+
+  const total = shapes.length
+
+  return (
+    <div className="py-1">
+      <div className="flex items-center gap-1.5 mx-2 my-1.5 px-2 rounded-md" style={{ background: 'var(--bg)', border: '1px solid var(--brd)' }}>
+        <Search className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        <input
+          type="text"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Rechercher (${total})`}
+          className="w-full min-w-0 text-xs py-1.5 outline-none bg-transparent"
+          style={{ color: 'var(--txt)' }}
+        />
+      </div>
+      {total === 0 && (
+        <div className="px-3 py-6 text-xs text-center" style={{ color: 'var(--txt-3)' }}>
+          Le plan est vide — pose des éléments depuis la bibliothèque.
+        </div>
+      )}
+      {LAYERS.map((layer) => {
+        const rows = (byLayer.get(layer.key) || []).filter(match)
+        if (!rows.length) return null
+        return (
+          <div key={layer.key} className="mb-1">
+            <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
+              {layer.label} · {rows.length}
+            </div>
+            {rows.map(({ shape, info }) => (
+              <button
+                key={shape.id}
+                type="button"
+                onClick={() => focusShape(shape)}
+                className="w-full flex items-center gap-2 text-left px-3 py-1.5"
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hov)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                title="Sélectionner et zoomer"
+              >
+                <span
+                  className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold text-white"
+                  style={{ background: info.color || 'var(--brd)' }}
+                >
+                  {info.badge ?? ''}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
+                    {info.title}
+                  </span>
+                  {info.sub && (
+                    <span className="block text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>
+                      {info.sub}
+                    </span>
+                  )}
+                </span>
+                {shape.meta?.hidden && <EyeOff className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />}
+                {shape.isLocked && <Lock className="w-3 h-3 shrink-0" style={{ color: 'var(--txt-3)' }} />}
+              </button>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }
