@@ -222,7 +222,9 @@ export function useYjsTldraw({
 
     const yClientId = doc.clientID.toString()
     const userAtom = atom('captiv-presence-user', {
-      id: yClientId,
+      // Le schéma tldraw v5 exige le préfixe "user:" sur userId. Unique par
+      // ONGLET (clientID Yjs) : deux onglets du même compte = deux curseurs.
+      id: `user:${yClientId}`,
       name: myUserMeta?.name || '?',
       color: myUserMeta?.color || '#4d9fff',
     })
