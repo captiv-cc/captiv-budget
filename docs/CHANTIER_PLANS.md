@@ -250,13 +250,24 @@ bibliothèque org plus tard)
       tombstones CRDT), miniature rafraîchie toutes les 2 min, tests
       vitest railMath + scale (27 cas)
 
-**Sprint « outil complet » — passe 2** (à faire)
-- [ ] #7 Panneau Propriétés : sections repliables + édition groupée
-      multi-sélection
-- [ ] #8 Onglet « Éléments » : liste de tout le contenu + zoom-to au clic
-- [ ] #11 Commentaires internes ancrés (l'équipe pose des marqueurs côté desk)
-- [ ] #12 Curseurs nommés live sur le canvas (awareness → rendu)
-- [ ] #13 Comparaison de versions (overlay calques)
+**Sprint « outil complet » — passe 2** ✅ (2026-07-06)
+- [x] #7 Propriétés : sections repliables (Identité/Optique/Apparence,
+      état localStorage) + édition groupée multi-sélection (couleur,
+      modèle, focale, cônes, type de câble, dims zones — selon ce que la
+      sélection a en commun)
+- [x] #8 Onglet « Éléments » : inventaire groupé par couche (pastille,
+      métrages), recherche, clic = sélection + zoom animé
+- [x] #11 Commentaires internes ancrés : bouton « Commenter sur le plan »
+      (onglet Comms) → marqueur + bulle de saisie ; colonne `internal`
+      (migration 20260706a À APPLIQUER + redéployer plans-public) ; les
+      internes sont BLEUS et invisibles des liens de partage ; une réponse
+      hérite de la visibilité du thread
+- [x] #12 Curseurs nommés live : présence tldraw ↔ awareness Yjs
+      (bridge useYjsTldraw, throttle ~12 msg/s) → curseurs collaborateurs
+      natifs (nom + couleur)
+- [x] #13 Comparaison de versions : bouton « Comparer » dans le viewer —
+      état actuel en PNG transparent superposé au canvas de la version,
+      aligné page + suivi caméra, slider d'opacité Vn ↔ En cours
 
 **Backlog hors sprint** : #9 cartouche PDF pro (session commune avec Hugo,
 ne pas faire seul), #3 champ « assigné à », #18 bibliothèque org, tailles
