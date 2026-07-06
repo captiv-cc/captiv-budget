@@ -15,6 +15,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { buildLegend } from '../features/plans/canvas/shapes/legend'
+import { CAM_SHAPE_TYPES } from '../features/plans/canvas/shapes/camUtils'
 
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
@@ -73,7 +74,16 @@ export async function exportPlanPdf(editor, opts) {
   const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: exportScale, padding: 24 })
   const dataUrl = await blobToDataURL(blob)
   const img = await loadImg(dataUrl)
-  const legend = buildLegend(editor.store.allRecords())
+
+  // Colonne droite : listing des caméras dans l'ordre (label, puis modèle ·
+  // optique quand renseignés) + légende couleurs des câbles avec métrage.
+  const records = editor.store.allRecords()
+  const cams = records
+    .filter((r) => r.typeName === 'shape' && CAM_SHAPE_TYPES.includes(r.type))
+    .map((r) => r.props)
+    .sort((a, b) => (a.numero || 0) - (b.numero || 0))
+  const cableEntries = buildLegend(records).filter((e) => e.kind === 'cable')
+  const hasColumn = cams.length > 0 || cableEntries.length > 0
 
   const { jsPDF } = await import('jspdf')
   const format = cartouche ? (cartouche.format === 'a4' ? 'a4' : 'a3') : 'a4'
@@ -85,7 +95,7 @@ export async function exportPlanPdf(editor, opts) {
   // tout l'espace pour le plan.
   const headerH = cartouche ? 0 : 14
   const cartH = cartouche ? 34 : 0
-  const legendW = legend.length ? (format === 'a3' ? 58 : 52) : 0
+  const legendW = hasColumn ? (format === 'a3' ? 58 : 52) : 0
 
   // ── En-tête (layout historique uniquement) ─────────────────────────────
   if (!cartouche) {
@@ -110,33 +120,59 @@ export async function exportPlanPdf(editor, opts) {
   const h = img.height * ratio
   pdf.addImage(dataUrl, 'PNG', margin + (zoneW - w) / 2, headerH + margin + (zoneH - h) / 2, w, h)
 
-  // ── Légende (colonne droite, au-dessus du cartouche) ───────────────────
-  if (legend.length) {
+  // ── Colonne droite : caméras dans l'ordre + câbles ─────────────────────
+  if (hasColumn) {
     const lx = pw - margin - legendW + 4
+    const maxY = ph - cartH - margin - 4
     let ly = headerH + margin + 4
-    pdf.setTextColor(90, 90, 95)
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(7.5)
-    pdf.text('LÉGENDE', lx, ly)
-    ly += 5
-    pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(8)
-    for (const entry of legend) {
-      if (ly > ph - cartH - margin - 6) break
-      const [r, g, b] = hexToRgb(entry.color)
-      pdf.setFillColor(r, g, b)
-      if (entry.kind === 'cam') {
+
+    if (cams.length) {
+      pdf.setTextColor(90, 90, 95)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(7.5)
+      pdf.text('CAMÉRAS', lx, ly)
+      ly += 5
+      for (const cam of cams) {
+        const sub = [cam.modele, cam.optique].filter(Boolean).join(' · ')
+        const rowH = sub ? 7.4 : 4.4
+        if (ly + rowH > maxY) break
+        const [r, g, b] = hexToRgb(cam.couleur)
+        pdf.setFillColor(r, g, b)
         pdf.circle(lx + 1.5, ly - 1.2, 1.5, 'F')
-      } else if (entry.kind === 'cable') {
+        pdf.setTextColor(30, 30, 34)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(7.5)
+        const nom = cam.label || `Cam ${cam.numero}${cam.support ? ` · ${cam.support}` : ''}`
+        pdf.text(nom.slice(0, 32), lx + 5, ly)
+        if (sub) {
+          pdf.setFont('helvetica', 'normal')
+          pdf.setFontSize(6.5)
+          pdf.setTextColor(110, 110, 115)
+          pdf.text(sub.slice(0, 40), lx + 5, ly + 3.2)
+        }
+        ly += rowH
+      }
+      ly += 3
+    }
+
+    if (cableEntries.length && ly + 6 < maxY) {
+      pdf.setTextColor(90, 90, 95)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(7.5)
+      pdf.text('CÂBLES', lx, ly)
+      ly += 5
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7.5)
+      for (const entry of cableEntries) {
+        if (ly > maxY) break
+        const [r, g, b] = hexToRgb(entry.color)
         pdf.setDrawColor(r, g, b)
         pdf.setLineWidth(0.9)
         pdf.line(lx, ly - 1.2, lx + 3.4, ly - 1.2)
-      } else {
-        pdf.rect(lx, ly - 2.6, 3, 3, 'F')
+        pdf.setTextColor(40, 40, 45)
+        pdf.text(entry.label.slice(0, 34), lx + 5, ly)
+        ly += 4.6
       }
-      pdf.setTextColor(40, 40, 45)
-      pdf.text(entry.label.slice(0, 34), lx + 5, ly)
-      ly += 5.4
     }
   }
 
