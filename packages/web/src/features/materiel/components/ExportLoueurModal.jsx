@@ -43,6 +43,9 @@ export default function ExportLoueurModal({
 
   const [selected, setSelected] = useState(() => new Set(allIds))
   const [format, setFormat] = useState('combined') // 'combined' | 'zip'
+  // Labels internes (Body / Optique…) dans le PDF — décoché par défaut
+  // (MAT-17 bis amendé : le loueur n'en a besoin que sur les grosses listes).
+  const [includeLabels, setIncludeLabels] = useState(false)
 
   // Re-sync selection whenever the modal re-opens or the input set changes.
   useEffect(() => {
@@ -83,6 +86,7 @@ export default function ExportLoueurModal({
     onConfirm?.({
       selectedIds: Array.from(selected),
       format,
+      includeLabels,
     })
   }
 
@@ -283,6 +287,35 @@ export default function ExportLoueurModal({
                 hint="Archive ZIP, téléchargement direct (pas de preview)"
               />
             </div>
+          </section>
+
+          {/* Options */}
+          <section className="flex flex-col gap-2">
+            <label
+              className="text-[10px] font-bold uppercase tracking-wider"
+              style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+            >
+              Options
+            </label>
+            <label
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer"
+              style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+            >
+              <input
+                type="checkbox"
+                checked={includeLabels}
+                onChange={(e) => setIncludeLabels(e.target.checked)}
+                className="shrink-0"
+              />
+              <span className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                  Inclure les labels internes
+                </span>
+                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                  « CORPS CAMÉRA · Sony Venice 2 » au lieu de la désignation seule
+                </span>
+              </span>
+            </label>
           </section>
         </div>
 

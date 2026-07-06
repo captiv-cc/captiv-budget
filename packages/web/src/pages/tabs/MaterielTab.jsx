@@ -302,7 +302,7 @@ export default function MaterielTab() {
   }, [recapByLoueur])
 
   const handleExportLoueurConfirm = useCallback(
-    ({ selectedIds, format }) => {
+    ({ selectedIds, format, includeLabels = false }) => {
       setExportLoueurOpen(false)
       if (format === 'zip') {
         runExport(
@@ -314,6 +314,7 @@ export default function MaterielTab() {
               org,
               selectedLoueurIds: selectedIds,
               infosLogistiqueByLoueur, // MAT-20
+              includeLabels,
             }),
           'Par loueur (ZIP)',
         )
@@ -327,6 +328,7 @@ export default function MaterielTab() {
               org,
               selectedLoueurIds: selectedIds,
               infosLogistiqueByLoueur, // MAT-20
+              includeLabels,
             }),
           'Par loueur',
         )

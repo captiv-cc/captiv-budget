@@ -1105,12 +1105,21 @@ function normalizeDesignation(text = '') {
  * @param {Array} args.items
  * @param {Array} args.itemLoueurs
  * @param {Array} args.loueurs
- * @returns {Array<{ loueur, lignes: Array<{ designation, label, qte, materielBddId, key }> }>}
+ * @param {Array} [args.blocks] — blocs de la version (triés) : donne l'ordre
+ *                de la liste et les titres des sous-sections du récap
+ * @returns {Array<{ loueur,
+ *   blocs: Array<{ blockId, titre, couleur, lignes }>,
+ *   lignes,   // aplati dans l'ordre des blocs (compat)
+ *   totaux: Array<{ designation, qte, materielBddId, key }> }>}
  *
- * MAT-17 : le `label` est désormais propagé dans les lignes agrégées et
- * participe à la clé d'agrégation. Deux items avec même désignation mais
- * labels différents ("Body" vs "Optique") restent donc distincts dans le
- * récap, ce qui donne du contexte visuel au loueur.
+ * MAT-17 : le `label` est propagé dans les lignes agrégées et participe à
+ * la clé d'agrégation. Deux items avec même désignation mais labels
+ * différents ("Body" vs "Optique") restent donc distincts dans le récap.
+ *
+ * Ordre (décision Hugo 2026-07-06) : le récap SUIT LA LISTE — groupé par
+ * bloc (plus de fusion inter-blocs), lignes à la position de leur première
+ * occurrence dans le bloc. `totaux` refait la fusion par référence (labels
+ * ignorés) pour le contrôle de stock du loueur.
  *
  * MAT-18 : les items sans aucun loueur affecté sont regroupés dans un
  * groupe synthétique "Non assigné" (loueur.id = UNASSIGNED_LOUEUR_ID,
@@ -1128,38 +1137,55 @@ const UNASSIGNED_LOUEUR = Object.freeze({
   _isUnassigned: true,
 })
 
-export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [] }) {
+export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [], blocks = [] }) {
   const itemById = new Map()
   for (const item of items) itemById.set(item.id, item)
 
   const loueurById = new Map()
   for (const l of loueurs) loueurById.set(l.id, l)
 
-  // Structure intermédiaire : Map<loueur_id, Map<aggKey, { designation, label, qte, materielBddId }>>
+  // Ordre de la LISTE matériel : position du bloc (blocks est déjà trié par
+  // sort_order) puis position de l'item dans son bloc. Un bloc inconnu (ou
+  // items sans block_id, cas des tests) passe après, dans l'ordre d'apparition.
+  const blockPos = new Map()
+  const blockById = new Map()
+  blocks.forEach((b, i) => {
+    blockPos.set(b.id, i)
+    blockById.set(b.id, b)
+  })
+  const itemPos = new Map()
+  items.forEach((it, i) => {
+    itemPos.set(it.id, Number.isFinite(it.sort_order) ? it.sort_order : i)
+  })
+
+  const aggKeyOf = (item) => {
+    const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
+    return item.materiel_bdd_id
+      ? `bdd:${item.materiel_bdd_id}${labelPart}`
+      : `text:${normalizeDesignation(item.designation)}${labelPart}`
+  }
+
+  // Structure intermédiaire : Map<loueur_id, Map<block_id, Map<aggKey, ligne>>>
+  // — l'agrégation vit PAR BLOC (plus de fusion inter-blocs : le récap
+  // reflète la liste, décision Hugo 2026-07-06).
   const perLoueur = new Map()
   // Set des items qui ont au moins un loueur affecté (pour MAT-18 unassigned).
   const assignedItemIds = new Set()
 
-  for (const il of itemLoueurs) {
-    const item = itemById.get(il.item_id)
-    if (!item) continue
-    assignedItemIds.add(item.id)
-    const loueurKey = il.loueur_id
-    const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
-    const aggKey = item.materiel_bdd_id
-      ? `bdd:${item.materiel_bdd_id}${labelPart}`
-      : `text:${normalizeDesignation(item.designation)}${labelPart}`
-
-    let byAgg = perLoueur.get(loueurKey)
+  const addToBlocMap = (blocMap, item) => {
+    const blockKey = item.block_id ?? '__none__'
+    let byAgg = blocMap.get(blockKey)
     if (!byAgg) {
       byAgg = new Map()
-      perLoueur.set(loueurKey, byAgg)
+      blocMap.set(blockKey, byAgg)
     }
-
+    const aggKey = aggKeyOf(item)
     const existing = byAgg.get(aggKey)
     const qty = Number(item.quantite) || 0
+    const pos = itemPos.get(item.id) ?? 0
     if (existing) {
       existing.qte += qty
+      existing._pos = Math.min(existing._pos, pos)
     } else {
       byAgg.set(aggKey, {
         key: aggKey,
@@ -1167,52 +1193,73 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
         label: item.label || null,
         qte: qty,
         materielBddId: item.materiel_bdd_id || null,
+        _pos: pos,
       })
     }
+  }
+
+  for (const il of itemLoueurs) {
+    const item = itemById.get(il.item_id)
+    if (!item) continue
+    assignedItemIds.add(item.id)
+    let blocMap = perLoueur.get(il.loueur_id)
+    if (!blocMap) {
+      blocMap = new Map()
+      perLoueur.set(il.loueur_id, blocMap)
+    }
+    addToBlocMap(blocMap, item)
   }
 
   // MAT-18 : second pass — tous les items qui n'ont AUCUN loueur pivot.
   // On les agrège dans un groupe synthétique.
-  const unassignedAgg = new Map()
+  const unassignedBlocMap = new Map()
   for (const item of items) {
     if (assignedItemIds.has(item.id)) continue
-    const labelPart = item.label ? `|l:${item.label.trim().toLowerCase()}` : ''
-    const aggKey = item.materiel_bdd_id
-      ? `bdd:${item.materiel_bdd_id}${labelPart}`
-      : `text:${normalizeDesignation(item.designation)}${labelPart}`
-    const existing = unassignedAgg.get(aggKey)
-    const qty = Number(item.quantite) || 0
-    if (existing) {
-      existing.qte += qty
-    } else {
-      unassignedAgg.set(aggKey, {
-        key: aggKey,
-        designation: item.designation,
-        label: item.label || null,
-        qte: qty,
-        materielBddId: item.materiel_bdd_id || null,
-      })
-    }
+    addToBlocMap(unassignedBlocMap, item)
   }
 
-  // Sérialisation triée : par nom de loueur puis par (label, désignation).
-  // Les lignes sans label remontent en bas pour grouper visuellement les
-  // items étiquetés.
-  const sortLignes = (lignes) =>
-    lignes.sort((a, b) => {
-      const la = (a.label || '').toLowerCase()
-      const lb = (b.label || '').toLowerCase()
-      if (la && !lb) return -1
-      if (!la && lb) return 1
-      if (la !== lb) return la.localeCompare(lb, 'fr', { sensitivity: 'base' })
-      return a.designation.localeCompare(b.designation, 'fr', { sensitivity: 'base' })
+  // ── Sérialisation d'un groupe : blocs dans l'ordre de la liste, lignes
+  //    dans l'ordre du bloc, + `lignes` aplati (compat) et `totaux` par
+  //    référence (fusion inter-blocs, labels ignorés). ─────────────────────
+  const buildGroup = (loueur, blocMap) => {
+    const blocsRaw = Array.from(blocMap.entries()).map(([blockKey, byAgg], appearance) => {
+      const block = blockById.get(blockKey)
+      return {
+        blockId: block ? blockKey : null,
+        titre: block?.titre || null,
+        couleur: block?.couleur || null,
+        _pos: blockPos.has(blockKey) ? blockPos.get(blockKey) : blocks.length + appearance,
+        lignes: Array.from(byAgg.values())
+          .sort((a, b) => a._pos - b._pos)
+          .map(({ _pos, ...ligne }) => ligne),
+      }
     })
+    blocsRaw.sort((a, b) => a._pos - b._pos)
+    const blocs = blocsRaw.map(({ _pos, ...bloc }) => bloc)
+
+    const lignes = blocs.flatMap((b) => b.lignes)
+
+    // Totaux par référence : fusion TOUTES références confondues (le loueur
+    // vérifie son stock d'un coup d'œil), positionnés à leur 1re occurrence.
+    const totMap = new Map()
+    for (const l of lignes) {
+      const key = l.materielBddId
+        ? `bdd:${l.materielBddId}`
+        : `text:${normalizeDesignation(l.designation)}`
+      const existing = totMap.get(key)
+      if (existing) existing.qte += l.qte
+      else totMap.set(key, { key, designation: l.designation, qte: l.qte, materielBddId: l.materielBddId })
+    }
+    const totaux = Array.from(totMap.values())
+
+    return { loueur, blocs, lignes, totaux }
+  }
 
   const result = []
-  for (const [loueurId, byAgg] of perLoueur.entries()) {
+  for (const [loueurId, blocMap] of perLoueur.entries()) {
     const loueur = loueurById.get(loueurId)
     if (!loueur) continue
-    result.push({ loueur, lignes: sortLignes(Array.from(byAgg.values())) })
+    result.push(buildGroup(loueur, blocMap))
   }
   result.sort((a, b) =>
     (a.loueur.nom || '').localeCompare(b.loueur.nom || '', 'fr', { sensitivity: 'base' }),
@@ -1220,11 +1267,8 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
 
   // Groupe "Non assigné" toujours en fin de liste — il signale du travail
   // à faire, pas une destination d'export.
-  if (unassignedAgg.size > 0) {
-    result.push({
-      loueur: UNASSIGNED_LOUEUR,
-      lignes: sortLignes(Array.from(unassignedAgg.values())),
-    })
+  if (unassignedBlocMap.size > 0) {
+    result.push(buildGroup(UNASSIGNED_LOUEUR, unassignedBlocMap))
   }
 
   return result

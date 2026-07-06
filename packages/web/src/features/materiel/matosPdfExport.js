@@ -744,6 +744,7 @@ export async function exportMatosLoueursPDF({
   org,
   selectedLoueurIds = null, // null = tous
   infosLogistiqueByLoueur = null, // MAT-20
+  includeLabels = false, // labels internes dans le PDF (option export)
 }) {
   const assets = await loadAssets(org)
   const doc = makeDoc(assets)
@@ -779,6 +780,9 @@ export async function exportMatosLoueursPDF({
       activeVersion,
       loueur: r.loueur,
       lignes: r.lignes,
+      blocs: r.blocs || null,
+      totaux: r.totaux || null,
+      includeLabels,
       bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
@@ -799,6 +803,7 @@ export async function exportMatosLoueursZip({
   org,
   selectedLoueurIds = null,
   infosLogistiqueByLoueur = null, // MAT-20
+  includeLabels = false,
 }) {
   let JSZip
   try {
@@ -830,6 +835,9 @@ export async function exportMatosLoueursZip({
       activeVersion,
       loueur: r.loueur,
       lignes: r.lignes,
+      blocs: r.blocs || null,
+      totaux: r.totaux || null,
+      includeLabels,
       bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
@@ -870,6 +878,9 @@ export async function exportMatosLoueurSinglePDF({
   activeVersion,
   loueur,
   lignes = [],
+  blocs = null,
+  totaux = null,
+  includeLabels = false,
   org,
   infosLogistique = '', // MAT-20 — texte libre loueur
 }) {
@@ -880,6 +891,9 @@ export async function exportMatosLoueurSinglePDF({
     activeVersion,
     loueur,
     lignes,
+    blocs,
+    totaux,
+    includeLabels,
     bannerImage: assets.bannerImage,
     infosLogistique,
   })
@@ -890,7 +904,17 @@ export async function exportMatosLoueurSinglePDF({
 // ─── Rendu d'une section loueur ─────────────────────────────────────────────
 function renderLoueurSection(
   doc,
-  { project, activeVersion, loueur, lignes, bannerImage, infosLogistique = '' },
+  {
+    project,
+    activeVersion,
+    loueur,
+    lignes,
+    blocs = null,
+    totaux = null,
+    includeLabels = false,
+    bannerImage,
+    infosLogistique = '',
+  },
 ) {
   const M = 14
   const PW = doc.internal.pageSize.getWidth()
@@ -915,24 +939,26 @@ function renderLoueurSection(
   doc.setTextColor(...C.black)
   doc.text(loueur.nom || '—', M + 7, y + 4)
 
-  // MAT-17 bis : on NE reprend PAS les labels dans le PDF loueur — il
-  // s'adresse directement au loueur qui se fiche de notre organisation
-  // interne (Body / Optique / Accessoires…). On affiche juste la
-  // désignation agrégée et la quantité. Les labels restent affichés dans
-  // le PDF global et dans le récap UI slide-over.
+  // MAT-17 bis, amendé 2026-07-06 : les labels internes (Body / Optique /
+  // Accessoires…) ne sont repris dans le PDF loueur QUE si `includeLabels`
+  // (case à cocher à l'export, décochée par défaut). Sans labels, on
+  // re-collapse par désignation pour éviter les doublons visuels (deux
+  // labels différents sur la même désignation dans un même bloc).
   //
-  // Les lignes arrivent ici déjà agrégées par (designation, label) côté
-  // computeRecapByLoueur, donc deux items de même désignation mais labels
-  // différents seraient rendus comme deux lignes identiques sans label.
-  // On re-collapse ici par désignation pour éviter ces doublons visuels.
-  const lignesCollapsed = collapseByDesignation(lignes)
+  // Le tableau SUIT LA LISTE matériel : sous-sections par bloc (ordre de la
+  // liste), puis « Totaux par référence » pour le contrôle de stock.
+  const blocsEffectifs = (blocs && blocs.length ? blocs : [{ titre: null, lignes }]).map((b) => ({
+    ...b,
+    lignes: includeLabels ? b.lignes : collapseByDesignation(b.lignes),
+  }))
+  const refs = (totaux && totaux.length ? totaux : collapseByDesignation(lignes)) || []
+  const totalUnites = refs.reduce((s, l) => s + (l.qte || 0), 0)
 
-  const totalUnites = lignesCollapsed.reduce((s, l) => s + (l.qte || 0), 0)
   doc.setFont('WS', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...C.gray)
   doc.text(
-    `${lignesCollapsed.length} référence${lignesCollapsed.length > 1 ? 's' : ''} · ${totalUnites} unité${totalUnites > 1 ? 's' : ''}`,
+    `${refs.length} référence${refs.length > 1 ? 's' : ''} · ${totalUnites} unité${totalUnites > 1 ? 's' : ''}`,
     PW - M,
     y + 4,
     { align: 'right' },
@@ -953,12 +979,39 @@ function renderLoueurSection(
     })
   }
 
-  const body = lignesCollapsed.length
-    ? lignesCollapsed.map((l) => [
-        l.designation || '—',
+  // Corps : sous-titre de bloc (rangée pleine largeur) + lignes du bloc.
+  const body = []
+  const showBlocHeaders = blocsEffectifs.some((b) => b.titre)
+  for (const bloc of blocsEffectifs) {
+    if (showBlocHeaders) {
+      body.push([
+        {
+          content: (bloc.titre || 'Autres').toUpperCase(),
+          colSpan: 2,
+          styles: {
+            fontStyle: 'bold',
+            fontSize: 7.5,
+            textColor: hexToRgb(bloc.couleur) || C.gray,
+            fillColor: [244, 245, 247],
+            cellPadding: { top: 2, right: 3, bottom: 2, left: 3 },
+          },
+        },
+      ])
+    }
+    for (const l of bloc.lignes) {
+      const designation =
+        includeLabels && l.label
+          ? `${String(l.label).toUpperCase()}  ·  ${l.designation || '—'}`
+          : l.designation || '—'
+      body.push([
+        designation,
         { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
       ])
-    : [[{ content: '—', colSpan: 2, styles: { halign: 'center', textColor: C.gray } }]]
+    }
+  }
+  if (!body.length) {
+    body.push([{ content: '—', colSpan: 2, styles: { halign: 'center', textColor: C.gray } }])
+  }
 
   autoTable(doc, {
     startY: y,
@@ -996,6 +1049,50 @@ function renderLoueurSection(
       })
     },
   })
+
+  // ── Totaux par référence (contrôle de stock) — utile dès que le détail
+  //    est éclaté en plusieurs blocs. ──────────────────────────────────────
+  if (blocsEffectifs.length > 1 && refs.length) {
+    const ty = (doc.lastAutoTable?.finalY || y) + 6
+    autoTable(doc, {
+      startY: ty,
+      head: [['Totaux par référence', 'Qté']],
+      body: refs.map((l) => [
+        l.designation || '—',
+        { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
+      ]),
+      theme: 'grid',
+      styles: {
+        font: 'WS',
+        fontSize: 8,
+        cellPadding: { top: 2, right: 3, bottom: 2, left: 3 },
+        lineColor: C.lgray,
+        lineWidth: 0.15,
+        textColor: C.black,
+      },
+      headStyles: {
+        fillColor: [90, 94, 102],
+        textColor: C.white,
+        fontStyle: 'bold',
+        fontSize: 8,
+        halign: 'left',
+      },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { cellWidth: 22, halign: 'right' },
+      },
+      margin: { left: M, right: M, top: 32, bottom: 16 },
+      didDrawPage: () => {
+        drawHeader(doc, {
+          title: 'MATÉRIEL',
+          subtitle: `Loueur : ${loueur.nom}`,
+          project,
+          activeVersion,
+          bannerImage,
+        })
+      },
+    })
+  }
 }
 
 // ─── Collapse des lignes d'un recap loueur par désignation ──────────────────

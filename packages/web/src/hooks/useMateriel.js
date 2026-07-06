@@ -284,8 +284,8 @@ export function useMateriel(projectId) {
   }, [materielBdd])
 
   const recapByLoueur = useMemo(
-    () => M.computeRecapByLoueur({ items, itemLoueurs, loueurs }),
-    [items, itemLoueurs, loueurs],
+    () => M.computeRecapByLoueur({ items, itemLoueurs, loueurs, blocks }),
+    [items, itemLoueurs, loueurs, blocks],
   )
 
   // MAT-20 : Map(loueur_id → {id, infos_logistique, updated_at, updated_by}).

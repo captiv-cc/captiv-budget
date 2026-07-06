@@ -84,7 +84,9 @@ export default function LoueurRecapPanel({
     let lignes = 0
     let unites = 0
     for (const r of realGroups) {
-      lignes += r.lignes.length
+      // Références = totaux par référence (fusion inter-blocs), pas les
+      // lignes du détail par bloc.
+      lignes += (r.totaux || r.lignes).length
       for (const l of r.lignes) unites += l.qte || 0
     }
     return { loueurs, lignes, unites }
@@ -198,7 +200,7 @@ function LoueurCard({
   onSaveInfos = null,
   canEdit = false,
 }) {
-  const { loueur, lignes } = recap
+  const { loueur, lignes, blocs = null, totaux = null } = recap
   const couleur = loueur.couleur || '#64748b'
   const isUnassigned = isUnassignedRecap(recap)
   const [generating, setGenerating] = useState(false)
@@ -218,6 +220,8 @@ function LoueurCard({
         activeVersion,
         loueur,
         lignes,
+        blocs,
+        totaux,
         org,
         infosLogistique,
       })
@@ -272,8 +276,9 @@ function LoueurCard({
         <span
           className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
           style={{ background: alpha(couleur, '22'), color: couleur }}
+          title="Références (fusion inter-blocs)"
         >
-          {lignes.length}
+          {(totaux || lignes).length}
         </span>
 
         {/* PDF (MAT-7) — masqué pour le groupe "Non assigné" (MAT-18) :
@@ -351,44 +356,60 @@ function LoueurCard({
           </tr>
         </thead>
         <tbody>
-          {lignes.map((l) => (
-            <tr
-              key={l.key}
-              style={{ borderBottom: '1px solid var(--brd-sub)' }}
-            >
-              <td className="px-3 py-1.5" style={{ color: 'var(--txt)' }}>
-                {l.label && (
-                  <>
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-wider"
-                      style={{
-                        color: 'var(--txt-3)',
-                        letterSpacing: '0.08em',
-                      }}
-                    >
-                      {l.label}
-                    </span>
-                    <span
-                      className="mx-1.5"
-                      style={{ color: 'var(--txt-3)' }}
-                    >
-                      ·
-                    </span>
-                  </>
-                )}
-                {l.designation}
-              </td>
-              <td
-                className="px-3 py-1.5 text-right font-bold tabular-nums"
-                style={{ color: couleur }}
-              >
-                ×{l.qte}
-              </td>
-            </tr>
+          {(blocs || [{ blockId: null, titre: null, lignes }]).map((bloc, bi) => (
+            <BlocRows key={bloc.blockId || `b${bi}`} bloc={bloc} couleur={couleur} />
           ))}
         </tbody>
       </table>
     </section>
+  )
+}
+
+// ─── Rangées d'un bloc : sous-titre (ordre de la liste matériel) + lignes ──
+
+function BlocRows({ bloc, couleur }) {
+  return (
+    <>
+      {bloc.titre && (
+        <tr>
+          <td
+            colSpan={2}
+            className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider"
+            style={{
+              color: bloc.couleur || 'var(--txt-3)',
+              letterSpacing: '0.08em',
+              background: 'var(--bg)',
+              borderBottom: '1px solid var(--brd-sub)',
+            }}
+          >
+            {bloc.titre}
+          </td>
+        </tr>
+      )}
+      {bloc.lignes.map((l) => (
+        <tr key={l.key} style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+          <td className="px-3 py-1.5" style={{ color: 'var(--txt)' }}>
+            {l.label && (
+              <>
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider"
+                  style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+                >
+                  {l.label}
+                </span>
+                <span className="mx-1.5" style={{ color: 'var(--txt-3)' }}>
+                  ·
+                </span>
+              </>
+            )}
+            {l.designation}
+          </td>
+          <td className="px-3 py-1.5 text-right font-bold tabular-nums" style={{ color: couleur }}>
+            ×{l.qte}
+          </td>
+        </tr>
+      ))}
+    </>
   )
 }
 
