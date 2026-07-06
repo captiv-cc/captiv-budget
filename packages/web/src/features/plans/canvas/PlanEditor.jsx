@@ -683,23 +683,30 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
       notify.error('Rien à exporter : le plan est vide')
       return null
     }
-    const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: 2, padding: 24 })
+    // Même plafond de résolution que le PDF : le rendu 2× d'un grand fond
+    // rasterisé coûte plusieurs secondes pour rien.
+    const bounds = editor.getCurrentPageBounds()
+    const scale = Math.min(2, 4096 / Math.max(bounds?.width || 2048, bounds?.height || 2048))
+    const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale, padding: 24 })
     return blob
   }
 
   async function handleExport(format) {
     if (exporting) return
     setExporting(true)
+    const title = `${canvas?.titre || 'Plan'} — export ${format === 'png' ? 'PNG' : 'PDF'}`
+    // La modale s'ouvre TOUT DE SUITE en état de chargement (spinner) :
+    // le rendu du canvas peut prendre quelques secondes sur un grand plan.
+    setExportPreview({ handle: null, isImage: format === 'png', title })
     try {
       if (format === 'png') {
         const blob = await exportImage()
-        if (!blob) return
+        if (!blob) {
+          setExportPreview(null)
+          return
+        }
         const nomFichier = (canvas?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
-        setExportPreview({
-          handle: makeExportHandle(blob, `${nomFichier}.png`),
-          isImage: true,
-          title: `${canvas?.titre || 'Plan'} — export PNG`,
-        })
+        setExportPreview({ handle: makeExportHandle(blob, `${nomFichier}.png`), isImage: true, title })
       } else {
         const catLabel = categories.find((c) => c.id === canvas?.category_id)?.label
         const handle = await exportPlanPdf(editorRef.current, {
@@ -708,12 +715,14 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           footer: 'Généré par Captiv DESK',
         })
         if (!handle) {
+          setExportPreview(null)
           notify.error('Rien à exporter : le plan est vide')
           return
         }
-        setExportPreview({ handle, isImage: false, title: `${canvas?.titre || 'Plan'} — export PDF` })
+        setExportPreview({ handle, isImage: false, title })
       }
     } catch (err) {
+      setExportPreview(null)
       notify.error('Export échoué : ' + (err?.message || err))
     } finally {
       setExporting(false)
@@ -721,7 +730,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   }
 
   function closeExportPreview() {
-    exportPreview?.handle.revoke()
+    exportPreview?.handle?.revoke()
     setExportPreview(null)
   }
 
@@ -1381,10 +1390,10 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           <PdfPreviewModal
             open
             title={exportPreview.title}
-            url={exportPreview.handle.url}
-            filename={exportPreview.handle.filename}
+            url={exportPreview.handle?.url || null}
+            filename={exportPreview.handle?.filename || 'Génération…'}
             isImage={exportPreview.isImage}
-            onDownload={() => exportPreview.handle.download()}
+            onDownload={() => exportPreview.handle?.download()}
             onClose={closeExportPreview}
           />
         </div>

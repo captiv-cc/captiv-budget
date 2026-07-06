@@ -49,7 +49,12 @@ function hexToRgb(hex) {
 export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = '' }) {
   const ids = [...editor.getCurrentPageShapeIds()]
   if (!ids.length) return null
-  const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: 2, padding: 24 })
+  // Résolution plafonnée : au-delà de ~4096 px de large, aucun gain visible
+  // sur un A4 — et le rendu + l'encodage PNG d'un canvas géant (fond de plan
+  // rasterisé × 2) coûtent plusieurs secondes.
+  const bounds = editor.getCurrentPageBounds()
+  const scale = Math.min(2, 4096 / Math.max(bounds?.width || 2048, bounds?.height || 2048))
+  const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale, padding: 24 })
   const dataUrl = await blobToDataURL(blob)
   const img = await loadImg(dataUrl)
   const legend = buildLegend(editor.store.allRecords())
