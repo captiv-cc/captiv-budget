@@ -282,6 +282,27 @@ bibliothèque org plus tard)
       historique (pas de cartouche dans le payload public pour l'instant)
 - Décisions Hugo : PAS de tableau de révisions, PAS de tampon statut,
   PAS de QR code
+- Retours intégrés (2026-07-06) : infos libres label+valeur dans le bloc
+  projet (« Production : ZQSD »…) ; « Version : Vn du date » ; PAS de
+  bandeau noir quand cartouche (titre du plan → en-tête du bloc projet) ;
+  colonne droite du PDF = LISTING des caméras dans l'ordre (label +
+  modèle · optique) + CÂBLES, repris à l'identique dans la sidebar de la
+  page publique ; image du PDF en JPEG q0.85 (un PNG 4096 px du fond
+  rasterisé donnait des PDF de 200 Mo)
+
+**⏸ CHANTIER EN PAUSE (2026-07-06)** — reste à faire :
+- Licence tldraw : trial 100 jours actif (clé VITE_TLDRAW_LICENSE_KEY
+  dans Vercel) → décider licence commerciale avant expiration (~oct. 2026)
+- #3 champ « assigné à » sur les caméras (lien équipe)
+- #18 bibliothèque d'items niveau org
+- Tailles capteur PTZ posées (UE100 1/2,5", UE150/160 1") — à confirmer
+  par Hugo ; vraies icônes designées (V2)
+- Cartouche sur le PDF de la page publique (payload plans-public à
+  enrichir) ; B-contenu bibliothèque (plateforme, catégorie Vidéo,
+  public/orga)
+- Phase 5 : liens plan ↔ déroulé (config par créneau), ↔ équipe
+  (cadreur assigné), ↔ matériel (la FX6 #1 du module Matériel sur le
+  plan), vue plan dans le brief créneau
 
 **Backlog hors sprint** : #3 champ « assigné à », #18 bibliothèque org,
 tailles capteur réelles des PTZ restantes (valeurs constructeur posées :
