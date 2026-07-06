@@ -33,7 +33,15 @@ function buildNomenclature(editor, margePct) {
         numero: r.props.numero || 0,
         support: r.props.support || 'Caméra',
         modele: r.props.modele || '',
-        focale: r.type === CAMERA_SHAPE_TYPE ? r.props.focale : null,
+        // Plage "19-90" pour un zoom, valeur simple sinon.
+        focale:
+          r.type === CAMERA_SHAPE_TYPE
+            ? r.props.focaleMax
+              ? `${r.props.focale}-${r.props.focaleMax}`
+              : String(r.props.focale)
+            : null,
+        optique: r.props.optique || '',
+        remarques: r.props.remarques || '',
       })
     } else if (r.type === 'captiv-item') {
       const key = r.props.label || 'Élément'
@@ -78,8 +86,8 @@ function toCsv(nom, margePct) {
   const lines = []
   const push = (cells) => lines.push(cells.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';'))
   push(['CAMÉRAS'])
-  push(['N°', 'Support', 'Modèle', 'Focale (mm)'])
-  nom.cams.forEach((c) => push([c.numero, c.support, c.modele, c.focale ?? '']))
+  push(['N°', 'Support', 'Modèle', 'Focale (mm)', 'Optique', 'Remarques'])
+  nom.cams.forEach((c) => push([c.numero, c.support, c.modele, c.focale ?? '', c.optique, c.remarques]))
   push([])
   push(['ÉLÉMENTS'])
   push(['Élément', 'Quantité'])
@@ -166,7 +174,9 @@ export default function NomenclatureModal({ editor, canvas, onClose }) {
                     <th className="py-1 pr-2 font-semibold">N°</th>
                     <th className="py-1 pr-2 font-semibold">Support</th>
                     <th className="py-1 pr-2 font-semibold">Modèle</th>
-                    <th className="py-1 font-semibold">Focale</th>
+                    <th className="py-1 pr-2 font-semibold">Focale</th>
+                    <th className="py-1 pr-2 font-semibold">Optique</th>
+                    <th className="py-1 font-semibold">Remarques</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -175,7 +185,9 @@ export default function NomenclatureModal({ editor, canvas, onClose }) {
                       <td className="py-1 pr-2 font-bold" style={{ color: 'var(--txt)' }}>{c.numero}</td>
                       <td className="py-1 pr-2" style={td}>{c.support}</td>
                       <td className="py-1 pr-2" style={td}>{c.modele || '·'}</td>
-                      <td className="py-1" style={td}>{c.focale ? `${c.focale} mm` : '·'}</td>
+                      <td className="py-1 pr-2" style={td}>{c.focale ? `${c.focale} mm` : '·'}</td>
+                      <td className="py-1 pr-2" style={td} title={c.optique}>{c.optique || '·'}</td>
+                      <td className="py-1" style={td} title={c.remarques}>{c.remarques || '·'}</td>
                     </tr>
                   ))}
                 </tbody>

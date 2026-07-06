@@ -24,6 +24,9 @@ export const spiderCamShapeProps = {
   uiScale: T.number.optional(),
   labelDx: T.number.optional(),
   labelDy: T.number.optional(),
+  // Optique montée + remarques libres (reprises en nomenclature).
+  optique: T.string.optional(),
+  remarques: T.string.optional(),
 }
 
 function spiderLayout(props) {

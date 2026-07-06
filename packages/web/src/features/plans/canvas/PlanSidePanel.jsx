@@ -929,8 +929,47 @@ function CameraProps({ editor, shape }) {
         <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
       </Section>
       <Section id="cam-optique" label="Optique">
-        <Field label={`Focale (angle réel ${angleReel}°)`}>
-          <div className="flex items-center gap-1 flex-wrap">
+        <Field label={`Focale en mm (angle réel ${angleReel}°)`}>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min="1"
+              step="any"
+              defaultValue={props.focale}
+              key={`${shape.id}-focale-${props.focale}`}
+              onBlur={(e) => {
+                const f = Number(e.target.value)
+                if (f > 0 && f !== props.focale) setFocale(f)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              className="w-16 text-xs px-2 py-1.5 rounded-md outline-none"
+              style={inputStyle}
+              title="Focale (mm). Pour un zoom, c'est la focale MIN — le cône affiche le plus grand angle."
+            />
+            <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>à</span>
+            <input
+              type="number"
+              min="1"
+              step="any"
+              defaultValue={props.focaleMax ?? ''}
+              key={`${shape.id}-focalemax-${props.focaleMax ?? ''}`}
+              placeholder="—"
+              onBlur={(e) => {
+                const f = Number(e.target.value)
+                update({ focaleMax: f > props.focale ? f : undefined })
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              className="w-16 text-xs px-2 py-1.5 rounded-md outline-none"
+              style={inputStyle}
+              title="Focale max (mm) pour une optique zoom — laisser vide pour une focale fixe"
+            />
+            <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>mm</span>
+          </div>
+          <div className="flex items-center gap-1 flex-wrap mt-1.5">
             {FOCALES.map((f) => (
               <button
                 key={f}
@@ -947,6 +986,25 @@ function CameraProps({ editor, shape }) {
               </button>
             ))}
           </div>
+          {props.focaleMax ? (
+            <div className="mt-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
+              Zoom {props.focale}–{props.focaleMax} mm — le cône affiche le plus grand angle ({props.focale} mm).
+            </div>
+          ) : null}
+        </Field>
+        <Field label="Optique (nom)">
+          <input
+            type="text"
+            defaultValue={props.optique || ''}
+            key={`${shape.id}-optique`}
+            placeholder="Fujinon Cabrio 19-90mm T2.9 PL"
+            onBlur={(e) => update({ optique: e.target.value.trim() || undefined })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+          />
         </Field>
         <Field label="Cône de vue">
           <button
@@ -970,7 +1028,28 @@ function CameraProps({ editor, shape }) {
           <ColorRow value={props.couleur} onChange={(couleur) => update({ couleur })} />
         </Field>
       </Section>
+      <RemarquesSection shape={shape} update={update} />
     </div>
+  )
+}
+
+// Remarques libres d'une caméra ("avec cadreur", "fixe"…) — reprises en
+// nomenclature.
+function RemarquesSection({ shape, update }) {
+  return (
+    <Section id="cam-remarques" label="Remarques">
+      <div className="px-3 py-2">
+        <textarea
+          defaultValue={shape.props.remarques || ''}
+          key={`${shape.id}-remarques`}
+          rows={3}
+          placeholder="Avec cadreur, fixe, plateau…"
+          onBlur={(e) => update({ remarques: e.target.value.trim() || undefined })}
+          className="w-full text-xs px-2 py-1.5 rounded-md outline-none resize-none"
+          style={inputStyle}
+        />
+      </div>
+    </Section>
   )
 }
 
@@ -1026,6 +1105,20 @@ function RiggedCamProps({ editor, shape }) {
           />
         </Field>
         <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
+        <Field label="Optique (nom)">
+          <input
+            type="text"
+            defaultValue={props.optique || ''}
+            key={`${shape.id}-optique`}
+            placeholder="Fujinon Cabrio 19-90mm T2.9 PL"
+            onBlur={(e) => update({ optique: e.target.value.trim() || undefined })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+          />
+        </Field>
       </Section>
       <Section id="rig-apparence" label="Apparence">
         <Field label="Couleur">
@@ -1048,6 +1141,7 @@ function RiggedCamProps({ editor, shape }) {
           </Field>
         )}
       </Section>
+      <RemarquesSection shape={shape} update={update} />
       <div className="px-3 py-2 text-[11px]" style={{ color: 'var(--txt-3)' }}>
         {isRail
           ? props.railKind === 'travelling'
@@ -1295,13 +1389,27 @@ function SelectionSummary({ shape }) {
         <>
           <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
             <span>Focale</span>
-            <span className="font-semibold">{props.focale} mm</span>
+            <span className="font-semibold">
+              {props.focale}
+              {props.focaleMax ? `–${props.focaleMax}` : ''} mm
+            </span>
           </div>
           <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
             <span>Angle vue</span>
             <span className="font-semibold">{angle}°</span>
           </div>
         </>
+      )}
+      {props.optique && (
+        <div className="flex justify-between gap-2 text-[11px]" style={{ color: 'var(--txt-2)' }}>
+          <span className="shrink-0">Optique</span>
+          <span className="font-semibold truncate" title={props.optique}>{props.optique}</span>
+        </div>
+      )}
+      {props.remarques && (
+        <div className="mt-1 text-[11px] whitespace-pre-wrap" style={{ color: 'var(--txt-3)' }} title={props.remarques}>
+          {props.remarques}
+        </div>
       )}
     </div>
   )

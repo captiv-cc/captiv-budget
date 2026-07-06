@@ -48,6 +48,13 @@ export const cameraShapeProps = {
   // les shapes créées avant cette version n'ont pas ces props.
   labelDx: T.number.optional(),
   labelDy: T.number.optional(),
+  // Focale max (mm) : si définie, l'optique est un zoom focale–focaleMax.
+  // Le cône reste calé sur `focale` (le plus grand angle du zoom).
+  focaleMax: T.number.optional(),
+  // Optique montée (nom complet, ex "Fujinon Cabrio 19-90mm T2.9 PL").
+  optique: T.string.optional(),
+  // Remarques libres ("avec cadreur", "fixe", …) — reprises en nomenclature.
+  remarques: T.string.optional(),
 }
 
 // Dimensions dérivées, partagées entre component / handles.
