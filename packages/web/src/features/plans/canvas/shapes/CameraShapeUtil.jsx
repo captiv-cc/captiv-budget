@@ -51,6 +51,9 @@ export const cameraShapeProps = {
   // Focale max (mm) : si définie, l'optique est un zoom focale–focaleMax.
   // Le cône reste calé sur `focale` (le plus grand angle du zoom).
   focaleMax: T.number.optional(),
+  // Largeur de capteur / mode d'enregistrement (mm) — fixe l'angle du cône
+  // avec la focale. Absent = capteur du modèle (CAMERA_SENSORS), sinon FF.
+  sensorW: T.number.optional(),
   // Optique montée (nom complet, ex "Fujinon Cabrio 19-90mm T2.9 PL").
   optique: T.string.optional(),
   // Remarques libres ("avec cadreur", "fixe", …) — reprises en nomenclature.

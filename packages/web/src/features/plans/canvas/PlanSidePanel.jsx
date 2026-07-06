@@ -22,7 +22,17 @@ import { FOND_SHAPE_ID } from '../../../lib/plansCanvasFond'
 import { replyToComment, setCommentResolved } from '../../../lib/plansCanvasShare'
 import { useAuth } from '../../../contexts/AuthContext'
 import { notify } from '../../../lib/notify'
-import { LAYERS, shapeLayer, FOCALES, focaleToAngleDeg, CAMERA_MODELES, CABLE_TYPES } from './shapes/catalog'
+import {
+  LAYERS,
+  shapeLayer,
+  FOCALES,
+  focaleToAngleDeg,
+  CAMERA_MODELES,
+  CAMERA_SENSORS,
+  SENSOR_PRESETS,
+  SENSOR_FULL_FRAME_W,
+  CABLE_TYPES,
+} from './shapes/catalog'
 import { CABLE_SHAPE_TYPE, cableLengthPx } from './shapes/CableShapeUtil'
 import { FocaleCalc } from './FocaleCalc'
 import { CAMERA_SHAPE_TYPE } from './shapes/CameraShapeUtil'
@@ -672,14 +682,16 @@ function MultiProps({ editor, selected }) {
     })
   }
 
-  // Focale groupée : le cône de chaque caméra garde SA hauteur (la largeur
-  // suit l'angle de la nouvelle focale, caméra par caméra).
+  // Focale groupée : le cône de chaque caméra garde SA hauteur, l'angle est
+  // recalculé caméra par caméra (avec le capteur de chacune).
   function setFocaleAll(focale) {
-    const angle = focaleToAngleDeg(focale)
-    updateAll((s) => ({
-      focale,
-      w: Math.max(40, Math.round(2 * s.props.h * Math.tan(((angle / 2) * Math.PI) / 180))),
-    }))
+    updateAll((s) => {
+      const angle = focaleToAngleDeg(focale, camSensorW(s.props))
+      return {
+        focale,
+        w: Math.max(40, Math.round(2 * s.props.h * Math.tan(((angle / 2) * Math.PI) / 180))),
+      }
+    })
   }
 
   const conesOn = allBoxCams && selected.every((s) => s.props.showCone)
@@ -826,6 +838,12 @@ function Section({ id, label, children, defaultOpen = true }) {
   )
 }
 
+// Largeur de capteur effective d'une caméra : override manuel (sensorW),
+// sinon capteur du modèle, sinon plein format.
+function camSensorW(props) {
+  return props.sensorW || CAMERA_SENSORS[props.modele] || SENSOR_FULL_FRAME_W
+}
+
 // Cône d'une caméra box : à l'activation sur une caméra mobile (box compacte
 // autour du badge), la box grandit vers le haut pour accueillir le cône,
 // apex (position caméra) inchangé.
@@ -834,7 +852,7 @@ function applyCameraCone(editor, shape, next) {
   const badge = props.uiScale || 30
   if (next && props.h < badge * 4) {
     const h = badge * 8
-    const angle = focaleToAngleDeg(props.focale)
+    const angle = focaleToAngleDeg(props.focale, camSensorW(props))
     const w = Math.max(40, Math.round(2 * h * Math.tan(((angle / 2) * Math.PI) / 180)))
     editor.updateShape({
       id: shape.id,
@@ -902,11 +920,25 @@ function CameraProps({ editor, shape }) {
   const update = (patch) =>
     editor.updateShape({ id: shape.id, type: shape.type, props: patch })
 
+  // Largeur de cône pour un angle donné, à profondeur (h) constante.
+  const coneW = (angle) =>
+    Math.max(40, Math.round(2 * props.h * Math.tan(((angle / 2) * Math.PI) / 180)))
+
   // Focale → recalcule la largeur du cône (l'angle suit la géométrie réelle).
   function setFocale(focale) {
-    const angle = focaleToAngleDeg(focale)
-    const w = Math.max(40, Math.round(2 * props.h * Math.tan(((angle / 2) * Math.PI) / 180)))
-    update({ focale, w })
+    update({ focale, w: coneW(focaleToAngleDeg(focale, camSensorW(props))) })
+  }
+
+  // Capteur / mode d'enregistrement → même focale, angle recalculé.
+  function setSensor(sensorW) {
+    update({ sensorW, w: coneW(focaleToAngleDeg(props.focale, sensorW)) })
+  }
+
+  // Modèle : applique aussi le capteur connu du modèle (FF Sony, 1" UE150…).
+  function setModele(modele) {
+    const s = CAMERA_SENSORS[modele]
+    if (s) update({ modele, sensorW: s, w: coneW(focaleToAngleDeg(props.focale, s)) })
+    else update({ modele })
   }
 
   const angleReel = Math.round((2 * Math.atan(props.w / 2 / props.h) * 180) / Math.PI)
@@ -926,7 +958,7 @@ function CameraProps({ editor, shape }) {
             style={inputStyle}
           />
         </Field>
-        <ModeleField shapeId={shape.id} value={props.modele} onChange={(modele) => update({ modele })} />
+        <ModeleField shapeId={shape.id} value={props.modele} onChange={setModele} />
       </Section>
       <Section id="cam-optique" label="Optique">
         <Field label={`Focale en mm (angle réel ${angleReel}°)`}>
@@ -992,6 +1024,7 @@ function CameraProps({ editor, shape }) {
             </div>
           ) : null}
         </Field>
+        <SensorField key={`${shape.id}-sensor`} props={props} onApply={setSensor} />
         <Field label="Optique (nom)">
           <input
             type="text"
@@ -1050,6 +1083,66 @@ function RemarquesSection({ shape, update }) {
         />
       </div>
     </Section>
+  )
+}
+
+// Capteur / mode d'enregistrement : c'est la zone ENREGISTRÉE qui fixe
+// l'angle du cône (un boîtier FF en crop S35 = choisir Super 35).
+function SensorField({ props, onApply }) {
+  const w = camSensorW(props)
+  const preset = SENSOR_PRESETS.find((p) => Math.abs(p.w - w) < 0.05)
+  const [custom, setCustom] = useState(!preset)
+
+  return (
+    <Field label="Capteur / mode">
+      <select
+        value={custom ? 'custom' : preset.key}
+        onChange={(e) => {
+          if (e.target.value === 'custom') {
+            setCustom(true)
+            return
+          }
+          setCustom(false)
+          const next = SENSOR_PRESETS.find((p) => p.key === e.target.value)
+          if (next && next.w !== w) onApply(next.w)
+        }}
+        className="w-full text-xs px-2 py-1.5 rounded-md outline-none"
+        style={inputStyle}
+      >
+        {SENSOR_PRESETS.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.label}
+          </option>
+        ))}
+        <option value="custom">Personnalisé…</option>
+      </select>
+      {custom && (
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <input
+            type="number"
+            min="1"
+            step="any"
+            defaultValue={w}
+            onBlur={(e) => {
+              const v = Number(e.target.value)
+              if (v > 0 && v !== w) onApply(v)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            className="w-20 text-xs px-2 py-1.5 rounded-md outline-none"
+            style={inputStyle}
+            title="Largeur de la zone de capteur enregistrée (mm)"
+          />
+          <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+            mm de large
+          </span>
+        </div>
+      )}
+      <div className="mt-1 text-[10px]" style={{ color: 'var(--txt-3)' }}>
+        Angle horizontal calculé sur la zone enregistrée (crop compris).
+      </div>
+    </Field>
   )
 }
 
@@ -1170,6 +1263,7 @@ function CameraCalcSection({ shape, setFocale }) {
         <div className="mt-2">
           <FocaleCalc
             defaultModele={shape.props.modele}
+            defaultSensorW={camSensorW(shape.props)}
             canMeasure
             measureShapeId={shape.id}
             onApplyFocale={(f) => setFocale(f)}
@@ -1398,6 +1492,15 @@ function SelectionSummary({ shape }) {
             <span>Angle vue</span>
             <span className="font-semibold">{angle}°</span>
           </div>
+          {camSensorW(props) !== SENSOR_FULL_FRAME_W && (
+            <div className="flex justify-between text-[11px]" style={{ color: 'var(--txt-2)' }}>
+              <span>Capteur</span>
+              <span className="font-semibold">
+                {SENSOR_PRESETS.find((p) => Math.abs(p.w - camSensorW(props)) < 0.05)?.label ||
+                  `${camSensorW(props)} mm`}
+              </span>
+            </div>
+          )}
         </>
       )}
       {props.optique && (

@@ -42,13 +42,23 @@ function fmt(n, decimals = 1) {
 /**
  * @param {object} props
  * @param {string}  [props.defaultModele] — pré-remplit le capteur (caméra sélectionnée)
+ * @param {number}  [props.defaultSensorW] — capteur effectif de la caméra (override
+ *                                           « Capteur / mode » compris) — prime sur le modèle
  * @param {boolean} [props.canMeasure]   — bouton « Mesurer sur le plan » (CustomEvents)
  * @param {string}  [props.measureShapeId] — apex de cette caméra comme origine de mesure
  * @param {function} [props.onApplyFocale] — (focaleFFmm) => applique au cône
  */
-export function FocaleCalc({ defaultModele = '', canMeasure = false, measureShapeId = null, onApplyFocale }) {
+export function FocaleCalc({
+  defaultModele = '',
+  defaultSensorW = null,
+  canMeasure = false,
+  measureShapeId = null,
+  onApplyFocale,
+}) {
   const [modele, setModele] = useState(defaultModele)
-  const [sensorW, setSensorW] = useState(() => CAMERA_SENSORS[defaultModele] || SENSOR_FULL_FRAME_W)
+  const [sensorW, setSensorW] = useState(
+    () => defaultSensorW || CAMERA_SENSORS[defaultModele] || SENSOR_FULL_FRAME_W,
+  )
   const [ratio, setRatio] = useState('169') // '169' vidéo | '32' photo
   const [target, setTarget] = useState('focale')
   const [focale, setFocale] = useState('')

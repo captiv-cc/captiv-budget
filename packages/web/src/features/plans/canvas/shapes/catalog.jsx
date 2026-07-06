@@ -51,13 +51,13 @@ export const CAMERA_MODELES = [
   'PTZ UE160',
 ]
 
-export function focaleToAngleDeg(focale) {
+/** Angle de champ horizontal (°) pour une focale et une largeur de capteur. */
+export function focaleToAngleDeg(focale, sensorW = SENSOR_FULL_FRAME_W) {
   if (!focale || focale <= 0) return 54
-  return Math.round((2 * Math.atan(36 / (2 * focale)) * 180) / Math.PI)
+  return Math.round((2 * Math.atan(sensorW / (2 * focale)) * 180) / Math.PI)
 }
 
-/* ─── Capteurs par modèle (largeur mm — full frame par défaut, décision
-       Hugo ; les PTZ recevront leurs vraies valeurs plus tard) ──────────── */
+/* ─── Capteurs par modèle (largeur mm, valeurs constructeur) ─────────────── */
 
 export const SENSOR_FULL_FRAME_W = 36
 
@@ -68,10 +68,24 @@ export const CAMERA_SENSORS = {
   PLV100: 36,
   BURANO: 36,
   'PTZ FR7': 36,
-  'PTZ UE100': 36,
-  'PTZ UE150': 36,
-  'PTZ UE160': 36,
+  // Panasonic : UE100 = capteur 1/2,5", UE150/160 = capteur 1".
+  'PTZ UE100': 5.8,
+  'PTZ UE150': 13.2,
+  'PTZ UE160': 13.2,
 }
+
+/* Presets de capteur / mode d'enregistrement (largeur mm) : champ « Capteur »
+   des Propriétés caméra. Un boîtier FF en mode crop = choisir Super 35
+   (ou Super 16) — c'est la zone ENREGISTRÉE qui fixe l'angle de champ,
+   pas la couverture de l'optique. */
+export const SENSOR_PRESETS = [
+  { key: 'ff', label: 'Plein format (36 mm)', w: 36 },
+  { key: 's35', label: 'Super 35 (24,9 mm)', w: 24.9 },
+  { key: 'mft', label: 'Micro 4/3 (17,3 mm)', w: 17.3 },
+  { key: '1p', label: '1 pouce (13,2 mm)', w: 13.2 },
+  { key: 's16', label: 'Super 16 (12,5 mm)', w: 12.5 },
+  { key: 'b4', label: '2/3″ B4 (9,6 mm)', w: 9.6 },
+]
 
 /* ─── Types de câbles (couleurs actées Hugo 2026-07-05 + tirets pour
        l'impression N&B et les teintes proches) ───────────────────────────── */
