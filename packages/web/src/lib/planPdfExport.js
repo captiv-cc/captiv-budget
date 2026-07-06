@@ -71,7 +71,16 @@ export async function exportPlanPdf(editor, opts) {
   // rendu + l'encodage PNG d'un canvas géant coûtent plusieurs secondes.
   const bounds = editor.getCurrentPageBounds()
   const exportScale = Math.min(2, 4096 / Math.max(bounds?.width || 2048, bounds?.height || 2048))
-  const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: exportScale, padding: 24 })
+  // JPEG et pas PNG : un fond de plan rasterisé en ~4096 px compresse
+  // très mal en PNG (PDF à 200 Mo constaté) ; en JPEG q0.85 sur fond
+  // blanc opaque, même rendu visuel pour ~2 % du poids.
+  const { blob } = await editor.toImage(ids, {
+    format: 'jpeg',
+    quality: 0.85,
+    background: true,
+    scale: exportScale,
+    padding: 24,
+  })
   const dataUrl = await blobToDataURL(blob)
   const img = await loadImg(dataUrl)
 
@@ -118,7 +127,7 @@ export async function exportPlanPdf(editor, opts) {
   const ratio = Math.min(zoneW / img.width, zoneH / img.height)
   const w = img.width * ratio
   const h = img.height * ratio
-  pdf.addImage(dataUrl, 'PNG', margin + (zoneW - w) / 2, headerH + margin + (zoneH - h) / 2, w, h)
+  pdf.addImage(dataUrl, 'JPEG', margin + (zoneW - w) / 2, headerH + margin + (zoneH - h) / 2, w, h)
 
   // ── Colonne droite : caméras dans l'ordre + câbles ─────────────────────
   if (hasColumn) {

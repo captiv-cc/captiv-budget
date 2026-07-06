@@ -44,6 +44,7 @@ import { ZoneShapeUtil } from './shapes/ZoneShapeUtil'
 import { CotationShapeUtil } from './shapes/CotationShapeUtil'
 import { CableShapeUtil, CableBindingUtil } from './shapes/CableShapeUtil'
 import { buildLegend } from './shapes/legend'
+import { CAM_SHAPE_TYPES } from './shapes/camUtils'
 
 const CUSTOM_SHAPE_UTILS = [
   CameraShapeUtil,
@@ -148,14 +149,16 @@ export default function PlanClientView() {
   )
 
   // ── Store tldraw reconstruit depuis l'état Yjs persisté ─────────────────
-  const { store, legend } = useMemo(() => {
-    if (!data?.ydocState) return { store: null, legend: [] }
+  const { store, cams, cables } = useMemo(() => {
+    if (!data?.ydocState) return { store: null, cams: [], cables: [] }
     const s = createTLStore({
       shapeUtils: [...defaultShapeUtils, ...CUSTOM_SHAPE_UTILS],
       bindingUtils: [...defaultBindingUtils, CableBindingUtil],
       assets: assetStore,
     })
-    let entries = []
+    // Sidebar : listing des caméras dans l'ordre + légende couleurs câbles.
+    let camsList = []
+    let cableEntries = []
     try {
       const doc = new Y.Doc()
       Y.applyUpdate(doc, base64ToUint8(data.ydocState))
@@ -167,7 +170,11 @@ export default function PlanClientView() {
       s.mergeRemoteChanges(() => {
         s.put(records)
       })
-      entries = buildLegend(records)
+      camsList = records
+        .filter((r) => r.typeName === 'shape' && CAM_SHAPE_TYPES.includes(r.type))
+        .map((r) => r.props)
+        .sort((a, b) => (a.numero || 0) - (b.numero || 0))
+      cableEntries = buildLegend(records).filter((e) => e.kind === 'cable')
       // Signe en une fois tous les fichiers référencés par le doc.
       const paths = records
         .filter((r) => r.typeName === 'asset' && r.meta?.captivStoragePath)
@@ -180,7 +187,7 @@ export default function PlanClientView() {
     } catch (e) {
       console.warn('[PlanClientView] reconstruction du doc échouée', e)
     }
-    return { store: s, legend: entries }
+    return { store: s, cams: camsList, cables: cableEntries }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.ydocState])
 
@@ -436,27 +443,57 @@ export default function PlanClientView() {
           className="w-72 shrink-0 flex-col hidden md:flex"
           style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', background: '#101216' }}
         >
-          {legend.length > 0 && (
-            <div className="p-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <div className="text-[10px] font-bold tracking-widest mb-2.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                LÉGENDE
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {legend.map((entry) => (
-                  <div key={entry.label} className="flex items-center gap-2">
-                    {entry.kind === 'cam' ? (
-                      <span className="w-3 h-3 rounded-full shrink-0" style={{ background: entry.color }} />
-                    ) : entry.kind === 'cable' ? (
-                      <span className="w-3.5 h-[3px] rounded-full shrink-0" style={{ background: entry.color }} />
-                    ) : (
-                      <span className="w-3 h-3 rounded-[3px] shrink-0" style={{ border: `2px solid ${entry.color}` }} />
-                    )}
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.85)' }}>
-                      {entry.label}
-                    </span>
+          {(cams.length > 0 || cables.length > 0) && (
+            <div
+              className="p-4 overflow-y-auto"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', maxHeight: '55%' }}
+            >
+              {cams.length > 0 && (
+                <>
+                  <div className="text-[10px] font-bold tracking-widest mb-2.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                    CAMÉRAS
                   </div>
-                ))}
-              </div>
+                  <div className="flex flex-col gap-2 mb-1">
+                    {cams.map((cam, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span
+                          className="w-3.5 h-3.5 mt-0.5 rounded-full shrink-0 flex items-center justify-center text-[8px] font-bold text-white"
+                          style={{ background: cam.couleur }}
+                        >
+                          {cam.numero}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                            {cam.label || `Cam ${cam.numero}${cam.support ? ` · ${cam.support}` : ''}`}
+                          </div>
+                          {(cam.modele || cam.optique) && (
+                            <div className="text-[10px] truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                              {[cam.modele, cam.optique].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {cables.length > 0 && (
+                <>
+                  <div className="text-[10px] font-bold tracking-widest mt-3 mb-2.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                    CÂBLES
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {cables.map((entry) => (
+                      <div key={entry.label} className="flex items-center gap-2">
+                        <span className="w-3.5 h-[3px] rounded-full shrink-0" style={{ background: entry.color }} />
+                        <span className="text-xs" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                          {entry.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
