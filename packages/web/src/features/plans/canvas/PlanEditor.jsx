@@ -70,7 +70,9 @@ import PlanVersionsModal, { restoreStateIntoEditor } from './PlanVersionsModal'
 import PlanVersionViewer from './PlanVersionViewer'
 import PlanCommentMarkers from './PlanCommentMarkers'
 import { exportPlanPdf, makeExportHandle } from '../../../lib/planPdfExport'
+import { resolveCartoucheLogos } from '../../../lib/plansCanvasCartouche'
 import PdfPreviewModal from '../../materiel/components/PdfPreviewModal'
+import PlanCartoucheModal from './PlanCartoucheModal'
 
 const STATUT_BADGE = {
   brouillon: { label: 'Brouillon', color: '#a8a8a8' },
@@ -410,6 +412,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
   // ── Calculateur focale (standalone) + mesure de distance sur le plan ──────
   const [calcOpen, setCalcOpen] = useState(false)
   const [nomenclatureOpen, setNomenclatureOpen] = useState(false)
+  const [cartoucheOpen, setCartoucheOpen] = useState(false)
 
   // ── Raccourcis clavier Captiv (C câble, X zone, M cotation) ───────────────
   // Capture : on court-circuite les raccourcis natifs tldraw sur ces touches.
@@ -709,10 +712,16 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
         setExportPreview({ handle: makeExportHandle(blob, `${nomFichier}.png`), isImage: true, title })
       } else {
         const catLabel = categories.find((c) => c.id === canvas?.category_id)?.label
+        // Cartouche : logos résolus en dataURLs (storage / URL org).
+        const logoImages = canvas?.cartouche ? await resolveCartoucheLogos(canvas.cartouche) : []
         const handle = await exportPlanPdf(editorRef.current, {
           titre: canvas?.titre || 'Plan technique',
           sousTitre: catLabel || '',
           footer: 'Généré par Captiv DESK',
+          cartouche: canvas?.cartouche || null,
+          logoImages,
+          version: canvas?.version_current || 1,
+          metersPerPx: pageMetersPerPx(editorRef.current) || Number(canvas?.echelle_ratio) || 0,
         })
         if (!handle) {
           setExportPreview(null)
@@ -1031,7 +1040,17 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             icon={Download}
             items={[
               { label: 'Image PNG', icon: Download, onClick: () => handleExport('png') },
-              { label: 'PDF avec légende', icon: Download, onClick: () => handleExport('pdf') },
+              {
+                label: canvas?.cartouche ? 'PDF avec cartouche' : 'PDF avec légende',
+                icon: Download,
+                onClick: () => handleExport('pdf'),
+              },
+              !readOnly && {
+                label: 'Mise en page du PDF…',
+                icon: ImageIcon,
+                badge: canvas?.cartouche ? `${canvas.cartouche.format?.toUpperCase() || 'A3'}` : undefined,
+                onClick: () => setCartoucheOpen(true),
+              },
               !readOnly && {
                 label: 'Nomenclature…',
                 icon: ClipboardList,
@@ -1397,6 +1416,15 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             onClose={closeExportPreview}
           />
         </div>
+      )}
+
+      {cartoucheOpen && canvas && (
+        <PlanCartoucheModal
+          canvas={canvas}
+          org={org}
+          onClose={() => setCartoucheOpen(false)}
+          onSaved={(cartouche) => setCanvas((p) => ({ ...p, cartouche }))}
+        />
       )}
 
       {nomenclatureOpen && canvas && editorInstance && (

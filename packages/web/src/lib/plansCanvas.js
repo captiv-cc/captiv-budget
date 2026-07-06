@@ -14,7 +14,7 @@ import { supabase } from './supabase'
 
 const CANVAS_FIELDS = `
   id, project_id, titre, description, category_id, fond_id,
-  echelle_ratio, version_current, statut, snapshot_svg,
+  echelle_ratio, version_current, statut, snapshot_svg, cartouche,
   created_at, created_by, updated_at, updated_by
 `
 

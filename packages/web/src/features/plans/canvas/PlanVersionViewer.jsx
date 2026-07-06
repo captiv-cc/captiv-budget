@@ -16,6 +16,8 @@ import { Copy, Download, Layers, RotateCcw, X } from 'lucide-react'
 import { base64ToUint8 } from '../../../hooks/useYjsTldraw'
 import { makeCaptivAssetStore } from '../../../lib/plansCanvasFond'
 import { exportPlanPdf } from '../../../lib/planPdfExport'
+import { resolveCartoucheLogos } from '../../../lib/plansCanvasCartouche'
+import { pageMetersPerPx } from './shapes/scale'
 import { notify } from '../../../lib/notify'
 import { CameraShapeUtil } from './shapes/CameraShapeUtil'
 import { ItemShapeUtil } from './shapes/ItemShapeUtil'
@@ -158,10 +160,16 @@ export default function PlanVersionViewer({
     if (!editor || busy) return
     setBusy(true)
     try {
+      const logoImages = canvas.cartouche ? await resolveCartoucheLogos(canvas.cartouche) : []
       const handle = await exportPlanPdf(editor, {
         titre: `${canvas.titre} — V${version.version}`,
         sousTitre: version.commentaire || '',
         footer: 'Généré par Captiv DESK',
+        cartouche: canvas.cartouche || null,
+        logoImages,
+        version: version.version,
+        // L'échelle vit dans la meta de page du doc de la version.
+        metersPerPx: pageMetersPerPx(editor),
       })
       if (handle) {
         handle.download()

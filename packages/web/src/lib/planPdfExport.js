@@ -1,12 +1,17 @@
 // ════════════════════════════════════════════════════════════════════════════
-// planPdfExport — export PDF d'un plan éditable avec en-tête + légende
+// planPdfExport — export PDF d'un plan avec en-tête, légende et cartouche pro
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Partagé entre l'éditeur desk et la page publique. A4 paysage :
-//   - bandeau titre (nom du plan · sous-titre · date) ;
-//   - image du canvas à gauche ;
-//   - colonne légende à droite (dérivée du contenu, buildLegend).
-// jspdf en lazy import (déjà dans les deps du projet).
+// Partagé entre l'éditeur desk, le viewer de versions et la page publique.
+// Paysage A3/A4 :
+//   - bandeau titre (nom du plan · catégorie · date) ;
+//   - image du canvas, légende en colonne droite ;
+//   - CARTOUCHE en bande basse (si opts.cartouche — axe #9) : logos, projet /
+//     réf / client / lieu / dates / version, personnes, échelle graphique
+//     (barre dessinée : survit à une impression « ajuster à la page »),
+//     contact, mention. Sans cartouche : layout historique (A4).
+// jspdf en lazy import. Retourne un handle { blob, url, filename,
+// download(), revoke() } — l'appelant choisit preview ou téléchargement.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { buildLegend } from '../features/plans/canvas/shapes/legend'
@@ -39,33 +44,46 @@ function hexToRgb(hex) {
 }
 
 /**
- * Génère le PDF A4 paysage du plan (en-tête + légende) et retourne un handle
- * { blob, url, filename, download(), revoke() } — même pattern que les
- * exports devis/matériel : l'appelant choisit entre prévisualiser
- * (PdfPreviewModal) et télécharger. Retourne null si le plan est vide.
  * @param {Editor} editor — instance tldraw
- * @param {object} opts { titre, sousTitre?, footer? }
+ * @param {object} opts
+ *   { titre, sousTitre?, footer?,
+ *     cartouche?  — config jsonb (cf. plansCanvasCartouche) → bande basse,
+ *     logoImages? — dataURLs des logos, pré-résolus par l'appelant,
+ *     version?    — numéro de version affiché dans le cartouche,
+ *     metersPerPx? — échelle du plan (m / px canvas) pour la barre graphique }
+ * @returns handle { blob, url, filename, download(), revoke() } | null si vide
  */
-export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = '' }) {
+export async function exportPlanPdf(editor, opts) {
+  const {
+    titre,
+    sousTitre = '',
+    footer = '',
+    cartouche = null,
+    logoImages = [],
+    version = null,
+    metersPerPx = 0,
+  } = opts
+
   const ids = [...editor.getCurrentPageShapeIds()]
   if (!ids.length) return null
-  // Résolution plafonnée : au-delà de ~4096 px de large, aucun gain visible
-  // sur un A4 — et le rendu + l'encodage PNG d'un canvas géant (fond de plan
-  // rasterisé × 2) coûtent plusieurs secondes.
+  // Résolution plafonnée : au-delà de ~4096 px, aucun gain visible — et le
+  // rendu + l'encodage PNG d'un canvas géant coûtent plusieurs secondes.
   const bounds = editor.getCurrentPageBounds()
-  const scale = Math.min(2, 4096 / Math.max(bounds?.width || 2048, bounds?.height || 2048))
-  const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale, padding: 24 })
+  const exportScale = Math.min(2, 4096 / Math.max(bounds?.width || 2048, bounds?.height || 2048))
+  const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: exportScale, padding: 24 })
   const dataUrl = await blobToDataURL(blob)
   const img = await loadImg(dataUrl)
   const legend = buildLegend(editor.store.allRecords())
 
   const { jsPDF } = await import('jspdf')
-  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-  const pw = pdf.internal.pageSize.getWidth() // 297
-  const ph = pdf.internal.pageSize.getHeight() // 210
+  const format = cartouche ? (cartouche.format === 'a4' ? 'a4' : 'a3') : 'a4'
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format })
+  const pw = pdf.internal.pageSize.getWidth()
+  const ph = pdf.internal.pageSize.getHeight()
   const margin = 8
   const headerH = 14
-  const legendW = legend.length ? 52 : 0
+  const cartH = cartouche ? 34 : 0
+  const legendW = legend.length ? (format === 'a3' ? 58 : 52) : 0
 
   // ── En-tête ────────────────────────────────────────────────────────────
   pdf.setFillColor(16, 18, 22)
@@ -82,13 +100,13 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
 
   // ── Image du plan ──────────────────────────────────────────────────────
   const zoneW = pw - margin * 2 - legendW
-  const zoneH = ph - headerH - margin * 2
+  const zoneH = ph - headerH - cartH - margin * 2
   const ratio = Math.min(zoneW / img.width, zoneH / img.height)
   const w = img.width * ratio
   const h = img.height * ratio
   pdf.addImage(dataUrl, 'PNG', margin + (zoneW - w) / 2, headerH + margin + (zoneH - h) / 2, w, h)
 
-  // ── Légende ────────────────────────────────────────────────────────────
+  // ── Légende (colonne droite, au-dessus du cartouche) ───────────────────
   if (legend.length) {
     const lx = pw - margin - legendW + 4
     let ly = headerH + margin + 4
@@ -100,7 +118,7 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(8)
     for (const entry of legend) {
-      if (ly > ph - margin - 6) break
+      if (ly > ph - cartH - margin - 6) break
       const [r, g, b] = hexToRgb(entry.color)
       pdf.setFillColor(r, g, b)
       if (entry.kind === 'cam') {
@@ -118,7 +136,30 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
     }
   }
 
+  // ── Cartouche (bande basse) ────────────────────────────────────────────
+  if (cartouche) {
+    // Échelle papier : m réels par mm de papier (pour la barre graphique).
+    // canvas px / mm papier = (px image / exportScale) / largeur dessinée mm.
+    const canvasPxPerPaperMm = img.width / exportScale / w
+    const metersPerPaperMm = metersPerPx > 0 ? metersPerPx * canvasPxPerPaperMm : 0
+    await drawCartouche(pdf, {
+      cartouche,
+      logoImages,
+      version,
+      metersPerPaperMm,
+      x: margin,
+      y: ph - margin - cartH,
+      w: pw - margin * 2,
+      h: cartH,
+    })
+  }
+
   // ── Pied de page ───────────────────────────────────────────────────────
+  if (cartouche?.mention) {
+    pdf.setTextColor(120, 120, 125)
+    pdf.setFontSize(6.5)
+    pdf.text(cartouche.mention, margin, ph - 3)
+  }
   if (footer) {
     pdf.setTextColor(150, 150, 155)
     pdf.setFontSize(6.5)
@@ -127,6 +168,160 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
 
   const nom = (titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
   return makeExportHandle(pdf.output('blob'), `${nom}.pdf`)
+}
+
+/* ─── Cartouche : logos | projet | personnes | échelle + contact ─────────── */
+
+async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPaperMm, x, y, w, h }) {
+  const GRAY = [90, 90, 95]
+  const DARK = [30, 30, 34]
+  const pad = 3
+
+  // Cadre + fond blanc.
+  pdf.setFillColor(255, 255, 255)
+  pdf.setDrawColor(120, 120, 125)
+  pdf.setLineWidth(0.35)
+  pdf.rect(x, y, w, h, 'FD')
+
+  // ── Largeurs de cases ──
+  const logos = (logoImages || []).slice(0, 3)
+  const logosW = logos.length ? logos.length * 30 + pad * 2 : 0
+  const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, 8)
+  const persW = personnes.length ? (personnes.length > 4 ? 96 : 52) : 0
+  const scaleW = 58
+  const projetW = w - logosW - persW - scaleW
+
+  let cx = x
+
+  // ── Case logos ──
+  if (logos.length) {
+    const imgs = await Promise.all(logos.map((src) => loadImg(src).catch(() => null)))
+    let lx = cx + pad
+    imgs.filter(Boolean).forEach((img) => {
+      const maxW = 28
+      const maxH = h - pad * 2
+      const r = Math.min(maxW / img.width, maxH / img.height)
+      const iw = img.width * r
+      const ih = img.height * r
+      pdf.addImage(img.src, lx + (maxW - iw) / 2, y + (h - ih) / 2, iw, ih)
+      lx += 30
+    })
+    cx += logosW
+    vSep(pdf, cx, y, h)
+  }
+
+  // ── Case projet ──
+  {
+    const lx = cx + pad
+    let ly = y + 5.5
+    pdf.setTextColor(...DARK)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(10)
+    pdf.text((cartouche.projet || 'Projet').slice(0, 48), lx, ly)
+    ly += 5
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(7)
+    const editLine = [
+      `Édité le ${new Date().toLocaleDateString('fr-FR')}`,
+      version ? `V${version} en cours` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    const rows = [
+      cartouche.ref && ['Réf.', cartouche.ref],
+      cartouche.client && ['Client', cartouche.client],
+      cartouche.lieu && ['Lieu', cartouche.lieu],
+      cartouche.dateEvenement && ['Événement', cartouche.dateEvenement],
+      ['Édition', editLine],
+    ].filter(Boolean)
+    for (const [label, value] of rows) {
+      if (ly > y + h - 2.5) break
+      pdf.setTextColor(...GRAY)
+      pdf.text(`${label} :`, lx, ly)
+      pdf.setTextColor(...DARK)
+      pdf.text(String(value).slice(0, 60), lx + 15, ly)
+      ly += 4.4
+    }
+    cx += projetW
+    vSep(pdf, cx, y, h)
+  }
+
+  // ── Case personnes (2 colonnes au-delà de 4) ──
+  if (personnes.length) {
+    const colW = 44
+    let ly = y + 5.5
+    let lx = cx + pad
+    pdf.setFontSize(7)
+    personnes.forEach((p, i) => {
+      if (i === 4) {
+        lx += colW + pad
+        ly = y + 5.5
+      }
+      pdf.setTextColor(...GRAY)
+      pdf.text((p.role || '—').slice(0, 26), lx, ly)
+      pdf.setTextColor(...DARK)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text((p.nom || '').slice(0, 26), lx, ly + 3.2)
+      pdf.setFont('helvetica', 'normal')
+      ly += 7.6
+    })
+    cx += persW
+    vSep(pdf, cx, y, h)
+  }
+
+  // ── Case échelle + contact ──
+  {
+    const lx = cx + pad
+    let ly = y + 5.5
+    pdf.setFontSize(7)
+    if (metersPerPaperMm > 0) {
+      // Barre graphique : longueur ronde (m) tenant dans ~48 mm papier.
+      const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100, 200]
+      let best = candidates[0]
+      for (const c of candidates) {
+        if (c / metersPerPaperMm <= 48) best = c
+      }
+      const barMm = best / metersPerPaperMm
+      const seg = barMm / 4
+      pdf.setDrawColor(...DARK)
+      pdf.setLineWidth(0.25)
+      for (let i = 0; i < 4; i += 1) {
+        if (i % 2 === 0) pdf.setFillColor(30, 30, 34)
+        else pdf.setFillColor(255, 255, 255)
+        pdf.rect(lx + i * seg, ly, seg, 2, 'FD')
+      }
+      pdf.setTextColor(...GRAY)
+      pdf.setFontSize(6)
+      pdf.text('0', lx, ly + 5.4)
+      pdf.text(fmtScaleMeters(best / 2), lx + barMm / 2, ly + 5.4, { align: 'center' })
+      pdf.text(`${fmtScaleMeters(best)} m`, lx + barMm, ly + 5.4, { align: 'center' })
+      pdf.setFontSize(7)
+      pdf.setTextColor(...DARK)
+      pdf.text(`Échelle ≈ 1:${Math.round(metersPerPaperMm * 1000)}`, lx, ly + 10.4)
+      ly += 14.4
+    } else {
+      pdf.setTextColor(...GRAY)
+      pdf.text('Échelle non définie', lx, ly)
+      ly += 4.4
+    }
+    if (cartouche.contact) {
+      pdf.setTextColor(...GRAY)
+      pdf.text('Contact :', lx, ly)
+      pdf.setTextColor(...DARK)
+      const lines = pdf.splitTextToSize(cartouche.contact, 44)
+      pdf.text(lines.slice(0, 2), lx, ly + 3.6)
+    }
+  }
+}
+
+function vSep(pdf, x, y, h) {
+  pdf.setDrawColor(190, 190, 195)
+  pdf.setLineWidth(0.2)
+  pdf.line(x, y + 1.5, x, y + h - 1.5)
+}
+
+function fmtScaleMeters(m) {
+  return Number.isInteger(m) ? String(m) : String(m).replace('.', ',')
 }
 
 /** Handle d'export { blob, url, filename, download(), revoke() }. */
