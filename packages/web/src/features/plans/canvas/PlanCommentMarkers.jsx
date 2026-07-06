@@ -26,6 +26,8 @@ export default function PlanCommentMarkers({ comments, selectedId, onSelect }) {
         const x = (Number(c.anchor_x) + camera.x) * camera.z
         const y = (Number(c.anchor_y) + camera.y) * camera.z
         const active = c.id === selectedId
+        // Interne (équipe, invisible des liens de partage) = bleu ; sinon jaune.
+        const interne = Boolean(c.internal)
         return (
           <button
             key={c.id}
@@ -41,13 +43,13 @@ export default function PlanCommentMarkers({ comments, selectedId, onSelect }) {
               width: 26,
               height: 26,
               transform: `translate(-4px, -26px) scale(${active ? 1.2 : 1})`,
-              background: '#facc15',
-              color: '#1c1917',
+              background: interne ? '#4d9fff' : '#facc15',
+              color: interne ? '#ffffff' : '#1c1917',
               fontSize: 12,
               border: '2px solid #ffffff',
               boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
             }}
-            title={`${c.author_client_name || c.author?.full_name || 'Commentaire'} : ${c.body.slice(0, 80)}`}
+            title={`${interne ? '[interne] ' : ''}${c.author_client_name || c.author?.full_name || 'Commentaire'} : ${c.body.slice(0, 80)}`}
           >
             {i + 1}
           </button>

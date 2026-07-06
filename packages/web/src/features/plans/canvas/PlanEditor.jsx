@@ -39,7 +39,7 @@ import {
   duplicateCanvas,
   getCanvasVersionState,
 } from '../../../lib/plansCanvas'
-import { listComments, subscribeToComments } from '../../../lib/plansCanvasShare'
+import { listComments, subscribeToComments, createAnchoredComment } from '../../../lib/plansCanvasShare'
 import { getPlan, listPlanCategories } from '../../../lib/plans'
 import {
   makeCaptivAssetStore,
@@ -580,6 +580,50 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     }
   }, [])
 
+  // ── Commentaire équipe ancré (marqueur posé depuis le desk) ───────────────
+  const [placingComment, setPlacingComment] = useState(false)
+  const [commentDraft, setCommentDraft] = useState(null) // { page:{x,y}, screen:{x,y} }
+  const [commentInternal, setCommentInternal] = useState(true)
+  const [commentSending, setCommentSending] = useState(false)
+
+  function handleCommentPlaceClick(e) {
+    const editor = editorRef.current
+    if (!editor) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    setCommentDraft({
+      page: editor.screenToPage({ x: e.clientX, y: e.clientY }),
+      screen: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+    })
+  }
+
+  function cancelComment() {
+    setPlacingComment(false)
+    setCommentDraft(null)
+  }
+
+  async function submitComment(e) {
+    e.preventDefault()
+    const body = e.currentTarget.elements.body.value.trim()
+    if (!body || !commentDraft || commentSending) return
+    setCommentSending(true)
+    try {
+      await createAnchoredComment({
+        canvasId,
+        anchorX: commentDraft.page.x,
+        anchorY: commentDraft.page.y,
+        body,
+        userId: user?.id,
+        internal: commentInternal,
+      })
+      cancelComment()
+      // Le marqueur arrive par realtime (subscribeToComments).
+    } catch (err) {
+      notify.error('Commentaire impossible : ' + (err?.message || err))
+    } finally {
+      setCommentSending(false)
+    }
+  }
+
   // ── Remplacement du fond de plan ───────────────────────────────────────────
   const [fondModalOpen, setFondModalOpen] = useState(false)
 
@@ -1048,6 +1092,94 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             </Tldraw>
           )}
 
+          {/* Commentaire équipe : clic = pose du marqueur, puis bulle de saisie */}
+          {placingComment && (
+            <div
+              className="absolute inset-0"
+              style={{ zIndex: 500, cursor: commentDraft ? 'default' : 'crosshair' }}
+              onClick={commentDraft ? undefined : handleCommentPlaceClick}
+            >
+              {!commentDraft && (
+                <div
+                  className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg"
+                  style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Clique l’endroit du plan à commenter
+                  <button type="button" onClick={cancelComment} style={{ color: 'var(--txt-3)' }} title="Annuler">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              {commentDraft && (
+                <>
+                  <span
+                    className="absolute rounded-full rounded-bl-none pointer-events-none"
+                    style={{
+                      left: commentDraft.screen.x,
+                      top: commentDraft.screen.y,
+                      width: 22,
+                      height: 22,
+                      transform: 'translate(-4px, -22px)',
+                      background: commentInternal ? '#4d9fff' : '#facc15',
+                      border: '2px solid #fff',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                    }}
+                  />
+                  <form
+                    onSubmit={submitComment}
+                    className="absolute w-64 p-2.5 rounded-xl"
+                    style={{
+                      // Centré sous le marqueur, sans déborder du bord gauche.
+                      left: Math.max(8, commentDraft.screen.x - 128),
+                      top: commentDraft.screen.y + 8,
+                      maxWidth: 'calc(100% - 16px)',
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+                      zIndex: 510,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <textarea
+                      name="body"
+                      autoFocus
+                      rows={3}
+                      placeholder="Ton commentaire…"
+                      className="w-full text-xs px-2 py-1.5 rounded-md outline-none resize-none"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') cancelComment()
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form.requestSubmit()
+                      }}
+                    />
+                    <label className="flex items-center gap-1.5 mt-1.5 text-[11px] cursor-pointer" style={{ color: 'var(--txt-2)' }}>
+                      <input
+                        type="checkbox"
+                        checked={commentInternal}
+                        onChange={(e) => setCommentInternal(e.target.checked)}
+                      />
+                      Interne (invisible des liens de partage)
+                    </label>
+                    <div className="flex items-center justify-end gap-1.5 mt-2">
+                      <button type="button" onClick={cancelComment} className="text-xs font-semibold px-2.5 py-1.5 rounded-md" style={{ color: 'var(--txt-3)' }}>
+                        Annuler
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={commentSending}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                        style={{ background: 'var(--blue)', color: '#fff', opacity: commentSending ? 0.6 : 1 }}
+                      >
+                        {commentSending ? 'Envoi…' : 'Commenter'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Mesure de distance (calcul focale) : 1 clic sur le sujet */}
           {measureReq && (
             <div
@@ -1148,6 +1280,10 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
             comments={comments}
             selectedCommentId={selectedCommentId}
             onFocusComment={focusComment}
+            onStartComment={() => {
+              setCommentDraft(null)
+              setPlacingComment(true)
+            }}
           />
         )}
       </div>

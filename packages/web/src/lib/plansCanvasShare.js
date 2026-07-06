@@ -64,7 +64,7 @@ export function publicPlanUrl(token) {
 /* ─── Commentaires ──────────────────────────────────────────────────────── */
 
 const COMMENT_FIELDS =
-  'id, parent_id, anchor_x, anchor_y, body, author_type, author_user_id, author_client_name, resolved, created_at, author:profiles(full_name)'
+  'id, parent_id, anchor_x, anchor_y, body, author_type, author_user_id, author_client_name, resolved, internal, created_at, author:profiles(full_name)'
 
 export async function listComments(canvasId) {
   const { data, error } = await supabase
@@ -76,8 +76,42 @@ export async function listComments(canvasId) {
   return data ?? []
 }
 
-/** Réponse desk à un thread (les nouveaux ancrages client passent par la page publique). */
-export async function replyToComment({ canvasId, parentId, body, userId }) {
+/**
+ * Nouveau commentaire équipe ancré sur le canvas (coordonnées PAGE tldraw).
+ * `internal: true` (défaut) = discussion interne, invisible des liens de
+ * partage (filtré par l'edge function plans-public).
+ */
+export async function createAnchoredComment({
+  canvasId,
+  anchorX,
+  anchorY,
+  body,
+  userId,
+  internal = true,
+}) {
+  const { data, error } = await supabase
+    .from('plans_canvas_comments')
+    .insert({
+      canvas_id: canvasId,
+      anchor_x: anchorX,
+      anchor_y: anchorY,
+      body: body.trim(),
+      author_type: 'user',
+      author_user_id: userId,
+      internal,
+    })
+    .select(COMMENT_FIELDS)
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Réponse desk à un thread (les nouveaux ancrages client passent par la page
+ * publique). La réponse hérite de la visibilité du thread : répondre dans un
+ * thread interne reste interne.
+ */
+export async function replyToComment({ canvasId, parentId, body, userId, internal = false }) {
   const { data, error } = await supabase
     .from('plans_canvas_comments')
     .insert({
@@ -86,6 +120,7 @@ export async function replyToComment({ canvasId, parentId, body, userId }) {
       body: body.trim(),
       author_type: 'user',
       author_user_id: userId,
+      internal,
     })
     .select(COMMENT_FIELDS)
     .single()

@@ -42,6 +42,7 @@ export default function PlanSidePanel({
   comments = [],
   selectedCommentId = null,
   onFocusComment,
+  onStartComment,
 }) {
   const [tab, setTab] = useState('layers')
 
@@ -94,6 +95,7 @@ export default function PlanSidePanel({
             comments={comments}
             selectedCommentId={selectedCommentId}
             onFocusComment={onFocusComment}
+            onStartComment={onStartComment}
           />
         )}
       </div>
@@ -106,7 +108,7 @@ export default function PlanSidePanel({
 
 /* ─── Commentaires (clients + réponses desk) ────────────────────────────── */
 
-function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) {
+function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment, onStartComment }) {
   const { user } = useAuth()
   const [replyTo, setReplyTo] = useState(null)
   const [showResolved, setShowResolved] = useState(false)
@@ -119,7 +121,14 @@ function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) 
   async function sendReply(parent, body) {
     if (!body.trim()) return
     try {
-      await replyToComment({ canvasId, parentId: parent.id, body, userId: user?.id })
+      // La réponse hérite de la visibilité du thread (interne reste interne).
+      await replyToComment({
+        canvasId,
+        parentId: parent.id,
+        body,
+        userId: user?.id,
+        internal: Boolean(parent.internal),
+      })
       setReplyTo(null)
       // Le refetch arrive par realtime.
     } catch (err) {
@@ -150,7 +159,11 @@ function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) 
           {index != null && (
             <span
               className="w-4.5 h-4.5 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
-              style={{ background: '#facc15', color: '#1c1917' }}
+              style={
+                comment.internal
+                  ? { background: '#4d9fff', color: '#fff' }
+                  : { background: '#facc15', color: '#1c1917' }
+              }
             >
               {index + 1}
             </span>
@@ -160,6 +173,15 @@ function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) 
               ? comment.author_client_name || 'Client'
               : comment.author?.full_name || 'Équipe'}
           </span>
+          {comment.internal && (
+            <span
+              className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+              style={{ background: 'var(--blue-bg, rgba(77,159,255,0.15))', color: 'var(--blue)' }}
+              title="Invisible des liens de partage"
+            >
+              interne
+            </span>
+          )}
           <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
             {new Date(comment.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
           </span>
@@ -227,12 +249,24 @@ function CommentsTab({ canvasId, comments, selectedCommentId, onFocusComment }) 
 
   return (
     <div className="py-2">
+      {onStartComment && (
+        <button
+          type="button"
+          onClick={onStartComment}
+          className="mx-2 mb-2 w-[calc(100%-16px)] flex items-center justify-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-lg"
+          style={{ background: 'var(--blue-bg, rgba(77,159,255,0.12))', color: 'var(--blue)', border: '1px dashed var(--blue)' }}
+          title="Pose un marqueur de commentaire sur le plan"
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          Commenter sur le plan
+        </button>
+      )}
       {open.length === 0 && resolved.length === 0 && (
         <div className="flex flex-col items-center gap-1.5 px-3 py-8 text-center">
           <MessageCircle className="w-5 h-5" style={{ color: 'var(--txt-3)' }} />
           <div className="text-xs" style={{ color: 'var(--txt-3)' }}>
-            Aucun commentaire. Les destinataires du lien de partage peuvent
-            annoter le plan.
+            Aucun commentaire. Pose un marqueur ici, ou laisse les
+            destinataires du lien de partage annoter le plan.
           </div>
         </div>
       )}

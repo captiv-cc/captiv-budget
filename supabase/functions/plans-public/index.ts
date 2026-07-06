@@ -103,6 +103,8 @@ Deno.serve(async (req) => {
       .from('plans_canvas_comments')
       .select('id, parent_id, anchor_x, anchor_y, body, author_type, author_client_name, resolved, created_at, author:profiles(full_name)')
       .eq('canvas_id', canvas.id)
+      // Les commentaires internes équipe ne sortent JAMAIS par un lien de partage.
+      .eq('internal', false)
       .order('created_at', { ascending: true })
 
     // Tracking léger (best-effort)
