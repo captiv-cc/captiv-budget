@@ -129,9 +129,11 @@ function DropMenu({ label, icon: Icon, items }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-[95]" onClick={() => setOpen(false)} />
+          {/* Au-dessus de l'UI tldraw (StylePanel & co ~z600 dans le même
+              stacking context que la top bar). */}
+          <div className="fixed inset-0 z-[899]" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-full mt-1 z-[96] min-w-[190px] rounded-lg py-1"
+            className="absolute right-0 top-full mt-1 z-[900] min-w-[190px] rounded-lg py-1"
             style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
           >
             {items.filter(Boolean).map((item) => (
