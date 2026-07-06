@@ -269,9 +269,23 @@ bibliothèque org plus tard)
       état actuel en PNG transparent superposé au canvas de la version,
       aligné page + suivi caméra, slider d'opacité Vn ↔ En cours
 
-**Backlog hors sprint** : #9 cartouche PDF pro (session commune avec Hugo,
-ne pas faire seul), #3 champ « assigné à », #18 bibliothèque org, tailles
-capteur réelles des PTZ (Hugo les fournit).
+**Cartouche PDF pro (#9)** ✅ (2026-07-06, cadré en session avec Hugo)
+- [x] Bande cartouche pleine largeur en bas du PDF : logos (1-3, org par
+      défaut) | projet/réf/client/lieu/date événement/édité le + Vn |
+      personnes rôle+nom (presets + libre, 2 colonnes) | échelle GRAPHIQUE
+      (barre segmentée, survit à l'impression « ajuster ») + ratio ≈1:N +
+      contact ; mention de pied ; format A3 (défaut)/A4
+- [x] Modale « Mise en page du PDF » (menu Exporter), pré-remplie depuis le
+      projet (clients, période tournage, module Lieu) ; config persistée
+      par plan (migration 20260706b, colonne cartouche jsonb)
+- [x] Viewer de version : même cartouche ; page publique : layout
+      historique (pas de cartouche dans le payload public pour l'instant)
+- Décisions Hugo : PAS de tableau de révisions, PAS de tampon statut,
+  PAS de QR code
+
+**Backlog hors sprint** : #3 champ « assigné à », #18 bibliothèque org,
+tailles capteur réelles des PTZ restantes (valeurs constructeur posées :
+UE100 1/2,5", UE150/160 1" — à confirmer), cartouche sur la page publique.
 
 **Phase 5 (Intégration DESK)** — liens plan ↔ déroulé (config active par
 créneau horaire), ↔ équipe (cadreur assigné à une position), ↔ matériel
