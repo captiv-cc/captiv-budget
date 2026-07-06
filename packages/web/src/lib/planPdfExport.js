@@ -229,11 +229,14 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     pdf.setFontSize(10)
     const titreTxt = (titre || cartouche.projet || 'Plan technique').slice(0, 44)
     pdf.text(titreTxt, lx, ly)
+    // Largeur mesurée AVANT de réduire la police (sinon la catégorie
+    // s'imprime dans le titre).
+    const titreW = pdf.getTextWidth(titreTxt)
     if (sousTitre) {
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(7.5)
       pdf.setTextColor(...GRAY)
-      pdf.text(`— ${sousTitre.slice(0, 24)}`, lx + pdf.getTextWidth(titreTxt) + 2.5, ly)
+      pdf.text(`· ${sousTitre.slice(0, 24)}`, lx + titreW + 2.5, ly)
     }
     ly += 5
     pdf.setFont('helvetica', 'normal')
@@ -261,10 +264,14 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
       const rx = lx + col * colW
       const ry = ly + (i % rowsPerCol) * 4.4
       if (ry > y + h - 2) return
+      const labelTxt = `${String(label).slice(0, 22)} :`
       pdf.setTextColor(...GRAY)
-      pdf.text(`${String(label).slice(0, 14)} :`, rx, ry)
+      pdf.text(labelTxt, rx, ry)
       pdf.setTextColor(...DARK)
-      pdf.text(String(value).slice(0, 42), rx + 16, ry)
+      // Valeur APRÈS le libellé mesuré (16 mm mini pour l'alignement des
+      // rangées courantes, poussée au-delà pour les libellés longs).
+      const vx = rx + Math.max(16, pdf.getTextWidth(labelTxt) + 2)
+      pdf.text(String(value).slice(0, 42), vx, ry)
     })
     cx += projetW
     vSep(pdf, cx, y, h)
