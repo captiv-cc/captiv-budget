@@ -158,11 +158,15 @@ export default function PlanVersionViewer({
     if (!editor || busy) return
     setBusy(true)
     try {
-      await exportPlanPdf(editor, {
+      const handle = await exportPlanPdf(editor, {
         titre: `${canvas.titre} — V${version.version}`,
         sousTitre: version.commentaire || '',
         footer: 'Généré par Captiv DESK',
       })
+      if (handle) {
+        handle.download()
+        handle.revoke()
+      }
     } catch (err) {
       notify.error('Export échoué : ' + (err?.message || err))
     } finally {

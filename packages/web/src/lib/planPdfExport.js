@@ -39,13 +39,16 @@ function hexToRgb(hex) {
 }
 
 /**
- * Exporte le plan en PDF A4 paysage avec en-tête et légende.
+ * Génère le PDF A4 paysage du plan (en-tête + légende) et retourne un handle
+ * { blob, url, filename, download(), revoke() } — même pattern que les
+ * exports devis/matériel : l'appelant choisit entre prévisualiser
+ * (PdfPreviewModal) et télécharger. Retourne null si le plan est vide.
  * @param {Editor} editor — instance tldraw
  * @param {object} opts { titre, sousTitre?, footer? }
  */
 export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = '' }) {
   const ids = [...editor.getCurrentPageShapeIds()]
-  if (!ids.length) return false
+  if (!ids.length) return null
   const { blob } = await editor.toImage(ids, { format: 'png', background: true, scale: 2, padding: 24 })
   const dataUrl = await blobToDataURL(blob)
   const img = await loadImg(dataUrl)
@@ -118,6 +121,26 @@ export async function exportPlanPdf(editor, { titre, sousTitre = '', footer = ''
   }
 
   const nom = (titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
-  pdf.save(`${nom}.pdf`)
-  return true
+  return makeExportHandle(pdf.output('blob'), `${nom}.pdf`)
+}
+
+/** Handle d'export { blob, url, filename, download(), revoke() }. */
+export function makeExportHandle(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  return {
+    blob,
+    url,
+    filename,
+    download() {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    },
+    revoke() {
+      URL.revokeObjectURL(url)
+    },
+  }
 }

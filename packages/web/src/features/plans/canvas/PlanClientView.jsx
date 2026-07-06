@@ -264,11 +264,15 @@ export default function PlanClientView() {
         a.remove()
       } else {
         const orgLabel = data?.org?.display_name || data?.org?.legal_name || 'Captiv'
-        await exportPlanPdf(editorRef.current, {
+        const handle = await exportPlanPdf(editorRef.current, {
           titre: data?.plan?.titre || 'Plan technique',
           sousTitre: data?.project?.title || '',
           footer: `Généré par ${orgLabel}`,
         })
+        if (handle) {
+          handle.download()
+          handle.revoke()
+        }
       }
     } finally {
       setExporting(false)

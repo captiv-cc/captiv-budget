@@ -69,7 +69,8 @@ import NomenclatureModal from './NomenclatureModal'
 import PlanVersionsModal, { restoreStateIntoEditor } from './PlanVersionsModal'
 import PlanVersionViewer from './PlanVersionViewer'
 import PlanCommentMarkers from './PlanCommentMarkers'
-import { exportPlanPdf } from '../../../lib/planPdfExport'
+import { exportPlanPdf, makeExportHandle } from '../../../lib/planPdfExport'
+import PdfPreviewModal from '../../materiel/components/PdfPreviewModal'
 
 const STATUT_BADGE = {
   brouillon: { label: 'Brouillon', color: '#a8a8a8' },
@@ -671,8 +672,9 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     }
   }
 
-  // ── Export PNG / PDF ───────────────────────────────────────────────────────
+  // ── Export PNG / PDF (avec prévisualisation avant téléchargement) ─────────
   const [exporting, setExporting] = useState(false)
+  const [exportPreview, setExportPreview] = useState(null) // { handle, isImage, title }
 
   async function exportImage() {
     const editor = editorRef.current
@@ -693,21 +695,34 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
         const blob = await exportImage()
         if (!blob) return
         const nomFichier = (canvas?.titre || 'plan').replace(/[^a-zA-Z0-9À-ÿ ._-]/g, '').trim()
-        triggerDownload(URL.createObjectURL(blob), `${nomFichier}.png`)
+        setExportPreview({
+          handle: makeExportHandle(blob, `${nomFichier}.png`),
+          isImage: true,
+          title: `${canvas?.titre || 'Plan'} — export PNG`,
+        })
       } else {
         const catLabel = categories.find((c) => c.id === canvas?.category_id)?.label
-        const ok = await exportPlanPdf(editorRef.current, {
+        const handle = await exportPlanPdf(editorRef.current, {
           titre: canvas?.titre || 'Plan technique',
           sousTitre: catLabel || '',
           footer: 'Généré par Captiv DESK',
         })
-        if (!ok) notify.error('Rien à exporter : le plan est vide')
+        if (!handle) {
+          notify.error('Rien à exporter : le plan est vide')
+          return
+        }
+        setExportPreview({ handle, isImage: false, title: `${canvas?.titre || 'Plan'} — export PDF` })
       }
     } catch (err) {
       notify.error('Export échoué : ' + (err?.message || err))
     } finally {
       setExporting(false)
     }
+  }
+
+  function closeExportPreview() {
+    exportPreview?.handle.revoke()
+    setExportPreview(null)
   }
 
   // ── Miniature JPEG de l'état courant (cards + versions) ──────────────────
@@ -1359,6 +1374,22 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
 
       {calcOpen && <FocaleCalcModal onClose={() => setCalcOpen(false)} />}
 
+      {/* Prévisualisation d'export (wrapper z-900 : au-dessus de l'UI tldraw,
+          la modale elle-même est en fixed z-40/50 dans ce stacking context) */}
+      {exportPreview && (
+        <div style={{ position: 'relative', zIndex: 900 }}>
+          <PdfPreviewModal
+            open
+            title={exportPreview.title}
+            url={exportPreview.handle.url}
+            filename={exportPreview.handle.filename}
+            isImage={exportPreview.isImage}
+            onDownload={() => exportPreview.handle.download()}
+            onClose={closeExportPreview}
+          />
+        </div>
+      )}
+
       {nomenclatureOpen && canvas && editorInstance && (
         <NomenclatureModal
           editor={editorInstance}
@@ -1383,30 +1414,11 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
 
 /* ─── Helpers export ─────────────────────────────────────────────────────── */
 
-function triggerDownload(url, filename) {
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 10000)
-}
-
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result)
     reader.onerror = reject
     reader.readAsDataURL(blob)
-  })
-}
-
-function loadImg(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
   })
 }

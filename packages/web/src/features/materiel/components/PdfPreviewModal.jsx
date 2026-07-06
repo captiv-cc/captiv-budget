@@ -18,6 +18,8 @@
 //                  Le parent fait exporter.download() puis close si besoin.
 //   - isZip : boolean — si true, pas d'iframe (ZIP non prévisualisable),
 //             juste un message + bouton Télécharger.
+//   - isImage : boolean — affiche une <img> centrée (exports PNG) au lieu
+//               de l'iframe PDF.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect } from 'react'
@@ -31,6 +33,7 @@ export default function PdfPreviewModal({
   filename = 'document.pdf',
   onDownload,
   isZip = false,
+  isImage = false,
 }) {
   // Escape pour fermer
   useEffect(() => {
@@ -136,6 +139,15 @@ export default function PdfPreviewModal({
         >
           {isZip ? (
             <ZipInfo filename={filename} />
+          ) : url && isImage ? (
+            <div className="w-full h-full overflow-auto p-4 flex items-start justify-center">
+              <img
+                src={url}
+                alt={title}
+                className="max-w-full h-auto rounded-md"
+                style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.35)' }}
+              />
+            </div>
           ) : url ? (
             <iframe
               src={url}
