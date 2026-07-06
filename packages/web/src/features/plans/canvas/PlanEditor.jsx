@@ -738,6 +738,30 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
     return () => clearInterval(interval)
   }, [readOnly, canvasId, makeThumbnail])
 
+  // Image de comparaison : l'état ACTUEL du plan en PNG transparent, borné
+  // aux bounds de page (le viewer de version le superpose en calque, aligné
+  // en coordonnées page).
+  const makeCompareImage = useCallback(async () => {
+    const editor = editorRef.current
+    if (!editor) return null
+    const ids = [...editor.getCurrentPageShapeIds()]
+    if (!ids.length) return null
+    const bounds = editor.getCurrentPageBounds()
+    if (!bounds) return null
+    const scale = Math.min(2, 4096 / Math.max(bounds.width, bounds.height))
+    const { blob } = await editor.toImage(ids, {
+      format: 'png',
+      background: false,
+      bounds,
+      padding: 0,
+      scale,
+    })
+    return {
+      url: URL.createObjectURL(blob),
+      bounds: { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height },
+    }
+  }, [])
+
   // ── Versions figées : liste, viewer lecture seule, restauration, dupli ────
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [viewingVersion, setViewingVersion] = useState(null) // { row, state }
@@ -1315,6 +1339,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
           canvas={canvas}
           version={viewingVersion.row}
           ydocState={viewingVersion.state}
+          makeCompareImage={makeCompareImage}
           onClose={() => setViewingVersion(null)}
           onRestore={async () => {
             const ok = await confirm({

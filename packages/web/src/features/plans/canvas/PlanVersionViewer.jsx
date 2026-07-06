@@ -8,11 +8,11 @@
 // Restaurer comme état courant · Dupliquer en nouveau plan · Exporter PDF.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as Y from 'yjs'
-import { Tldraw, createTLStore, defaultShapeUtils, defaultBindingUtils } from 'tldraw'
-import { Copy, Download, Loader2, RotateCcw, X } from 'lucide-react'
+import { Tldraw, createTLStore, defaultShapeUtils, defaultBindingUtils, useEditor, useValue } from 'tldraw'
+import { Copy, Download, Layers, RotateCcw, X } from 'lucide-react'
 import { base64ToUint8 } from '../../../hooks/useYjsTldraw'
 import { makeCaptivAssetStore } from '../../../lib/plansCanvasFond'
 import { exportPlanPdf } from '../../../lib/planPdfExport'
@@ -53,9 +53,74 @@ function getShapeVisibility(shape) {
   return shape.meta?.hidden ? 'hidden' : 'inherit'
 }
 
-export default function PlanVersionViewer({ canvas, version, ydocState, onClose, onRestore, onDuplicate }) {
+// Calque « état actuel » superposé au canvas de la version : image PNG
+// transparente positionnée en coordonnées PAGE, suit pan/zoom via la caméra
+// (même mécanique que les marqueurs de commentaires).
+function CompareOverlay({ image, opacity }) {
+  const editor = useEditor()
+  const camera = useValue('camera', () => editor.getCamera(), [editor])
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 300 }}>
+      <img
+        src={image.url}
+        alt="État actuel du plan"
+        className="absolute"
+        style={{
+          left: (image.bounds.x + camera.x) * camera.z,
+          top: (image.bounds.y + camera.y) * camera.z,
+          width: image.bounds.w * camera.z,
+          height: image.bounds.h * camera.z,
+          maxWidth: 'none',
+          opacity,
+        }}
+      />
+    </div>
+  )
+}
+
+export default function PlanVersionViewer({
+  canvas,
+  version,
+  ydocState,
+  onClose,
+  onRestore,
+  onDuplicate,
+  makeCompareImage,
+}) {
   const [editor, setEditor] = useState(null)
   const [busy, setBusy] = useState(false)
+
+  // ── Comparaison : état actuel en calque au-dessus de la version ──────────
+  const [compare, setCompare] = useState(null) // { url, bounds:{x,y,w,h} }
+  const [compareOpacity, setCompareOpacity] = useState(0.55)
+
+  useEffect(
+    () => () => {
+      if (compare?.url) URL.revokeObjectURL(compare.url)
+    },
+    [compare],
+  )
+
+  async function toggleCompare() {
+    if (compare) {
+      setCompare(null)
+      return
+    }
+    if (!makeCompareImage || busy) return
+    setBusy(true)
+    try {
+      const image = await makeCompareImage()
+      if (!image) {
+        notify.error('Le plan actuel est vide : rien à comparer')
+        return
+      }
+      setCompare(image)
+    } catch (err) {
+      notify.error('Comparaison impossible : ' + (err?.message || err))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const store = useMemo(() => {
     const s = createTLStore({
@@ -133,6 +198,24 @@ export default function PlanVersionViewer({ canvas, version, ydocState, onClose,
             {version.author?.full_name ? ` par ${version.author.full_name}` : ''} · lecture seule
           </div>
         </div>
+        {makeCompareImage && (
+          <button
+            type="button"
+            onClick={toggleCompare}
+            disabled={busy}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
+            style={{
+              background: compare ? 'var(--blue)' : 'var(--bg)',
+              border: '1px solid var(--brd)',
+              color: compare ? '#fff' : 'var(--txt-2)',
+              opacity: busy ? 0.6 : 1,
+            }}
+            title="Superpose l’état actuel du plan à cette version"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Comparer
+          </button>
+        )}
         <button
           type="button"
           onClick={handlePdf}
@@ -177,7 +260,37 @@ export default function PlanVersionViewer({ canvas, version, ydocState, onClose,
           components={READONLY_COMPONENTS}
           inferDarkMode
           onMount={handleMount}
-        />
+        >
+          {compare && <CompareOverlay image={compare} opacity={compareOpacity} />}
+        </Tldraw>
+
+        {/* Réglage du calque de comparaison */}
+        {compare && (
+          <div
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2.5 px-3.5 py-2 rounded-xl"
+            style={{ zIndex: 400, background: 'var(--bg-elev)', border: '1px solid var(--brd)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+          >
+            <span className="text-[11px] font-bold shrink-0" style={{ color: 'var(--txt-3)' }}>
+              V{version.version}
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={Math.round(compareOpacity * 100)}
+              onChange={(e) => setCompareOpacity(Number(e.target.value) / 100)}
+              className="w-36"
+              style={{ accentColor: 'var(--blue)' }}
+              title="Opacité du calque « état actuel »"
+            />
+            <span className="text-[11px] font-bold shrink-0" style={{ color: 'var(--txt)' }}>
+              En cours
+            </span>
+            <button type="button" onClick={() => setCompare(null)} className="p-0.5" style={{ color: 'var(--txt-3)' }} title="Fermer la comparaison">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body,
