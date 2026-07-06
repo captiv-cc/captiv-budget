@@ -70,7 +70,9 @@ export default function PlanCartoucheModal({ canvas, org, onClose, onSaved }) {
         return
       }
       const defaults = await fetchCartoucheDefaults(canvas.project_id)
-      const orgLogo = org?.logo_url_sombre || org?.logo_url_clair
+      // Papier blanc → variante « claire » d'abord (même ordre que les autres
+      // PDF : matériel, livrables, techlist).
+      const orgLogo = org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
       if (alive) {
         setForm({
           ...emptyCartouche(),
@@ -293,6 +295,23 @@ export default function PlanCartoucheModal({ canvas, org, onClose, onSaved }) {
                     Importer
                   </button>
                 )}
+                {(() => {
+                  const orgLogo =
+                    org?.logo_banner_url || org?.logo_url_clair || org?.logo_url_sombre
+                  const present = form.logos.some((l) => l.ref === orgLogo)
+                  if (!orgLogo || present || form.logos.length >= MAX_LOGOS) return null
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => set({ logos: [{ kind: 'url', ref: orgLogo }, ...form.logos] })}
+                      className="text-[10px] font-semibold px-2 py-1.5 rounded-md"
+                      style={{ border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+                      title="Ajoute le logo de l’organisation (variante pour fond clair)"
+                    >
+                      + Logo de l’org
+                    </button>
+                  )
+                })()}
                 <input
                   ref={fileRef}
                   type="file"

@@ -186,8 +186,10 @@ async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPap
   // ── Largeurs de cases ──
   const logos = (logoImages || []).slice(0, 3)
   const logosW = logos.length ? logos.length * 30 + pad * 2 : 0
-  const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, 8)
-  const persW = personnes.length ? (personnes.length > 4 ? 96 : 52) : 0
+  // A4 : une seule colonne de personnes (le bloc projet doit respirer).
+  const maxPers = pdf.internal.pageSize.getWidth() > 400 ? 8 : 4
+  const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, maxPers)
+  const persW = personnes.length ? (personnes.length > 4 ? 104 : 56) : 0
   const scaleW = 58
   const projetW = w - logosW - persW - scaleW
 
@@ -248,7 +250,7 @@ async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPap
 
   // ── Case personnes (2 colonnes au-delà de 4) ──
   if (personnes.length) {
-    const colW = 44
+    const colW = 48
     let ly = y + 5.5
     let lx = cx + pad
     pdf.setFontSize(7)
@@ -258,10 +260,10 @@ async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPap
         ly = y + 5.5
       }
       pdf.setTextColor(...GRAY)
-      pdf.text((p.role || '—').slice(0, 26), lx, ly)
+      pdf.text((p.role || '—').slice(0, 32), lx, ly)
       pdf.setTextColor(...DARK)
       pdf.setFont('helvetica', 'bold')
-      pdf.text((p.nom || '').slice(0, 26), lx, ly + 3.2)
+      pdf.text((p.nom || '').slice(0, 32), lx, ly + 3.2)
       pdf.setFont('helvetica', 'normal')
       ly += 7.6
     })
@@ -297,7 +299,8 @@ async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPap
       pdf.text(`${fmtScaleMeters(best)} m`, lx + barMm, ly + 5.4, { align: 'center' })
       pdf.setFontSize(7)
       pdf.setTextColor(...DARK)
-      pdf.text(`Échelle ≈ 1:${Math.round(metersPerPaperMm * 1000)}`, lx, ly + 10.4)
+      // « ~ » et pas « ≈ » : hors encodage Helvetica de jspdf (glyphes cassés).
+      pdf.text(`Échelle ~1:${Math.round(metersPerPaperMm * 1000)}`, lx, ly + 10.4)
       ly += 14.4
     } else {
       pdf.setTextColor(...GRAY)
