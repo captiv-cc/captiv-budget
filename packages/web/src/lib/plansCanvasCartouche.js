@@ -42,6 +42,8 @@ export function emptyCartouche() {
     mention: '',
     format: 'a3',
     personnes: [],
+    // Lignes libres du bloc projet (ex : Production : ZQSD ; Prod. exé : …).
+    infos: [],
     logos: [],
   }
 }

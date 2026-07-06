@@ -81,22 +81,26 @@ export async function exportPlanPdf(editor, opts) {
   const pw = pdf.internal.pageSize.getWidth()
   const ph = pdf.internal.pageSize.getHeight()
   const margin = 8
-  const headerH = 14
+  // Avec cartouche : pas de bandeau noir (le titre vit dans le bloc projet),
+  // tout l'espace pour le plan.
+  const headerH = cartouche ? 0 : 14
   const cartH = cartouche ? 34 : 0
   const legendW = legend.length ? (format === 'a3' ? 58 : 52) : 0
 
-  // ── En-tête ────────────────────────────────────────────────────────────
-  pdf.setFillColor(16, 18, 22)
-  pdf.rect(0, 0, pw, headerH, 'F')
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(11)
-  pdf.text(titre || 'Plan technique', margin, 9)
-  pdf.setFont('helvetica', 'normal')
-  pdf.setFontSize(8)
-  const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-  const right = [sousTitre, dateStr].filter(Boolean).join('  ·  ')
-  pdf.text(right, pw - margin, 9, { align: 'right' })
+  // ── En-tête (layout historique uniquement) ─────────────────────────────
+  if (!cartouche) {
+    pdf.setFillColor(16, 18, 22)
+    pdf.rect(0, 0, pw, headerH, 'F')
+    pdf.setTextColor(255, 255, 255)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(11)
+    pdf.text(titre || 'Plan technique', margin, 9)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(8)
+    const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    const right = [sousTitre, dateStr].filter(Boolean).join('  ·  ')
+    pdf.text(right, pw - margin, 9, { align: 'right' })
+  }
 
   // ── Image du plan ──────────────────────────────────────────────────────
   const zoneW = pw - margin * 2 - legendW
@@ -144,6 +148,8 @@ export async function exportPlanPdf(editor, opts) {
     const metersPerPaperMm = metersPerPx > 0 ? metersPerPx * canvasPxPerPaperMm : 0
     await drawCartouche(pdf, {
       cartouche,
+      titre,
+      sousTitre,
       logoImages,
       version,
       metersPerPaperMm,
@@ -172,7 +178,7 @@ export async function exportPlanPdf(editor, opts) {
 
 /* ─── Cartouche : logos | projet | personnes | échelle + contact ─────────── */
 
-async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPaperMm, x, y, w, h }) {
+async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, version, metersPerPaperMm, x, y, w, h }) {
   const GRAY = [90, 90, 95]
   const DARK = [30, 30, 34]
   const pad = 3
@@ -216,34 +222,50 @@ async function drawCartouche(pdf, { cartouche, logoImages, version, metersPerPap
   {
     const lx = cx + pad
     let ly = y + 5.5
+    // Titre du plan (le bandeau noir disparaît quand le cartouche est là) +
+    // catégorie en gris.
     pdf.setTextColor(...DARK)
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(10)
-    pdf.text((cartouche.projet || 'Projet').slice(0, 48), lx, ly)
+    const titreTxt = (titre || cartouche.projet || 'Plan technique').slice(0, 44)
+    pdf.text(titreTxt, lx, ly)
+    if (sousTitre) {
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7.5)
+      pdf.setTextColor(...GRAY)
+      pdf.text(`— ${sousTitre.slice(0, 24)}`, lx + pdf.getTextWidth(titreTxt) + 2.5, ly)
+    }
     ly += 5
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(7)
-    const editLine = [
-      `Édité le ${new Date().toLocaleDateString('fr-FR')}`,
-      version ? `V${version} en cours` : null,
-    ]
-      .filter(Boolean)
-      .join(' · ')
+    const versionLine = version
+      ? `V${version} du ${new Date().toLocaleDateString('fr-FR')}`
+      : new Date().toLocaleDateString('fr-FR')
+    // Rangées fixes + infos libres (Production, Prod. exé…), réparties sur
+    // 2 colonnes dans la case.
     const rows = [
+      cartouche.projet && ['Projet', cartouche.projet],
       cartouche.ref && ['Réf.', cartouche.ref],
       cartouche.client && ['Client', cartouche.client],
       cartouche.lieu && ['Lieu', cartouche.lieu],
       cartouche.dateEvenement && ['Événement', cartouche.dateEvenement],
-      ['Édition', editLine],
+      ['Version', versionLine],
+      ...(cartouche.infos || [])
+        .filter((i) => i.label || i.valeur)
+        .map((i) => [i.label || '—', i.valeur || '']),
     ].filter(Boolean)
-    for (const [label, value] of rows) {
-      if (ly > y + h - 2.5) break
+    const rowsPerCol = 5
+    const colW = (projetW - pad * 2) / Math.min(2, Math.ceil(rows.length / rowsPerCol))
+    rows.slice(0, rowsPerCol * 2).forEach(([label, value], i) => {
+      const col = Math.floor(i / rowsPerCol)
+      const rx = lx + col * colW
+      const ry = ly + (i % rowsPerCol) * 4.4
+      if (ry > y + h - 2) return
       pdf.setTextColor(...GRAY)
-      pdf.text(`${label} :`, lx, ly)
+      pdf.text(`${String(label).slice(0, 14)} :`, rx, ry)
       pdf.setTextColor(...DARK)
-      pdf.text(String(value).slice(0, 60), lx + 15, ly)
-      ly += 4.4
-    }
+      pdf.text(String(value).slice(0, 42), rx + 16, ry)
+    })
     cx += projetW
     vSep(pdf, cx, y, h)
   }

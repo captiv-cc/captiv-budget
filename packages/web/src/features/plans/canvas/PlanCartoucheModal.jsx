@@ -125,6 +125,7 @@ export default function PlanCartoucheModal({ canvas, org, onClose, onSaved }) {
       const cartouche = {
         ...form,
         personnes: form.personnes.filter((p) => p.role.trim() || p.nom.trim()),
+        infos: (form.infos || []).filter((i) => i.label.trim() || i.valeur.trim()),
       }
       const row = await updateCanvas(canvas.id, { cartouche })
       onSaved?.(row.cartouche)
@@ -194,6 +195,59 @@ export default function PlanCartoucheModal({ canvas, org, onClose, onSaved }) {
                   placeholder="H. Martin · 06… · dt@captiv.cc"
                 />
               </Field>
+            </div>
+
+            {/* Infos libres du bloc projet */}
+            <div>
+              <div className="text-[11px] font-semibold mb-1" style={{ color: 'var(--txt-3)' }}>
+                Infos (bloc projet, sous la version)
+              </div>
+              {(form.infos || []).map((info, i) => (
+                <div key={i} className="flex items-center gap-1.5 mb-1.5">
+                  <input
+                    type="text"
+                    value={info.label}
+                    placeholder="Production"
+                    onChange={(e) => {
+                      const infos = [...form.infos]
+                      infos[i] = { ...info, label: e.target.value }
+                      set({ infos })
+                    }}
+                    className="w-44 text-xs px-2 py-1.5 rounded-md outline-none"
+                    style={inputStyle}
+                  />
+                  <input
+                    type="text"
+                    value={info.valeur}
+                    placeholder="ZQSD"
+                    onChange={(e) => {
+                      const infos = [...form.infos]
+                      infos[i] = { ...info, valeur: e.target.value }
+                      set({ infos })
+                    }}
+                    className="flex-1 text-xs px-2 py-1.5 rounded-md outline-none"
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => set({ infos: form.infos.filter((_, j) => j !== i) })}
+                    className="p-1.5"
+                    style={{ color: 'var(--txt-3)' }}
+                    title="Retirer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => set({ infos: [...(form.infos || []), { label: '', valeur: '' }] })}
+                className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md"
+                style={{ color: 'var(--blue)' }}
+              >
+                <Plus className="w-3 h-3" />
+                Ajouter une info
+              </button>
             </div>
 
             {/* Personnes */}
