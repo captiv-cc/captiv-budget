@@ -25,10 +25,22 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import * as Y from 'yjs'
-import { createTLStore, defaultShapeUtils, defaultBindingUtils } from 'tldraw'
+import {
+  createTLStore,
+  defaultShapeUtils,
+  defaultBindingUtils,
+  atom,
+  react,
+  createPresenceStateDerivation,
+  InstancePresenceRecordType,
+} from 'tldraw'
 import { useYjsCollab } from './useYjsCollab'
 
 const Y_MAP_KEY = 'tldraw_records'
+
+// Curseurs live : throttle des broadcasts de présence (le pointeur bouge à
+// 60 Hz, Supabase Realtime n'a pas besoin de plus de ~12 msg/s).
+const PRESENCE_THROTTLE_MS = 80
 
 export function uint8ToBase64(arr) {
   let binary = ''
@@ -93,7 +105,7 @@ export function useYjsTldraw({
   extraBindingUtils,
   enabled = true,
 }) {
-  const { doc, status, peers, myUserMeta } = useYjsCollab({
+  const { doc, awareness, status, peers, myUserMeta } = useYjsCollab({
     docId: canvasId,
     scope: 'plan-canvas',
     enabled,
@@ -199,6 +211,80 @@ export function useYjsTldraw({
       doc.off('update', onDocUpdate)
     }
   }, [doc, store])
+
+  // ── Curseurs nommés live (présence tldraw ↔ awareness Yjs) ───────────────
+  // Sortant : la dérivation de présence tldraw (curseur, sélection, couleur)
+  // est poussée — throttlée — dans l'awareness, broadcastée par useYjsCollab.
+  // Entrant : les états d'awareness des pairs deviennent des records
+  // TLInstancePresence dans le store → tldraw affiche ses curseurs natifs.
+  useEffect(() => {
+    if (!doc || !store || !awareness) return undefined
+
+    const yClientId = doc.clientID.toString()
+    const userAtom = atom('captiv-presence-user', {
+      id: yClientId,
+      name: myUserMeta?.name || '?',
+      color: myUserMeta?.color || '#4d9fff',
+    })
+    const presenceDerivation = createPresenceStateDerivation(userAtom, {
+      instanceId: InstancePresenceRecordType.createId(yClientId),
+    })(store)
+
+    let lastSent = 0
+    let pendingPresence = null
+    let throttleTimer = null
+    const pushPresence = (presence) => {
+      awareness.setLocalStateField('presence', presence)
+    }
+    const stopReactor = react('captiv-presence-out', () => {
+      const presence = presenceDerivation.get()
+      if (!presence) return
+      const now = Date.now()
+      if (now - lastSent >= PRESENCE_THROTTLE_MS) {
+        lastSent = now
+        pushPresence(presence)
+      } else {
+        pendingPresence = presence
+        if (!throttleTimer) {
+          throttleTimer = setTimeout(() => {
+            throttleTimer = null
+            lastSent = Date.now()
+            if (pendingPresence) {
+              pushPresence(pendingPresence)
+              pendingPresence = null
+            }
+          }, PRESENCE_THROTTLE_MS)
+        }
+      }
+    })
+
+    const onAwarenessChange = ({ added, updated, removed }) => {
+      const states = awareness.getStates()
+      const toPut = []
+      const toRemove = []
+      for (const clientId of [...added, ...updated]) {
+        if (clientId === awareness.clientID) continue
+        const presence = states.get(clientId)?.presence
+        if (presence) toPut.push(presence)
+      }
+      for (const clientId of removed) {
+        if (clientId === awareness.clientID) continue
+        toRemove.push(InstancePresenceRecordType.createId(clientId.toString()))
+      }
+      if (!toPut.length && !toRemove.length) return
+      store.mergeRemoteChanges(() => {
+        if (toRemove.length) store.remove(toRemove)
+        if (toPut.length) store.put(toPut)
+      })
+    }
+    awareness.on('change', onAwarenessChange)
+
+    return () => {
+      stopReactor()
+      awareness.off('change', onAwarenessChange)
+      if (throttleTimer) clearTimeout(throttleTimer)
+    }
+  }, [doc, store, awareness, myUserMeta])
 
   return { store, doc, status, peers, myUserMeta }
 }
