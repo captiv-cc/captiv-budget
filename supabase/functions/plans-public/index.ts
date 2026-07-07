@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
 
   const { data: canvas } = await supabase
     .from('plans_canvas')
-    .select('id, project_id, titre, description, statut, updated_at, ydoc_state')
+    .select('id, project_id, titre, description, statut, updated_at, ydoc_state, cartouche, version_current')
     .eq('id', share.canvas_id)
     .maybeSingle()
   if (!canvas) return json({ error: 'not_found' }, 404)
@@ -120,6 +120,10 @@ Deno.serve(async (req) => {
         statut: canvas.statut,
         updated_at: canvas.updated_at,
         version: frozenVersion,
+        // Cartouche d'export PDF (configuré côté desk). Les logos storage
+        // se résolvent côté client via sign-assets (chemins du projet).
+        cartouche: canvas.cartouche || null,
+        version_current: canvas.version_current || 1,
       },
       ydocState,
       permissions: share.permissions,

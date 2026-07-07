@@ -45,6 +45,7 @@ import { CotationShapeUtil } from './shapes/CotationShapeUtil'
 import { CableShapeUtil, CableBindingUtil } from './shapes/CableShapeUtil'
 import { buildLegend } from './shapes/legend'
 import { CAM_SHAPE_TYPES } from './shapes/camUtils'
+import { pageMetersPerPx } from './shapes/scale'
 
 const CUSTOM_SHAPE_UTILS = [
   CameraShapeUtil,
@@ -246,6 +247,42 @@ export default function PlanClientView() {
     }
   }
 
+  // Logos du cartouche, résolus SANS session : les chemins storage passent
+  // par sign-assets (restreint au projet du plan), les URLs publiques (logo
+  // org) se fetchent directement. → dataURLs pour jspdf.
+  async function resolvePublicLogos(cartouche) {
+    const logos = (cartouche?.logos || []).slice(0, 3)
+    if (!logos.length) return []
+    const storagePaths = logos.filter((l) => l.kind === 'storage').map((l) => l.ref)
+    let signed = {}
+    if (storagePaths.length) {
+      const { data: res } = await supabase.functions.invoke('plans-public', {
+        body: { token, action: 'sign-assets', paths: storagePaths },
+      })
+      signed = res?.urls || {}
+    }
+    const out = await Promise.all(
+      logos.map(async (l) => {
+        const src = l.kind === 'storage' ? signed[l.ref] : l.ref
+        if (!src) return null
+        try {
+          const r = await fetch(src)
+          if (!r.ok) return null
+          const blob = await r.blob()
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result)
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+        } catch {
+          return null
+        }
+      }),
+    )
+    return out.filter(Boolean)
+  }
+
   async function exportImage() {
     const editor = editorRef.current
     if (!editor) return null
@@ -271,10 +308,18 @@ export default function PlanClientView() {
         a.remove()
       } else {
         const orgLabel = data?.org?.display_name || data?.org?.legal_name || 'Captiv'
+        // Même PDF pro que le desk : cartouche (si configuré) + échelle
+        // lue dans la meta de page du doc reconstruit.
+        const cartouche = data?.plan?.cartouche || null
+        const logoImages = cartouche ? await resolvePublicLogos(cartouche) : []
         const handle = await exportPlanPdf(editorRef.current, {
           titre: data?.plan?.titre || 'Plan technique',
           sousTitre: data?.project?.title || '',
           footer: `Généré par ${orgLabel}`,
+          cartouche,
+          logoImages,
+          version: data?.plan?.version || data?.plan?.version_current || 1,
+          metersPerPx: pageMetersPerPx(editorRef.current),
         })
         if (handle) {
           handle.download()
