@@ -115,9 +115,13 @@ export async function exportPlanPdf(editor, opts) {
       ['projet', 'ref', 'client', 'lieu', 'dateEvenement'].filter((k) => cartouche[k]).length +
       1 + // Version
       (cartouche.infos || []).filter((i) => i.label || i.valeur).length
-    const projetRowsPerCol = format === 'a4' ? rowsCount : Math.ceil(rowsCount / 2)
-    const hProjet = 13 + projetRowsPerCol * 4.4
-    const hPers = 8 + Math.ceil(persCount / 2) * 7.6
+    // A4 : typo resserrée + personnes sur UNE ligne (rôle : nom) → la case
+    // personnes s'affine, le bloc projet garde ses 2 colonnes, et la bande
+    // reste à ~34 mm (même proportion qu'en A3) sans perdre d'information.
+    const rowStep = format === 'a4' ? 4.0 : 4.4
+    const hProjet = 13 + Math.ceil(rowsCount / 2) * rowStep
+    const hPers =
+      format === 'a4' ? 8 + persCount * 3.8 : 8 + Math.ceil(persCount / 2) * 7.6
     cartH = Math.min(64, Math.max(34, hProjet, hPers))
   }
   const legendW = hasColumn ? (format === 'a3' ? 58 : 52) : 0
@@ -257,10 +261,13 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
   const logos = (logoImages || []).slice(0, 3)
   const logosW = logos.length ? logos.length * logoSlot + pad * 2 : 0
   const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, 8)
-  const persColW = compact ? 44 : 50
-  const persCols = personnes.length > 4 ? 2 : personnes.length ? 1 : 0
-  const persW = persCols ? persCols * persColW + pad * 2 : 0
-  const scaleW = compact ? 50 : 58
+  // A4 : personnes sur UNE ligne (« rôle : nom »), colonne unique étroite —
+  // c'est ce qui rend au bloc projet la largeur de ses 2 colonnes.
+  const persOneLine = compact
+  const persColW = compact ? 56 : 50
+  const persCols = persOneLine ? 1 : personnes.length > 4 ? 2 : personnes.length ? 1 : 0
+  const persW = personnes.length ? persCols * persColW + pad * 2 : 0
+  const scaleW = compact ? 46 : 58
   const projetW = w - logosW - persW - scaleW
 
   let cx = x
@@ -308,7 +315,7 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     }
     ly += 5
     pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(7)
+    pdf.setFontSize(compact ? 6.5 : 7)
     const versionLine = version
       ? `V${version} du ${new Date().toLocaleDateString('fr-FR')}`
       : new Date().toLocaleDateString('fr-FR')
@@ -324,16 +331,17 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
         .filter((i) => i.label || i.valeur)
         .map((i) => [i.label || '—', i.valeur || '']),
     ].filter(Boolean)
-    // 2 colonnes SEULEMENT si chacune a une vraie largeur (≥ 55 mm) — sinon
-    // tout en 1 colonne, la hauteur de bande (cartH) a été calculée pour.
-    const rowsPerColByHeight = Math.max(1, Math.floor((h - 12.5) / 4.4))
-    const canTwoCols = (projetW - pad * 2) / 2 >= 55
+    // 2 colonnes SEULEMENT si chacune a une vraie largeur — sinon tout en
+    // 1 colonne, la hauteur de bande (cartH) a été calculée pour.
+    const rowStep = compact ? 4.0 : 4.4
+    const rowsPerColByHeight = Math.max(1, Math.floor((h - 12.5) / rowStep))
+    const canTwoCols = (projetW - pad * 2) / 2 >= (compact ? 42 : 55)
     const cols = rows.length > rowsPerColByHeight && canTwoCols ? 2 : 1
     const colW = (projetW - pad * 2) / cols
     rows.slice(0, rowsPerColByHeight * cols).forEach(([label, value], i) => {
       const col = Math.floor(i / rowsPerColByHeight)
       const rx = lx + col * colW
-      const ry = ly + (i % rowsPerColByHeight) * 4.4
+      const ry = ly + (i % rowsPerColByHeight) * rowStep
       if (ry > y + h - 2) return
       const labelTxt = `${fitText(pdf, label, 26)} :`
       pdf.setTextColor(...GRAY)
@@ -348,22 +356,41 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     vSep(pdf, cx, y, h)
   }
 
-  // ── Case personnes (2 colonnes au-delà de 4, réparties équitablement) ──
+  // ── Case personnes ──
+  // A3 : rôle au-dessus du nom, 2 colonnes au-delà de 4.
+  // A4 : « rôle : nom » sur UNE ligne (case étroite, bande basse).
   if (personnes.length) {
-    const perCol = persCols === 2 ? Math.ceil(personnes.length / 2) : personnes.length
-    pdf.setFontSize(7)
-    personnes.forEach((p, i) => {
-      const col = Math.floor(i / perCol)
-      const lx = cx + pad + col * persColW
-      const ly = y + 5.5 + (i % perCol) * 7.6
-      if (ly + 3.2 > y + h - 1) return
-      pdf.setTextColor(...GRAY)
-      pdf.text(fitText(pdf, p.role || '—', persColW - 3), lx, ly)
-      pdf.setTextColor(...DARK)
-      pdf.setFont('helvetica', 'bold')
-      pdf.text(fitText(pdf, p.nom || '', persColW - 3), lx, ly + 3.2)
-      pdf.setFont('helvetica', 'normal')
-    })
+    if (persOneLine) {
+      pdf.setFontSize(6.5)
+      personnes.forEach((p, i) => {
+        const lx = cx + pad
+        const ly = y + 5.5 + i * 3.8
+        if (ly > y + h - 1) return
+        pdf.setTextColor(...GRAY)
+        const roleTxt = `${fitText(pdf, p.role || '—', persColW * 0.55)} : `
+        pdf.text(roleTxt, lx, ly)
+        const roleW = pdf.getTextWidth(roleTxt)
+        pdf.setTextColor(...DARK)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(fitText(pdf, p.nom || '', persColW - roleW - 2), lx + roleW, ly)
+        pdf.setFont('helvetica', 'normal')
+      })
+    } else {
+      const perCol = persCols === 2 ? Math.ceil(personnes.length / 2) : personnes.length
+      pdf.setFontSize(7)
+      personnes.forEach((p, i) => {
+        const col = Math.floor(i / perCol)
+        const lx = cx + pad + col * persColW
+        const ly = y + 5.5 + (i % perCol) * 7.6
+        if (ly + 3.2 > y + h - 1) return
+        pdf.setTextColor(...GRAY)
+        pdf.text(fitText(pdf, p.role || '—', persColW - 3), lx, ly)
+        pdf.setTextColor(...DARK)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(fitText(pdf, p.nom || '', persColW - 3), lx, ly + 3.2)
+        pdf.setFont('helvetica', 'normal')
+      })
+    }
     cx += persW
     vSep(pdf, cx, y, h)
   }
