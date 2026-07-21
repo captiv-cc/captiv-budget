@@ -101,9 +101,25 @@ export async function exportPlanPdf(editor, opts) {
   const ph = pdf.internal.pageSize.getHeight()
   const margin = 8
   // Avec cartouche : pas de bandeau noir (le titre vit dans le bloc projet),
-  // tout l'espace pour le plan.
+  // tout l'espace pour le plan. Hauteur ADAPTÉE au contenu (A4 étroit =
+  // bloc projet sur 1 colonne = plus de rangées → bande plus haute), pour
+  // ne JAMAIS perdre d'information.
   const headerH = cartouche ? 0 : 14
-  const cartH = cartouche ? 34 : 0
+  let cartH = 0
+  if (cartouche) {
+    const persCount = Math.min(
+      (cartouche.personnes || []).filter((p) => p.role || p.nom).length,
+      8,
+    )
+    const rowsCount =
+      ['projet', 'ref', 'client', 'lieu', 'dateEvenement'].filter((k) => cartouche[k]).length +
+      1 + // Version
+      (cartouche.infos || []).filter((i) => i.label || i.valeur).length
+    const projetRowsPerCol = format === 'a4' ? rowsCount : Math.ceil(rowsCount / 2)
+    const hProjet = 13 + projetRowsPerCol * 4.4
+    const hPers = 8 + Math.ceil(persCount / 2) * 7.6
+    cartH = Math.min(64, Math.max(34, hProjet, hPers))
+  }
   const legendW = hasColumn ? (format === 'a3' ? 58 : 52) : 0
 
   // ── En-tête (layout historique uniquement) ─────────────────────────────
@@ -234,14 +250,17 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
   pdf.setLineWidth(0.35)
   pdf.rect(x, y, w, h, 'FD')
 
-  // ── Largeurs de cases ──
+  // ── Largeurs de cases (compactées en A4 : la page est étroite, on garde
+  //    TOUTE l'information — c'est la hauteur qui s'adapte, cf. cartH) ──
+  const compact = pdf.internal.pageSize.getWidth() < 400
+  const logoSlot = compact ? 24 : 30
   const logos = (logoImages || []).slice(0, 3)
-  const logosW = logos.length ? logos.length * 30 + pad * 2 : 0
-  // A4 : une seule colonne de personnes (le bloc projet doit respirer).
-  const maxPers = pdf.internal.pageSize.getWidth() > 400 ? 8 : 4
-  const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, maxPers)
-  const persW = personnes.length ? (personnes.length > 4 ? 104 : 56) : 0
-  const scaleW = 58
+  const logosW = logos.length ? logos.length * logoSlot + pad * 2 : 0
+  const personnes = (cartouche.personnes || []).filter((p) => p.role || p.nom).slice(0, 8)
+  const persColW = compact ? 44 : 50
+  const persCols = personnes.length > 4 ? 2 : personnes.length ? 1 : 0
+  const persW = persCols ? persCols * persColW + pad * 2 : 0
+  const scaleW = compact ? 50 : 58
   const projetW = w - logosW - persW - scaleW
 
   let cx = x
@@ -251,13 +270,13 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     const imgs = await Promise.all(logos.map((src) => loadImg(src).catch(() => null)))
     let lx = cx + pad
     imgs.filter(Boolean).forEach((img) => {
-      const maxW = 28
-      const maxH = h - pad * 2
+      const maxW = logoSlot - 2
+      const maxH = Math.min(24, h - pad * 2)
       const r = Math.min(maxW / img.width, maxH / img.height)
       const iw = img.width * r
       const ih = img.height * r
       pdf.addImage(img.src, lx + (maxW - iw) / 2, y + (h - ih) / 2, iw, ih)
-      lx += 30
+      lx += logoSlot
     })
     cx += logosW
     vSep(pdf, cx, y, h)
@@ -272,7 +291,11 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     pdf.setTextColor(...DARK)
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(10)
-    const titreTxt = (titre || cartouche.projet || 'Plan technique').slice(0, 44)
+    const titreTxt = fitText(
+      pdf,
+      titre || cartouche.projet || 'Plan technique',
+      projetW - pad * 2 - (sousTitre ? 16 : 0),
+    )
     pdf.text(titreTxt, lx, ly)
     // Largeur mesurée AVANT de réduire la police (sinon la catégorie
     // s'imprime dans le titre).
@@ -289,8 +312,7 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     const versionLine = version
       ? `V${version} du ${new Date().toLocaleDateString('fr-FR')}`
       : new Date().toLocaleDateString('fr-FR')
-    // Rangées fixes + infos libres (Production, Prod. exé…), réparties sur
-    // 2 colonnes dans la case.
+    // Rangées fixes + infos libres (Production, Prod. exé…).
     const rows = [
       cartouche.projet && ['Projet', cartouche.projet],
       cartouche.ref && ['Réf.', cartouche.ref],
@@ -302,44 +324,45 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
         .filter((i) => i.label || i.valeur)
         .map((i) => [i.label || '—', i.valeur || '']),
     ].filter(Boolean)
-    const rowsPerCol = 5
-    const colW = (projetW - pad * 2) / Math.min(2, Math.ceil(rows.length / rowsPerCol))
-    rows.slice(0, rowsPerCol * 2).forEach(([label, value], i) => {
-      const col = Math.floor(i / rowsPerCol)
+    // 2 colonnes SEULEMENT si chacune a une vraie largeur (≥ 55 mm) — sinon
+    // tout en 1 colonne, la hauteur de bande (cartH) a été calculée pour.
+    const rowsPerColByHeight = Math.max(1, Math.floor((h - 12.5) / 4.4))
+    const canTwoCols = (projetW - pad * 2) / 2 >= 55
+    const cols = rows.length > rowsPerColByHeight && canTwoCols ? 2 : 1
+    const colW = (projetW - pad * 2) / cols
+    rows.slice(0, rowsPerColByHeight * cols).forEach(([label, value], i) => {
+      const col = Math.floor(i / rowsPerColByHeight)
       const rx = lx + col * colW
-      const ry = ly + (i % rowsPerCol) * 4.4
+      const ry = ly + (i % rowsPerColByHeight) * 4.4
       if (ry > y + h - 2) return
-      const labelTxt = `${String(label).slice(0, 22)} :`
+      const labelTxt = `${fitText(pdf, label, 26)} :`
       pdf.setTextColor(...GRAY)
       pdf.text(labelTxt, rx, ry)
       pdf.setTextColor(...DARK)
-      // Valeur APRÈS le libellé mesuré (16 mm mini pour l'alignement des
-      // rangées courantes, poussée au-delà pour les libellés longs).
+      // Valeur après le libellé mesuré, tronquée AU MILLIMÈTRE pour ne
+      // jamais déborder sur la colonne / case suivante.
       const vx = rx + Math.max(16, pdf.getTextWidth(labelTxt) + 2)
-      pdf.text(String(value).slice(0, 42), vx, ry)
+      pdf.text(fitText(pdf, value, colW - (vx - rx) - 2), vx, ry)
     })
     cx += projetW
     vSep(pdf, cx, y, h)
   }
 
-  // ── Case personnes (2 colonnes au-delà de 4) ──
+  // ── Case personnes (2 colonnes au-delà de 4, réparties équitablement) ──
   if (personnes.length) {
-    const colW = 48
-    let ly = y + 5.5
-    let lx = cx + pad
+    const perCol = persCols === 2 ? Math.ceil(personnes.length / 2) : personnes.length
     pdf.setFontSize(7)
     personnes.forEach((p, i) => {
-      if (i === 4) {
-        lx += colW + pad
-        ly = y + 5.5
-      }
+      const col = Math.floor(i / perCol)
+      const lx = cx + pad + col * persColW
+      const ly = y + 5.5 + (i % perCol) * 7.6
+      if (ly + 3.2 > y + h - 1) return
       pdf.setTextColor(...GRAY)
-      pdf.text((p.role || '—').slice(0, 32), lx, ly)
+      pdf.text(fitText(pdf, p.role || '—', persColW - 3), lx, ly)
       pdf.setTextColor(...DARK)
       pdf.setFont('helvetica', 'bold')
-      pdf.text((p.nom || '').slice(0, 32), lx, ly + 3.2)
+      pdf.text(fitText(pdf, p.nom || '', persColW - 3), lx, ly + 3.2)
       pdf.setFont('helvetica', 'normal')
-      ly += 7.6
     })
     cx += persW
     vSep(pdf, cx, y, h)
@@ -351,11 +374,12 @@ async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, ver
     let ly = y + 5.5
     pdf.setFontSize(7)
     if (metersPerPaperMm > 0) {
-      // Barre graphique : longueur ronde (m) tenant dans ~48 mm papier.
+      // Barre graphique : longueur ronde (m) tenant dans la case.
+      const barMax = scaleW - 14
       const candidates = [0.5, 1, 2, 5, 10, 20, 50, 100, 200]
       let best = candidates[0]
       for (const c of candidates) {
-        if (c / metersPerPaperMm <= 48) best = c
+        if (c / metersPerPaperMm <= barMax) best = c
       }
       const barMm = best / metersPerPaperMm
       const seg = barMm / 4
@@ -395,6 +419,16 @@ function vSep(pdf, x, y, h) {
   pdf.setDrawColor(190, 190, 195)
   pdf.setLineWidth(0.2)
   pdf.line(x, y + 1.5, x, y + h - 1.5)
+}
+
+/** Tronque un texte à une largeur PAPIER (mm), mesurée avec la police
+    courante — garantit zéro débordement de case, contrairement à une
+    troncature en nombre de caractères. */
+function fitText(pdf, text, maxW) {
+  let t = String(text ?? '')
+  if (pdf.getTextWidth(t) <= maxW) return t
+  while (t.length > 1 && pdf.getTextWidth(`${t}…`) > maxW) t = t.slice(0, -1)
+  return `${t.trimEnd()}…`
 }
 
 function fmtScaleMeters(m) {
