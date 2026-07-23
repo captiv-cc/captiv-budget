@@ -26,6 +26,7 @@ import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
 import { notify } from '../../lib/notify'
 import MaterielHeader from '../../features/materiel/components/MaterielHeader'
+import MaterielListesGrid, { MaterielListeBar } from '../../features/materiel/components/MaterielListesGrid'
 import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
 import MaterielPhotosPanel from '../../features/materiel/components/MaterielPhotosPanel'
@@ -88,6 +89,10 @@ export default function MaterielTab() {
     loading,
     detailLoading,
     versions,
+    allVersions,
+    listes,
+    activeListe,
+    setActiveListeId,
     activeVersion,
     activeVersionId,
     setActiveVersionId,
@@ -627,6 +632,18 @@ export default function MaterielTab() {
     }
   }
 
+  // ─── MATOS-LISTES : hall d'entrée ────────────────────────────────────────
+  // ≥ 2 listes actives → on atterrit sur la grille ; 1 seule → ouverture
+  // directe (la grille reste accessible via « ‹ Listes »). Décision prise
+  // une fois par montage, après chargement.
+  const [showGrid, setShowGrid] = useState(null)
+  const gridDecidedRef = useRef(false)
+  if (!loading && !gridDecidedRef.current) {
+    gridDecidedRef.current = true
+    const activeCount = listes.filter((l) => !l.archived).length
+    if (showGrid === null) setShowGrid(activeCount > 1)
+  }
+
   // ─── Loading ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -642,7 +659,30 @@ export default function MaterielTab() {
     )
   }
 
-  // ─── Empty state : aucune version sur le projet ─────────────────────────
+  // ─── Grille des listes (hall d'entrée multi-listes) ──────────────────────
+  if (showGrid && listes.length > 0) {
+    return (
+      <MaterielListesGrid
+        projectId={projectId}
+        listes={listes}
+        allVersions={allVersions}
+        canEdit={canEdit}
+        onOpen={(liste) => {
+          setActiveListeId(liste.id)
+          setShowGrid(false)
+        }}
+        onCreate={async ({ titre, devisLotId }) => {
+          await actions.createListe({ titre, devisLotId })
+          setShowGrid(false)
+        }}
+        onUpdate={(listeId, fields) => actions.updateListe(listeId, fields)}
+        onDuplicate={(liste) => actions.duplicateListe(liste)}
+        onDelete={(listeId) => actions.deleteListe(listeId)}
+      />
+    )
+  }
+
+  // ─── Empty state : aucune version (projet vierge ou liste vide) ──────────
   if (!versions.length) {
     return (
       <EmptyNoVersions
@@ -656,6 +696,16 @@ export default function MaterielTab() {
   // ─── Rendu principal ─────────────────────────────────────────────────────
   return (
     <div className="flex flex-col min-h-full">
+      {/* MATOS-LISTES : navigation de liste (retour grille + switch). */}
+      {listes.length > 0 && (
+        <MaterielListeBar
+          projectId={projectId}
+          listes={listes}
+          activeListe={activeListe}
+          onSwitch={setActiveListeId}
+          onBackToGrid={() => setShowGrid(true)}
+        />
+      )}
       <MaterielHeader
         totalItems={items.length}
         flagCounts={flagCounts}
