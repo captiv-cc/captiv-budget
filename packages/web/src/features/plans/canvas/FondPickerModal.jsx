@@ -45,6 +45,9 @@ export default function FondPickerModal({ projectId, currentFondId, onClose, onP
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
             Fond de plan
+            <span className="block text-[11px] font-normal mt-0.5" style={{ color: 'var(--txt-3)' }}>
+              Choisir un fichier de la bibliothèque du projet
+            </span>
           </h2>
           <button type="button" onClick={onClose} className="p-1 rounded-md" style={{ color: 'var(--txt-3)' }}>
             <X className="w-4 h-4" />

@@ -1,9 +1,11 @@
 // ════════════════════════════════════════════════════════════════════════════
-// PlansFondsView — Bibliothèque de fichiers plans (fonds importés)
+// PlansFondsView — sous-onglet « Fichiers » du module Plans
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Tab "Plans" : stocke et affiche les plans techniques d'un projet (caméra,
-// lumière, son, masse, …) consultables facilement en terrain depuis mobile.
+// Bibliothèque de FICHIERS du projet (plans de salle, dossiers techniques,
+// images…), consultables en terrain depuis mobile et partageables par lien.
+// Servir de fond à un plan éditable n'est qu'un usage parmi d'autres —
+// le nom historique du composant reste (tables plans/plan_versions).
 //
 // Layout :
 //   - Header (titre + stats + bouton Ajouter si canEdit)
@@ -50,7 +52,6 @@ import PlanFormModal from '../../features/plans/PlanFormModal'
 import PlansExportProgress from '../../features/plans/PlansExportProgress'
 import PlansShareModal from '../../features/plans/PlansShareModal'
 import PlanViewer from '../../features/plans/PlanViewer'
-import LieuCarteView from '../../features/lieux/LieuCarteView'
 import { exportPlansAsZip, triggerZipDownload } from '../../lib/plansZipExport'
 
 const OUTIL_KEY = 'plans'
@@ -107,8 +108,7 @@ export default function PlansFondsView() {
   }, [])
   const effectiveViewMode = viewMode || 'grid'
 
-  // ── Mode haut-niveau : liste des plans ('plans') ou carte interactive ('carte')
-  const [topMode, setTopMode] = useState('plans')
+  // (La carte du site est désormais une entrée de premier rang de PlansTab.)
 
   const filteredPlans = useMemo(() => {
     let list = plans
@@ -466,19 +466,6 @@ export default function PlansFondsView() {
     )
   }
 
-  // Sous-onglet Carte : vue dédiée plein-cadre (géoréf + POIs).
-  if (topMode === 'carte') {
-    return (
-      <LieuCarteView
-        projectId={projectId}
-        project={project}
-        plans={plans}
-        canEdit={canEdit}
-        onBack={() => setTopMode('plans')}
-      />
-    )
-  }
-
   return (
     <div className="px-4 sm:px-6 py-4 sm:py-6">
       {/* Header — aligné sur le pattern MaterielHeader (grosse icône + stats + actions) */}
@@ -491,33 +478,15 @@ export default function PlansFondsView() {
         </div>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold leading-tight" style={{ color: 'var(--txt)' }}>
-            Plans
+            Fichiers
           </h1>
           <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
-            {plans.filter((p) => !p.is_archived).length} plan
+            {plans.filter((p) => !p.is_archived).length} fichier
             {plans.filter((p) => !p.is_archived).length > 1 ? 's' : ''}
             {categories.filter((c) => !c.is_archived).length > 0 &&
               ` · ${categories.filter((c) => !c.is_archived).length} catégorie${categories.filter((c) => !c.is_archived).length > 1 ? 's' : ''}`}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setTopMode('carte')}
-          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shrink-0"
-          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hov)'
-            e.currentTarget.style.color = 'var(--txt)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'var(--bg-elev)'
-            e.currentTarget.style.color = 'var(--txt-2)'
-          }}
-          title="Carte interactive — caler le plan sur le satellite, points de RDV"
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Carte</span>
-        </button>
         {canEdit && (
           <div className="flex items-center gap-1.5 shrink-0">
             {activePlans.length > 0 && (
@@ -579,7 +548,7 @@ export default function PlansFondsView() {
               style={{ background: 'var(--blue)', color: 'white' }}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ajouter un plan</span>
+              <span className="hidden sm:inline">Importer un fichier</span>
               <span className="sm:hidden">Ajouter</span>
             </button>
           </div>
@@ -1620,7 +1589,7 @@ function EmptyState({ canEdit, hasFilters, onCreate }) {
           style={{ background: 'var(--blue)', color: 'white' }}
         >
           <Plus className="w-3.5 h-3.5" />
-          Ajouter un plan
+          Importer un fichier
         </button>
       )}
     </div>

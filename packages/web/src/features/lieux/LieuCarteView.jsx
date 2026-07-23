@@ -384,15 +384,19 @@ export default function LieuCarteView({ projectId, project, plans = [], canEdit 
     <div className="px-4 sm:px-6 py-4 sm:py-6">
       {/* Header */}
       <header className="flex items-start gap-3 mb-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-          style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-          title="Retour aux plans"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
+        {/* Flèche retour seulement en mode imbriqué (sans onBack, la vue est
+            une entrée de premier rang du module Plans). */}
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+            title="Retour aux plans"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+        )}
         <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--blue-bg)' }}>
           <MapIcon className="w-5 h-5" style={{ color: 'var(--blue)' }} />
         </div>
