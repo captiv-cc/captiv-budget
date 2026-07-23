@@ -318,7 +318,7 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
   pdf.setTextColor(...C.textFaint)
   const footerY = PAGE_H - MARGIN_BOTTOM - 1
   pdf.text(
-    `Captiv DESK — généré le ${formatDateTime(generatedAt)}`,
+    `DESK. — généré le ${formatDateTime(generatedAt)}`,
     MARGIN_X,
     footerY,
   )

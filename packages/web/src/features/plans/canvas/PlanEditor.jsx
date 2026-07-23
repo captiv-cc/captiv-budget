@@ -717,7 +717,7 @@ export default function PlanEditor({ canvasId, onClose, readOnly = false }) {
         const handle = await exportPlanPdf(editorRef.current, {
           titre: canvas?.titre || 'Plan technique',
           sousTitre: catLabel || '',
-          footer: 'Généré par Captiv DESK',
+          footer: 'Généré par DESK.',
           cartouche: canvas?.cartouche || null,
           logoImages,
           version: canvas?.version_current || 1,

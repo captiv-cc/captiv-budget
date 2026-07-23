@@ -7,7 +7,6 @@ import { CAM_SHAPE_TYPES } from './camUtils'
 import { ZONE_SHAPE_TYPE } from './ZoneShapeUtil'
 import { CABLE_SHAPE_TYPE, cableLengthPx } from './CableShapeUtil'
 import { CABLE_TYPES } from './catalog'
-import { fmtMeters } from './scale'
 
 /**
  * @param {Array} records — records tldraw (store.allRecords() ou doc Yjs)
@@ -18,9 +17,6 @@ export function buildLegend(records) {
   const camGroups = new Map() // support → { color, count }
   const itemGroups = new Map() // label → { color, count }
   const cableGroups = new Map() // type → { count, lenPx }
-  // Échelle du plan (meta de la page) pour le métrage des câbles.
-  const mpp =
-    Number(records.find((r) => r.typeName === 'page')?.meta?.metersPerPx) || 0
   records.forEach((r) => {
     if (r.typeName !== 'shape') return
     if (r.type === CABLE_SHAPE_TYPE) {
@@ -53,12 +49,13 @@ export function buildLegend(records) {
   itemGroups.forEach((g, key) =>
     entries.push({ label: g.count > 1 ? `${key} (${g.count})` : key, color: g.color, kind: 'item' }),
   )
-  // Câbles : compte + métrage total si l'échelle est définie.
+  // Câbles : couleur + quantité SEULEMENT (décision Hugo 2026-07-07) — le
+  // cumul de métrage n'était pas actionnable en légende ; le métrage
+  // détaillé par tirage vit dans la nomenclature.
   cableGroups.forEach((g, key) => {
     const type = CABLE_TYPES[key] || CABLE_TYPES.autre
-    const metrage = mpp > 0 ? ` · ${fmtMeters(g.lenPx * mpp)} m` : ''
     entries.push({
-      label: `${type.label} (${g.count})${metrage}`,
+      label: `${type.label} (${g.count})`,
       color: type.color,
       kind: 'cable',
     })

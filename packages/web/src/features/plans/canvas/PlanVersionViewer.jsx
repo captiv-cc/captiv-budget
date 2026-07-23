@@ -164,7 +164,7 @@ export default function PlanVersionViewer({
       const handle = await exportPlanPdf(editor, {
         titre: `${canvas.titre} — V${version.version}`,
         sousTitre: version.commentaire || '',
-        footer: 'Généré par Captiv DESK',
+        footer: 'Généré par DESK.',
         cartouche: canvas.cartouche || null,
         logoImages,
         version: version.version,

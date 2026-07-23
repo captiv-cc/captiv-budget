@@ -12,7 +12,7 @@
 //     - toutes les lanes de type 'global'
 //     - toutes les lanes de type 'lieu' (scènes)
 //     - la lane du cadreur sélectionné
-//   - Footer (Captiv DESK + heure de génération)
+//   - Footer (DESK. + heure de génération)
 //
 // Pas de QR code (V1). Le cadreur peut se référer à la version web via Captiv.
 //
@@ -307,7 +307,7 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
   ctx.fillStyle = C.textMuted
   ctx.font = '500 24px -apple-system, system-ui, sans-serif'
   ctx.textBaseline = 'middle'
-  ctx.fillText('Captiv DESK', PAD_X, H - FOOTER_H / 2)
+  ctx.fillText('DESK.', PAD_X, H - FOOTER_H / 2)
   ctx.textAlign = 'right'
   const now = generatedAt || new Date()
   const dateStr = now.toLocaleDateString('fr-FR') + ' ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })

@@ -54,9 +54,13 @@ function buildNomenclature(editor, margePct) {
       })
     } else if (r.type === CABLE_SHAPE_TYPE) {
       const key = r.props.cableType || 'autre'
-      const g = cables.get(key) || { count: 0, lenPx: 0 }
+      const g = cables.get(key) || { count: 0, lenPx: 0, runs: [] }
       g.count += 1
-      g.lenPx += cableLengthPx(r.props)
+      const lenPx = cableLengthPx(r.props)
+      g.lenPx += lenPx
+      // Détail PAR TIRAGE (décision Hugo 2026-07-07) : c'est la longueur
+      // individuelle qui sert à commander, pas le cumul.
+      g.runs.push({ label: r.props.label || null, lenPx })
       cables.set(key, g)
     }
   })
@@ -71,6 +75,10 @@ function buildNomenclature(editor, margePct) {
       count: g.count,
       meters,
       metersMarge: meters != null ? meters * (1 + margePct / 100) : null,
+      runs: g.runs.map((run, i) => ({
+        label: run.label || `${type.label} ${i + 1}`,
+        meters: mpp > 0 ? run.lenPx * mpp : null,
+      })),
     }
   })
   return {
@@ -98,10 +106,18 @@ function toCsv(nom, margePct) {
   nom.zones.forEach((z) => push([z.label, z.dims ?? '', z.surface ?? '']))
   push([])
   push(['CÂBLES'])
-  push(['Type', 'Nombre', 'Métrage (m)', `Métrage +${margePct}% (m)`])
-  nom.cables.forEach((c) =>
-    push([c.label, c.count, c.meters != null ? c.meters.toFixed(1) : '', c.metersMarge != null ? c.metersMarge.toFixed(1) : '']),
-  )
+  push(['Type', 'Tirage', 'Longueur (m)', `Total +${margePct}% (m)`])
+  nom.cables.forEach((c) => {
+    c.runs.forEach((run) =>
+      push([c.label, run.label, run.meters != null ? run.meters.toFixed(1) : '', '']),
+    )
+    push([
+      c.label,
+      `TOTAL (${c.count})`,
+      c.meters != null ? c.meters.toFixed(1) : '',
+      c.metersMarge != null ? c.metersMarge.toFixed(1) : '',
+    ])
+  })
   return lines.join('\n')
 }
 
@@ -249,20 +265,32 @@ export default function NomenclatureModal({ editor, canvas, onClose }) {
                 </label>
               </div>
               {nom.cables.map((c) => (
-                <div key={c.label} className="flex items-center gap-2 py-1" style={{ borderTop: '1px solid var(--brd)' }}>
-                  <span className="w-3.5 h-[3px] rounded-full shrink-0" style={{ background: c.color }} />
-                  <span className="flex-1" style={td}>
-                    {c.label} <span style={th}>×{c.count}</span>
-                  </span>
-                  {c.meters != null && (
-                    <span style={td}>
-                      {fmtMeters(c.meters)} m
-                      <span className="font-bold" style={{ color: 'var(--txt)' }}>
-                        {' '}
-                        → {fmtMeters(c.metersMarge)} m
-                      </span>
+                <div key={c.label} style={{ borderTop: '1px solid var(--brd)' }}>
+                  <div className="flex items-center gap-2 py-1">
+                    <span className="w-3.5 h-[3px] rounded-full shrink-0" style={{ background: c.color }} />
+                    <span className="flex-1 font-semibold" style={{ color: 'var(--txt)' }}>
+                      {c.label} <span style={th}>×{c.count}</span>
                     </span>
-                  )}
+                    {c.meters != null && (
+                      <span style={td}>
+                        {fmtMeters(c.meters)} m
+                        <span className="font-bold" style={{ color: 'var(--txt)' }}>
+                          {' '}
+                          → {fmtMeters(c.metersMarge)} m
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {/* Détail par tirage : la longueur individuelle est celle
+                      qui sert à commander. */}
+                  {c.runs.map((run, i) => (
+                    <div key={i} className="flex items-center gap-2 pl-6 py-0.5 text-[11px]">
+                      <span className="flex-1 truncate" style={td}>
+                        {run.label}
+                      </span>
+                      {run.meters != null && <span style={td}>{fmtMeters(run.meters)} m</span>}
+                    </div>
+                  ))}
                 </div>
               ))}
             </section>
