@@ -140,19 +140,137 @@ export const LOUEUR_COLOR_PRESETS = [
 // ═══ Fetch helpers ═══════════════════════════════════════════════════════════
 
 /**
- * Charge toutes les versions d'un projet (triées par numéro).
+ * Charge toutes les versions d'un projet (triées par numéro), toutes listes
+ * confondues — le scoping par liste se fait côté hook (matos_liste_id).
  */
 export async function fetchVersions(projectId) {
   if (!projectId) return []
   const { data, error } = await supabase
     .from('matos_versions')
     .select(
-      'id, project_id, numero, label, is_active, archived_at, notes, created_at, created_by',
+      'id, project_id, matos_liste_id, numero, label, is_active, archived_at, notes, created_at, created_by',
     )
     .eq('project_id', projectId)
     .order('numero', { ascending: true })
   if (error) throw error
   return data || []
+}
+
+// ═══ Listes (MATOS-LISTES) ═══════════════════════════════════════════════════
+// Un projet porte N listes (« Scène A », « Scène B », …), chacune avec son
+// fil de versions. devis_lot_id = rattachement informatif à un lot de devis.
+
+/** Listes du projet, principale d'abord (sort_order puis création). */
+export async function fetchListes(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('matos_listes')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('archived', { ascending: true })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Crée une liste ET sa V1 vide (une liste sans version est inutilisable).
+ * Retourne { liste, version }.
+ */
+export async function createListe({ projectId, titre, devisLotId = null }) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { data: liste, error: lErr } = await supabase
+    .from('matos_listes')
+    .insert({
+      project_id: projectId,
+      titre: titre?.trim() || 'Nouvelle liste',
+      devis_lot_id: devisLotId,
+      created_by: user?.id || null,
+    })
+    .select()
+    .single()
+  if (lErr) throw lErr
+
+  const { data: version, error: vErr } = await supabase
+    .from('matos_versions')
+    .insert({
+      project_id: projectId,
+      matos_liste_id: liste.id,
+      numero: 1,
+      is_active: true,
+      created_by: user?.id || null,
+    })
+    .select()
+    .single()
+  if (vErr) throw vErr
+
+  return { liste, version }
+}
+
+export async function updateListe(listeId, fields) {
+  const allowed = ['titre', 'devis_lot_id', 'sort_order', 'archived']
+  const payload = { updated_at: new Date().toISOString() }
+  for (const k of allowed) if (k in fields) payload[k] = fields[k]
+  const { data, error } = await supabase
+    .from('matos_listes')
+    .update(payload)
+    .eq('id', listeId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+/** Suppression DÉFINITIVE (cascade versions/blocs/items). Confirm côté UI. */
+export async function deleteListe(listeId) {
+  const { error } = await supabase.from('matos_listes').delete().eq('id', listeId)
+  if (error) throw error
+}
+
+/**
+ * Duplique une liste : nouvelle liste (même lot) + copie de la version
+ * ACTIVE de la source (checks vierges, cf. duplicateVersion).
+ */
+export async function duplicateListe({ sourceListe, titre }) {
+  const versions = await fetchVersions(sourceListe.project_id)
+  const ofListe = versions.filter((v) => v.matos_liste_id === sourceListe.id)
+  const active =
+    ofListe.find((v) => v.is_active && !v.archived_at) ||
+    ofListe[ofListe.length - 1] ||
+    null
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { data: liste, error: lErr } = await supabase
+    .from('matos_listes')
+    .insert({
+      project_id: sourceListe.project_id,
+      titre: titre?.trim() || `${sourceListe.titre} (copie)`,
+      devis_lot_id: sourceListe.devis_lot_id,
+      created_by: user?.id || null,
+    })
+    .select()
+    .single()
+  if (lErr) throw lErr
+
+  if (active) {
+    await duplicateVersion({ sourceVersionId: active.id, targetListeId: liste.id })
+  } else {
+    await supabase.from('matos_versions').insert({
+      project_id: sourceListe.project_id,
+      matos_liste_id: liste.id,
+      numero: 1,
+      is_active: true,
+      created_by: user?.id || null,
+    })
+  }
+  return liste
 }
 
 /**
@@ -260,26 +378,28 @@ export async function fetchLoueurs() {
 // ═══ Mutations — Versions ═══════════════════════════════════════════════════
 
 /**
- * Crée une nouvelle version vide. Devient automatiquement la version active ;
- * les autres actives du projet passent en archivées (une seule active à la fois).
+ * Crée une nouvelle version vide DANS UNE LISTE. Devient automatiquement la
+ * version active de la liste ; les autres actives de la liste passent en
+ * archivées (une seule active par liste).
  */
-export async function createVersion({ projectId, label = null }) {
-  // 1. Calcule le prochain numero pour ce projet.
+export async function createVersion({ projectId, listeId, label = null }) {
+  if (!listeId) throw new Error('createVersion : listeId requis')
+  // 1. Calcule le prochain numero pour cette liste.
   const { data: existing, error: exErr } = await supabase
     .from('matos_versions')
     .select('numero')
-    .eq('project_id', projectId)
+    .eq('matos_liste_id', listeId)
     .order('numero', { ascending: false })
     .limit(1)
     .maybeSingle()
   if (exErr) throw exErr
   const nextNumero = (existing?.numero || 0) + 1
 
-  // 2. Archive la version active (s'il y en a une).
+  // 2. Archive la version active de la liste (s'il y en a une).
   await supabase
     .from('matos_versions')
     .update({ is_active: false, archived_at: new Date().toISOString() })
-    .eq('project_id', projectId)
+    .eq('matos_liste_id', listeId)
     .eq('is_active', true)
 
   // 3. Crée la nouvelle version active.
@@ -291,6 +411,7 @@ export async function createVersion({ projectId, label = null }) {
     .from('matos_versions')
     .insert({
       project_id: projectId,
+      matos_liste_id: listeId,
       numero: nextNumero,
       label,
       is_active: true,
@@ -309,7 +430,7 @@ export async function createVersion({ projectId, label = null }) {
  * checklist (une nouvelle version = checks vierges).
  * La version source reste active ; la nouvelle version devient la nouvelle active.
  */
-export async function duplicateVersion({ sourceVersionId }) {
+export async function duplicateVersion({ sourceVersionId, targetListeId = null }) {
   // 1. Récupère la source + ses détails.
   const { data: src, error: srcErr } = await supabase
     .from('matos_versions')
@@ -318,25 +439,29 @@ export async function duplicateVersion({ sourceVersionId }) {
     .single()
   if (srcErr) throw srcErr
 
+  // Liste cible : la même par défaut (Dupliquer la version), une autre pour
+  // « Dupliquer la liste » (la copie devient la V1+ de la nouvelle liste).
+  const listeId = targetListeId || src.matos_liste_id
+
   const { blocks, items, itemLoueurs, versionLoueurInfos } =
     await fetchVersionDetails(sourceVersionId)
 
-  // 2. Calcule le prochain numero sur ce projet.
+  // 2. Calcule le prochain numero sur la liste cible.
   const { data: existing, error: exErr } = await supabase
     .from('matos_versions')
     .select('numero')
-    .eq('project_id', src.project_id)
+    .eq('matos_liste_id', listeId)
     .order('numero', { ascending: false })
     .limit(1)
     .maybeSingle()
   if (exErr) throw exErr
   const nextNumero = (existing?.numero || 0) + 1
 
-  // 3. Archive la version active courante (pas nécessairement la source).
+  // 3. Archive la version active courante de la liste cible.
   await supabase
     .from('matos_versions')
     .update({ is_active: false, archived_at: new Date().toISOString() })
-    .eq('project_id', src.project_id)
+    .eq('matos_liste_id', listeId)
     .eq('is_active', true)
 
   const {
@@ -348,8 +473,9 @@ export async function duplicateVersion({ sourceVersionId }) {
     .from('matos_versions')
     .insert({
       project_id: src.project_id,
+      matos_liste_id: listeId,
       numero: nextNumero,
-      label: src.label ? `${src.label} (copie)` : null,
+      label: targetListeId ? src.label : src.label ? `${src.label} (copie)` : null,
       is_active: true,
       notes: src.notes,
       created_by: user?.id || null,
@@ -448,21 +574,21 @@ export async function archiveVersion(versionId) {
 
 /**
  * Restaure une version archivée : elle redevient active. Si une autre version
- * du même projet est active, elle est archivée automatiquement.
+ * de la MÊME LISTE est active, elle est archivée automatiquement.
  */
 export async function restoreVersion(versionId) {
   const { data: target, error: tErr } = await supabase
     .from('matos_versions')
-    .select('project_id')
+    .select('project_id, matos_liste_id')
     .eq('id', versionId)
     .single()
   if (tErr) throw tErr
 
-  // Archive toutes les autres actives du même projet.
+  // Archive toutes les autres actives de la même liste.
   await supabase
     .from('matos_versions')
     .update({ is_active: false, archived_at: new Date().toISOString() })
-    .eq('project_id', target.project_id)
+    .eq('matos_liste_id', target.matos_liste_id)
     .eq('is_active', true)
     .neq('id', versionId)
 

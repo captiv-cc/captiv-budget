@@ -52,6 +52,21 @@ export function useMateriel(projectId) {
   const [versions, setVersions] = useState([])
   const [activeVersionId, setActiveVersionId] = useState(null)
 
+  // MATOS-LISTES : listes du projet + liste ouverte (persistée par projet).
+  const [listes, setListes] = useState([])
+  const [activeListeId, setActiveListeIdState] = useState(null)
+  const setActiveListeId = useCallback(
+    (id) => {
+      setActiveListeIdState(id)
+      try {
+        if (projectId && id) localStorage.setItem(`matos-liste:${projectId}`, id)
+      } catch {
+        /* noop */
+      }
+    },
+    [projectId],
+  )
+
   // Détail de la version sélectionnée
   const [blocks, setBlocks] = useState([])
   const [items, setItems] = useState([])
@@ -104,6 +119,8 @@ export function useMateriel(projectId) {
       setLoading(false)
       setVersions([])
       setActiveVersionId(null)
+      setListes([])
+      setActiveListeIdState(null)
       loadedProjectIdRef.current = null
       return
     }
@@ -113,23 +130,43 @@ export function useMateriel(projectId) {
       if (isProjectSwitch) setLoading(true)
       setError(null)
       try {
-        const [versionsData, loueursData, materielData] = await Promise.all([
+        const [versionsData, listesData, loueursData, materielData] = await Promise.all([
           M.fetchVersions(projectId),
+          M.fetchListes(projectId),
           M.fetchLoueurs(),
           M.fetchMaterielBdd(),
         ])
         if (cancelled || !aliveRef.current) return
         setVersions(versionsData)
+        setListes(listesData)
         setLoueurs(loueursData)
         setMaterielBdd(materielData)
         loadedProjectIdRef.current = projectId
 
-        // Sélection auto : priorité à la version active, sinon la 1re.
-        if (versionsData.length) {
-          const stillValid = versionsData.some((v) => v.id === activeVersionId)
+        // Sélection de la LISTE : la courante si toujours valable, sinon le
+        // dernier choix persisté, sinon la principale (1re non archivée).
+        let storedListe = null
+        try {
+          storedListe = localStorage.getItem(`matos-liste:${projectId}`)
+        } catch {
+          /* noop */
+        }
+        const nonArchived = listesData.filter((l) => !l.archived)
+        const listeId =
+          (listesData.some((l) => l.id === activeListeId) && activeListeId) ||
+          (listesData.some((l) => l.id === storedListe) && storedListe) ||
+          nonArchived[0]?.id ||
+          listesData[0]?.id ||
+          null
+        setActiveListeIdState(listeId)
+
+        // Sélection auto de la version DANS la liste retenue.
+        const ofListe = versionsData.filter((v) => v.matos_liste_id === listeId)
+        if (ofListe.length) {
+          const stillValid = ofListe.some((v) => v.id === activeVersionId)
           if (!stillValid) {
-            const active = M.getActiveVersion(versionsData)
-            setActiveVersionId(active?.id || versionsData[0].id)
+            const active = M.getActiveVersion(ofListe)
+            setActiveVersionId(active?.id || ofListe[0].id)
           }
         } else {
           setActiveVersionId(null)
@@ -227,6 +264,16 @@ export function useMateriel(projectId) {
         {
           event: '*',
           schema: 'public',
+          table: 'matos_listes',
+          filter: `project_id=eq.${projectId}`,
+        },
+        debouncedReload,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'matos_versions',
           filter: `project_id=eq.${projectId}`,
         },
@@ -263,6 +310,31 @@ export function useMateriel(projectId) {
   }, [projectId, bumpReload])
 
   // ─── Dérivés ─────────────────────────────────────────────────────────────
+  // Changement de liste → bascule sur la version active de cette liste.
+  useEffect(() => {
+    if (!activeListeId) return
+    const ofListe = versions.filter((v) => v.matos_liste_id === activeListeId)
+    if (!ofListe.length) {
+      setActiveVersionId(null)
+      return
+    }
+    if (ofListe.some((v) => v.id === activeVersionId)) return
+    const active = M.getActiveVersion(ofListe)
+    setActiveVersionId(active?.id || ofListe[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeListeId, versions])
+
+  // Versions de la liste ouverte (ce que consomme le VersionSwitcher).
+  const listeVersions = useMemo(
+    () => versions.filter((v) => v.matos_liste_id === activeListeId),
+    [versions, activeListeId],
+  )
+
+  const activeListe = useMemo(
+    () => listes.find((l) => l.id === activeListeId) || null,
+    [listes, activeListeId],
+  )
+
   const activeVersion = useMemo(
     () => versions.find((v) => v.id === activeVersionId) || null,
     [versions, activeVersionId],
@@ -296,15 +368,69 @@ export function useMateriel(projectId) {
     [versionLoueurInfos],
   )
 
+  // ─── Actions — Listes (MATOS-LISTES) ─────────────────────────────────────
+  const createListeAction = useCallback(
+    async ({ titre, devisLotId = null } = {}) => {
+      const { liste, version } = await M.createListe({ projectId, titre, devisLotId })
+      bumpReload()
+      setActiveListeId(liste.id)
+      setActiveVersionId(version.id)
+      return liste
+    },
+    [projectId, bumpReload, setActiveListeId],
+  )
+
+  const updateListeAction = useCallback(
+    async (listeId, fields) => {
+      const l = await M.updateListe(listeId, fields)
+      bumpReload()
+      return l
+    },
+    [bumpReload],
+  )
+
+  const duplicateListeAction = useCallback(
+    async (sourceListe, { titre } = {}) => {
+      const liste = await M.duplicateListe({ sourceListe, titre })
+      bumpReload()
+      setActiveListeId(liste.id)
+      return liste
+    },
+    [bumpReload, setActiveListeId],
+  )
+
+  const deleteListeAction = useCallback(
+    async (listeId) => {
+      await M.deleteListe(listeId)
+      if (listeId === activeListeId) {
+        const fallback = listes.find((l) => l.id !== listeId && !l.archived)
+        setActiveListeIdState(fallback?.id || null)
+      }
+      bumpReload()
+    },
+    [bumpReload, activeListeId, listes],
+  )
+
   // ─── Actions — Versions ──────────────────────────────────────────────────
   const createVersionAction = useCallback(
     async ({ label = null } = {}) => {
-      const v = await M.createVersion({ projectId, label })
+      // Projet vierge (aucune liste) : createListe pose la liste ET sa V1.
+      if (!activeListeId) {
+        const { liste, version } = await M.createListe({
+          projectId,
+          titre: 'Liste principale',
+        })
+        bumpReload()
+        setActiveListeId(liste.id)
+        setActiveVersionId(version.id)
+        return version
+      }
+      const v = await M.createVersion({ projectId, listeId: activeListeId, label })
       bumpReload()
       setActiveVersionId(v.id)
       return v
     },
-    [projectId, bumpReload],
+    [projectId, activeListeId, bumpReload, setActiveListeId],
   )
 
   const duplicateVersionAction = useCallback(
@@ -724,7 +850,15 @@ export function useMateriel(projectId) {
     loading,
     detailLoading,
     error,
-    versions,
+    // Versions de la LISTE ouverte (compat : les consommateurs historiques
+    // — VersionSwitcher, header — restent mono-liste sans le savoir).
+    versions: listeVersions,
+    allVersions: versions,
+    // MATOS-LISTES
+    listes,
+    activeListe,
+    activeListeId,
+    setActiveListeId,
     activeVersion,
     activeVersionId,
     setActiveVersionId,
@@ -749,6 +883,11 @@ export function useMateriel(projectId) {
     recapByLoueur,
     // Actions
     actions: {
+      // Listes
+      createListe: createListeAction,
+      updateListe: updateListeAction,
+      duplicateListe: duplicateListeAction,
+      deleteListe: deleteListeAction,
       // Versions
       createVersion: createVersionAction,
       duplicateVersion: duplicateVersionAction,
