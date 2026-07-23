@@ -29,8 +29,13 @@ import {
   Users,
 } from 'lucide-react'
 import { supabase } from '../../../lib/supabase'
-import { confirm } from '../../../lib/confirm'
+import { confirm, prompt } from '../../../lib/confirm'
 import { notify } from '../../../lib/notify'
+import {
+  fetchListTemplates,
+  saveListTemplate,
+  deleteListTemplate,
+} from '../../../lib/materiel'
 
 /** Lots de devis du projet (pour le badge + le rattachement d'une liste). */
 export function useDevisLots(projectId) {
@@ -78,22 +83,48 @@ function LotBadge({ liste, lots }) {
 
 /* ─── Modale créer / renommer une liste ──────────────────────────────────── */
 
-function ListeFormModal({ liste = null, lots, onClose, onSubmit }) {
+function ListeFormModal({ liste = null, lots, templates = [], onTemplatesChanged, onClose, onSubmit }) {
   const [titre, setTitre] = useState(liste?.titre || '')
   const [lotId, setLotId] = useState(liste?.devis_lot_id || '')
+  const [templateId, setTemplateId] = useState('')
   const [busy, setBusy] = useState(false)
+  const isCreate = !liste
 
   async function submit(e) {
     e.preventDefault()
     if (!titre.trim() || busy) return
     setBusy(true)
     try {
-      await onSubmit({ titre: titre.trim(), devisLotId: lotId || null })
+      await onSubmit({
+        titre: titre.trim(),
+        devisLotId: lotId || null,
+        template: templates.find((t) => t.id === templateId) || null,
+      })
       onClose()
     } catch (err) {
       notify.error('Enregistrement impossible : ' + (err?.message || err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function removeTemplate() {
+    const tpl = templates.find((t) => t.id === templateId)
+    if (!tpl) return
+    const ok = await confirm({
+      title: `Supprimer le modèle « ${tpl.titre} » ?`,
+      message: 'Le modèle sera supprimé pour toute l’organisation. Les listes déjà créées ne bougent pas.',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await deleteListTemplate(tpl.id)
+      setTemplateId('')
+      onTemplatesChanged?.()
+      notify.success('Modèle supprimé')
+    } catch (err) {
+      notify.error('Suppression impossible : ' + (err?.message || err))
     }
   }
 
@@ -122,7 +153,7 @@ function ListeFormModal({ liste = null, lots, onClose, onSubmit }) {
             style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
           />
         </label>
-        <label className="block mb-4">
+        <label className="block mb-3">
           <span className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt-3)' }}>
             Lot de devis (optionnel)
           </span>
@@ -140,6 +171,36 @@ function ListeFormModal({ liste = null, lots, onClose, onSubmit }) {
             ))}
           </select>
         </label>
+        {isCreate && templates.length > 0 && (
+          <label className="block mb-4">
+            <span className="block text-[11px] font-semibold mb-1" style={{ color: 'var(--txt-3)' }}>
+              Partir d’un modèle (optionnel)
+            </span>
+            <select
+              value={templateId}
+              onChange={(e) => setTemplateId(e.target.value)}
+              className="w-full text-sm px-2.5 py-2 rounded-md outline-none"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+            >
+              <option value="">— Liste vierge —</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.titre} ({(t.data?.blocks || []).reduce((n, b) => n + (b.items?.length || 0), 0)} items)
+                </option>
+              ))}
+            </select>
+            {templateId && (
+              <button
+                type="button"
+                onClick={removeTemplate}
+                className="mt-1 text-[11px] font-semibold"
+                style={{ color: 'var(--red, #ff4757)' }}
+              >
+                Supprimer ce modèle
+              </button>
+            )}
+          </label>
+        )}
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} className="text-xs font-semibold px-3 py-1.5 rounded-md" style={{ color: 'var(--txt-3)' }}>
             Annuler
@@ -160,7 +221,7 @@ function ListeFormModal({ liste = null, lots, onClose, onSubmit }) {
 
 /* ─── Carte d'une liste ──────────────────────────────────────────────────── */
 
-function ListeCard({ liste, lots, stats, canEdit, onOpen, onRename, onDuplicate, onArchive, onRestore, onDelete }) {
+function ListeCard({ liste, lots, stats, canEdit, onOpen, onRename, onSaveTemplate, onDuplicate, onArchive, onRestore, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false)
   return (
     <div
@@ -190,6 +251,7 @@ function ListeCard({ liste, lots, stats, canEdit, onOpen, onRename, onDuplicate,
                   {[
                     { label: 'Renommer / lot…', icon: Edit3, onClick: onRename },
                     { label: 'Dupliquer la liste', icon: Copy, onClick: onDuplicate },
+                    { label: 'Enregistrer comme modèle', icon: Package, onClick: onSaveTemplate },
                     liste.archived
                       ? { label: 'Restaurer', icon: RotateCcw, onClick: onRestore }
                       : { label: 'Archiver', icon: Archive, onClick: onArchive },
@@ -246,6 +308,7 @@ function ListeCard({ liste, lots, stats, canEdit, onOpen, onRename, onDuplicate,
 
 export default function MaterielListesGrid({
   projectId,
+  orgId,
   listes,
   allVersions,
   canEdit,
@@ -260,10 +323,44 @@ export default function MaterielListesGrid({
   const [formListe, setFormListe] = useState(null) // null fermé | 'new' | liste
   const [showArchived, setShowArchived] = useState(false)
 
+  // Modèles de listes (org) — pour « Nouvelle liste depuis un modèle ».
+  const [templates, setTemplates] = useState([])
+  const reloadTemplates = () => {
+    if (orgId) fetchListTemplates(orgId).then(setTemplates).catch(() => {})
+  }
+  useEffect(reloadTemplates, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const statsOf = (liste) => {
     const ofListe = allVersions.filter((v) => v.matos_liste_id === liste.id)
     const active = ofListe.find((v) => v.is_active && !v.archived_at)
-    return { count: ofListe.length, activeNumero: active?.numero || null }
+    return {
+      count: ofListe.length,
+      activeNumero: active?.numero || null,
+      activeVersionId: active?.id || null,
+    }
+  }
+
+  async function saveAsTemplate(liste) {
+    const { activeVersionId } = statsOf(liste)
+    if (!activeVersionId) {
+      notify.error('Cette liste n’a pas de version active à enregistrer')
+      return
+    }
+    const titre = await prompt({
+      title: 'Enregistrer comme modèle',
+      message: 'La structure (blocs + items) sera réutilisable dans tous les projets de l’organisation. Loueurs et checklists ne sont pas copiés.',
+      placeholder: 'Kit captation 3 cams',
+      initialValue: liste.titre,
+      confirmLabel: 'Enregistrer',
+    })
+    if (!titre?.trim()) return
+    try {
+      await saveListTemplate({ orgId, titre, versionId: activeVersionId })
+      reloadTemplates()
+      notify.success('Modèle enregistré')
+    } catch (err) {
+      notify.error('Enregistrement impossible : ' + (err?.message || err))
+    }
   }
 
   const visibles = listes.filter((l) => showArchived || !l.archived)
@@ -320,6 +417,7 @@ export default function MaterielListesGrid({
             canEdit={canEdit}
             onOpen={() => onOpen(liste)}
             onRename={() => setFormListe(liste)}
+            onSaveTemplate={() => saveAsTemplate(liste)}
             onDuplicate={async () => {
               try {
                 await onDuplicate(liste)
@@ -366,10 +464,12 @@ export default function MaterielListesGrid({
         <ListeFormModal
           liste={formListe === 'new' ? null : formListe}
           lots={lots}
+          templates={templates}
+          onTemplatesChanged={reloadTemplates}
           onClose={() => setFormListe(null)}
-          onSubmit={async ({ titre, devisLotId }) => {
+          onSubmit={async ({ titre, devisLotId, template }) => {
             if (formListe === 'new') {
-              await onCreate({ titre, devisLotId })
+              await onCreate({ titre, devisLotId, template })
             } else {
               await onUpdate(formListe.id, { titre, devis_lot_id: devisLotId })
             }

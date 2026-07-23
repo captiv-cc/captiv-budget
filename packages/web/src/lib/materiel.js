@@ -944,6 +944,97 @@ export async function setItemFlag(itemId, flag) {
 
 // ═══ Mutations — Loueurs sur item ═══════════════════════════════════════════
 
+// ═══ MAT-OUTILS : modèles de listes (org) ═══════════════════════════════════
+// Snapshot jsonb de la structure (blocs + items) — SANS loueurs ni
+// checklists, propres à un projet.
+
+export async function fetchListTemplates(orgId) {
+  if (!orgId) return []
+  const { data, error } = await supabase
+    .from('matos_list_templates')
+    .select('id, titre, data, created_at, created_by')
+    .eq('org_id', orgId)
+    .order('titre', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+/** Snapshot d'une version (structure) → nouveau modèle org. */
+export async function saveListTemplate({ orgId, titre, versionId }) {
+  const { blocks, items } = await fetchVersionDetails(versionId)
+  const itemsByBlockId = new Map()
+  for (const it of items) {
+    if (it.removed_at) continue
+    const arr = itemsByBlockId.get(it.block_id) || []
+    arr.push(it)
+    itemsByBlockId.set(it.block_id, arr)
+  }
+  const data = {
+    blocks: blocks.map((b) => ({
+      titre: b.titre,
+      couleur: b.couleur,
+      affichage: b.affichage,
+      sort_order: b.sort_order,
+      items: (itemsByBlockId.get(b.id) || []).map((it) => ({
+        label: it.label,
+        designation: it.designation,
+        quantite: it.quantite,
+        remarques: it.remarques,
+        materiel_bdd_id: it.materiel_bdd_id,
+      })),
+    })),
+  }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const { data: tpl, error } = await supabase
+    .from('matos_list_templates')
+    .insert({ org_id: orgId, titre: titre.trim(), data, created_by: user?.id || null })
+    .select()
+    .single()
+  if (error) throw error
+  return tpl
+}
+
+export async function deleteListTemplate(templateId) {
+  const { error } = await supabase.from('matos_list_templates').delete().eq('id', templateId)
+  if (error) throw error
+}
+
+/** Crée une liste (+ V1) et y déverse la structure du modèle. */
+export async function createListeFromTemplate({ projectId, titre, devisLotId = null, template }) {
+  const { liste, version } = await createListe({ projectId, titre, devisLotId })
+  const blocksDef = template?.data?.blocks || []
+  for (const [bi, b] of blocksDef.entries()) {
+    const { data: block, error: bErr } = await supabase
+      .from('matos_blocks')
+      .insert({
+        version_id: version.id,
+        titre: b.titre,
+        couleur: b.couleur,
+        affichage: b.affichage || 'liste',
+        sort_order: b.sort_order ?? bi,
+      })
+      .select('id')
+      .single()
+    if (bErr) throw bErr
+    const rows = (b.items || []).map((it, ii) => ({
+      block_id: block.id,
+      label: it.label || null,
+      designation: it.designation,
+      quantite: it.quantite ?? 1,
+      remarques: it.remarques || null,
+      materiel_bdd_id: it.materiel_bdd_id || null,
+      sort_order: ii,
+    }))
+    if (rows.length) {
+      const { error: iErr } = await supabase.from('matos_items').insert(rows)
+      if (iErr) throw iErr
+    }
+  }
+  return { liste, version }
+}
+
 // ═══ MAT-OUTILS : actions en masse (sélection multiple) ═════════════════════
 
 /** Déplace des items en fin d'un bloc cible (ordre de sélection conservé). */

@@ -370,8 +370,10 @@ export function useMateriel(projectId) {
 
   // ─── Actions — Listes (MATOS-LISTES) ─────────────────────────────────────
   const createListeAction = useCallback(
-    async ({ titre, devisLotId = null } = {}) => {
-      const { liste, version } = await M.createListe({ projectId, titre, devisLotId })
+    async ({ titre, devisLotId = null, template = null } = {}) => {
+      const { liste, version } = template
+        ? await M.createListeFromTemplate({ projectId, titre, devisLotId, template })
+        : await M.createListe({ projectId, titre, devisLotId })
       bumpReload()
       setActiveListeId(liste.id)
       setActiveVersionId(version.id)

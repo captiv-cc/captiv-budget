@@ -739,6 +739,7 @@ export default function MaterielTab() {
       <>
         <MaterielListesGrid
           projectId={projectId}
+          orgId={orgId}
           listes={listes}
           allVersions={allVersions}
           canEdit={canEdit}
@@ -746,8 +747,8 @@ export default function MaterielTab() {
             setActiveListeId(liste.id)
             setShowGrid(false)
           }}
-          onCreate={async ({ titre, devisLotId }) => {
-            await actions.createListe({ titre, devisLotId })
+          onCreate={async ({ titre, devisLotId, template }) => {
+            await actions.createListe({ titre, devisLotId, template })
             setShowGrid(false)
           }}
           onUpdate={(listeId, fields) => actions.updateListe(listeId, fields)}
