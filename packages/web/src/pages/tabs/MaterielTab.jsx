@@ -53,7 +53,7 @@ import {
   reopenMatosVersionRendu,
   uploadBonRetourArchive,
 } from '../../lib/matosRendu'
-import { isUnassignedRecap } from '../../lib/materiel'
+import { isUnassignedRecap, fetchRecapProjet } from '../../lib/materiel'
 import { confirm, prompt } from '../../lib/confirm'
 
 const OUTIL_KEY = 'materiel'
@@ -197,6 +197,18 @@ export default function MaterielTab() {
   }, [])
 
   // ─── Export PDF (MAT-7) ─────────────────────────────────────────────────
+  // MATOS-LISTES : récap loueurs TOUT LE PROJET (agrégation des versions
+  // actives de toutes les listes), ouvert depuis la grille.
+  const [recapProjet, setRecapProjet] = useState(null) // { recap, listes } | null
+  const handleOpenRecapProjet = useCallback(async () => {
+    try {
+      const data = await fetchRecapProjet(projectId)
+      setRecapProjet(data)
+    } catch (err) {
+      notify.error('Récap projet impossible : ' + (err?.message || err))
+    }
+  }, [projectId])
+
   // previewState : doc prêt à prévisualiser (ou ZIP prêt à télécharger).
   //   { open, title, url, filename, download, revoke, isZip }
   const [previewState, setPreviewState] = useState(null)
@@ -662,23 +674,60 @@ export default function MaterielTab() {
   // ─── Grille des listes (hall d'entrée multi-listes) ──────────────────────
   if (showGrid && listes.length > 0) {
     return (
-      <MaterielListesGrid
-        projectId={projectId}
-        listes={listes}
-        allVersions={allVersions}
-        canEdit={canEdit}
-        onOpen={(liste) => {
-          setActiveListeId(liste.id)
-          setShowGrid(false)
-        }}
-        onCreate={async ({ titre, devisLotId }) => {
-          await actions.createListe({ titre, devisLotId })
-          setShowGrid(false)
-        }}
-        onUpdate={(listeId, fields) => actions.updateListe(listeId, fields)}
-        onDuplicate={(liste) => actions.duplicateListe(liste)}
-        onDelete={(listeId) => actions.deleteListe(listeId)}
-      />
+      <>
+        <MaterielListesGrid
+          projectId={projectId}
+          listes={listes}
+          allVersions={allVersions}
+          canEdit={canEdit}
+          onOpen={(liste) => {
+            setActiveListeId(liste.id)
+            setShowGrid(false)
+          }}
+          onCreate={async ({ titre, devisLotId }) => {
+            await actions.createListe({ titre, devisLotId })
+            setShowGrid(false)
+          }}
+          onUpdate={(listeId, fields) => actions.updateListe(listeId, fields)}
+          onDuplicate={(liste) => actions.duplicateListe(liste)}
+          onDelete={(listeId) => actions.deleteListe(listeId)}
+          onRecapProjet={handleOpenRecapProjet}
+        />
+        <LoueurRecapPanel
+          open={Boolean(recapProjet)}
+          onClose={() => setRecapProjet(null)}
+          recap={recapProjet?.recap || []}
+          activeVersionLabel={
+            recapProjet
+              ? `Tout le projet · ${recapProjet.listes.length} liste${recapProjet.listes.length > 1 ? 's' : ''} (versions actives)`
+              : ''
+          }
+          project={project}
+          activeVersion={null}
+          org={org}
+          onPreview={(result, title) =>
+            setPreviewState({
+              open: true,
+              title,
+              url: result.url,
+              filename: result.filename,
+              download: result.download,
+              revoke: result.revoke,
+              isZip: Boolean(result.isZip),
+            })
+          }
+          canEdit={false}
+        />
+        <PdfPreviewModal
+          open={Boolean(previewState?.open)}
+          onClose={closePreview}
+          title={previewState?.title}
+          url={previewState?.url}
+          filename={previewState?.filename}
+          onDownload={() => previewState?.download?.()}
+          isZip={Boolean(previewState?.isZip)}
+        />
+      </>
     )
   }
 

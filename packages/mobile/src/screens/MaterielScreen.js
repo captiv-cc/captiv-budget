@@ -31,7 +31,9 @@ export default function MaterielScreen() {
 
   const editable = canEdit('materiel')
   const totalItems = blocks.reduce((n, b) => n + b.items.length, 0)
-  const subtitle = version ? `${projet?.title ?? ''} · V${version.numero}` : projet?.title
+  // Multi-listes : numero null + label « N listes » (versions actives).
+  const versionTag = version ? (version.numero ? `V${version.numero}` : version.label) : null
+  const subtitle = versionTag ? `${projet?.title ?? ''} · ${versionTag}` : projet?.title
 
   return (
     <View style={styles.container}>
@@ -47,7 +49,7 @@ export default function MaterielScreen() {
         {!editable && (
           <View style={styles.viewOnly}>
             <Ionicons name="eye-outline" size={13} color={colors.textMuted} />
-            <Text style={styles.viewOnlyText}>Lecture seule{version ? ` · V${version.numero}${version.is_active ? ' active' : ''}` : ''}</Text>
+            <Text style={styles.viewOnlyText}>Lecture seule{versionTag ? ` · ${versionTag}${version?.numero && version?.is_active ? ' active' : ''}` : ''}</Text>
           </View>
         )}
 

@@ -1401,6 +1401,89 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
 }
 
 /**
+ * MATOS-LISTES : récap loueurs TOUT LE PROJET — agrège les versions ACTIVES
+ * de toutes les listes non archivées. Même shape que computeRecapByLoueur
+ * ({ loueur, blocs, lignes, totaux }) : les blocs sont préfixés du nom de la
+ * liste (« Scène A — FILM // CAM A ») et les totaux refusionnent par
+ * référence toutes listes confondues (contrôle de stock loueur).
+ */
+export async function fetchRecapProjet(projectId) {
+  const [listes, versions, loueurs] = await Promise.all([
+    fetchListes(projectId),
+    fetchVersions(projectId),
+    fetchLoueurs(),
+  ])
+
+  const actives = listes
+    .filter((l) => !l.archived)
+    .map((liste) => {
+      const ofListe = versions.filter((v) => v.matos_liste_id === liste.id)
+      const version =
+        ofListe.find((v) => v.is_active && !v.archived_at) ||
+        ofListe[ofListe.length - 1] ||
+        null
+      return version ? { liste, version } : null
+    })
+    .filter(Boolean)
+
+  const perListe = await Promise.all(
+    actives.map(async ({ liste, version }) => {
+      const details = await fetchVersionDetails(version.id)
+      const recap = computeRecapByLoueur({
+        items: details.items,
+        itemLoueurs: details.itemLoueurs,
+        loueurs,
+        blocks: details.blocks,
+      })
+      return { liste, version, recap }
+    }),
+  )
+
+  // Fusion par loueur, blocs préfixés par liste (clés préfixées : deux listes
+  // peuvent contenir la même référence).
+  const byLoueur = new Map()
+  for (const { liste, recap } of perListe) {
+    for (const group of recap) {
+      let g = byLoueur.get(group.loueur.id)
+      if (!g) {
+        g = { loueur: group.loueur, blocs: [], lignes: [], totaux: [] }
+        byLoueur.set(group.loueur.id, g)
+      }
+      for (const bloc of group.blocs) {
+        const lignes = bloc.lignes.map((l) => ({ ...l, key: `${liste.id}:${l.key}` }))
+        g.blocs.push({
+          ...bloc,
+          titre: bloc.titre ? `${liste.titre} — ${bloc.titre}` : liste.titre,
+          listeTitre: liste.titre,
+          lignes,
+        })
+        g.lignes.push(...lignes)
+      }
+    }
+  }
+
+  for (const g of byLoueur.values()) {
+    const totMap = new Map()
+    for (const l of g.lignes) {
+      const key = l.materielBddId
+        ? `bdd:${l.materielBddId}`
+        : `text:${normalizeDesignation(l.designation)}`
+      const existing = totMap.get(key)
+      if (existing) existing.qte += l.qte
+      else totMap.set(key, { key, designation: l.designation, qte: l.qte, materielBddId: l.materielBddId })
+    }
+    g.totaux = Array.from(totMap.values())
+  }
+
+  const result = Array.from(byLoueur.values())
+  result.sort((a, b) => {
+    if (isUnassignedRecap(a) !== isUnassignedRecap(b)) return isUnassignedRecap(a) ? 1 : -1
+    return (a.loueur.nom || '').localeCompare(b.loueur.nom || '', 'fr', { sensitivity: 'base' })
+  })
+  return { recap: result, listes: actives.map((a) => a.liste) }
+}
+
+/**
  * Teste si un groupe de récap est le groupe synthétique "Non assigné".
  * Pratique pour filtrer côté exports PDF (qui ne s'adressent qu'à des
  * vrais loueurs) ou côté UI (pour hide le bouton PDF).
