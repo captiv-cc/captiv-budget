@@ -25,6 +25,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
+  FileSpreadsheet,
   FileText,
   Link2,
   ListChecks,
@@ -37,6 +38,7 @@ export default function ExportPdfMenu({
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
+  onExportExcel = null,
   disabled = false,
 }) {
   const [open, setOpen] = useState(false)
@@ -154,6 +156,14 @@ export default function ExportPdfMenu({
             hint="Mode tournage (A4 paysage)"
             onClick={() => pick(onExportChecklist)}
           />
+          {onExportExcel && (
+            <MenuItem
+              icon={<FileSpreadsheet className="w-3.5 h-3.5" />}
+              label="Liste (Excel)"
+              hint="Fichier .xlsx (un item par ligne)"
+              onClick={() => pick(onExportExcel)}
+            />
+          )}
         </div>
       )}
     </div>

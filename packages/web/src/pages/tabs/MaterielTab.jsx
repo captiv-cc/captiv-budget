@@ -33,6 +33,8 @@ import MaterielFilterBar, {
   itemMatchesFilters,
 } from '../../features/materiel/components/MaterielFilterBar'
 import MaterielBulkBar from '../../features/materiel/components/MaterielBulkBar'
+import MaterielImportModal from '../../features/materiel/components/MaterielImportModal'
+import { exportListeExcel } from '../../features/materiel/matosExcel'
 import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
 import MaterielPhotosPanel from '../../features/materiel/components/MaterielPhotosPanel'
@@ -366,6 +368,35 @@ export default function MaterielTab() {
       'Checklist tournage',
     )
   }, [runExport, project, activeVersion, blocks, itemsByBlock, loueursByItem, loueursById, org])
+
+  // MAT-OUTILS ④ : export Excel (.xlsx) de la liste ouverte. Pas de preview
+  // (fichier binaire) — téléchargement direct via SheetJS.
+  const handleExportExcel = useCallback(async () => {
+    try {
+      const n = await exportListeExcel({
+        projectTitle: project?.ref_projet || project?.title,
+        listeTitre: activeListe?.titre,
+        versionNumero: activeVersion?.numero,
+        blocks,
+        itemsByBlock,
+        loueursByItem,
+        loueursById,
+      })
+      notify.success(`Excel exporté (${n} item${n > 1 ? 's' : ''}).`)
+    } catch (err) {
+      notify.error('Export Excel impossible : ' + (err?.message || err))
+    }
+  }, [project, activeListe, activeVersion, blocks, itemsByBlock, loueursByItem, loueursById])
+
+  // MAT-OUTILS ④ : import CSV/Excel → modale de mapping puis insertion.
+  const [importOpen, setImportOpen] = useState(false)
+  const handleImport = useCallback(
+    async ({ blockId, newBlockTitre, items }) => {
+      const n = await actions.importItems({ blockId, newBlockTitre, items })
+      notify.success(`${n} item${n > 1 ? 's' : ''} importé${n > 1 ? 's' : ''}.`)
+    },
+    [actions],
+  )
 
   const handleExportByLoueur = useCallback(() => {
     // MAT-18 : on ignore le groupe synthétique "Non assigné" pour tester
@@ -835,6 +866,7 @@ export default function MaterielTab() {
         onOpenChantierMode={handleOpenChantierMode}
         onOpenPhotos={() => setPhotosPanelOpen(true)}
         onExportGlobal={handleExportGlobal}
+        onExportExcel={handleExportExcel}
         onExportByLoueur={handleExportByLoueur}
         onExportChecklist={handleExportChecklist}
         // MAT-SHARE-4 : ouvre la modale tokens partage public web. Gated
@@ -877,6 +909,7 @@ export default function MaterielTab() {
                 if (selectionMode) clearSelection()
                 else setSelectionMode(true)
               }}
+              onImport={canEdit && !activeVersion?.closed_at ? () => setImportOpen(true) : null}
             />
             <BlockList
               blocks={filteredBlocks}
@@ -948,6 +981,14 @@ export default function MaterielTab() {
         onSaveInfos={actions.saveLoueurInfos}
         canEdit={canEdit}
       />
+
+      {importOpen && (
+        <MaterielImportModal
+          blocks={blocks}
+          onImport={handleImport}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
 
       <ExportLoueurModal
         open={exportLoueurOpen}

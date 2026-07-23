@@ -9,7 +9,7 @@
 // blocs sans résultat sont masqués tant qu'un filtre est actif.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { CheckSquare, Search, X } from 'lucide-react'
+import { CheckSquare, Search, Upload, X } from 'lucide-react'
 
 export const EMPTY_MATOS_FILTERS = Object.freeze({ q: '', loueurId: '', flag: '' })
 
@@ -58,6 +58,8 @@ export default function MaterielFilterBar({
   selectionEnabled = false,
   selectionMode = false,
   onToggleSelectionMode = null,
+  // MAT-OUTILS ④ : import CSV/Excel dans la liste ouverte (canEdit).
+  onImport = null,
 }) {
   const active = hasActiveFilters(filters)
   const inputStyle = {
@@ -134,11 +136,28 @@ export default function MaterielFilterBar({
         </>
       )}
 
+      {onImport && (
+        <button
+          type="button"
+          onClick={onImport}
+          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ml-auto"
+          style={{
+            background: 'var(--bg-elev)',
+            color: 'var(--txt-2)',
+            border: '1px solid var(--brd)',
+          }}
+          title="Importer des items depuis un fichier CSV ou Excel"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          Importer
+        </button>
+      )}
+
       {selectionEnabled && (
         <button
           type="button"
           onClick={onToggleSelectionMode}
-          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ml-auto"
+          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ${onImport ? '' : 'ml-auto'}`}
           style={{
             background: selectionMode ? 'var(--blue-bg)' : 'var(--bg-elev)',
             color: selectionMode ? 'var(--blue)' : 'var(--txt-2)',

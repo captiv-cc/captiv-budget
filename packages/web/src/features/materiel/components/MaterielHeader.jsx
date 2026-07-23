@@ -84,6 +84,8 @@ export default function MaterielHeader({
   onExportGlobal,
   onExportByLoueur,
   onExportChecklist,
+  // MAT-OUTILS ④ : export Excel (.xlsx) de la liste ouverte.
+  onExportExcel = null,
   // MAT-SHARE-4 : ouvre la MaterielShareModal pour gérer les tokens de
   // partage public web. Si null, l'entrée "Lien web" est masquée du menu
   // Partager (qui redevient le classique "Export PDF").
@@ -182,6 +184,14 @@ export default function MaterielHeader({
       icon: FileText,
       label: 'Exporter checklist (PDF)',
       onClick: onExportChecklist,
+    })
+  }
+  if (activeVersion && onExportExcel) {
+    moreActions.push({
+      id: 'export-excel',
+      icon: FileText,
+      label: 'Exporter Excel (.xlsx)',
+      onClick: onExportExcel,
     })
   }
   if (onOpenPhotos && activeVersion) {
@@ -341,6 +351,7 @@ export default function MaterielHeader({
               onExportGlobal={onExportGlobal}
               onExportByLoueur={onExportByLoueur}
               onExportChecklist={onExportChecklist}
+              onExportExcel={onExportExcel}
               disabled={!activeVersion}
             />
           )}

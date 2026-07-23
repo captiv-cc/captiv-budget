@@ -443,6 +443,17 @@ export function useMateriel(projectId) {
     [bumpReload],
   )
 
+  // MAT-OUTILS ④ : import CSV/Excel dans la version ouverte.
+  const importItemsAction = useCallback(
+    async ({ blockId = null, newBlockTitre = null, items }) => {
+      if (!activeVersionId) return 0
+      const n = await M.importItems({ versionId: activeVersionId, blockId, newBlockTitre, items })
+      bumpReload()
+      return n
+    },
+    [activeVersionId, bumpReload],
+  )
+
   // ─── Actions — Versions ──────────────────────────────────────────────────
   const createVersionAction = useCallback(
     async ({ label = null } = {}) => {
@@ -920,6 +931,7 @@ export function useMateriel(projectId) {
       bulkMoveItems: bulkMoveItemsAction,
       bulkSetFlag: bulkSetFlagAction,
       bulkDeleteItems: bulkDeleteItemsAction,
+      importItems: importItemsAction,
       // Listes
       createListe: createListeAction,
       updateListe: updateListeAction,

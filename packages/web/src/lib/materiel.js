@@ -1035,6 +1035,57 @@ export async function createListeFromTemplate({ projectId, titre, devisLotId = n
   return { liste, version }
 }
 
+// ═══ MAT-OUTILS : import d'items (CSV / Excel) ══════════════════════════════
+
+/**
+ * Insère des items importés dans un bloc existant ou un nouveau bloc en fin
+ * de version. items = [{ label?, designation, quantite?, remarques? }].
+ */
+export async function importItems({ versionId, blockId = null, newBlockTitre = null, items }) {
+  if (!items.length) return 0
+  let targetBlockId = blockId
+  if (!targetBlockId) {
+    const { data: last } = await supabase
+      .from('matos_blocks')
+      .select('sort_order')
+      .eq('version_id', versionId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const { data: block, error } = await supabase
+      .from('matos_blocks')
+      .insert({
+        version_id: versionId,
+        titre: newBlockTitre?.trim() || 'Import',
+        affichage: 'liste',
+        sort_order: (last?.sort_order ?? -1) + 1,
+      })
+      .select('id')
+      .single()
+    if (error) throw error
+    targetBlockId = block.id
+  }
+  const { data: lastItem } = await supabase
+    .from('matos_items')
+    .select('sort_order')
+    .eq('block_id', targetBlockId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  let next = (lastItem?.sort_order ?? -1) + 1
+  const rows = items.map((it) => ({
+    block_id: targetBlockId,
+    label: it.label?.trim() || null,
+    designation: String(it.designation || '').trim(),
+    quantite: Number(it.quantite) > 0 ? Math.round(Number(it.quantite)) : 1,
+    remarques: it.remarques?.trim() || null,
+    sort_order: next++,
+  }))
+  const { error: iErr } = await supabase.from('matos_items').insert(rows)
+  if (iErr) throw iErr
+  return rows.length
+}
+
 // ═══ MAT-OUTILS : actions en masse (sélection multiple) ═════════════════════
 
 /** Déplace des items en fin d'un bloc cible (ordre de sélection conservé). */
