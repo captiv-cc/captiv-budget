@@ -411,6 +411,36 @@ export function useMateriel(projectId) {
     [bumpReload, activeListeId, listes],
   )
 
+  // ─── Actions — Sélection multiple (MAT-OUTILS) ───────────────────────────
+  const bulkSetLoueurAction = useCallback(
+    async (itemIds, loueurId) => {
+      await M.bulkSetLoueur({ itemIds, loueurId })
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const bulkMoveItemsAction = useCallback(
+    async (itemIds, targetBlockId) => {
+      await M.bulkMoveItems({ itemIds, targetBlockId })
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const bulkSetFlagAction = useCallback(
+    async (itemIds, flag) => {
+      await M.bulkSetFlag(itemIds, flag)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+  const bulkDeleteItemsAction = useCallback(
+    async (itemIds) => {
+      await M.bulkDeleteItems(itemIds)
+      bumpReload()
+    },
+    [bumpReload],
+  )
+
   // ─── Actions — Versions ──────────────────────────────────────────────────
   const createVersionAction = useCallback(
     async ({ label = null } = {}) => {
@@ -883,6 +913,11 @@ export function useMateriel(projectId) {
     recapByLoueur,
     // Actions
     actions: {
+      // Sélection multiple
+      bulkSetLoueur: bulkSetLoueurAction,
+      bulkMoveItems: bulkMoveItemsAction,
+      bulkSetFlag: bulkSetFlagAction,
+      bulkDeleteItems: bulkDeleteItemsAction,
       // Listes
       createListe: createListeAction,
       updateListe: updateListeAction,

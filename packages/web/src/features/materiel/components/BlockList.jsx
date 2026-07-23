@@ -44,6 +44,10 @@ export default function BlockList({
   // MAT-OUTILS : liste filtrée → drag désactivé (indexes partiels, un
   // reorder écrirait des sort_order faux).
   dragDisabled = false,
+  // MAT-OUTILS : sélection multiple.
+  selectable = false,
+  selectedIds = null,
+  onToggleSelect = null,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcaste mon
@@ -291,6 +295,9 @@ export default function BlockList({
           materielBdd={materielBdd}
           actions={actions}
           canEdit={canEdit}
+          selectable={selectable}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
           othersEditingByItem={othersEditingByItem}
           onItemEditingChange={onItemEditingChange}
           isHighlighted={block.id === highlightedBlockId}

@@ -54,6 +54,10 @@ export default function Block({
   materielBdd = [],
   actions,
   canEdit = true,
+  // MAT-OUTILS : sélection multiple (checkbox dans la colonne du grip).
+  selectable = false,
+  selectedIds = null,
+  onToggleSelect = null,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcast.
@@ -703,6 +707,9 @@ export default function Block({
                   actions={actions}
                   canEdit={canEdit}
                   onDelete={handleDeleteItem}
+                  selectable={selectable}
+                  selected={selectedIds?.has(item.id) || false}
+                  onToggleSelect={onToggleSelect}
                   dragInsertPosition={
                     itemDragOverInfo?.idx === idx
                       ? itemDragOverInfo.position

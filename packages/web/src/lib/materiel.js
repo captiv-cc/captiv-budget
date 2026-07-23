@@ -944,6 +944,59 @@ export async function setItemFlag(itemId, flag) {
 
 // ═══ Mutations — Loueurs sur item ═══════════════════════════════════════════
 
+// ═══ MAT-OUTILS : actions en masse (sélection multiple) ═════════════════════
+
+/** Déplace des items en fin d'un bloc cible (ordre de sélection conservé). */
+export async function bulkMoveItems({ itemIds, targetBlockId }) {
+  if (!itemIds.length) return
+  const { data: last } = await supabase
+    .from('matos_items')
+    .select('sort_order')
+    .eq('block_id', targetBlockId)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  let next = (last?.sort_order ?? -1) + 1
+  for (const id of itemIds) {
+    const { error } = await supabase
+      .from('matos_items')
+      .update({ block_id: targetBlockId, sort_order: next })
+      .eq('id', id)
+    if (error) throw error
+    next += 1
+  }
+}
+
+export async function bulkDeleteItems(itemIds) {
+  if (!itemIds.length) return
+  const { error } = await supabase.from('matos_items').delete().in('id', itemIds)
+  if (error) throw error
+}
+
+export async function bulkSetFlag(itemIds, flag) {
+  if (!itemIds.length) return
+  const { error } = await supabase.from('matos_items').update({ flag }).in('id', itemIds)
+  if (error) throw error
+}
+
+/**
+ * DÉFINIT le loueur des items (remplace les pivots existants).
+ * loueurId null = retirer tous les loueurs.
+ */
+export async function bulkSetLoueur({ itemIds, loueurId }) {
+  if (!itemIds.length) return
+  const { error: dErr } = await supabase
+    .from('matos_item_loueurs')
+    .delete()
+    .in('item_id', itemIds)
+  if (dErr) throw dErr
+  if (loueurId) {
+    const rows = itemIds.map((id) => ({ item_id: id, loueur_id: loueurId, sort_order: 0 }))
+    const { error } = await supabase.from('matos_item_loueurs').insert(rows)
+    if (error) throw error
+  }
+}
+
 export async function addLoueurToItem({ itemId, loueurId, numeroReference = null, sortOrder = 0 }) {
   const { data, error } = await supabase
     .from('matos_item_loueurs')

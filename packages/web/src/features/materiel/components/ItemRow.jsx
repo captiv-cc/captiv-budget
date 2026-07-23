@@ -46,6 +46,10 @@ export default function ItemRow({
   actions,
   canEdit = true,
   onDelete,
+  // MAT-OUTILS : mode sélection multiple (checkbox à la place du grip).
+  selectable = false,
+  selected = false,
+  onToggleSelect = null,
   // ─── Drag & drop (pattern aligné sur Block / BlockList) ─────────────────
   // dragInsertPosition = 'before' | 'after' | null : indique où la ligne
   // d'insertion bleue doit s'afficher (au-dessus / en-dessous / nulle part).
@@ -243,20 +247,34 @@ export default function ItemRow({
       {/* Grip drag handle — seul élément qui "arme" le drag.
           onMouseDown active dragArmed → le <tr> devient draggable JUSTE
           avant que le navigateur lance le drag. mouseup/leave désarment
-          (clic sans drag = pas de side-effect). */}
+          (clic sans drag = pas de side-effect).
+          MAT-OUTILS : en mode sélection, la cellule porte la checkbox à la
+          place du grip (même colonne, zéro décalage). */}
       <td
         className="px-1 py-1.5 align-middle text-center select-none"
-        onMouseDown={armDrag}
-        onMouseUp={disarmDrag}
-        onMouseLeave={disarmDrag}
+        onMouseDown={selectable ? undefined : armDrag}
+        onMouseUp={selectable ? undefined : disarmDrag}
+        onMouseLeave={selectable ? undefined : disarmDrag}
         style={{
           width: '20px',
           color: 'var(--txt-3)',
-          cursor: dndEnabled ? 'grab' : 'default',
+          cursor: selectable ? 'pointer' : dndEnabled ? 'grab' : 'default',
         }}
-        title={dndEnabled ? 'Glisser pour réordonner' : undefined}
+        title={selectable ? 'Sélectionner' : dndEnabled ? 'Glisser pour réordonner' : undefined}
+        onClick={selectable ? () => onToggleSelect?.(item.id) : undefined}
       >
-        {dndEnabled && <GripVertical className="w-3 h-3 mx-auto opacity-40" />}
+        {selectable ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(item.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="cursor-pointer"
+            style={{ accentColor: 'var(--blue)' }}
+          />
+        ) : (
+          dndEnabled && <GripVertical className="w-3 h-3 mx-auto opacity-40" />
+        )}
       </td>
 
       {/* Flag */}

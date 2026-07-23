@@ -9,7 +9,7 @@
 // blocs sans résultat sont masqués tant qu'un filtre est actif.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Search, X } from 'lucide-react'
+import { CheckSquare, Search, X } from 'lucide-react'
 
 export const EMPTY_MATOS_FILTERS = Object.freeze({ q: '', loueurId: '', flag: '' })
 
@@ -49,7 +49,16 @@ const FLAG_OPTIONS = [
   ['probleme', 'Problème'],
 ]
 
-export default function MaterielFilterBar({ filters, onChange, loueurs = [], resultCount = null }) {
+export default function MaterielFilterBar({
+  filters,
+  onChange,
+  loueurs = [],
+  resultCount = null,
+  // MAT-OUTILS : mode sélection multiple (checkbox à la place du grip).
+  selectionEnabled = false,
+  selectionMode = false,
+  onToggleSelectionMode = null,
+}) {
   const active = hasActiveFilters(filters)
   const inputStyle = {
     background: 'var(--bg-elev)',
@@ -123,6 +132,23 @@ export default function MaterielFilterBar({ filters, onChange, loueurs = [], res
             Réinitialiser
           </button>
         </>
+      )}
+
+      {selectionEnabled && (
+        <button
+          type="button"
+          onClick={onToggleSelectionMode}
+          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ml-auto"
+          style={{
+            background: selectionMode ? 'var(--blue-bg)' : 'var(--bg-elev)',
+            color: selectionMode ? 'var(--blue)' : 'var(--txt-2)',
+            border: '1px solid var(--brd)',
+          }}
+          title="Sélectionner plusieurs items (loueur, bloc, flag, suppression en masse)"
+        >
+          <CheckSquare className="w-3.5 h-3.5" />
+          {selectionMode ? 'Terminer' : 'Sélectionner'}
+        </button>
       )}
     </div>
   )

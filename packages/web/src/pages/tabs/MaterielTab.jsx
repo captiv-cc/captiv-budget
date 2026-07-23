@@ -32,6 +32,7 @@ import MaterielFilterBar, {
   hasActiveFilters,
   itemMatchesFilters,
 } from '../../features/materiel/components/MaterielFilterBar'
+import MaterielBulkBar from '../../features/materiel/components/MaterielBulkBar'
 import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
 import MaterielPhotosPanel from '../../features/materiel/components/MaterielPhotosPanel'
@@ -202,6 +203,36 @@ export default function MaterielTab() {
   }, [])
 
   // ─── Export PDF (MAT-7) ─────────────────────────────────────────────────
+  // MAT-OUTILS : sélection multiple d'items (mode + Set d'ids). Quitter le
+  // mode vide la sélection ; chaque action en masse aussi.
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const toggleSelectItem = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+  }, [])
+  const runBulk = useCallback(
+    async (fn, successMsg) => {
+      const ids = Array.from(selectedIds)
+      try {
+        await fn(ids)
+        notify.success(successMsg)
+        setSelectedIds(new Set())
+      } catch (err) {
+        notify.error('Action groupée échouée : ' + (err?.message || err))
+      }
+    },
+    [selectedIds],
+  )
+
   // MAT-OUTILS : recherche + filtres client-side sur la liste ouverte.
   // Les blocs sans résultat sont masqués tant qu'un filtre est actif.
   const [matFilters, setMatFilters] = useState({ ...EMPTY_MATOS_FILTERS })
@@ -839,11 +870,20 @@ export default function MaterielTab() {
               onChange={setMatFilters}
               loueurs={loueurs}
               resultCount={filteredCount}
+              selectionEnabled={canEdit}
+              selectionMode={selectionMode}
+              onToggleSelectionMode={() => {
+                if (selectionMode) clearSelection()
+                else setSelectionMode(true)
+              }}
             />
             <BlockList
               blocks={filteredBlocks}
               itemsByBlock={filteredItemsByBlock}
-              dragDisabled={filtersActive}
+              dragDisabled={filtersActive || selectionMode}
+              selectable={selectionMode}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectItem}
               loueursByItem={loueursByItem}
               loueursById={loueursById}
               allLoueurs={loueurs}
@@ -856,6 +896,26 @@ export default function MaterielTab() {
               highlightedBlockId={highlightedBlockId}
             />
             <LoueurDocsPanel versionId={activeVersionId} canEdit={canEdit} />
+            {selectionMode && (
+              <MaterielBulkBar
+                count={selectedIds.size}
+                blocks={blocks}
+                loueurs={loueurs}
+                onSetLoueur={(loueurId) =>
+                  runBulk((ids) => actions.bulkSetLoueur(ids, loueurId), 'Loueur mis à jour')
+                }
+                onMove={(blockId) =>
+                  runBulk((ids) => actions.bulkMoveItems(ids, blockId), 'Items déplacés')
+                }
+                onSetFlag={(flag) =>
+                  runBulk((ids) => actions.bulkSetFlag(ids, flag), 'Flag appliqué')
+                }
+                onDelete={() =>
+                  runBulk((ids) => actions.bulkDeleteItems(ids), 'Items supprimés')
+                }
+                onClear={clearSelection}
+              />
+            )}
           </>
         )}
       </div>
