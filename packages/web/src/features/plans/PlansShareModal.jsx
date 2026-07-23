@@ -97,7 +97,7 @@ export default function PlansShareModal({
   async function handleCreate() {
     if (creating) return
     if (scope === SHARE_SCOPES.SELECTION && selectedIds.length === 0) {
-      notify.error('Sélectionnez au moins un plan')
+      notify.error('Sélectionnez au moins un fichier')
       return
     }
     setCreating(true)
@@ -477,7 +477,7 @@ function CreateForm({
             <div className="text-[10px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
               {showVersions
                 ? 'Le destinataire pourra naviguer entre V1, V2… de chaque plan.'
-                : 'Seule la version courante de chaque plan est accessible.'}
+                : 'Seule la version courante de chaque fichier est accessible.'}
             </div>
           </div>
         </label>
@@ -643,7 +643,7 @@ function PlanSelectionList({ plans, categories, selectedIds, setSelectedIds }) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher un plan…"
+            placeholder="Rechercher un fichier…"
             className="text-xs bg-transparent flex-1 min-w-0 outline-none"
             style={{ color: 'var(--txt)' }}
           />
@@ -664,7 +664,7 @@ function PlanSelectionList({ plans, categories, selectedIds, setSelectedIds }) {
       <div className="max-h-56 overflow-y-auto py-1">
         {plans.length === 0 ? (
           <p className="text-[11px] text-center py-3 italic" style={{ color: 'var(--txt-3)' }}>
-            Aucun plan dans ce projet.
+            Aucun fichier dans ce projet.
           </p>
         ) : grouped.length === 0 ? (
           <p className="text-[11px] text-center py-3 italic" style={{ color: 'var(--txt-3)' }}>
@@ -749,7 +749,7 @@ function PlanSelectionList({ plans, categories, selectedIds, setSelectedIds }) {
             borderTop: '1px solid var(--brd-sub)',
           }}
         >
-          Sélectionne au moins un plan pour pouvoir créer le lien.
+          Sélectionne au moins un fichier pour pouvoir créer le lien.
         </p>
       )}
     </div>
@@ -809,7 +809,7 @@ function TokenRow({
             ·{' '}
             {isAll
               ? `Tous les plans${totalPlansCount ? ` (${totalPlansCount})` : ''}`
-              : `${selectedCount} plan${selectedCount > 1 ? 's' : ''} sélectionné${selectedCount > 1 ? 's' : ''}`}
+              : `${selectedCount} fichier${selectedCount > 1 ? 's' : ''} sélectionné${selectedCount > 1 ? 's' : ''}`}
           </span>
           {token.show_versions && (
             <span

@@ -482,12 +482,12 @@ function EmptyState({ hasFilters }) {
         style={{ color: 'var(--txt-3)', opacity: 0.5 }}
       />
       <p className="text-sm font-semibold" style={{ color: 'var(--txt-2)' }}>
-        {hasFilters ? 'Aucun plan ne correspond' : 'Aucun plan partagé'}
+        {hasFilters ? 'Aucun fichier ne correspond' : 'Aucun fichier partagé'}
       </p>
       <p className="text-xs mt-1" style={{ color: 'var(--txt-3)' }}>
         {hasFilters
           ? 'Modifiez vos filtres pour voir d\u2019autres plans.'
-          : 'Le partage de plans pour ce projet est vide.'}
+          : 'Le partage de fichiers pour ce projet est vide.'}
       </p>
     </div>
   )
@@ -523,7 +523,7 @@ function ErrorState({ error }) {
         style={{ color: 'var(--red, #ef4444)' }}
       />
       <h1 className="text-lg font-bold" style={{ color: 'var(--txt)' }}>
-        {isInvalid ? 'Lien invalide ou expiré' : 'Impossible de charger les plans'}
+        {isInvalid ? 'Lien invalide ou expiré' : 'Impossible de charger les fichiers'}
       </h1>
       <p className="mt-2 text-sm max-w-md" style={{ color: 'var(--txt-3)' }}>
         {isInvalid

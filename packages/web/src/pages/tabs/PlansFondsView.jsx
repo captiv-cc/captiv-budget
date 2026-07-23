@@ -159,7 +159,7 @@ export default function PlansFondsView() {
 
   async function handleExportZip() {
     if (activePlans.length === 0) {
-      notify.error('Aucun plan à exporter')
+      notify.error('Aucun fichier à exporter')
       return
     }
     setExportState({
@@ -191,7 +191,7 @@ export default function PlansFondsView() {
       triggerZipDownload(blob, filename)
       setExportState((prev) => ({ ...prev, phase: 'done', errors }))
       if (errors.length === 0) {
-        notify.success(`ZIP exporté : ${activePlans.length} plan${activePlans.length > 1 ? 's' : ''}`)
+        notify.success(`ZIP exporté : ${activePlans.length} fichier${activePlans.length > 1 ? 's' : ''}`)
       } else {
         notify.error(
           `ZIP exporté avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} (voir détails)`,
@@ -265,9 +265,9 @@ export default function PlansFondsView() {
       .map((p) => p.id)
     if (ids.length === 0) return
     const ok = await confirm({
-      title: `Archiver ${ids.length} plan${ids.length > 1 ? 's' : ''} ?`,
+      title: `Archiver ${ids.length} fichier${ids.length > 1 ? 's' : ''} ?`,
       message:
-        'Les plans disparaîtront de la liste mais leurs versions sont conservées. Tu pourras les restaurer.',
+        'Les fichiers disparaîtront de la liste mais leurs versions sont conservées. Tu pourras les restaurer.',
       confirmLabel: 'Archiver',
       danger: true,
     })
@@ -310,11 +310,11 @@ export default function PlansFondsView() {
       .filter((p) => selectedIds.has(p.id) && p.is_archived)
       .map((p) => p.id)
     if (ids.length === 0) {
-      notify.error('Sélectionne uniquement des plans archivés pour supprimer définitivement')
+      notify.error('Sélectionne uniquement des fichiers archivés pour supprimer définitivement')
       return
     }
     const ok = await confirm({
-      title: `Supprimer définitivement ${ids.length} plan${ids.length > 1 ? 's' : ''} ?`,
+      title: `Supprimer définitivement ${ids.length} fichier${ids.length > 1 ? 's' : ''} ?`,
       message: 'Cette action est irréversible — fichiers et versions seront effacés.',
       confirmLabel: 'Supprimer',
       danger: true,
@@ -417,14 +417,14 @@ export default function PlansFondsView() {
   async function handleArchive(plan) {
     const ok = await confirm({
       title: `Archiver « ${plan.name} » ?`,
-      message: 'Le plan disparaîtra de la liste mais ses anciennes versions sont conservées. Tu pourras le restaurer depuis "Afficher les archivés".',
+      message: 'Le fichier disparaîtra de la liste mais ses anciennes versions sont conservées. Tu pourras le restaurer depuis "Afficher les archivés".',
       confirmLabel: 'Archiver',
       danger: true,
     })
     if (!ok) return
     try {
       await actions.archivePlan(plan.id)
-      notify.success('Plan archivé')
+      notify.success('Fichier archivé')
     } catch (err) {
       notify.error('Erreur : ' + (err?.message || err))
     }
@@ -433,7 +433,7 @@ export default function PlansFondsView() {
   async function handleRestore(plan) {
     try {
       await actions.restorePlan(plan.id)
-      notify.success('Plan restauré')
+      notify.success('Fichier restauré')
     } catch (err) {
       notify.error('Erreur : ' + (err?.message || err))
     }
@@ -449,7 +449,7 @@ export default function PlansFondsView() {
     if (!ok) return
     try {
       await actions.hardDeletePlan(plan.id)
-      notify.success('Plan supprimé')
+      notify.success('Fichier supprimé')
     } catch (err) {
       notify.error('Erreur : ' + (err?.message || err))
     }
@@ -512,7 +512,7 @@ export default function PlansFondsView() {
                     e.currentTarget.style.background = 'var(--bg-elev)'
                     e.currentTarget.style.color = 'var(--txt-2)'
                   }}
-                  title="Télécharger tous les plans dans un ZIP structuré par catégorie"
+                  title="Télécharger tous les fichiers dans un ZIP structuré par catégorie"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Exporter ZIP</span>
@@ -534,7 +534,7 @@ export default function PlansFondsView() {
                     e.currentTarget.style.background = 'var(--bg-elev)'
                     e.currentTarget.style.color = 'var(--txt-2)'
                   }}
-                  title="Partager les plans (lien public)"
+                  title="Partager les fichiers (lien public)"
                 >
                   <Share2 className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Partager</span>
@@ -1096,7 +1096,7 @@ function PlanListItem({
         type="button"
         onClick={onOpen}
         className="flex-1 min-w-0 text-left flex items-center gap-2"
-        title="Ouvrir le plan"
+        title="Ouvrir le fichier"
       >
         <FileIcon
           className="w-3.5 h-3.5 shrink-0"
@@ -1358,7 +1358,7 @@ function PlanCard({
           borderBottom: '1px solid var(--brd-sub)',
           cursor: 'zoom-in',
         }}
-        title="Ouvrir le plan"
+        title="Ouvrir le fichier"
       >
         {thumbUrl ? (
           <img
@@ -1574,11 +1574,11 @@ function EmptyState({ canEdit, hasFilters, onCreate }) {
         <Layers className="w-6 h-6" style={{ color: 'var(--blue)' }} />
       </div>
       <h3 className="text-base font-bold mb-1" style={{ color: 'var(--txt)' }}>
-        Aucun plan dans ce projet
+        Aucun fichier dans ce projet
       </h3>
       <p className="text-xs mb-4 max-w-md" style={{ color: 'var(--txt-3)' }}>
-        Démarrez en ajoutant votre premier plan technique : caméra, lumière,
-        son, plan de masse… Tous les formats classiques sont supportés
+        Démarrez en important votre premier fichier : plan de salle, dossier
+        technique, plan de masse… Tous les formats classiques sont supportés
         (PDF, PNG, JPG).
       </p>
       {canEdit && (

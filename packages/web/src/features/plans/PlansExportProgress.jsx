@@ -64,7 +64,7 @@ export default function PlansExportProgress({
               {isDone ? 'Export terminé' : 'Export ZIP en cours…'}
             </h2>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              {phase === 'fetching' && `${current} / ${total} plan${total > 1 ? 's' : ''} récupéré${current > 1 ? 's' : ''}`}
+              {phase === 'fetching' && `${current} / ${total} fichier${total > 1 ? 's' : ''} récupéré${current > 1 ? 's' : ''}`}
               {phase === 'finalizing' && 'Création du fichier ZIP…'}
               {isDone && hasErrors && `${total - errors.length} / ${total} OK · ${errors.length} erreur${errors.length > 1 ? 's' : ''}`}
               {isDone && !hasErrors && `${total} plan${total > 1 ? 's' : ''} archivé${total > 1 ? 's' : ''}`}

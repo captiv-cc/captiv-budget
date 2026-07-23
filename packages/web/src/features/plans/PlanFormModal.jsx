@@ -236,7 +236,7 @@ export default function PlanFormModal({
           style={{ borderBottom: '1px solid var(--brd-sub)' }}
         >
           <h2 className="flex-1 text-base font-bold" style={{ color: 'var(--txt)' }}>
-            {isEdit ? 'Modifier le plan' : 'Nouveau plan'}
+            {isEdit ? 'Modifier le fichier' : 'Nouveau fichier'}
           </h2>
           <button
             type="button"
@@ -257,7 +257,7 @@ export default function PlanFormModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Nom du plan"
+              placeholder="Nom du fichier"
               maxLength={120}
               className="w-full text-sm px-3 py-1.5 rounded-md outline-none"
               style={{
@@ -375,7 +375,7 @@ export default function PlanFormModal({
           {/* Jours d'application */}
           <Field
             label="Jours d'application"
-            hint="Optionnel — laisser vide si le plan vaut pour tous les jours"
+            hint="Optionnel — laisser vide si le fichier vaut pour tous les jours"
           >
             <button
               type="button"
