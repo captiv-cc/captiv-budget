@@ -92,7 +92,7 @@ export default function BlockList({
   const handleReorderBlocks = useCallback(
     async (fromIdx, targetIdx, position) => {
       // MAT-OUTILS : liste filtrée → indexes partiels, réordonner écrirait
-      // des sort_order faux. Le drag est bloqué en amont (dragDisabled).
+      // des sort_order faux. Le drag est aussi bloqué en amont (dragstart).
       if (dragDisabled) return
       if (fromIdx < 0 || targetIdx < 0) return
       if (fromIdx >= blocks.length || targetIdx >= blocks.length) return
@@ -112,7 +112,7 @@ export default function BlockList({
         notify.error('Erreur réorganisation : ' + (err?.message || err))
       }
     },
-    [actions, blocks],
+    [actions, blocks, dragDisabled],
   )
 
   // Drop d'un item : décide entre intra-bloc (reorderItems) et cross-bloc
