@@ -118,8 +118,12 @@ export async function exportPlanPdf(editor, opts) {
     // Le cartouche est DESSINÉ IDENTIQUE dans les deux formats, puis réduit
     // uniformément en A4 (comme un cartouche d'archi) : polices et largeurs
     // réduisent ensemble → ce qui tient en A3 tient en A4, et la bande garde
-    // la même PROPORTION de page (~11 %) : 34 mm en A3, ~25 mm en A4.
-    const s = format === 'a4' ? 0.75 : 1
+    // la même PROPORTION de page (~11 %) : 34 mm en A3, ~24 mm en A4.
+    // s = ratio EXACT des largeurs utiles (281/404 ≈ 0,695) : toutes les
+    // comparaisons de largeur scalent linéairement, donc les décisions de
+    // colonnes sont identiques à l'A3 (à 0,75 le bloc projet perdait ses
+    // 2 colonnes à 0,5 mm près → rangée Version coupée).
+    const s = format === 'a4' ? (pw - margin * 2) / (420 - margin * 2) : 1
     const hProjet = 13 + Math.ceil(rowsCount / 2) * 4.4
     const hPers = 8 + Math.ceil(persCount / 2) * 7.6
     cartH = Math.min(64, Math.max(34, hProjet, hPers)) * s
@@ -246,12 +250,14 @@ export async function exportPlanPdf(editor, opts) {
 async function drawCartouche(pdf, { cartouche, titre, sousTitre, logoImages, version, metersPerPaperMm, x, y, w, h }) {
   const GRAY = [90, 90, 95]
   const DARK = [30, 30, 34]
-  // Même cartouche dans les deux formats, RÉDUIT UNIFORMÉMENT en A4 (×0,75,
-  // comme un cartouche d'archi) : polices et largeurs réduisent ensemble,
-  // donc ce qui tient en A3 tient en A4 — zéro texte coupé en plus — et la
-  // bande garde la même proportion de page. Doit rester synchro avec le
-  // calcul de cartH dans exportPlanPdf.
-  const s = pdf.internal.pageSize.getWidth() < 400 ? 0.75 : 1
+  // Même cartouche dans les deux formats, RÉDUIT UNIFORMÉMENT en A4 (comme
+  // un cartouche d'archi) : polices et largeurs réduisent ensemble, donc ce
+  // qui tient en A3 tient en A4 — zéro texte coupé en plus — et la bande
+  // garde la même proportion de page. s = ratio EXACT des largeurs utiles
+  // (même formule que le calcul de cartH dans exportPlanPdf — SYNCHRO !) :
+  // les décisions de colonnes sont alors identiques à l'A3.
+  const pw = pdf.internal.pageSize.getWidth()
+  const s = pw < 400 ? (pw - 16) / (420 - 16) : 1
   const pad = 3 * s
 
   // Cadre + fond blanc.
