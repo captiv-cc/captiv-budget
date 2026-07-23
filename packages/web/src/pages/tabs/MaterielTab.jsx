@@ -27,6 +27,11 @@ import { useProjet } from '../ProjetLayout'
 import { notify } from '../../lib/notify'
 import MaterielHeader from '../../features/materiel/components/MaterielHeader'
 import MaterielListesGrid, { MaterielListeBar } from '../../features/materiel/components/MaterielListesGrid'
+import MaterielFilterBar, {
+  EMPTY_MATOS_FILTERS,
+  hasActiveFilters,
+  itemMatchesFilters,
+} from '../../features/materiel/components/MaterielFilterBar'
 import BlockList from '../../features/materiel/components/BlockList'
 import LoueurRecapPanel from '../../features/materiel/components/LoueurRecapPanel'
 import MaterielPhotosPanel from '../../features/materiel/components/MaterielPhotosPanel'
@@ -197,6 +202,32 @@ export default function MaterielTab() {
   }, [])
 
   // ─── Export PDF (MAT-7) ─────────────────────────────────────────────────
+  // MAT-OUTILS : recherche + filtres client-side sur la liste ouverte.
+  // Les blocs sans résultat sont masqués tant qu'un filtre est actif.
+  const [matFilters, setMatFilters] = useState({ ...EMPTY_MATOS_FILTERS })
+  const filtersActive = hasActiveFilters(matFilters)
+  const { filteredBlocks, filteredItemsByBlock, filteredCount } = useMemo(() => {
+    if (!filtersActive) {
+      return { filteredBlocks: blocks, filteredItemsByBlock: itemsByBlock, filteredCount: null }
+    }
+    const map = new Map()
+    let count = 0
+    for (const [blockId, blockItems] of itemsByBlock.entries()) {
+      const kept = blockItems.filter((it) =>
+        itemMatchesFilters(it, matFilters, loueursByItem.get(it.id) || []),
+      )
+      if (kept.length) {
+        map.set(blockId, kept)
+        count += kept.length
+      }
+    }
+    return {
+      filteredBlocks: blocks.filter((b) => map.has(b.id)),
+      filteredItemsByBlock: map,
+      filteredCount: count,
+    }
+  }, [filtersActive, matFilters, blocks, itemsByBlock, loueursByItem])
+
   // MATOS-LISTES : récap loueurs TOUT LE PROJET (agrégation des versions
   // actives de toutes les listes), ouvert depuis la grille.
   const [recapProjet, setRecapProjet] = useState(null) // { recap, listes } | null
@@ -803,9 +834,16 @@ export default function MaterielTab() {
           </div>
         ) : (
           <>
+            <MaterielFilterBar
+              filters={matFilters}
+              onChange={setMatFilters}
+              loueurs={loueurs}
+              resultCount={filteredCount}
+            />
             <BlockList
-              blocks={blocks}
-              itemsByBlock={itemsByBlock}
+              blocks={filteredBlocks}
+              itemsByBlock={filteredItemsByBlock}
+              dragDisabled={filtersActive}
               loueursByItem={loueursByItem}
               loueursById={loueursById}
               allLoueurs={loueurs}

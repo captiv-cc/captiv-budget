@@ -41,6 +41,9 @@ export default function BlockList({
   materielBdd = [],
   actions,
   canEdit = true,
+  // MAT-OUTILS : liste filtrée → drag désactivé (indexes partiels, un
+  // reorder écrirait des sort_order faux).
+  dragDisabled = false,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcaste mon
@@ -88,6 +91,9 @@ export default function BlockList({
   // splice de retrait (si fromIdx < finalToIdx, l'index cible glisse de -1).
   const handleReorderBlocks = useCallback(
     async (fromIdx, targetIdx, position) => {
+      // MAT-OUTILS : liste filtrée → indexes partiels, réordonner écrirait
+      // des sort_order faux. Le drag est bloqué en amont (dragDisabled).
+      if (dragDisabled) return
       if (fromIdx < 0 || targetIdx < 0) return
       if (fromIdx >= blocks.length || targetIdx >= blocks.length) return
 
@@ -169,10 +175,14 @@ export default function BlockList({
   }, [actions, blocks, itemsByBlock, itemDragOver])
 
   // Handlers item → exposés à Block.jsx (qui les transmet à ItemRow).
-  const handleItemDragStart = useCallback((blockIdx, itemIdx, itemId) => {
-    itemDragSource.current = { blockIdx, itemIdx, itemId }
-    dragKind.current = 'item'
-  }, [])
+  const handleItemDragStart = useCallback(
+    (blockIdx, itemIdx, itemId) => {
+      if (dragDisabled) return
+      itemDragSource.current = { blockIdx, itemIdx, itemId }
+      dragKind.current = 'item'
+    },
+    [dragDisabled],
+  )
 
   const handleItemDragOver = useCallback((blockIdx, itemIdx, position) => {
     setItemDragOver((prev) =>
@@ -289,6 +299,7 @@ export default function BlockList({
             dragOverInfo?.idx === idx ? dragOverInfo.position : null
           }
           onBlockDragStart={() => {
+            if (dragDisabled) return
             dragBlockIdx.current = idx
             dragKind.current = 'block'
           }}
