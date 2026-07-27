@@ -1458,6 +1458,39 @@ const UNASSIGNED_LOUEUR = Object.freeze({
   _isUnassigned: true,
 })
 
+/**
+ * Fusionne des lignes de récap en "totaux par référence" (labels ignorés).
+ * MAT-OUTILS ⑤ : chaque total porte `remarques` UNIQUEMENT si toutes les
+ * lignes fusionnées de la référence portent exactement la même remarque
+ * (non vide) — une divergence entre occurrences → null (on n'affiche rien
+ * plutôt qu'une info ambiguë dans un total).
+ */
+function mergeTotauxRefs(lignes) {
+  const totMap = new Map()
+  for (const l of lignes) {
+    const key = l.materielBddId
+      ? `bdd:${l.materielBddId}`
+      : `text:${normalizeDesignation(l.designation)}`
+    const existing = totMap.get(key)
+    if (existing) {
+      existing.qte += l.qte
+      existing._remSet.add(String(l.remarques || '').trim())
+    } else {
+      totMap.set(key, {
+        key,
+        designation: l.designation,
+        qte: l.qte,
+        materielBddId: l.materielBddId,
+        _remSet: new Set([String(l.remarques || '').trim()]),
+      })
+    }
+  }
+  return Array.from(totMap.values()).map(({ _remSet, ...t }) => {
+    const vals = Array.from(_remSet)
+    return { ...t, remarques: vals.length === 1 && vals[0] ? vals[0] : null }
+  })
+}
+
 export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [], blocks = [] }) {
   const itemById = new Map()
   for (const item of items) itemById.set(item.id, item)
@@ -1570,16 +1603,7 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
 
     // Totaux par référence : fusion TOUTES références confondues (le loueur
     // vérifie son stock d'un coup d'œil), positionnés à leur 1re occurrence.
-    const totMap = new Map()
-    for (const l of lignes) {
-      const key = l.materielBddId
-        ? `bdd:${l.materielBddId}`
-        : `text:${normalizeDesignation(l.designation)}`
-      const existing = totMap.get(key)
-      if (existing) existing.qte += l.qte
-      else totMap.set(key, { key, designation: l.designation, qte: l.qte, materielBddId: l.materielBddId })
-    }
-    const totaux = Array.from(totMap.values())
+    const totaux = mergeTotauxRefs(lignes)
 
     return { loueur, blocs, lignes, totaux }
   }
@@ -1666,16 +1690,7 @@ export async function fetchRecapProjet(projectId) {
   }
 
   for (const g of byLoueur.values()) {
-    const totMap = new Map()
-    for (const l of g.lignes) {
-      const key = l.materielBddId
-        ? `bdd:${l.materielBddId}`
-        : `text:${normalizeDesignation(l.designation)}`
-      const existing = totMap.get(key)
-      if (existing) existing.qte += l.qte
-      else totMap.set(key, { key, designation: l.designation, qte: l.qte, materielBddId: l.materielBddId })
-    }
-    g.totaux = Array.from(totMap.values())
+    g.totaux = mergeTotauxRefs(g.lignes)
   }
 
   const result = Array.from(byLoueur.values())

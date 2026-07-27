@@ -1072,16 +1072,53 @@ function renderLoueurSection(
   })
 
   // ── Totaux par référence (contrôle de stock) — utile dès que le détail
-  //    est éclaté en plusieurs blocs. ──────────────────────────────────────
+  //    est éclaté en plusieurs blocs. Séparé VISUELLEMENT de la liste :
+  //    respiration + filet + titre de section (demande Hugo 2026-07-27),
+  //    pour qu'on ne le lise pas comme la suite du détail par bloc.
   if (blocsEffectifs.length > 1 && refs.length) {
-    const ty = (doc.lastAutoTable?.finalY || y) + 6
+    const PH = doc.internal.pageSize.getHeight()
+    let ty = (doc.lastAutoTable?.finalY || y) + 14
+    // Pas la place pour filet + titre + au moins 2 rangées → page suivante.
+    if (ty > PH - 46) {
+      doc.addPage()
+      drawHeader(doc, {
+        title: 'MATÉRIEL',
+        subtitle: `Loueur : ${loueur.nom}`,
+        project,
+        activeVersion,
+        bannerImage,
+      })
+      ty = 34
+    }
+    doc.setDrawColor(...C.black)
+    doc.setLineWidth(0.6)
+    doc.line(M, ty, PW - M, ty)
+    ty += 6.5
+    doc.setFont('WS', 'bold')
+    doc.setFontSize(11)
+    doc.setTextColor(...C.black)
+    doc.text('TOTAUX PAR RÉFÉRENCE', M, ty)
+    doc.setFont('WS', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(...C.gray)
+    doc.text('Contrôle de stock — toutes sections confondues', PW - M, ty, { align: 'right' })
+    ty += 3.5
+
+    // MAT-OUTILS ⑤ : la remarque n'apparaît dans un total QUE si toutes les
+    // occurrences de la référence portent la même (champ `remarques` déjà
+    // résolu par mergeTotauxRefs — null si divergence).
+    const totBody = refs.map((l) => {
+      const row = [l.designation || '—']
+      if (includeRemarques) {
+        row.push({ content: l.remarques || '', styles: { fontSize: 7.5, textColor: C.gray } })
+      }
+      row.push({ content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } })
+      return row
+    })
     autoTable(doc, {
       startY: ty,
-      head: [['Totaux par référence', 'Qté']],
-      body: refs.map((l) => [
-        l.designation || '—',
-        { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
-      ]),
+      head: [includeRemarques ? ['Référence', 'Remarques', 'Qté'] : ['Référence', 'Qté']],
+      body: totBody,
       theme: 'grid',
       styles: {
         font: 'WS',
@@ -1098,10 +1135,16 @@ function renderLoueurSection(
         fontSize: 8,
         halign: 'left',
       },
-      columnStyles: {
-        0: { cellWidth: 'auto' },
-        1: { cellWidth: 22, halign: 'right' },
-      },
+      columnStyles: includeRemarques
+        ? {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 62 },
+            2: { cellWidth: 22, halign: 'right' },
+          }
+        : {
+            0: { cellWidth: 'auto' },
+            1: { cellWidth: 22, halign: 'right' },
+          },
       margin: { left: M, right: M, top: 32, bottom: 16 },
       didDrawPage: () => {
         drawHeader(doc, {
