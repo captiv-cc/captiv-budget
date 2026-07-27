@@ -39,6 +39,7 @@ import {
   Download,
   FileText,
   Info,
+  MessageSquare,
   Users,
   X,
 } from 'lucide-react'
@@ -65,6 +66,12 @@ export default function LoueurRecapPanel({
   onSaveInfos = null,             // MAT-20 — async handler (loueurId, text) => row|null
   canEdit = false,                // MAT-20 — gate édition
 }) {
+  // MAT-OUTILS ⑤ : afficher les remarques des items dans le récap (écran +
+  // PDF par loueur généré depuis ce panneau). Off par défaut — le récap
+  // reste compact ; l'option sert quand les remarques portent des infos
+  // utiles au loueur ("ou éq.", "+ secteur 19v"…).
+  const [showRemarques, setShowRemarques] = useState(false)
+
   // Escape pour fermer.
   useEffect(() => {
     if (!open) return undefined
@@ -140,10 +147,25 @@ export default function LoueurRecapPanel({
           </div>
           <button
             type="button"
+            onClick={() => setShowRemarques((v) => !v)}
+            className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-md transition-all shrink-0"
+            style={{
+              letterSpacing: '0.08em',
+              background: showRemarques ? 'var(--blue-bg)' : 'transparent',
+              color: showRemarques ? 'var(--blue)' : 'var(--txt-3)',
+              border: `1px solid ${showRemarques ? 'var(--blue)' : 'var(--brd-sub)'}`,
+            }}
+            title="Afficher les remarques des items (écran + PDF)"
+          >
+            <MessageSquare className="w-3 h-3" />
+            Remarques
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             aria-label="Fermer"
             title="Fermer"
-            className="ml-auto p-1.5 rounded-md transition-all"
+            className="p-1.5 rounded-md transition-all"
             style={{ color: 'var(--txt-3)' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hov)'
@@ -177,6 +199,7 @@ export default function LoueurRecapPanel({
                     infosRow={vli}
                     onSaveInfos={onSaveInfos}
                     canEdit={canEdit}
+                    showRemarques={showRemarques}
                   />
                 )
               })}
@@ -199,6 +222,7 @@ function LoueurCard({
   infosRow = null,
   onSaveInfos = null,
   canEdit = false,
+  showRemarques = false,
 }) {
   const { loueur, lignes, blocs = null, totaux = null } = recap
   const couleur = loueur.couleur || '#64748b'
@@ -224,6 +248,7 @@ function LoueurCard({
         totaux,
         org,
         infosLogistique,
+        includeRemarques: showRemarques,
       })
       onPreview(result, `Matériel — ${loueur.nom}`)
     } catch (err) {
@@ -357,7 +382,12 @@ function LoueurCard({
         </thead>
         <tbody>
           {(blocs || [{ blockId: null, titre: null, lignes }]).map((bloc, bi) => (
-            <BlocRows key={bloc.blockId || `b${bi}`} bloc={bloc} couleur={couleur} />
+            <BlocRows
+              key={bloc.blockId || `b${bi}`}
+              bloc={bloc}
+              couleur={couleur}
+              showRemarques={showRemarques}
+            />
           ))}
         </tbody>
       </table>
@@ -367,7 +397,7 @@ function LoueurCard({
 
 // ─── Rangées d'un bloc : sous-titre (ordre de la liste matériel) + lignes ──
 
-function BlocRows({ bloc, couleur }) {
+function BlocRows({ bloc, couleur, showRemarques = false }) {
   return (
     <>
       {bloc.titre && (
@@ -403,6 +433,11 @@ function BlocRows({ bloc, couleur }) {
               </>
             )}
             {l.designation}
+            {showRemarques && l.remarques && (
+              <span className="block text-[10px] italic mt-0.5" style={{ color: 'var(--txt-3)' }}>
+                {l.remarques}
+              </span>
+            )}
           </td>
           <td className="px-3 py-1.5 text-right font-bold tabular-nums" style={{ color: couleur }}>
             ×{l.qte}

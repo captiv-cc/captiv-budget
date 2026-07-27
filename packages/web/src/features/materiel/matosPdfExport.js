@@ -745,6 +745,7 @@ export async function exportMatosLoueursPDF({
   selectedLoueurIds = null, // null = tous
   infosLogistiqueByLoueur = null, // MAT-20
   includeLabels = false, // labels internes dans le PDF (option export)
+  includeRemarques = false, // MAT-OUTILS ⑤ : colonne Remarques (option export)
 }) {
   const assets = await loadAssets(org)
   const doc = makeDoc(assets)
@@ -783,6 +784,7 @@ export async function exportMatosLoueursPDF({
       blocs: r.blocs || null,
       totaux: r.totaux || null,
       includeLabels,
+      includeRemarques,
       bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
@@ -804,6 +806,7 @@ export async function exportMatosLoueursZip({
   selectedLoueurIds = null,
   infosLogistiqueByLoueur = null, // MAT-20
   includeLabels = false,
+  includeRemarques = false,
 }) {
   let JSZip
   try {
@@ -838,6 +841,7 @@ export async function exportMatosLoueursZip({
       blocs: r.blocs || null,
       totaux: r.totaux || null,
       includeLabels,
+      includeRemarques,
       bannerImage: assets.bannerImage,
       infosLogistique: lookupInfos(infosLogistiqueByLoueur, r.loueur.id),
     })
@@ -881,6 +885,7 @@ export async function exportMatosLoueurSinglePDF({
   blocs = null,
   totaux = null,
   includeLabels = false,
+  includeRemarques = false,
   org,
   infosLogistique = '', // MAT-20 — texte libre loueur
 }) {
@@ -894,6 +899,7 @@ export async function exportMatosLoueurSinglePDF({
     blocs,
     totaux,
     includeLabels,
+    includeRemarques,
     bannerImage: assets.bannerImage,
     infosLogistique,
   })
@@ -912,6 +918,7 @@ function renderLoueurSection(
     blocs = null,
     totaux = null,
     includeLabels = false,
+    includeRemarques = false,
     bannerImage,
     infosLogistique = '',
   },
@@ -980,6 +987,9 @@ function renderLoueurSection(
   }
 
   // Corps : sous-titre de bloc (rangée pleine largeur) + lignes du bloc.
+  // MAT-OUTILS ⑤ : colonne "Remarques" optionnelle (grise, plus petite) —
+  // le nombre de colonnes du tableau varie donc avec l'option.
+  const nbCols = includeRemarques ? 3 : 2
   const body = []
   const showBlocHeaders = blocsEffectifs.some((b) => b.titre)
   for (const bloc of blocsEffectifs) {
@@ -987,7 +997,7 @@ function renderLoueurSection(
       body.push([
         {
           content: (bloc.titre || 'Autres').toUpperCase(),
-          colSpan: 2,
+          colSpan: nbCols,
           styles: {
             fontStyle: 'bold',
             fontSize: 7.5,
@@ -1003,19 +1013,24 @@ function renderLoueurSection(
         includeLabels && l.label
           ? `${String(l.label).toUpperCase()}  ·  ${l.designation || '—'}`
           : l.designation || '—'
-      body.push([
-        designation,
-        { content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } },
-      ])
+      const row = [designation]
+      if (includeRemarques) {
+        row.push({
+          content: l.remarques || '',
+          styles: { fontSize: 8, textColor: C.gray },
+        })
+      }
+      row.push({ content: `×${l.qte || 0}`, styles: { halign: 'right', fontStyle: 'bold' } })
+      body.push(row)
     }
   }
   if (!body.length) {
-    body.push([{ content: '—', colSpan: 2, styles: { halign: 'center', textColor: C.gray } }])
+    body.push([{ content: '—', colSpan: nbCols, styles: { halign: 'center', textColor: C.gray } }])
   }
 
   autoTable(doc, {
     startY: y,
-    head: [['Désignation', 'Qté']],
+    head: [includeRemarques ? ['Désignation', 'Remarques', 'Qté'] : ['Désignation', 'Qté']],
     body,
     theme: 'grid',
     styles: {
@@ -1033,10 +1048,16 @@ function renderLoueurSection(
       fontSize: 8,
       halign: 'left',
     },
-    columnStyles: {
-      0: { cellWidth: 'auto' },
-      1: { cellWidth: 22, halign: 'right' },
-    },
+    columnStyles: includeRemarques
+      ? {
+          0: { cellWidth: 'auto' },
+          1: { cellWidth: 62 },
+          2: { cellWidth: 22, halign: 'right' },
+        }
+      : {
+          0: { cellWidth: 'auto' },
+          1: { cellWidth: 22, halign: 'right' },
+        },
     margin: { left: M, right: M, top: 32, bottom: 16 },
     didDrawPage: () => {
       // Redessiner le header si on passe en page 2+ pour ce loueur
@@ -1108,6 +1129,12 @@ function collapseByDesignation(lignes) {
     const existing = byKey.get(key)
     if (existing) {
       existing.qte = (existing.qte || 0) + (l.qte || 0)
+      // MAT-OUTILS ⑤ : la fusion concatène les remarques distinctes pour ne
+      // pas en perdre quand deux labels de même désignation sont re-fusionnés.
+      const rem = String(l.remarques || '').trim()
+      if (rem && !(existing.remarques || '').includes(rem)) {
+        existing.remarques = existing.remarques ? `${existing.remarques} · ${rem}` : rem
+      }
     } else {
       const copy = { ...l }
       byKey.set(key, copy)

@@ -46,6 +46,8 @@ export default function ExportLoueurModal({
   // Labels internes (Body / Optique…) dans le PDF — décoché par défaut
   // (MAT-17 bis amendé : le loueur n'en a besoin que sur les grosses listes).
   const [includeLabels, setIncludeLabels] = useState(false)
+  // MAT-OUTILS ⑤ : remarques des items en colonne dédiée — décoché par défaut.
+  const [includeRemarques, setIncludeRemarques] = useState(false)
 
   // Re-sync selection whenever the modal re-opens or the input set changes.
   useEffect(() => {
@@ -87,6 +89,7 @@ export default function ExportLoueurModal({
       selectedIds: Array.from(selected),
       format,
       includeLabels,
+      includeRemarques,
     })
   }
 
@@ -313,6 +316,25 @@ export default function ExportLoueurModal({
                 </span>
                 <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
                   « CORPS CAMÉRA · Sony Venice 2 » au lieu de la désignation seule
+                </span>
+              </span>
+            </label>
+            <label
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer"
+              style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+            >
+              <input
+                type="checkbox"
+                checked={includeRemarques}
+                onChange={(e) => setIncludeRemarques(e.target.checked)}
+                className="shrink-0"
+              />
+              <span className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+                  Inclure les remarques
+                </span>
+                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                  Colonne « Remarques » (ex. « ou éq. », « + secteur 19v »)
                 </span>
               </span>
             </label>

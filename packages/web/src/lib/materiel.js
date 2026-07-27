@@ -1504,9 +1504,13 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
     const existing = byAgg.get(aggKey)
     const qty = Number(item.quantite) || 0
     const pos = itemPos.get(item.id) ?? 0
+    // MAT-OUTILS ⑤ : les remarques sont collectées (dédupliquées) pour
+    // l'option "afficher les remarques" du récap (panneau + PDF).
+    const rem = String(item.remarques || '').trim()
     if (existing) {
       existing.qte += qty
       existing._pos = Math.min(existing._pos, pos)
+      if (rem) existing._rem.add(rem)
     } else {
       byAgg.set(aggKey, {
         key: aggKey,
@@ -1515,6 +1519,7 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
         qte: qty,
         materielBddId: item.materiel_bdd_id || null,
         _pos: pos,
+        _rem: new Set(rem ? [rem] : []),
       })
     }
   }
@@ -1552,7 +1557,10 @@ export function computeRecapByLoueur({ items = [], itemLoueurs = [], loueurs = [
         _pos: blockPos.has(blockKey) ? blockPos.get(blockKey) : blocks.length + appearance,
         lignes: Array.from(byAgg.values())
           .sort((a, b) => a._pos - b._pos)
-          .map(({ _pos, ...ligne }) => ligne),
+          .map(({ _pos, _rem, ...ligne }) => ({
+            ...ligne,
+            remarques: _rem.size ? Array.from(_rem).join(' · ') : null,
+          })),
       }
     })
     blocsRaw.sort((a, b) => a._pos - b._pos)
