@@ -207,17 +207,41 @@ export async function upsertArtiste(projectId, payload) {
   const sourcePriority = { manuel: 3, grille: 2, affiche: 1 }
   const incomingPrio = sourcePriority[payload.source] || 0
   const existingPrio = sourcePriority[existing.source] || 0
-  // Champs sensibles à la priorité : jour, scene, headliner
-  // Champs toujours patchables : spotify_artist_id, metadata (enrichissement)
+  // Champs sensibles à la priorité : jour, scene, headliner.
+  // Règle (amendée 2026-07-28, bug Hugo) : la priorité protège les VALEURS
+  // EXISTANTES, elle n'interdit pas de COMPLÉTER un champ vide. Cas réel :
+  // import timetable d'abord (source 'grille', jour/scene null) puis
+  // affiche (prio inférieure) qui connaît les jours → sans ça, le
+  // ré-import disait « 88 mis à jour » sans rien écrire.
+  const canOverwrite = incomingPrio >= existingPrio
   const patch = {}
-  if (incomingPrio >= existingPrio) {
-    if (payload.jour !== undefined) patch.jour = payload.jour || null
-    if (payload.scene !== undefined) patch.scene = payload.scene || null
-    if (payload.headliner !== undefined) patch.headliner = Boolean(payload.headliner)
-    // Le source peut monter en priorité mais pas descendre (un manuel
-    // qui se fait réécrire par un affiche garde son tag manuel).
-    if (incomingPrio > existingPrio) patch.source = payload.source
+  if (payload.jour !== undefined && payload.jour && (canOverwrite || !existing.jour)) {
+    patch.jour = payload.jour
+  } else if (payload.jour !== undefined && !payload.jour && canOverwrite) {
+    patch.jour = null
   }
+  if (payload.scene !== undefined && payload.scene && (canOverwrite || !existing.scene)) {
+    patch.scene = payload.scene
+  } else if (payload.scene !== undefined && !payload.scene && canOverwrite) {
+    patch.scene = null
+  }
+  if (payload.headliner !== undefined) {
+    if (canOverwrite) {
+      patch.headliner = Boolean(payload.headliner)
+    } else if (
+      payload.headliner === true &&
+      !existing.headliner &&
+      existing.source !== 'manuel'
+    ) {
+      // Une source moins prioritaire peut PROMOUVOIR en headliner (info
+      // typique de l'affiche), jamais rétrograder — et jamais contre une
+      // décision manuelle.
+      patch.headliner = true
+    }
+  }
+  // Le source peut monter en priorité mais pas descendre (un manuel
+  // qui se fait réécrire par un affiche garde son tag manuel).
+  if (incomingPrio > existingPrio) patch.source = payload.source
   if (payload.spotify_artist_id !== undefined) {
     patch.spotify_artist_id = payload.spotify_artist_id || null
   }
@@ -611,19 +635,24 @@ export async function fetchJourSceneOptions(projectId) {
 
 /**
  * Recoupement affiche ↔ timetable : compte, par artiste du projet, les
- * créneaux déroulé liés et les propositions musiques rattachées.
- * Renvoie { creneaux: Map<artisteId, n>, propositions: Map<artisteId, n> }.
- * Un artiste avec 0 créneau = vu sur l'affiche (ou saisi) mais jamais
- * retrouvé dans la grille horaire — signal d'erreur d'import probable.
+ * créneaux déroulé liés et les propositions musiques rattachées — et
+ * remonte les SCÈNES (lanes) et JOURS (date du déroulé) portés par ces
+ * créneaux : c'est la vérité terrain de la timetable, affichée dans
+ * l'annuaire quand la fiche artiste n'a pas de valeur propre.
+ *
+ * Renvoie { creneaux, propositions, scenes, jours } — Maps par artisteId
+ * (scenes/jours : tableaux de libellés dédupliqués).
  */
 export async function fetchArtisteCounts(projectId) {
   const creneaux = new Map()
   const propositions = new Map()
-  if (!projectId) return { creneaux, propositions }
+  const scenes = new Map()
+  const jours = new Map()
+  if (!projectId) return { creneaux, propositions, scenes, jours }
   const [cRes, pRes] = await Promise.all([
     supabase
       .from('projet_deroule_creneaux')
-      .select('artiste_id, projet_deroules!inner(project_id)')
+      .select('artiste_id, lane:lane_id(libelle, type), projet_deroules!inner(project_id, date_jour)')
       .eq('projet_deroules.project_id', projectId)
       .not('artiste_id', 'is', null),
     supabase
@@ -634,11 +663,28 @@ export async function fetchArtisteCounts(projectId) {
   ])
   if (cRes.error) throw cRes.error
   if (pRes.error) throw pRes.error
+  const pushUnique = (map, id, value) => {
+    const v = String(value || '').trim()
+    if (!v) return
+    const arr = map.get(id) || []
+    if (!arr.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      arr.push(v)
+      map.set(id, arr)
+    }
+  }
   for (const row of cRes.data || []) {
     creneaux.set(row.artiste_id, (creneaux.get(row.artiste_id) || 0) + 1)
+    if (row.lane?.type === 'lieu') pushUnique(scenes, row.artiste_id, row.lane.libelle)
+    if (row.projet_deroules?.date_jour) {
+      const label = new Date(`${row.projet_deroules.date_jour}T12:00:00`).toLocaleDateString(
+        'fr-FR',
+        { weekday: 'long', day: 'numeric', month: 'long' },
+      )
+      pushUnique(jours, row.artiste_id, label.charAt(0).toUpperCase() + label.slice(1))
+    }
   }
   for (const row of pRes.data || []) {
     propositions.set(row.artiste_id, (propositions.get(row.artiste_id) || 0) + 1)
   }
-  return { creneaux, propositions }
+  return { creneaux, propositions, scenes, jours }
 }

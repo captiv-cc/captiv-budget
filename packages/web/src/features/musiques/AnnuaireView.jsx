@@ -100,7 +100,12 @@ const SOURCE_LABELS = {
 
 export default function AnnuaireView({ projectId, canEdit = false, onMutated }) {
   const [artistes, setArtistes] = useState([])
-  const [counts, setCounts] = useState({ creneaux: new Map(), propositions: new Map() })
+  const [counts, setCounts] = useState({
+    creneaux: new Map(),
+    propositions: new Map(),
+    scenes: new Map(),
+    jours: new Map(),
+  })
   const [options, setOptions] = useState({ jours: [], scenes: [] })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -410,6 +415,8 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
                   isDuplicate={duplicateIds.has(a.id)}
                   canEdit={canEdit}
                   options={options}
+                  derivedJour={(counts.jours.get(a.id) || []).join(' · ')}
+                  derivedScene={(counts.scenes.get(a.id) || []).join(' · ')}
                   selected={selectedIds.has(a.id)}
                   onToggleSelect={() => toggleSelect(a.id)}
                   onRename={(nom) => handleRename(a, nom)}
@@ -476,6 +483,8 @@ function ArtisteRow({
   isDuplicate,
   canEdit,
   options,
+  derivedJour = '',
+  derivedScene = '',
   selected,
   onToggleSelect,
   onRename,
@@ -554,6 +563,7 @@ function ArtisteRow({
         <EditableSelect
           value={artiste.jour || ''}
           options={options.jours}
+          derived={derivedJour}
           canEdit={canEdit}
           onSave={(v) => onPatch({ jour: v })}
         />
@@ -563,6 +573,7 @@ function ArtisteRow({
         <EditableSelect
           value={artiste.scene || ''}
           options={options.scenes}
+          derived={derivedScene}
           canEdit={canEdit}
           onSave={(v) => onPatch({ scene: v })}
         />
@@ -718,8 +729,13 @@ function EditableText({ value, placeholder = '', canEdit, onSave, className = ''
  * Select discret pour jour / scène : valeurs définies uniquement (jours et
  * scènes du déroulé + valeurs déjà en base), pas de texte libre — retour
  * Hugo : « ce sont censés être des paramètres définis ».
+ *
+ * `derived` : valeur issue des CRÉNEAUX du déroulé (vérité terrain de la
+ * timetable). Quand la fiche n'a pas de valeur propre, on l'affiche comme
+ * libellé de l'option vide (italique, gris) — informatif sans rien écrire
+ * en base ; choisir une option la fige sur la fiche.
  */
-function EditableSelect({ value, options = [], canEdit, onSave }) {
+function EditableSelect({ value, options = [], derived = '', canEdit, onSave }) {
   const [saving, setSaving] = useState(false)
   // La valeur courante reste sélectionnable même si elle a disparu des
   // options (ancienne saisie libre) — sinon le select l'afficherait vide.
@@ -728,9 +744,18 @@ function EditableSelect({ value, options = [], canEdit, onSave }) {
     : value
       ? [value, ...options]
       : options
+  const showDerived = !value && derived
 
   if (!canEdit) {
-    return <span className={value ? '' : 'opacity-40'}>{value || '—'}</span>
+    return (
+      <span
+        className={value || derived ? '' : 'opacity-40'}
+        style={showDerived ? { fontStyle: 'italic', color: 'var(--txt-3)' } : undefined}
+        title={showDerived ? 'Valeur issue des créneaux du déroulé (timetable)' : undefined}
+      >
+        {value || derived || '—'}
+      </span>
+    )
   }
   return (
     <span className="inline-flex items-center gap-1">
@@ -742,11 +767,12 @@ function EditableSelect({ value, options = [], canEdit, onSave }) {
           await onSave(e.target.value)
           setSaving(false)
         }}
-        className="text-xs py-0.5 pl-1 pr-5 rounded outline-none cursor-pointer max-w-[140px] truncate"
+        className="text-xs py-0.5 pl-1 pr-5 rounded outline-none cursor-pointer max-w-[150px] truncate"
         style={{
           background: 'transparent',
           border: '1px solid transparent',
           color: value ? 'var(--txt-2)' : 'var(--txt-3)',
+          fontStyle: showDerived ? 'italic' : 'normal',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.borderColor = 'var(--brd)'
@@ -756,9 +782,13 @@ function EditableSelect({ value, options = [], canEdit, onSave }) {
           e.currentTarget.style.borderColor = 'transparent'
           e.currentTarget.style.background = 'transparent'
         }}
-        title="Choisir parmi les jours/scènes du projet"
+        title={
+          showDerived
+            ? `Issue des créneaux du déroulé : ${derived} — choisir une valeur pour la figer sur la fiche`
+            : 'Choisir parmi les jours/scènes du projet'
+        }
       >
-        <option value="">—</option>
+        <option value="">{showDerived ? derived : '—'}</option>
         {opts.map((o) => (
           <option key={o} value={o}>
             {o}
