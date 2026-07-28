@@ -43,6 +43,7 @@ import ActionSheet from '../../../components/ActionSheet'
 import ItemRow from './ItemRow'
 import ItemRowCard from './ItemRowCard'
 import BlockItemAdder from './BlockItemAdder'
+import SelectCheckbox from './SelectCheckbox'
 
 export default function Block({
   block,
@@ -58,6 +59,9 @@ export default function Block({
   selectable = false,
   selectedIds = null,
   onToggleSelect = null,
+  // Sélection par BLOC : coche/décoche tous les items du bloc d'un coup
+  // (checkbox tri-état dans l'en-tête, à la place du grip).
+  onSelectMany = null,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcast.
@@ -390,7 +394,24 @@ export default function Block({
             le conflit avec le bouton-titre (cursor:text). cursor:grab pour
             une affordance claire. Masquée sur mobile : pas de hover et le
             long-press natif entre en conflit avec le tap usuel. */}
-        {blockDndEnabled && !isMobile && (
+        {/* MAT-OUTILS : en mode sélection, la poignée laisse sa place à une
+            checkbox de bloc (tout cocher / tout décocher, tri-état). */}
+        {selectable && (
+          <SelectCheckbox
+            checked={items.length > 0 && items.every((it) => selectedIds?.has(it.id))}
+            indeterminate={
+              items.some((it) => selectedIds?.has(it.id)) &&
+              !items.every((it) => selectedIds?.has(it.id))
+            }
+            onToggle={() => {
+              const all = items.length > 0 && items.every((it) => selectedIds?.has(it.id))
+              onSelectMany?.(items.map((it) => it.id), !all)
+            }}
+            title={`Sélectionner tout le bloc « ${block.titre || 'Sans titre'} »`}
+            size={16}
+          />
+        )}
+        {blockDndEnabled && !isMobile && !selectable && (
           <div
             draggable
             onDragStart={handleBlockDragStart}

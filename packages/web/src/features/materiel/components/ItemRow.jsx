@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { GripVertical, Trash2 } from 'lucide-react'
+import SelectCheckbox from './SelectCheckbox'
 import { notify } from '../../../lib/notify'
 import FlagButton from './FlagButton'
 import DesignationAutocomplete from './DesignationAutocomplete'
@@ -264,13 +265,10 @@ export default function ItemRow({
         onClick={selectable ? () => onToggleSelect?.(item.id) : undefined}
       >
         {selectable ? (
-          <input
-            type="checkbox"
+          <SelectCheckbox
             checked={selected}
-            onChange={() => onToggleSelect?.(item.id)}
-            onClick={(e) => e.stopPropagation()}
-            className="cursor-pointer"
-            style={{ accentColor: 'var(--blue)' }}
+            onToggle={() => onToggleSelect?.(item.id)}
+            size={14}
           />
         ) : (
           dndEnabled && <GripVertical className="w-3 h-3 mx-auto opacity-40" />

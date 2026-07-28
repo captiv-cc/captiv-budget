@@ -48,6 +48,7 @@ export default function BlockList({
   selectable = false,
   selectedIds = null,
   onToggleSelect = null,
+  onSelectMany = null,
   // EQUIPE-RT-PRESENCE pattern : soft-lock collaboratif per-item.
   //   - othersEditingByItem : Map<itemId, {user_id, full_name}> (nullable)
   //   - onItemEditingChange : (itemId | null) => void — broadcaste mon
@@ -298,6 +299,7 @@ export default function BlockList({
           selectable={selectable}
           selectedIds={selectedIds}
           onToggleSelect={onToggleSelect}
+          onSelectMany={onSelectMany}
           othersEditingByItem={othersEditingByItem}
           onItemEditingChange={onItemEditingChange}
           isHighlighted={block.id === highlightedBlockId}

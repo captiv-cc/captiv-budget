@@ -217,6 +217,18 @@ export default function MaterielTab() {
       return next
     })
   }, [])
+  // MAT-OUTILS : sélection par bloc — coche/décoche une liste d'ids d'un coup.
+  const selectManyItems = useCallback((ids, selected) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (selected) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set())
     setSelectionMode(false)
@@ -920,6 +932,7 @@ export default function MaterielTab() {
               selectable={selectionMode}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelectItem}
+              onSelectMany={selectManyItems}
               loueursByItem={loueursByItem}
               loueursById={loueursById}
               allLoueurs={loueurs}
