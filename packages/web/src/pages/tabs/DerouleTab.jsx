@@ -46,7 +46,7 @@ import useBreakpoint from '../../hooks/useBreakpoint'
 // du projet, avec un indicateur visuel sur ceux non présents ce jour.
 // import { membresPresentsJour } from '../../lib/deroule'
 import { findMembreOverlaps, enrichCreneauxWithImplicitMembers, MAX_MIN } from '../../lib/deroule'
-import { resolveArtistesForImport, normalizeNom } from '../../lib/projetArtistes'
+import { resolveArtistesForImport, normalizeNom, syncArtistesFromCreneaux } from '../../lib/projetArtistes'
 import { notify } from '../../lib/notify'
 import { confirm } from '../../lib/confirm'
 import DerouleTimelineView from '../../features/deroule/DerouleTimelineView'
@@ -829,6 +829,13 @@ export default function DerouleTab() {
       if (errCount > 0) parts.push(`${errCount} en erreur`)
       if (parts.length === 0) parts.push('aucune action')
       notify.success(parts.join(' · '))
+
+      // MUS-ANNUAIRE : reporte jour/scène des créneaux fraîchement créés
+      // sur les fiches artistes qui n'en ont pas (fire-and-forget — les
+      // pickers Musiques groupent par artiste.jour).
+      syncArtistesFromCreneaux(projectId).catch((e) =>
+        console.warn('[import] sync artistes', e),
+      )
     } catch (e) {
       console.error('[import] global error', e)
       notify.error('Erreur import : ' + (e?.message || e))

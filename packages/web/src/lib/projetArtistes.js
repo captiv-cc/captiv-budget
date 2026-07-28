@@ -634,6 +634,44 @@ export async function fetchJourSceneOptions(projectId) {
 }
 
 /**
+ * Synchronise les fiches artistes depuis les créneaux du déroulé : remplit
+ * jour / scene quand la fiche n'a PAS de valeur ET que les créneaux sont
+ * univoques (exactement 1 jour / 1 scène distincts). N'écrase jamais une
+ * valeur existante, ne touche pas au champ source.
+ *
+ * Pourquoi écrire en base plutôt qu'afficher un dérivé : tout le reste de
+ * l'app (picker Programmation, groupements par jour) lit artiste.jour —
+ * un dérivé d'affichage laissait ces artistes en « Sans jour ».
+ * Appelée à l'ouverture de l'annuaire (canEdit) et après un import
+ * timetable. Idempotente.
+ *
+ * @returns {Promise<number>} nombre de fiches complétées
+ */
+export async function syncArtistesFromCreneaux(projectId) {
+  if (!projectId) return 0
+  const [artistes, counts] = await Promise.all([
+    listArtistes(projectId, { limit: 500 }),
+    fetchArtisteCounts(projectId),
+  ])
+  let patched = 0
+  for (const a of artistes) {
+    const patch = {}
+    const dJours = counts.jours.get(a.id) || []
+    const dScenes = counts.scenes.get(a.id) || []
+    if (!a.jour && dJours.length === 1) patch.jour = dJours[0]
+    if (!a.scene && dScenes.length === 1) patch.scene = dScenes[0]
+    if (!Object.keys(patch).length) continue
+    const { error } = await supabase
+      .from('projet_artistes')
+      .update(patch)
+      .eq('id', a.id)
+    if (error) throw error
+    patched += 1
+  }
+  return patched
+}
+
+/**
  * Recoupement affiche ↔ timetable : compte, par artiste du projet, les
  * créneaux déroulé liés et les propositions musiques rattachées — et
  * remonte les SCÈNES (lanes) et JOURS (date du déroulé) portés par ces

@@ -41,6 +41,7 @@ import {
   mergeArtistes,
   normalizeNom,
   setArtisteDupOk,
+  syncArtistesFromCreneaux,
   updateArtiste,
 } from '../../lib/projetArtistes'
 import { confirm } from '../../lib/confirm'
@@ -116,9 +117,28 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
   // Sélection multiple → suppression en masse (reset d'un import raté).
   const [selectedIds, setSelectedIds] = useState(() => new Set())
 
+  // Sync créneaux → fiches à l'ouverture (1 seule fois par montage) : les
+  // artistes de la timetable récupèrent leur jour/scène EN BASE (sinon ils
+  // restent « Sans jour » dans les pickers qui lisent artiste.jour).
+  const syncedRef = useRef(false)
+
   const load = useCallback(async () => {
     if (!projectId) return
     try {
+      if (canEdit && !syncedRef.current) {
+        syncedRef.current = true
+        try {
+          const n = await syncArtistesFromCreneaux(projectId)
+          if (n > 0) {
+            notify.success(
+              `${n} fiche${n > 1 ? 's' : ''} complétée${n > 1 ? 's' : ''} depuis les créneaux du déroulé`,
+            )
+            onMutated?.()
+          }
+        } catch (err) {
+          console.warn('[AnnuaireView] sync créneaux', err)
+        }
+      }
       const [list, cnt, opts] = await Promise.all([
         listArtistes(projectId, { limit: 500 }),
         fetchArtisteCounts(projectId),
@@ -137,6 +157,9 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
     } finally {
       setLoading(false)
     }
+    // syncedRef garantit une seule sync par montage même si canEdit/onMutated
+    // changent de référence — deps volontairement limitées aux entrées data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   useEffect(() => {
