@@ -87,7 +87,12 @@ PASSAGE DE MINUIT (très important pour les festivals) :
 ORDRE DES SHOWS dans le tableau :
 - Trie les shows par SCÈNE en respectant l'ORDRE VISUEL gauche-à-droite tel qu'elles apparaissent dans la timetable.
 - Au sein de chaque scène, trie les shows par heure de début ASC (les premiers shows de la soirée en premier, les shows after-midnight en dernier).
-- Exemple : si la timetable a 5 colonnes "Scène A | Scène B | Scène C | Scène D | Scène E", commence par tous les shows de Scène A (triés par heure), puis Scène B, etc.`
+- Exemple : si la timetable a 5 colonnes "Scène A | Scène B | Scène C | Scène D | Scène E", commence par tous les shows de Scène A (triés par heure), puis Scène B, etc.
+
+CONFIANCE (champ "confidence") :
+- "ok" quand le nom ET les horaires sont parfaitement lisibles et sans ambiguïté.
+- "doubtful" quand tu as dû interpréter : nom en typographie stylisée / partiellement masqué, horaire déduit de la position dans la grille plutôt que lu explicitement, case chevauchant deux colonnes, zone floue ou basse résolution.
+- Ce flag sert à attirer l'œil de l'utilisateur pour vérification manuelle — en cas de doute même léger, mets "doubtful". Mieux vaut trop de vérifications que des erreurs silencieuses.`
 
 // ─── Tool definition (force la sortie JSON via tool_use) ───────────────────
 const EXTRACTION_TOOL = {
@@ -130,8 +135,14 @@ const EXTRACTION_TOOL = {
               description:
                 "true si le show a lieu ENTIÈREMENT après minuit (J+1 par rapport à la date principale du festival). Typiquement les shows de fin de soirée 00h-05h dans une grille festival. Pour un show qui CHEVAUCHE minuit (ex: 23:30→00:30), laisse false : l'app gère ce cas automatiquement.",
             },
+            confidence: {
+              type: 'string',
+              enum: ['ok', 'doubtful'],
+              description:
+                "'doubtful' si la lecture du nom ou des horaires est incertaine (typo stylisée, horaire déduit, zone floue) — sert au surlignage de vérification côté UI",
+            },
           },
-          required: ['titre', 'heure_debut', 'heure_fin'],
+          required: ['titre', 'heure_debut', 'heure_fin', 'confidence'],
         },
       },
     },
@@ -328,6 +339,8 @@ Deno.serve(async (req: Request) => {
         scene: string | null
         heure_debut: string
         heure_fin: string
+        lendemain?: boolean
+        confidence?: string
       }>
     }
 
@@ -363,6 +376,8 @@ Deno.serve(async (req: Request) => {
             s.scene && typeof s.scene === 'string' ? s.scene.trim() : null,
           heure_debut,
           heure_fin,
+          // Confiance de lecture : 'doubtful' → surlignage vérification UI.
+          confidence: s.confidence === 'doubtful' ? 'doubtful' : 'ok',
         }
       })
       .filter((s) => s.heure_debut && s.heure_fin)

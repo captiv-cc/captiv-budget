@@ -99,6 +99,11 @@ INFOS FESTIVAL :
 - festival_name : nom du festival si visible (ex: "Plages Électroniques", "Marsatac"). Sinon null.
 - dates : période du festival si visible (ex: "11-13 août 2025", "16-18 mai"). Sinon null.
 
+CONFIANCE (champ "confidence") :
+- "ok" quand le nom est parfaitement lisible et sans ambiguïté.
+- "doubtful" quand tu as dû interpréter : typographie stylisée difficile à lire, caractères spéciaux incertains, nom partiellement masqué ou coupé, orthographe inhabituelle dont tu n'es pas sûr, résolution faible à cet endroit de l'image.
+- Ce flag sert à attirer l'œil de l'utilisateur pour vérification manuelle — en cas de doute même léger, mets "doubtful". Mieux vaut trop de vérifications que des erreurs silencieuses.
+
 Sois exhaustif sur les artistes (un grand festival a souvent 50-150 artistes) mais ne sors RIEN qui n'est pas explicitement écrit.`
 
 // ─── Tool definition ───────────────────────────────────────────────────────
@@ -144,8 +149,14 @@ const EXTRACTION_TOOL = {
               description:
                 'true si typographie significativement plus grosse (tête d\'affiche)',
             },
+            confidence: {
+              type: 'string',
+              enum: ['ok', 'doubtful'],
+              description:
+                "'doubtful' si la lecture du nom est incertaine (typo stylisée, illisible, coupé) — sert au surlignage de vérification côté UI",
+            },
           },
-          required: ['nom', 'headliner'],
+          required: ['nom', 'headliner', 'confidence'],
         },
       },
     },
@@ -343,6 +354,7 @@ Deno.serve(async (req: Request) => {
         jour: string | null
         scene: string | null
         headliner: boolean
+        confidence?: string
       }>
     }
 
@@ -366,6 +378,8 @@ Deno.serve(async (req: Request) => {
         jour: a.jour && typeof a.jour === 'string' ? a.jour.trim() : null,
         scene: a.scene && typeof a.scene === 'string' ? a.scene.trim() : null,
         headliner: Boolean(a.headliner),
+        // Confiance de lecture : 'doubtful' → surlignage de vérification UI.
+        confidence: a.confidence === 'doubtful' ? 'doubtful' : 'ok',
       }))
 
     const usage = claudeJson.usage || {}

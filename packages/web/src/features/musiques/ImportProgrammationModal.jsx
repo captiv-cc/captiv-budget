@@ -486,6 +486,14 @@ export default function ImportProgrammationModal({
                   {result.artistes.length} artiste{result.artistes.length > 1 ? 's' : ''} détecté{result.artistes.length > 1 ? 's' : ''}
                   {result.festival_name ? ` · ${result.festival_name}` : ''}
                   {result.dates ? ` · ${result.dates}` : ''}
+                  {(() => {
+                    const n = result.artistes.filter((a) => a.confidence === 'doubtful').length
+                    return n > 0 ? (
+                      <span style={{ color: '#D97706', fontWeight: 600 }}>
+                        {' '}· {n} à vérifier
+                      </span>
+                    ) : null
+                  })()}
                 </span>
                 {result.meta?.duration_ms && (
                   <span style={{ fontSize: 10, opacity: 0.7 }}>
@@ -653,6 +661,27 @@ export default function ImportProgrammationModal({
                             title={`Nom IA d'origine : « ${a.nom} »`}
                           >
                             ·corrigé
+                          </span>
+                        )}
+                        {/* MUS-ANNUAIRE ④ : lecture incertaine signalée par
+                            l'IA — à vérifier (et corriger via le crayon). */}
+                        {a.confidence === 'doubtful' && !nomEdited && !isEditing && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              padding: '1px 6px',
+                              borderRadius: 999,
+                              background: 'rgba(217,119,6,0.15)',
+                              color: '#D97706',
+                            }}
+                            title="L'IA n'est pas sûre de sa lecture (typo stylisée, zone illisible…) — vérifie ce nom"
+                          >
+                            <AlertCircle size={9} />
+                            à vérifier
                           </span>
                         )}
                         {/* MUS-4.9 : étoile cliquable pour toggle headliner.

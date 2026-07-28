@@ -765,6 +765,27 @@ export default function ImportPreviewModal({
                           e.currentTarget.style.borderBottomStyle = 'dashed'
                         }}
                       />
+                      {/* MUS-ANNUAIRE ④ : lecture IA incertaine (nom ou
+                          horaires) — à vérifier / corriger avant import. */}
+                      {s.confidence === 'doubtful' && (
+                        <span
+                          style={{
+                            padding: '1px 5px',
+                            background: 'rgba(217,119,6,0.15)',
+                            border: '1px solid rgba(217,119,6,0.4)',
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: '#D97706',
+                            flexShrink: 0,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.3,
+                          }}
+                          title="L'IA n'est pas sûre de sa lecture (nom ou horaires) — vérifie cette ligne avant d'importer"
+                        >
+                          à vérifier
+                        </span>
+                      )}
                       {/* Badges d'état diff (mode update) */}
                       {isUpdate && (
                         <span
