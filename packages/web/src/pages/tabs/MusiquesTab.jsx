@@ -48,6 +48,7 @@ import {
   Film,
   Clapperboard,
   ShieldCheck,
+  BookUser,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -72,6 +73,7 @@ import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import AddPropositionModal from '../../features/musiques/AddPropositionModal'
 import ImportProgrammationModal from '../../features/musiques/ImportProgrammationModal'
+import AnnuaireView from '../../features/musiques/AnnuaireView'
 import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
 import AttributionView from '../../features/musiques/AttributionView'
@@ -123,7 +125,7 @@ export default function MusiquesTab() {
   const [viewMode, setViewModeRaw] = useState(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY)
-      if (v === 'attribution' || v === 'livrables') return v
+      if (v === 'attribution' || v === 'livrables' || v === 'annuaire') return v
       return 'vrac'
     } catch {
       return 'vrac'
@@ -830,6 +832,12 @@ export default function MusiquesTab() {
           onClick={() => setViewMode('livrables')}
         />
         <ViewToggle
+          active={viewMode === 'annuaire'}
+          icon={BookUser}
+          label="Annuaire"
+          onClick={() => setViewMode('annuaire')}
+        />
+        <ViewToggle
           active={false}
           icon={ShieldCheck}
           label="Autorisations"
@@ -1176,6 +1184,15 @@ export default function MusiquesTab() {
             refetch()
           }}
           onOpenDetail={(p) => setDetailPropId(p.id)}
+        />
+      )}
+
+      {/* ─── Annuaire view (MUS-ANNUAIRE) ────────────────────────────── */}
+      {!loading && viewMode === 'annuaire' && (
+        <AnnuaireView
+          projectId={projectId}
+          canEdit={canEdit}
+          onMutated={() => refetch()}
         />
       )}
 

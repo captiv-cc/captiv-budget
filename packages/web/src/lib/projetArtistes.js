@@ -385,3 +385,169 @@ export async function deleteArtiste(artisteId) {
     .eq('id', artisteId)
   if (error) throw error
 }
+
+// ─── MUS-ANNUAIRE : édition / fusion / recoupement ─────────────────────────
+//
+// Vue « Annuaire » (demande Hugo 2026-07-28) : reprendre la main sur les
+// artistes après un import IA raté — renommer, corriger jour/scène,
+// supprimer, fusionner les doublons. Toute édition passe la source en
+// 'manuel' (priorité max) pour qu'un ré-import IA n'écrase pas la correction.
+
+/**
+ * Met à jour un artiste (nom / jour / scene / headliner). Un rename
+ * recalcule nom_normalise ; si un AUTRE artiste du projet porte déjà ce
+ * nom normalisé, on lève une erreur avec `code: 'DUPLICATE_NOM'` et
+ * `conflictArtiste` — l'UI propose alors la fusion à la place.
+ *
+ * @param {string} artisteId
+ * @param {object} patch { nom?, jour?, scene?, headliner? }
+ * @returns {Promise<object>}
+ */
+export async function updateArtiste(artisteId, patch = {}) {
+  const { data: existing, error: fetchErr } = await supabase
+    .from('projet_artistes')
+    .select('*')
+    .eq('id', artisteId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  const update = { source: 'manuel' }
+  if (patch.nom !== undefined) {
+    const nom = String(patch.nom || '').trim()
+    if (!nom) throw new Error('Le nom ne peut pas être vide')
+    const nom_normalise = normalizeNom(nom)
+    if (nom_normalise !== existing.nom_normalise) {
+      const { data: conflict } = await supabase
+        .from('projet_artistes')
+        .select('*')
+        .eq('project_id', existing.project_id)
+        .eq('nom_normalise', nom_normalise)
+        .neq('id', artisteId)
+        .limit(1)
+        .maybeSingle()
+      if (conflict) {
+        const err = new Error(
+          `« ${conflict.nom} » existe déjà dans l'annuaire — fusionne les deux fiches plutôt que de renommer.`,
+        )
+        err.code = 'DUPLICATE_NOM'
+        err.conflictArtiste = conflict
+        throw err
+      }
+    }
+    update.nom = nom
+    update.nom_normalise = nom_normalise
+  }
+  if (patch.jour !== undefined) update.jour = patch.jour || null
+  if (patch.scene !== undefined) update.scene = patch.scene || null
+  if (patch.headliner !== undefined) update.headliner = Boolean(patch.headliner)
+
+  const { data, error } = await supabase
+    .from('projet_artistes')
+    .update(update)
+    .eq('id', artisteId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Fusionne deux fiches artiste : les propositions musiques et les créneaux
+ * déroulé de `sourceId` sont rattachés à `targetId`, la cible récupère les
+ * infos qui lui manquent (jour, scène, spotify, metadata ; headliner en OR),
+ * puis la fiche source est supprimée. La cible passe en source 'manuel'.
+ *
+ * @param {string} sourceId  fiche absorbée (supprimée)
+ * @param {string} targetId  fiche conservée
+ * @returns {Promise<object>} la cible mise à jour
+ */
+export async function mergeArtistes(sourceId, targetId) {
+  if (!sourceId || !targetId || sourceId === targetId) {
+    throw new Error('Fusion invalide')
+  }
+  const { data: rows, error: fetchErr } = await supabase
+    .from('projet_artistes')
+    .select('*')
+    .in('id', [sourceId, targetId])
+  if (fetchErr) throw fetchErr
+  const source = rows?.find((r) => r.id === sourceId)
+  const target = rows?.find((r) => r.id === targetId)
+  if (!source || !target) throw new Error('Artiste introuvable')
+  if (source.project_id !== target.project_id) {
+    throw new Error('Les deux artistes ne sont pas dans le même projet')
+  }
+
+  // 1. Repointer les références (propositions musiques + créneaux déroulé).
+  const { error: propErr } = await supabase
+    .from('projet_musique_propositions')
+    .update({ artiste_id: targetId })
+    .eq('artiste_id', sourceId)
+  if (propErr) throw propErr
+  const { error: crenErr } = await supabase
+    .from('projet_deroule_creneaux')
+    .update({ artiste_id: targetId })
+    .eq('artiste_id', sourceId)
+  if (crenErr) throw crenErr
+
+  // 2. Compléter la cible avec ce que la source sait en plus.
+  const patch = { source: 'manuel' }
+  if (!target.jour && source.jour) patch.jour = source.jour
+  if (!target.scene && source.scene) patch.scene = source.scene
+  if (!target.spotify_artist_id && source.spotify_artist_id) {
+    patch.spotify_artist_id = source.spotify_artist_id
+  }
+  if (source.headliner && !target.headliner) patch.headliner = true
+  if (source.metadata && Object.keys(source.metadata).length) {
+    patch.metadata = { ...source.metadata, ...target.metadata }
+  }
+  const { data: updated, error: updErr } = await supabase
+    .from('projet_artistes')
+    .update(patch)
+    .eq('id', targetId)
+    .select('*')
+    .single()
+  if (updErr) throw updErr
+
+  // 3. Supprimer la source (les FKs pointent déjà sur la cible).
+  const { error: delErr } = await supabase
+    .from('projet_artistes')
+    .delete()
+    .eq('id', sourceId)
+  if (delErr) throw delErr
+
+  return updated
+}
+
+/**
+ * Recoupement affiche ↔ timetable : compte, par artiste du projet, les
+ * créneaux déroulé liés et les propositions musiques rattachées.
+ * Renvoie { creneaux: Map<artisteId, n>, propositions: Map<artisteId, n> }.
+ * Un artiste avec 0 créneau = vu sur l'affiche (ou saisi) mais jamais
+ * retrouvé dans la grille horaire — signal d'erreur d'import probable.
+ */
+export async function fetchArtisteCounts(projectId) {
+  const creneaux = new Map()
+  const propositions = new Map()
+  if (!projectId) return { creneaux, propositions }
+  const [cRes, pRes] = await Promise.all([
+    supabase
+      .from('projet_deroule_creneaux')
+      .select('artiste_id, projet_deroules!inner(project_id)')
+      .eq('projet_deroules.project_id', projectId)
+      .not('artiste_id', 'is', null),
+    supabase
+      .from('projet_musique_propositions')
+      .select('artiste_id')
+      .eq('project_id', projectId)
+      .not('artiste_id', 'is', null),
+  ])
+  if (cRes.error) throw cRes.error
+  if (pRes.error) throw pRes.error
+  for (const row of cRes.data || []) {
+    creneaux.set(row.artiste_id, (creneaux.get(row.artiste_id) || 0) + 1)
+  }
+  for (const row of pRes.data || []) {
+    propositions.set(row.artiste_id, (propositions.get(row.artiste_id) || 0) + 1)
+  }
+  return { creneaux, propositions }
+}
