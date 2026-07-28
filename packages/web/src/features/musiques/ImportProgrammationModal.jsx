@@ -31,6 +31,7 @@ import {
   Sparkles,
   AlertCircle,
   Star,
+  Pencil,
 } from 'lucide-react'
 import useImportProgrammation from '../../hooks/useImportProgrammation'
 import { bulkUpsertFromAffiche } from '../../lib/projetArtistes'
@@ -53,6 +54,12 @@ export default function ImportProgrammationModal({
   // MUS-4.9 : overrides du flag headliner par idx, appliqués au commit.
   // Map<idx, boolean> ; absent = on garde la valeur IA d'origine.
   const [headlinerOverride, setHeadlinerOverride] = useState(new Map())
+  // MUS-ANNUAIRE ② : corrections de noms (fautes d'extraction IA) avant
+  // import — même pattern que la preview timetable du déroulé.
+  // Map<idx, string> ; editingIdx = row en cours d'édition.
+  const [nomOverride, setNomOverride] = useState(new Map())
+  const [editingIdx, setEditingIdx] = useState(null)
+  const [editDraft, setEditDraft] = useState('')
   const { extract, importing: extracting, error, result, reset } =
     useImportProgrammation()
 
@@ -65,9 +72,28 @@ export default function ImportProgrammationModal({
       setSelected(new Set())
       setImporting(false)
       setHeadlinerOverride(new Map())
+      setNomOverride(new Map())
+      setEditingIdx(null)
       reset()
     }
   }, [open, reset])
+
+  // MUS-ANNUAIRE ② : helpers nom override
+  function getEffectiveNom(a, idx) {
+    const o = nomOverride.get(idx)
+    return o !== undefined ? o : a.nom
+  }
+  function commitNomEdit(idx) {
+    const next = editDraft.trim()
+    setNomOverride((prev) => {
+      const map = new Map(prev)
+      // Retour au nom IA d'origine (ou vide) → on retire l'override.
+      if (!next || next === result?.artistes?.[idx]?.nom) map.delete(idx)
+      else map.set(idx, next)
+      return map
+    })
+    setEditingIdx(null)
+  }
 
   // MUS-4.9 : helpers headliner override
   function getEffectiveHeadliner(a, idx) {
@@ -170,6 +196,7 @@ export default function ImportProgrammationModal({
       const toImport = result.artistes
         .map((a, i) => ({
           ...a,
+          nom: getEffectiveNom(a, i),
           headliner: getEffectiveHeadliner(a, i),
         }))
         .filter((_, i) => selected.has(i))
@@ -511,6 +538,9 @@ export default function ImportProgrammationModal({
                   const wasOverridden =
                     headlinerOverride.has(idx) &&
                     headlinerOverride.get(idx) !== Boolean(a.headliner)
+                  const displayNom = getEffectiveNom(a, idx)
+                  const nomEdited = nomOverride.has(idx)
+                  const isEditing = editingIdx === idx
                   return (
                     <label
                       key={idx}
@@ -547,7 +577,84 @@ export default function ImportProgrammationModal({
                           gap: 5,
                         }}
                       >
-                        {a.nom}
+                        {/* MUS-ANNUAIRE ② : correction du nom avant import
+                            (faute de lecture IA). Crayon → input inline. */}
+                        {isEditing ? (
+                          <input
+                            value={editDraft}
+                            autoFocus
+                            disabled={importing}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                commitNomEdit(idx)
+                              }
+                              if (e.key === 'Escape') {
+                                e.preventDefault()
+                                setEditingIdx(null)
+                              }
+                            }}
+                            onBlur={() => commitNomEdit(idx)}
+                            style={{
+                              background: 'var(--bg-elev)',
+                              border: '1px solid var(--blue, #3B82F6)',
+                              borderRadius: 4,
+                              color: 'var(--txt)',
+                              fontSize: 12,
+                              padding: '2px 6px',
+                              outline: 'none',
+                              width: `${Math.max(10, editDraft.length + 2)}ch`,
+                              maxWidth: 260,
+                            }}
+                          />
+                        ) : (
+                          <span style={{ color: nomEdited ? 'var(--blue, #3B82F6)' : undefined }}>
+                            {displayNom}
+                          </span>
+                        )}
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setEditDraft(displayNom)
+                              setEditingIdx(idx)
+                            }}
+                            disabled={importing}
+                            title="Corriger le nom de l'artiste avant l'import"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              display: 'inline-flex',
+                              cursor: importing ? 'not-allowed' : 'pointer',
+                              opacity: 0.3,
+                              transition: 'opacity 80ms',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = '0.8'
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = '0.3'
+                            }}
+                          >
+                            <Pencil size={11} style={{ color: 'var(--txt-3)' }} />
+                          </button>
+                        )}
+                        {nomEdited && !isEditing && (
+                          <span
+                            style={{ fontSize: 9, color: 'var(--blue, #3B82F6)', fontStyle: 'italic' }}
+                            title={`Nom IA d'origine : « ${a.nom} »`}
+                          >
+                            ·corrigé
+                          </span>
+                        )}
                         {/* MUS-4.9 : étoile cliquable pour toggle headliner.
                             Pleine ambrée pour HL, vide grise sinon (visible
                             quand on hover toute la row pour discoverabilité). */}
