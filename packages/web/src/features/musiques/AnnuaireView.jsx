@@ -34,14 +34,18 @@ import {
 } from 'lucide-react'
 import {
   deleteArtiste,
+  deleteArtistes,
   fetchArtisteCounts,
+  fetchJourSceneOptions,
   listArtistes,
   mergeArtistes,
   normalizeNom,
+  setArtisteDupOk,
   updateArtiste,
 } from '../../lib/projetArtistes'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
+import SelectCheckbox from '../materiel/components/SelectCheckbox'
 
 // ─── Détection de doublons proches (nom_normalise) ──────────────────────────
 // Levenshtein borné à 2 — suffisant pour attraper « DJ Snoke » / « DJ Snake »
@@ -68,46 +72,61 @@ function editDistanceLe2(a, b) {
 
 function computeDuplicateIds(artistes) {
   const dup = new Set()
-  for (let i = 0; i < artistes.length; i++) {
-    const a = artistes[i].nom_normalise || ''
+  // Un artiste confirmé « pas un doublon » (metadata.dup_ok, badge ✕)
+  // neutralise toute paire qui le contient.
+  const eligible = artistes.filter((a) => !a.metadata?.dup_ok)
+  for (let i = 0; i < eligible.length; i++) {
+    const a = eligible[i].nom_normalise || ''
     if (a.length < 4) continue
-    for (let j = i + 1; j < artistes.length; j++) {
-      const b = artistes[j].nom_normalise || ''
+    for (let j = i + 1; j < eligible.length; j++) {
+      const b = eligible[j].nom_normalise || ''
       if (b.length < 4) continue
       if (a === b) continue // impossible (unicité) mais defensif
       if (editDistanceLe2(a, b)) {
-        dup.add(artistes[i].id)
-        dup.add(artistes[j].id)
+        dup.add(eligible[i].id)
+        dup.add(eligible[j].id)
       }
     }
   }
   return dup
 }
 
+// 'grille' en BDD = import de la timetable (renommé côté UI, retour Hugo).
 const SOURCE_LABELS = {
   manuel: { label: 'Manuel', color: 'var(--blue)' },
-  grille: { label: 'Grille', color: 'var(--green, #22c55e)' },
+  grille: { label: 'Timetable', color: 'var(--green, #22c55e)' },
   affiche: { label: 'Affiche', color: 'var(--purple, #a78bfa)' },
 }
 
 export default function AnnuaireView({ projectId, canEdit = false, onMutated }) {
   const [artistes, setArtistes] = useState([])
   const [counts, setCounts] = useState({ creneaux: new Map(), propositions: new Map() })
+  const [options, setOptions] = useState({ jours: [], scenes: [] })
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | sans-creneau | doublons
+  const [sourceFilter, setSourceFilter] = useState('') // '' | manuel | grille | affiche
   const [mergeSource, setMergeSource] = useState(null) // artiste à absorber
   const [mergeTargetId, setMergeTargetId] = useState(null) // pré-sélection (conflit rename)
+  // Sélection multiple → suppression en masse (reset d'un import raté).
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
 
   const load = useCallback(async () => {
     if (!projectId) return
     try {
-      const [list, cnt] = await Promise.all([
+      const [list, cnt, opts] = await Promise.all([
         listArtistes(projectId, { limit: 500 }),
         fetchArtisteCounts(projectId),
+        fetchJourSceneOptions(projectId),
       ])
       setArtistes(list)
       setCounts(cnt)
+      setOptions(opts)
+      // Purge la sélection des ids disparus (suppression concurrente).
+      setSelectedIds((prev) => {
+        const ids = new Set(list.map((a) => a.id))
+        return new Set(Array.from(prev).filter((id) => ids.has(id)))
+      })
     } catch (err) {
       notify.error('Chargement annuaire : ' + (err?.message || err))
     } finally {
@@ -126,11 +145,12 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
     const q = normalizeNom(search)
     return artistes.filter((a) => {
       if (q && !(a.nom_normalise || '').includes(q)) return false
+      if (sourceFilter && a.source !== sourceFilter) return false
       if (filter === 'sans-creneau' && (counts.creneaux.get(a.id) || 0) > 0) return false
       if (filter === 'doublons' && !duplicateIds.has(a.id)) return false
       return true
     })
-  }, [artistes, search, filter, counts, duplicateIds])
+  }, [artistes, search, filter, sourceFilter, counts, duplicateIds])
 
   const sansCreneauCount = useMemo(
     () => artistes.filter((a) => (counts.creneaux.get(a.id) || 0) === 0).length,
@@ -189,6 +209,60 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
     await handleMutation(() => deleteArtiste(artiste.id), 'Artiste supprimé')
   }
 
+  // ─── Sélection multiple / suppression en masse (reset d'import) ──────────
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((a) => selectedIds.has(a.id))
+  function toggleSelectAllFiltered() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allFilteredSelected) filtered.forEach((a) => next.delete(a.id))
+      else filtered.forEach((a) => next.add(a.id))
+      return next
+    })
+  }
+
+  async function handleBulkDelete() {
+    const ids = Array.from(selectedIds)
+    if (!ids.length) return
+    let nCren = 0
+    let nProps = 0
+    for (const id of ids) {
+      nCren += counts.creneaux.get(id) || 0
+      nProps += counts.propositions.get(id) || 0
+    }
+    const ok = await confirm({
+      title: `Supprimer ${ids.length} artiste${ids.length > 1 ? 's' : ''} de l'annuaire ?`,
+      message:
+        nCren || nProps
+          ? `${nCren} créneau${nCren > 1 ? 'x' : ''} déroulé et ${nProps} proposition${nProps > 1 ? 's' : ''} garderont leur contenu mais perdront le lien artiste. Action irréversible.`
+          : 'Ces artistes ne portent aucun lien — suppression sans impact. Action irréversible.',
+      confirmLabel: `Supprimer (${ids.length})`,
+      danger: true,
+    })
+    if (!ok) return
+    const done = await handleMutation(
+      () => deleteArtistes(ids),
+      `${ids.length} artiste${ids.length > 1 ? 's' : ''} supprimé${ids.length > 1 ? 's' : ''}`,
+    )
+    if (done) setSelectedIds(new Set())
+  }
+
+  // ─── « Ce n'est pas un doublon » — désamorce le badge (persistant) ───────
+  async function handleDupOk(artiste) {
+    await handleMutation(
+      () => setArtisteDupOk(artiste.id, true),
+      `« ${artiste.nom} » ne sera plus signalé comme doublon`,
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -234,6 +308,51 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
           onClick={() => setFilter('doublons')}
           title="Noms très proches — probablement le même artiste mal orthographié"
         />
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="text-[11px] font-semibold px-2 py-1.5 rounded-md outline-none"
+          style={{
+            background: sourceFilter ? 'var(--blue-bg)' : 'var(--bg-elev)',
+            color: sourceFilter ? 'var(--blue)' : 'var(--txt-2)',
+            border: `1px solid ${sourceFilter ? 'var(--blue)' : 'var(--brd)'}`,
+          }}
+          title="Filtrer par source d'import — pratique pour vider un import raté"
+        >
+          <option value="">Toutes sources</option>
+          <option value="affiche">Affiche</option>
+          <option value="grille">Timetable</option>
+          <option value="manuel">Manuel</option>
+        </select>
+
+        {canEdit && selectedIds.size > 0 && (
+          <span className="flex items-center gap-2 ml-auto">
+            <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+              {selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''}
+            </span>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md"
+              style={{
+                background: 'rgba(239,68,68,0.12)',
+                color: 'var(--red, #ef4444)',
+                border: '1px solid rgba(239,68,68,0.4)',
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Supprimer
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="text-[11px] font-semibold px-2 py-1.5 rounded-md"
+              style={{ color: 'var(--txt-3)' }}
+            >
+              Annuler
+            </button>
+          </span>
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -256,6 +375,17 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
           <table className="w-full text-xs">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--brd)', color: 'var(--txt-3)' }}>
+                {canEdit && (
+                  <Th style={{ width: '30px' }}>
+                    <SelectCheckbox
+                      checked={allFilteredSelected}
+                      indeterminate={selectedIds.size > 0 && !allFilteredSelected}
+                      onToggle={toggleSelectAllFiltered}
+                      title="Tout sélectionner (résultats filtrés)"
+                      size={14}
+                    />
+                  </Th>
+                )}
                 <Th style={{ width: '28px' }} />
                 <Th>Artiste</Th>
                 <Th style={{ width: '120px' }}>Jour</Th>
@@ -279,10 +409,14 @@ export default function AnnuaireView({ projectId, canEdit = false, onMutated }) 
                   nProps={counts.propositions.get(a.id) || 0}
                   isDuplicate={duplicateIds.has(a.id)}
                   canEdit={canEdit}
+                  options={options}
+                  selected={selectedIds.has(a.id)}
+                  onToggleSelect={() => toggleSelect(a.id)}
                   onRename={(nom) => handleRename(a, nom)}
                   onPatch={(patch) =>
                     handleMutation(() => updateArtiste(a.id, patch), 'Artiste mis à jour')
                   }
+                  onDupOk={() => handleDupOk(a)}
                   onMerge={() => {
                     setMergeSource(a)
                     setMergeTargetId(null)
@@ -341,14 +475,29 @@ function ArtisteRow({
   nProps,
   isDuplicate,
   canEdit,
+  options,
+  selected,
+  onToggleSelect,
   onRename,
   onPatch,
+  onDupOk,
   onMerge,
   onDelete,
 }) {
   const src = SOURCE_LABELS[artiste.source] || SOURCE_LABELS.manuel
   return (
-    <tr style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+    <tr
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: selected ? 'rgba(59,130,246,0.05)' : undefined,
+      }}
+    >
+      {/* Sélection multiple */}
+      {canEdit && (
+        <td className="px-2 py-1.5 text-center">
+          <SelectCheckbox checked={selected} onToggle={onToggleSelect} size={14} />
+        </td>
+      )}
       {/* Headliner star */}
       <td className="px-2 py-1.5 text-center">
         <button
@@ -384,24 +533,36 @@ function ArtisteRow({
             >
               <AlertTriangle className="w-3 h-3" />
               doublon ?
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={onDupOk}
+                  title="Ce n'est PAS un doublon — ne plus signaler cet artiste"
+                  className="inline-flex items-center rounded-full transition-opacity opacity-60 hover:opacity-100"
+                  style={{ color: 'inherit' }}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </span>
           )}
         </span>
       </td>
-      {/* Jour */}
+      {/* Jour — paramètre défini (jours du déroulé + valeurs existantes),
+          pas de texte libre (retour Hugo). */}
       <td className="px-3 py-1.5" style={{ color: 'var(--txt-2)' }}>
-        <EditableText
+        <EditableSelect
           value={artiste.jour || ''}
-          placeholder="—"
+          options={options.jours}
           canEdit={canEdit}
           onSave={(v) => onPatch({ jour: v })}
         />
       </td>
-      {/* Scène */}
+      {/* Scène — idem : scènes du déroulé + valeurs existantes. */}
       <td className="px-3 py-1.5" style={{ color: 'var(--txt-2)' }}>
-        <EditableText
+        <EditableSelect
           value={artiste.scene || ''}
-          placeholder="—"
+          options={options.scenes}
           canEdit={canEdit}
           onSave={(v) => onPatch({ scene: v })}
         />
@@ -548,6 +709,62 @@ function EditableText({ value, placeholder = '', canEdit, onSave, className = ''
           maxWidth: '240px',
         }}
       />
+      {saving && <Loader2 className="w-3 h-3 animate-spin" style={{ color: 'var(--txt-3)' }} />}
+    </span>
+  )
+}
+
+/**
+ * Select discret pour jour / scène : valeurs définies uniquement (jours et
+ * scènes du déroulé + valeurs déjà en base), pas de texte libre — retour
+ * Hugo : « ce sont censés être des paramètres définis ».
+ */
+function EditableSelect({ value, options = [], canEdit, onSave }) {
+  const [saving, setSaving] = useState(false)
+  // La valeur courante reste sélectionnable même si elle a disparu des
+  // options (ancienne saisie libre) — sinon le select l'afficherait vide.
+  const opts = options.some((o) => o.toLowerCase() === (value || '').toLowerCase())
+    ? options
+    : value
+      ? [value, ...options]
+      : options
+
+  if (!canEdit) {
+    return <span className={value ? '' : 'opacity-40'}>{value || '—'}</span>
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <select
+        value={value || ''}
+        disabled={saving}
+        onChange={async (e) => {
+          setSaving(true)
+          await onSave(e.target.value)
+          setSaving(false)
+        }}
+        className="text-xs py-0.5 pl-1 pr-5 rounded outline-none cursor-pointer max-w-[140px] truncate"
+        style={{
+          background: 'transparent',
+          border: '1px solid transparent',
+          color: value ? 'var(--txt-2)' : 'var(--txt-3)',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--brd)'
+          e.currentTarget.style.background = 'var(--bg-elev)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'transparent'
+          e.currentTarget.style.background = 'transparent'
+        }}
+        title="Choisir parmi les jours/scènes du projet"
+      >
+        <option value="">—</option>
+        {opts.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
       {saving && <Loader2 className="w-3 h-3 animate-spin" style={{ color: 'var(--txt-3)' }} />}
     </span>
   )

@@ -756,8 +756,25 @@ export default function MusiquesTab() {
           {/* CTAs primaires — pattern Mat/Liv : actions secondaires en
               bg-elev borded, action principale en bleu solide. ml-auto
               pousse à droite. */}
-          {canEdit && (
-            <div className="flex items-center gap-2 sm:ml-auto">
+          <div className="flex items-center gap-2 sm:ml-auto">
+            {/* MUS-ANNUAIRE : l'annuaire est un OUTIL de gestion, pas une
+                étape du process (retour Hugo) — accès ici, à côté de
+                l'import, et pas dans les onglets Vue. */}
+            <button
+              type="button"
+              onClick={() => setViewMode(viewMode === 'annuaire' ? 'vrac' : 'annuaire')}
+              title="Annuaire artistes du projet — corriger, fusionner, nettoyer les imports"
+              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-md transition-all shrink-0"
+              style={{
+                background: viewMode === 'annuaire' ? 'var(--blue-bg)' : 'var(--bg-elev)',
+                color: viewMode === 'annuaire' ? 'var(--blue)' : 'var(--txt-2)',
+                border: `1px solid ${viewMode === 'annuaire' ? 'var(--blue)' : 'var(--brd)'}`,
+              }}
+            >
+              <BookUser className="w-3 h-3" />
+              Annuaire
+            </button>
+            {canEdit && (
               <button
                 type="button"
                 onClick={() => setImportProgOpen(true)}
@@ -780,6 +797,8 @@ export default function MusiquesTab() {
                 <ImageUp className="w-3 h-3" />
                 Importer prog.
               </button>
+            )}
+            {canEdit && (
               <button
                 type="button"
                 onClick={() => setAddOpen(true)}
@@ -793,8 +812,8 @@ export default function MusiquesTab() {
                 <Plus className="w-3 h-3" />
                 Ajouter
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -830,12 +849,6 @@ export default function MusiquesTab() {
           icon={Clapperboard}
           label="Livrables"
           onClick={() => setViewMode('livrables')}
-        />
-        <ViewToggle
-          active={viewMode === 'annuaire'}
-          icon={BookUser}
-          label="Annuaire"
-          onClick={() => setViewMode('annuaire')}
         />
         <ViewToggle
           active={false}

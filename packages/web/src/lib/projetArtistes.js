@@ -519,6 +519,97 @@ export async function mergeArtistes(sourceId, targetId) {
 }
 
 /**
+ * Supprime plusieurs artistes d'un coup (nettoyage / reset d'un import).
+ * FKs en SET NULL : créneaux et propositions gardent leur contenu.
+ */
+export async function deleteArtistes(artisteIds = []) {
+  if (!artisteIds.length) return 0
+  const { error } = await supabase
+    .from('projet_artistes')
+    .delete()
+    .in('id', artisteIds)
+  if (error) throw error
+  return artisteIds.length
+}
+
+/**
+ * Marque un artiste comme « pas un doublon » (metadata.dup_ok) : la
+ * détection de doublons proches ignore toute paire qui le contient.
+ * Persistant — le badge ne réapparaît pas au prochain chargement.
+ */
+export async function setArtisteDupOk(artisteId, ok = true) {
+  const { data: existing, error: fetchErr } = await supabase
+    .from('projet_artistes')
+    .select('metadata')
+    .eq('id', artisteId)
+    .single()
+  if (fetchErr) throw fetchErr
+  const metadata = { ...(existing?.metadata || {}) }
+  if (ok) metadata.dup_ok = true
+  else delete metadata.dup_ok
+  const { data, error } = await supabase
+    .from('projet_artistes')
+    .update({ metadata })
+    .eq('id', artisteId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Valeurs structurées pour les champs jour / scène de l'annuaire (retour
+ * Hugo : « ce sont censés être des paramètres définis », pas du texte
+ * libre). Union de :
+ *   - jours : dates des déroulés du projet (formatées « Jeudi 20 août »)
+ *             + valeurs jour déjà portées par les artistes ;
+ *   - scènes : lanes 'lieu' des déroulés + valeurs scene des artistes.
+ */
+export async function fetchJourSceneOptions(projectId) {
+  const jours = []
+  const scenes = []
+  if (!projectId) return { jours, scenes }
+  const [dRes, lRes, aRes] = await Promise.all([
+    supabase
+      .from('projet_deroules')
+      .select('date_jour')
+      .eq('project_id', projectId)
+      .order('date_jour', { ascending: true }),
+    supabase
+      .from('projet_deroule_lanes')
+      .select('libelle, type, projet_deroules!inner(project_id)')
+      .eq('projet_deroules.project_id', projectId)
+      .eq('type', 'lieu'),
+    supabase
+      .from('projet_artistes')
+      .select('jour, scene')
+      .eq('project_id', projectId),
+  ])
+  if (dRes.error) throw dRes.error
+  if (lRes.error) throw lRes.error
+  if (aRes.error) throw aRes.error
+
+  const pushUnique = (arr, value) => {
+    const v = String(value || '').trim()
+    if (!v) return
+    if (!arr.some((x) => x.toLowerCase() === v.toLowerCase())) arr.push(v)
+  }
+  for (const d of dRes.data || []) {
+    if (!d.date_jour) continue
+    const label = new Date(`${d.date_jour}T12:00:00`).toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    })
+    pushUnique(jours, label.charAt(0).toUpperCase() + label.slice(1))
+  }
+  for (const a of aRes.data || []) pushUnique(jours, a.jour)
+  for (const l of lRes.data || []) pushUnique(scenes, l.libelle)
+  for (const a of aRes.data || []) pushUnique(scenes, a.scene)
+  return { jours, scenes }
+}
+
+/**
  * Recoupement affiche ↔ timetable : compte, par artiste du projet, les
  * créneaux déroulé liés et les propositions musiques rattachées.
  * Renvoie { creneaux: Map<artisteId, n>, propositions: Map<artisteId, n> }.
