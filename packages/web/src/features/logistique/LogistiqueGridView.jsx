@@ -41,6 +41,7 @@ import {
 import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPeriodes'
 import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
 import PresenceCalendarModal from '../equipe/components/PresenceCalendarModal'
+import TrajetModal from './TrajetModal'
 import {
   fetchLogistique,
   initFromEquipe,
@@ -123,6 +124,9 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
   // cible est ambiguë (2+ sessions, aucune enveloppe couvrante), un
   // popover ancré à la cellule propose le choix — colorié comme l'Équipe.
   const [sessionPick, setSessionPick] = useState(null) // { membreId, day }
+  // P2 : éditeur de trajet (création prête-remplie depuis la cellule, ou
+  // édition au clic sur une chip). { membre, trajet|null, date, sens }
+  const [trajetEdit, setTrajetEdit] = useState(null)
 
   const load = useCallback(async () => {
     if (!projectId) return
@@ -644,6 +648,14 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
                 sessionPick={sessionPick}
                 onPickSession={addPresenceToSession}
                 onClosePick={() => setSessionPick(null)}
+                onEditTrajet={
+                  canEdit ? (membre, trajet) => setTrajetEdit({ membre, trajet }) : null
+                }
+                onAddTrajet={
+                  canEdit
+                    ? (membre, day, sens) => setTrajetEdit({ membre, trajet: null, date: day, sens })
+                    : null
+                }
               />
             ))}
           </tbody>
@@ -669,6 +681,21 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
       {/* Gestion complète des sessions/présences — MÊME modale que l'onglet
           Équipe (sélecteur de session, rejoindre/créer, renommer, arrivée/
           retour). Ouverte au clic sur le nom d'une personne. */}
+      {/* Éditeur de trajet (P2) */}
+      {trajetEdit && (
+        <TrajetModal
+          projectId={projectId}
+          membre={trajetEdit.membre}
+          membreName={membreName(trajetEdit.membre)}
+          trajet={trajetEdit.trajet}
+          defaultDate={trajetEdit.date || null}
+          defaultSens={trajetEdit.sens || 'aller'}
+          onSaved={() => load()}
+          onDeleted={() => load()}
+          onClose={() => setTrajetEdit(null)}
+        />
+      )}
+
       {presenceFor && (
         <PresenceCalendarModal
           open={Boolean(presenceFor)}
@@ -780,6 +807,8 @@ function GroupRows({
   sessionPick,
   onPickSession,
   onClosePick,
+  onEditTrajet,
+  onAddTrajet,
 }) {
   return (
     <>
@@ -815,6 +844,8 @@ function GroupRows({
           sessionPick={sessionPick}
           onPickSession={onPickSession}
           onClosePick={onClosePick}
+          onEditTrajet={onEditTrajet}
+          onAddTrajet={onAddTrajet}
         />
       ))}
     </>
@@ -837,8 +868,15 @@ function MembreRow({
   sessionPick = null,
   onPickSession,
   onClosePick,
+  onEditTrajet = null,
+  onAddTrajet = null,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
+  // Heuristique sens par défaut du « + trajet » : avant/au 1er jour de
+  // présence → aller ; au/après le dernier → retour ; entre les deux → aller.
+  const sortedPresence = [...presenceDays].sort()
+  const firstDay = sortedPresence[0] || null
+  const lastDay = sortedPresence[sortedPresence.length - 1] || null
   // Couleur/label de session par jour — même palette déterministe que
   // l'onglet Équipe (couleur custom OU paletteAt(sort_order) si NULL).
   const colorByDay = new Map()
@@ -958,9 +996,30 @@ function MembreRow({
                 </button>
                 <span className="flex items-center gap-0.5 min-w-0 overflow-hidden">
                   {trajets.map((t) => (
-                    <TrajetChip key={t.id} trajet={t} />
+                    <TrajetChip
+                      key={t.id}
+                      trajet={t}
+                      onClick={onEditTrajet ? () => onEditTrajet(membre, t) : null}
+                    />
                   ))}
                 </span>
+                {onAddTrajet && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onAddTrajet(
+                        membre,
+                        d,
+                        lastDay && d >= lastDay && d !== firstDay ? 'retour' : 'aller',
+                      )
+                    }
+                    title="Ajouter un trajet ce jour"
+                    className="ml-auto w-4 h-4 rounded-sm shrink-0 flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                    style={{ color: 'var(--blue)', border: '1px dashed var(--brd)' }}
+                  >
+                    +
+                  </button>
+                )}
               </div>
 
               {/* Popover de choix de session — la case reste LE point
@@ -1096,7 +1155,7 @@ function RepasChip({ service, statut, canEdit, onClick }) {
   )
 }
 
-function TrajetChip({ trajet }) {
+function TrajetChip({ trajet, onClick = null }) {
   const etapes = Array.isArray(trajet.etapes) ? trajet.etapes : []
   const first = etapes[0] || {}
   const Icon = MODE_ICONS[first.mode] || TramFront
@@ -1104,20 +1163,24 @@ function TrajetChip({ trajet }) {
   const summary = etapes
     .map((e) => `${e.mode || '?'}${e.heure ? ` ${e.heure}` : ''}${e.depart || e.arrivee ? ` ${e.depart || ''}→${e.arrivee || ''}` : ''}${e.note ? ` (${e.note})` : ''}`)
     .join('  +  ')
+  const Tag = onClick ? 'button' : 'span'
   return (
-    <span
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick || undefined}
       className="inline-flex items-center gap-0.5 h-4 px-1 rounded-sm text-[9px] font-semibold shrink-0"
       style={{
         background: 'rgba(59,130,246,0.14)',
         color: '#60a5fa',
         border: '1px solid rgba(59,130,246,0.35)',
+        cursor: onClick ? 'pointer' : 'default',
       }}
-      title={`${trajet.sens === 'retour' ? 'Retour' : trajet.sens === 'aller' ? 'Aller' : 'Trajet'}${summary ? ' : ' + summary : ''}${trajet.notes ? ' — ' + trajet.notes : ''}`}
+      title={`${trajet.sens === 'retour' ? 'Retour' : trajet.sens === 'aller' ? 'Aller' : 'Trajet'}${summary ? ' : ' + summary : ''}${trajet.notes ? ' — ' + trajet.notes : ''}${onClick ? ' (cliquer pour modifier)' : ''}`}
     >
       {arrow}
       <Icon className="w-2.5 h-2.5" />
       {first.heure || ''}
-    </span>
+    </Tag>
   )
 }
 

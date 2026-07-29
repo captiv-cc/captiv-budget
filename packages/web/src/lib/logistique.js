@@ -245,6 +245,49 @@ export async function deleteHebergement(hebergementId) {
   if (error) throw error
 }
 
+// ═══ Hébergement × membre (chambre, pdj, overrides) ══════════════════════════
+
+/**
+ * Rattache (ou met à jour) un membre à un hébergement. Passe patch =
+ * { chambre?, pdj?, checkin_override?, checkout_override?, notes? }.
+ * Au premier rattachement, les nuits SANS hébergement du membre sont
+ * automatiquement pointées sur celui-ci (backfill doux).
+ */
+export async function upsertHebergementMembre({ projectId, hebergementId, membreId, patch = {} }) {
+  const { data, error } = await supabase
+    .from('projet_logistique_hebergement_membres')
+    .upsert(
+      {
+        project_id: projectId,
+        hebergement_id: hebergementId,
+        membre_id: membreId,
+        ...patch,
+      },
+      { onConflict: 'hebergement_id,membre_id' },
+    )
+    .select('*')
+    .single()
+  if (error) throw error
+  // Backfill : les nuits déjà cochées sans hébergement suivent.
+  const { error: nErr } = await supabase
+    .from('projet_logistique_nuits')
+    .update({ hebergement_id: hebergementId })
+    .eq('membre_id', membreId)
+    .is('hebergement_id', null)
+  if (nErr) console.warn('[upsertHebergementMembre] backfill nuits:', nErr.message)
+  return data
+}
+
+/** Détache un membre d'un hébergement (ses nuits gardent leur pointeur). */
+export async function deleteHebergementMembre({ hebergementId, membreId }) {
+  const { error } = await supabase
+    .from('projet_logistique_hebergement_membres')
+    .delete()
+    .eq('hebergement_id', hebergementId)
+    .eq('membre_id', membreId)
+  if (error) throw error
+}
+
 // ═══ Initialisation depuis l'Équipe ══════════════════════════════════════════
 
 /**
