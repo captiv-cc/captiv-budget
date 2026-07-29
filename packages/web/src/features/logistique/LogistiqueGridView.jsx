@@ -31,12 +31,14 @@ import {
 } from 'lucide-react'
 import {
   createSession,
+  deleteSession,
   fetchProjectSessions,
   fetchSessionsCatalog,
   joinSession,
   updateSession,
 } from '../../lib/crew'
 import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
+import PresenceCalendarModal from '../equipe/components/PresenceCalendarModal'
 import {
   fetchLogistique,
   initFromEquipe,
@@ -112,6 +114,9 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
   // Retour Hugo : masquer par défaut les personnes sans aucune présence
   // (les lignes mortes mangent la moitié de la grille).
   const [hideEmpty, setHideEmpty] = useState(true)
+  // Gestion FINE des sessions (attribuer, renommer, arrivée/retour…) :
+  // clic sur le nom → la MÊME PresenceCalendarModal que l'onglet Équipe.
+  const [presenceFor, setPresenceFor] = useState(null) // membre ou null
 
   const load = useCallback(async () => {
     if (!projectId) return
@@ -199,6 +204,59 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
       })),
     [catalog],
   )
+
+  // ─── Templates de sessions pour la modale (même logique que TechListView) ─
+  const sessionTemplates = useMemo(() => {
+    const map = new Map()
+    for (const p of participations) {
+      const label = (p.label || '').trim()
+      if (!label) continue
+      const lieu = (p.lieu_principal_text || '').trim()
+      const key = `${label.toLowerCase()}|${lieu.toLowerCase()}`
+      if (!map.has(key)) {
+        map.set(key, {
+          session_id: p.session_id || null,
+          label,
+          lieu: lieu || null,
+          presence_days: Array.isArray(p.presence_days) ? [...p.presence_days] : [],
+          arrival_date: p.arrival_date || null,
+          departure_date: p.departure_date || null,
+          member_count: 0,
+          _memberIds: new Set(),
+        })
+      }
+      const entry = map.get(key)
+      if (p.membre_id) entry._memberIds.add(p.membre_id)
+      entry.member_count = entry._memberIds.size
+    }
+    return Array.from(map.values()).map(({ _memberIds, ...rest }) => rest)
+  }, [participations])
+
+  const templatesForActive = useMemo(() => {
+    if (!presenceFor) return sessionTemplates
+    const own = partsByMembre.get(presenceFor.id) || []
+    const ownKeys = new Set(
+      own.map(
+        (s) =>
+          `${(s.label || '').trim().toLowerCase()}|${(s.lieu_principal_text || '').trim().toLowerCase()}`,
+      ),
+    )
+    return sessionTemplates.map((t) => ({
+      ...t,
+      member_already_in: ownKeys.has(`${t.label.toLowerCase()}|${(t.lieu || '').toLowerCase()}`),
+    }))
+  }, [sessionTemplates, presenceFor, partsByMembre])
+
+  const sessionParticipantsCount = useMemo(() => {
+    const map = new Map()
+    for (const p of participations) {
+      if (!p.session_id) continue
+      const set = map.get(p.session_id) || new Set()
+      if (p.membre_id) set.add(p.membre_id)
+      map.set(p.session_id, set)
+    }
+    return new Map(Array.from(map.entries()).map(([k, v]) => [k, v.size]))
+  }, [participations])
 
   // ─── Lignes : membres groupés par catégorie ──────────────────────────────
   // hideEmpty : les personnes sans AUCUNE présence ni donnée logistique sont
@@ -528,6 +586,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
                 onTogglePresence={togglePresence}
                 onCycleRepas={cycleRepas}
                 onToggleNuit={toggleNuit}
+                onOpenPresence={canEdit ? setPresenceFor : null}
               />
             ))}
           </tbody>
@@ -549,6 +608,48 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
           </tfoot>
         </table>
       </div>
+
+      {/* Gestion complète des sessions/présences — MÊME modale que l'onglet
+          Équipe (sélecteur de session, rejoindre/créer, renommer, arrivée/
+          retour). Ouverte au clic sur le nom d'une personne. */}
+      {presenceFor && (
+        <PresenceCalendarModal
+          open={Boolean(presenceFor)}
+          onClose={() => {
+            setPresenceFor(null)
+            load()
+          }}
+          personaName={membreName(presenceFor)}
+          sessions={partsByMembre.get(presenceFor.id) || []}
+          projectSessionTemplates={templatesForActive}
+          sessionParticipantsCount={sessionParticipantsCount}
+          onCreateSession={async (payload) => {
+            const s = await createSession(presenceFor.id, payload)
+            await load()
+            return s
+          }}
+          onJoinSession={async (sessionId, payload) => {
+            const s = await joinSession(presenceFor.id, sessionId, payload)
+            await load()
+            return s
+          }}
+          onUpdateSessionMeta={async (participationId, fields) => {
+            const s = await updateSession(participationId, fields)
+            await load()
+            return s
+          }}
+          onRemoveSession={async (participationId) => {
+            await deleteSession(participationId)
+            await load()
+          }}
+          onSave={async (fields, sessionId) => {
+            if (!sessionId) return undefined
+            const s = await updateSession(sessionId, fields)
+            await load()
+            return s
+          }}
+        />
+      )}
     </div>
   )
 
@@ -612,6 +713,7 @@ function GroupRows({
   onTogglePresence,
   onCycleRepas,
   onToggleNuit,
+  onOpenPresence,
 }) {
   return (
     <>
@@ -642,6 +744,7 @@ function GroupRows({
           onTogglePresence={onTogglePresence}
           onCycleRepas={onCycleRepas}
           onToggleNuit={onToggleNuit}
+          onOpenPresence={onOpenPresence}
         />
       ))}
     </>
@@ -659,6 +762,7 @@ function MembreRow({
   onTogglePresence,
   onCycleRepas,
   onToggleNuit,
+  onOpenPresence,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
   // Couleur/label de session par jour — même palette déterministe que
@@ -685,14 +789,30 @@ function MembreRow({
           borderRight: '1px solid var(--brd)',
         }}
       >
-        <span className="block text-xs font-semibold truncate max-w-[170px]" style={{ color: 'var(--txt)' }}>
-          {membreName(membre)}
-        </span>
-        {poste && (
-          <span className="block text-[10px] truncate max-w-[170px]" style={{ color: 'var(--txt-3)' }}>
-            {poste}
+        <button
+          type="button"
+          disabled={!onOpenPresence}
+          onClick={() => onOpenPresence?.(membre)}
+          className="block text-left w-full group/name"
+          style={{ cursor: onOpenPresence ? 'pointer' : 'default' }}
+          title={
+            onOpenPresence
+              ? 'Gérer les sessions et présences (même modale que l’onglet Équipe)'
+              : undefined
+          }
+        >
+          <span
+            className="block text-xs font-semibold truncate max-w-[170px] group-hover/name:underline"
+            style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
+          >
+            {membreName(membre)}
           </span>
-        )}
+          {poste && (
+            <span className="block text-[10px] truncate max-w-[170px]" style={{ color: 'var(--txt-3)' }}>
+              {poste}
+            </span>
+          )}
+        </button>
       </td>
       {days.map((d, di) => {
         const present = presenceDays.has(d)
