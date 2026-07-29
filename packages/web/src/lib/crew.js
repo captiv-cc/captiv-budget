@@ -263,8 +263,14 @@ export async function createSession(membreId, payload = {}) {
       .from('projet_sessions')
       .insert({
         project_id: member.project_id,
-        // sort_order absent : le trigger projet_sessions_auto_sort_order
-        // côté serveur calcule MAX+1 dans la même transaction.
+        // EQUIPE-SESSIONS-FIX (bug Hugo 2026-07-29) : sort_order: 0 EXPLICITE.
+        // « Absent » ne suffisait pas : Postgres applique le DEFAULT de la
+        // colonne (1, migration 20260505) AVANT le trigger BEFORE INSERT →
+        // NEW.sort_order valait toujours 1, le trigger (qui n'auto-calcule
+        // que sur NULL/0) ne se déclenchait jamais, et toute 2e session du
+        // projet violait UNIQUE(project_id, sort_order). 0 = « auto-assigne »
+        // pour le trigger, qui calcule alors MAX+1 en transaction.
+        sort_order: 0,
         label: payload.label ?? null,
         start_date: payload.arrival_date ?? null,
         end_date: payload.departure_date ?? null,
