@@ -29,7 +29,13 @@ import {
   TramFront,
   Wand2,
 } from 'lucide-react'
-import { fetchProjectSessions, updateSession } from '../../lib/crew'
+import {
+  createSession,
+  fetchProjectSessions,
+  fetchSessionsCatalog,
+  joinSession,
+  updateSession,
+} from '../../lib/crew'
 import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
 import {
   fetchLogistique,
@@ -100,17 +106,23 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
     repas: [],
     nuits: [],
   })
+  const [catalog, setCatalog] = useState([]) // sessions globales du projet
   const [loading, setLoading] = useState(true)
   const [initing, setIniting] = useState(false)
+  // Retour Hugo : masquer par défaut les personnes sans aucune présence
+  // (les lignes mortes mangent la moitié de la grille).
+  const [hideEmpty, setHideEmpty] = useState(true)
 
   const load = useCallback(async () => {
     if (!projectId) return
     try {
-      const [parts, l] = await Promise.all([
+      const [parts, cat, l] = await Promise.all([
         fetchProjectSessions(projectId),
+        fetchSessionsCatalog(projectId),
         fetchLogistique(projectId),
       ])
       setParticipations(parts)
+      setCatalog(cat)
       setLogi(l)
     } catch (err) {
       notify.error('Chargement logistique : ' + (err?.message || err))
@@ -174,38 +186,76 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
   }, [participations, logi.trajets])
 
   // ─── Sessions du projet (légende + couleurs des croix) ───────────────────
-  const sessions = useMemo(() => {
-    const byId = new Map()
-    for (const p of participations) {
-      if (!p.session_id || byId.has(p.session_id)) continue
-      byId.set(p.session_id, {
-        id: p.session_id,
-        label: effectiveLabel({ label: p.label }),
-        couleur: effectiveCouleur({ couleur: p.couleur, sort_order: p.sort_order }),
-        sort_order: p.sort_order,
-      })
-    }
-    return Array.from(byId.values()).sort((a, b) => a.sort_order - b.sort_order)
-  }, [participations])
+  // Source = catalogue global (montre aussi les sessions sans participant).
+  const sessions = useMemo(
+    () =>
+      catalog.map((s) => ({
+        id: s.id,
+        label: effectiveLabel(s),
+        couleur: effectiveCouleur(s),
+        sort_order: s.sort_order,
+        start_date: s.start_date,
+        end_date: s.end_date,
+      })),
+    [catalog],
+  )
 
   // ─── Lignes : membres groupés par catégorie ──────────────────────────────
+  // hideEmpty : les personnes sans AUCUNE présence ni donnée logistique sont
+  // masquées (toggle) — les groupes vides disparaissent avec.
+  const hiddenCount = useMemo(() => {
+    if (!hideEmpty) return 0
+    return membres.filter((m) => !membreHasData(m.id)).length
+  }, [membres, hideEmpty, partsByMembre, logi]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function membreHasData(membreId) {
+    const parts = partsByMembre.get(membreId) || []
+    if (parts.some((p) => (p.presence_days || []).length > 0)) return true
+    if (logi.repas.some((r) => r.membre_id === membreId)) return true
+    if (logi.nuits.some((n) => n.membre_id === membreId)) return true
+    if (logi.trajets.some((t) => t.membre_id === membreId)) return true
+    return false
+  }
+
   const groups = useMemo(() => {
     const byCat = new Map()
     for (const m of membres) {
+      if (hideEmpty && !membreHasData(m.id)) continue
       const cat = m.category || 'Autres'
       const arr = byCat.get(cat) || []
       arr.push(m)
       byCat.set(cat, arr)
     }
     return Array.from(byCat.entries())
-  }, [membres])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membres, hideEmpty, partsByMembre, logi])
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
   async function togglePresence(membre, day) {
     if (!canEdit) return
     const parts = partsByMembre.get(membre.id) || []
-    if (!parts.length) return
+    // Retour Hugo : un membre SANS session doit pouvoir être coché — il
+    // rejoint la session du projet qui couvre le jour (ou la 1re), et si
+    // le projet n'a aucune session, on la crée.
+    if (!parts.length) {
+      try {
+        const covering =
+          sessions.find(
+            (s) => s.start_date && s.end_date && s.start_date <= day && day <= s.end_date,
+          ) || sessions[0]
+        if (covering) {
+          await joinSession(membre.id, covering.id, { presence_days: [day] })
+        } else {
+          await createSession(membre.id, { presence_days: [day] })
+          notify.success('Première session du projet créée — nomme-la dans l’onglet Équipe')
+        }
+        await load()
+      } catch (err) {
+        notify.error('Présence : ' + (err?.message || err))
+      }
+      return
+    }
     // OFF : la participation qui porte déjà ce jour.
     const holder = parts.find((p) => (p.presence_days || []).includes(day))
     let target
@@ -381,6 +431,21 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
           </div>
         )}
         <Legend />
+        <button
+          type="button"
+          onClick={() => setHideEmpty((v) => !v)}
+          className="text-[10px] font-semibold px-2 py-1 rounded-md"
+          style={{
+            background: hideEmpty ? 'var(--blue-bg)' : 'var(--bg-elev)',
+            color: hideEmpty ? 'var(--blue)' : 'var(--txt-3)',
+            border: `1px solid ${hideEmpty ? 'var(--blue)' : 'var(--brd)'}`,
+          }}
+          title="Masquer/afficher les personnes sans présence ni donnée logistique"
+        >
+          {hideEmpty
+            ? `${hiddenCount} masqué${hiddenCount > 1 ? 's' : ''} · tout afficher`
+            : 'Masquer sans présence'}
+        </button>
         {canEdit && (
           <button
             type="button"
@@ -424,7 +489,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
               >
                 Personne
               </th>
-              {days.map((d) => {
+              {days.map((d, di) => {
                 const h = dayHeader(d)
                 return (
                   <th
@@ -432,7 +497,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
                     className="px-1 py-1.5 text-center"
                     style={{
                       minWidth: '86px',
-                      background: 'var(--bg-elev)',
+                      background: di % 2 ? 'var(--bg-hov, var(--bg-elev))' : 'var(--bg-elev)',
                       borderBottom: '1px solid var(--brd)',
                       borderRight: '1px solid var(--brd-sub)',
                     }}
@@ -503,7 +568,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
         >
           {label}
         </td>
-        {ds.map((d) => {
+        {ds.map((d, di) => {
           const t = totals.get(d)
           return (
             <td
@@ -513,6 +578,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
                 color: 'var(--txt)',
                 borderTop: '1px solid var(--brd)',
                 borderRight: '1px solid var(--brd-sub)',
+                background: di % 2 ? 'rgba(127,127,127,0.045)' : 'transparent',
               }}
               title={title && t ? title(t) : undefined}
             >
@@ -628,7 +694,7 @@ function MembreRow({
           </span>
         )}
       </td>
-      {days.map((d) => {
+      {days.map((d, di) => {
         const present = presenceDays.has(d)
         const trajets = trajetsByMembreDay.get(`${membre.id}|${d}`) || []
         // Désencombrement (retour Hugo) : sur un jour absent SANS aucune
@@ -639,7 +705,9 @@ function MembreRow({
           Boolean(repasMap.get(`${membre.id}|${d}|soir`)) ||
           nuitSet.has(`${membre.id}|${d}`) ||
           trajets.length > 0
-        const showChips = present || hasLogi
+        // Règle radicale (retour Hugo) : une chip n'est visible que si elle
+        // porte une valeur — le survol révèle les contrôles partout.
+        const showChips = hasLogi
         return (
           <td
             key={d}
@@ -647,9 +715,13 @@ function MembreRow({
             style={{
               borderBottom: '1px solid var(--brd-sub)',
               borderRight: '1px solid var(--brd-sub)',
+              // Zébrage 1 colonne sur 2 pour le repérage vertical ; la
+              // teinte de présence (couleur session) prime.
               background: present
                 ? `${(colorByDay.get(d) || '#22c55e')}0d`
-                : 'transparent',
+                : di % 2
+                  ? 'rgba(127,127,127,0.045)'
+                  : 'transparent',
             }}
           >
             <div className="flex flex-col gap-0.5 items-stretch">
@@ -657,22 +729,21 @@ function MembreRow({
               <div className="flex items-center gap-0.5">
                 <button
                   type="button"
-                  disabled={!canEdit || !hasSession}
+                  disabled={!canEdit}
                   onClick={() => onTogglePresence(membre, d)}
                   title={
-                    !hasSession
-                      ? 'Aucune session — crée-la dans l’onglet Équipe'
-                      : present
-                        ? `Présent · ${sessionLabelByDay.get(d) || 'session'} (cliquer pour retirer — modifie l’Équipe)`
-                        : 'Absent (cliquer pour marquer présent — modifie l’Équipe)'
+                    present
+                      ? `Présent · ${sessionLabelByDay.get(d) || 'session'} (cliquer pour retirer — modifie l’Équipe)`
+                      : hasSession
+                        ? 'Absent (cliquer pour marquer présent — modifie l’Équipe)'
+                        : 'Absent — cliquer pour marquer présent (rejoint une session du projet)'
                   }
                   className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center text-[9px] font-bold transition-all"
                   style={{
                     background: present ? colorByDay.get(d) || 'var(--green, #22c55e)' : 'transparent',
-                    border: `1.5px solid ${present ? 'transparent' : hasSession ? 'var(--brd)' : 'var(--brd-sub)'}`,
+                    border: `1.5px solid ${present ? 'transparent' : 'var(--brd)'}`,
                     color: '#fff',
-                    cursor: canEdit && hasSession ? 'pointer' : 'default',
-                    opacity: hasSession ? 1 : 0.4,
+                    cursor: canEdit ? 'pointer' : 'default',
                   }}
                 >
                   {present ? 'X' : ''}

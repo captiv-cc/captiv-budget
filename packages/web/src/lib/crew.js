@@ -193,6 +193,24 @@ export function flattenParticipation(p) {
  *
  * Filtrage par project_id via la jointure inner sur projet_sessions.
  */
+/**
+ * LOGI-V1 : catalogue des sessions GLOBALES du projet (projet_sessions),
+ * indépendamment des participations. Nécessaire pour proposer de REJOINDRE
+ * une session existante à un membre qui n'en a aucune (fetchProjectSessions
+ * ne renvoie que les participations — une session sans participant y est
+ * invisible).
+ */
+export async function fetchSessionsCatalog(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_sessions')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
 export async function fetchProjectSessions(projectId) {
   if (!projectId) return []
   const { data, error } = await supabase
