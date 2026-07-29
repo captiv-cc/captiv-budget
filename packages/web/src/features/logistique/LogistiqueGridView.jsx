@@ -117,6 +117,10 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
   // Gestion FINE des sessions (attribuer, renommer, arrivée/retour…) :
   // clic sur le nom → la MÊME PresenceCalendarModal que l'onglet Équipe.
   const [presenceFor, setPresenceFor] = useState(null) // membre ou null
+  // Retour Hugo : le geste naturel = cliquer LA CASE. Quand la session
+  // cible est ambiguë (2+ sessions, aucune enveloppe couvrante), un
+  // popover ancré à la cellule propose le choix — colorié comme l'Équipe.
+  const [sessionPick, setSessionPick] = useState(null) // { membreId, day }
 
   const load = useCallback(async () => {
     if (!projectId) return
@@ -290,70 +294,80 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
+  /**
+   * Pose une présence (membre, jour) SUR une session précise :
+   * - participation existante sur cette session → ajoute le jour ;
+   * - sinon → joinSession (le membre rejoint la session globale).
+   */
+  async function addPresenceToSession(membre, day, sessionId) {
+    setSessionPick(null)
+    const parts = partsByMembre.get(membre.id) || []
+    const part = parts.find((p) => p.session_id === sessionId)
+    try {
+      if (part) {
+        const nextDays = [...(part.presence_days || []), day].sort()
+        setParticipations((prev) =>
+          prev.map((p) => (p.id === part.id ? { ...p, presence_days: nextDays } : p)),
+        )
+        await updateSession(part.id, { presence_days: nextDays })
+      } else {
+        await joinSession(membre.id, sessionId, { presence_days: [day] })
+        await load()
+      }
+    } catch (err) {
+      notify.error('Présence : ' + (err?.message || err))
+      load()
+    }
+  }
+
   async function togglePresence(membre, day) {
     if (!canEdit) return
     const parts = partsByMembre.get(membre.id) || []
-    // Retour Hugo : un membre SANS session doit pouvoir être coché — il
-    // rejoint la session du projet qui couvre le jour (ou la 1re), et si
-    // le projet n'a aucune session, on la crée.
-    if (!parts.length) {
+
+    // OFF : la participation qui porte déjà ce jour.
+    const holder = parts.find((p) => (p.presence_days || []).includes(day))
+    if (holder) {
+      const nextDays = (holder.presence_days || []).filter((d) => d !== day)
+      setParticipations((prev) =>
+        prev.map((p) => (p.id === holder.id ? { ...p, presence_days: nextDays } : p)),
+      )
       try {
-        const covering =
-          sessions.find(
-            (s) => s.start_date && s.end_date && s.start_date <= day && day <= s.end_date,
-          ) || sessions[0]
-        if (covering) {
-          await joinSession(membre.id, covering.id, { presence_days: [day] })
-        } else {
-          await createSession(membre.id, { presence_days: [day] })
-          notify.success('Première session du projet créée — nomme-la dans l’onglet Équipe')
-        }
+        await updateSession(holder.id, { presence_days: nextDays })
+      } catch (err) {
+        notify.error('Présence : ' + (err?.message || err))
+        load()
+      }
+      return
+    }
+
+    // ON — résolution de la session cible :
+    //   1. exactement UNE session du projet couvre le jour (enveloppe) → direct
+    //   2. le projet n'a qu'UNE session → direct
+    //   3. aucune session au projet → on crée la première
+    //   4. ambigu (2+ sessions, 0 ou 2+ enveloppes couvrantes) → popover de
+    //      choix ancré à la cellule (retour Hugo : tout se joue sur la case)
+    const covering = sessions.filter(
+      (s) => s.start_date && s.end_date && s.start_date <= day && day <= s.end_date,
+    )
+    if (covering.length === 1) {
+      await addPresenceToSession(membre, day, covering[0].id)
+      return
+    }
+    if (sessions.length === 1) {
+      await addPresenceToSession(membre, day, sessions[0].id)
+      return
+    }
+    if (sessions.length === 0) {
+      try {
+        await createSession(membre.id, { presence_days: [day] })
+        notify.success('Première session du projet créée — nomme-la dans l’onglet Équipe')
         await load()
       } catch (err) {
         notify.error('Présence : ' + (err?.message || err))
       }
       return
     }
-    // OFF : la participation qui porte déjà ce jour.
-    const holder = parts.find((p) => (p.presence_days || []).includes(day))
-    let target
-    let nextDays
-    if (holder) {
-      target = holder
-      nextDays = (holder.presence_days || []).filter((d) => d !== day)
-    } else {
-      // ON : enveloppe session couvrante > unique > plus proche par dates.
-      target =
-        parts.find(
-          (p) => p.start_date && p.end_date && p.start_date <= day && day <= p.end_date,
-        ) ||
-        (parts.length === 1
-          ? parts[0]
-          : [...parts].sort((a, b) => {
-              const dist = (p) => {
-                const ds = (p.presence_days || []).length
-                  ? p.presence_days
-                  : [p.start_date, p.end_date].filter(Boolean)
-                if (!ds.length) return Infinity
-                return Math.min(
-                  ...ds.map((d) => Math.abs(new Date(d) - new Date(day))),
-                )
-              }
-              return dist(a) - dist(b)
-            })[0])
-      if (!target) return
-      nextDays = [...(target.presence_days || []), day].sort()
-    }
-    // Optimistic
-    setParticipations((prev) =>
-      prev.map((p) => (p.id === target.id ? { ...p, presence_days: nextDays } : p)),
-    )
-    try {
-      await updateSession(target.id, { presence_days: nextDays })
-    } catch (err) {
-      notify.error('Présence : ' + (err?.message || err))
-      load()
-    }
+    setSessionPick({ membreId: membre.id, day })
   }
 
   async function cycleRepas(membreId, day, service) {
@@ -587,6 +601,10 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
                 onCycleRepas={cycleRepas}
                 onToggleNuit={toggleNuit}
                 onOpenPresence={canEdit ? setPresenceFor : null}
+                sessionsList={sessions}
+                sessionPick={sessionPick}
+                onPickSession={addPresenceToSession}
+                onClosePick={() => setSessionPick(null)}
               />
             ))}
           </tbody>
@@ -714,6 +732,10 @@ function GroupRows({
   onCycleRepas,
   onToggleNuit,
   onOpenPresence,
+  sessionsList,
+  sessionPick,
+  onPickSession,
+  onClosePick,
 }) {
   return (
     <>
@@ -745,6 +767,10 @@ function GroupRows({
           onCycleRepas={onCycleRepas}
           onToggleNuit={onToggleNuit}
           onOpenPresence={onOpenPresence}
+          sessionsList={sessionsList}
+          sessionPick={sessionPick}
+          onPickSession={onPickSession}
+          onClosePick={onClosePick}
         />
       ))}
     </>
@@ -763,6 +789,10 @@ function MembreRow({
   onCycleRepas,
   onToggleNuit,
   onOpenPresence,
+  sessionsList = [],
+  sessionPick = null,
+  onPickSession,
+  onClosePick,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
   // Couleur/label de session par jour — même palette déterministe que
@@ -828,10 +858,12 @@ function MembreRow({
         // Règle radicale (retour Hugo) : une chip n'est visible que si elle
         // porte une valeur — le survol révèle les contrôles partout.
         const showChips = hasLogi
+        const isPicking =
+          sessionPick && sessionPick.membreId === membre.id && sessionPick.day === d
         return (
           <td
             key={d}
-            className="group px-1 py-1 align-top"
+            className="group px-1 py-1 align-top relative"
             style={{
               borderBottom: '1px solid var(--brd-sub)',
               borderRight: '1px solid var(--brd-sub)',
@@ -874,6 +906,59 @@ function MembreRow({
                   ))}
                 </span>
               </div>
+
+              {/* Popover de choix de session — la case reste LE point
+                  d'entrée, on choisit juste la session quand c'est ambigu. */}
+              {isPicking && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={onClosePick} aria-hidden />
+                  <div
+                    className="absolute z-50 top-6 left-0 min-w-[170px] rounded-lg py-1"
+                    style={{
+                      background: 'var(--bg-elev)',
+                      border: '1px solid var(--brd)',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                    }}
+                  >
+                    <p
+                      className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider"
+                      style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+                    >
+                      Présent · quelle session ?
+                    </p>
+                    {sessionsList.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => onPickSession?.(membre, d, s.id)}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-all"
+                        style={{ color: 'var(--txt)' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <span
+                          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ background: `#${s.couleur.replace('#', '')}` }}
+                        />
+                        {s.label}
+                      </button>
+                    ))}
+                    {onOpenPresence && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClosePick?.()
+                          onOpenPresence(membre)
+                        }}
+                        className="w-full px-2.5 py-1.5 text-[11px] text-left"
+                        style={{ color: 'var(--blue)', borderTop: '1px solid var(--brd-sub)' }}
+                      >
+                        Gérer les présences…
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
               {/* Ligne 2 : repas M/S + nuit — masquée (révélée au survol)
                   quand le jour est vide, pour aérer la grille. */}
               <div
