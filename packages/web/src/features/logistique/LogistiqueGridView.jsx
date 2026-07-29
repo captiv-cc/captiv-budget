@@ -25,11 +25,12 @@ import {
   Loader2,
   Moon,
   Plane,
-  RefreshCw,
   Train,
   TramFront,
+  Wand2,
 } from 'lucide-react'
 import { fetchProjectSessions, updateSession } from '../../lib/crew'
+import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
 import {
   fetchLogistique,
   initFromEquipe,
@@ -172,6 +173,21 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
     return isoRange(sorted[0], sorted[sorted.length - 1])
   }, [participations, logi.trajets])
 
+  // ─── Sessions du projet (légende + couleurs des croix) ───────────────────
+  const sessions = useMemo(() => {
+    const byId = new Map()
+    for (const p of participations) {
+      if (!p.session_id || byId.has(p.session_id)) continue
+      byId.set(p.session_id, {
+        id: p.session_id,
+        label: effectiveLabel({ label: p.label }),
+        couleur: effectiveCouleur({ couleur: p.couleur, sort_order: p.sort_order }),
+        sort_order: p.sort_order,
+      })
+    }
+    return Array.from(byId.values()).sort((a, b) => a.sort_order - b.sort_order)
+  }, [participations])
+
   // ─── Lignes : membres groupés par catégorie ──────────────────────────────
   const groups = useMemo(() => {
     const byCat = new Map()
@@ -273,10 +289,10 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
 
   async function handleInit() {
     const ok = await confirm({
-      title: 'Initialiser depuis l’Équipe ?',
+      title: 'Pré-remplir repas & nuits ?',
       message:
-        'Pour chaque jour de présence : repas midi + soir « Client », et une nuit par jour sauf le dernier du séjour. Les repas et nuits déjà posés ne sont JAMAIS modifiés.',
-      confirmLabel: 'Initialiser',
+        'Pour chaque jour de présence déjà coché : repas midi + soir « Client », et une nuit par jour sauf le dernier du séjour de chacun. N’écrase RIEN : les repas/nuits déjà posés sont conservés, et les présences Équipe ne sont pas touchées.',
+      confirmLabel: 'Pré-remplir',
     })
     if (!ok) return
     setIniting(true)
@@ -346,8 +362,24 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
 
   return (
     <div className="px-4 pb-6">
-      {/* Barre outils : légende + init */}
+      {/* Barre outils : sessions + légende + pré-remplissage */}
       <div className="flex items-center gap-3 flex-wrap py-3">
+        {sessions.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            <span className="font-bold uppercase tracking-wider" style={{ letterSpacing: '0.08em' }}>
+              Sessions :
+            </span>
+            {sessions.map((s) => (
+              <span key={s.id} className="inline-flex items-center gap-1" style={{ color: 'var(--txt-2)' }}>
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full"
+                  style={{ background: `#${s.couleur.replace('#', '')}` }}
+                />
+                {s.label}
+              </span>
+            ))}
+          </div>
+        )}
         <Legend />
         {canEdit && (
           <button
@@ -360,14 +392,14 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
               color: 'var(--txt-2)',
               border: '1px solid var(--brd)',
             }}
-            title="Pose repas et nuits par défaut depuis les jours de présence Équipe (sans toucher à l'existant)"
+            title="Pose repas Client midi+soir et nuits sur les jours de présence — n'écrase rien, ne touche pas à l'Équipe"
           >
             {initing ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
+              <Wand2 className="w-3.5 h-3.5" />
             )}
-            Initialiser depuis l&apos;Équipe
+            Pré-remplir repas &amp; nuits
           </button>
         )}
       </div>
@@ -376,7 +408,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
         className="overflow-x-auto rounded-xl"
         style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
       >
-        <table className="text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+        <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr>
               <th
@@ -563,10 +595,15 @@ function MembreRow({
   onToggleNuit,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
+  // Couleur/label de session par jour — même palette déterministe que
+  // l'onglet Équipe (couleur custom OU paletteAt(sort_order) si NULL).
   const colorByDay = new Map()
+  const sessionLabelByDay = new Map()
   for (const p of parts) {
+    const hex = `#${effectiveCouleur({ couleur: p.couleur, sort_order: p.sort_order }).replace('#', '')}`
     for (const d of p.presence_days || []) {
-      colorByDay.set(d, p.couleur ? `#${p.couleur.replace('#', '')}` : 'var(--green, #22c55e)')
+      colorByDay.set(d, hex)
+      sessionLabelByDay.set(d, effectiveLabel({ label: p.label }))
     }
   }
   const hasSession = parts.length > 0
@@ -594,14 +631,25 @@ function MembreRow({
       {days.map((d) => {
         const present = presenceDays.has(d)
         const trajets = trajetsByMembreDay.get(`${membre.id}|${d}`) || []
+        // Désencombrement (retour Hugo) : sur un jour absent SANS aucune
+        // donnée logistique, les chips M/S/nuit n'apparaissent qu'au survol
+        // de la cellule — la grille vide reste lisible.
+        const hasLogi =
+          Boolean(repasMap.get(`${membre.id}|${d}|midi`)) ||
+          Boolean(repasMap.get(`${membre.id}|${d}|soir`)) ||
+          nuitSet.has(`${membre.id}|${d}`) ||
+          trajets.length > 0
+        const showChips = present || hasLogi
         return (
           <td
             key={d}
-            className="px-1 py-1 align-top"
+            className="group px-1 py-1 align-top"
             style={{
               borderBottom: '1px solid var(--brd-sub)',
               borderRight: '1px solid var(--brd-sub)',
-              background: present ? 'rgba(34,197,94,0.05)' : 'transparent',
+              background: present
+                ? `${(colorByDay.get(d) || '#22c55e')}0d`
+                : 'transparent',
             }}
           >
             <div className="flex flex-col gap-0.5 items-stretch">
@@ -615,7 +663,7 @@ function MembreRow({
                     !hasSession
                       ? 'Aucune session — crée-la dans l’onglet Équipe'
                       : present
-                        ? 'Présent (cliquer pour retirer — modifie l’Équipe)'
+                        ? `Présent · ${sessionLabelByDay.get(d) || 'session'} (cliquer pour retirer — modifie l’Équipe)`
                         : 'Absent (cliquer pour marquer présent — modifie l’Équipe)'
                   }
                   className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center text-[9px] font-bold transition-all"
@@ -635,8 +683,13 @@ function MembreRow({
                   ))}
                 </span>
               </div>
-              {/* Ligne 2 : repas M/S + nuit */}
-              <div className="flex items-center gap-0.5">
+              {/* Ligne 2 : repas M/S + nuit — masquée (révélée au survol)
+                  quand le jour est vide, pour aérer la grille. */}
+              <div
+                className={`flex items-center gap-0.5 ${
+                  showChips ? '' : 'opacity-0 group-hover:opacity-100 transition-opacity'
+                }`}
+              >
                 <RepasChip
                   service="midi"
                   statut={repasMap.get(`${membre.id}|${d}|midi`) || null}
