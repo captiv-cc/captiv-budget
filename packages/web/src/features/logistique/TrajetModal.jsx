@@ -81,6 +81,9 @@ export default function TrajetModal({
   const [saving, setSaving] = useState(false)
   const [localDocs, setLocalDocs] = useState(docs)
   const [uploading, setUploading] = useState(false)
+  // Docs sélectionnés AVANT la création du trajet (retour Hugo : ne pas
+  // attendre) — uploadés automatiquement juste après le create.
+  const [pendingFiles, setPendingFiles] = useState([])
 
   // Esc ferme
   useEffect(() => {
@@ -138,11 +141,25 @@ export default function TrajetModal({
           cout: payload.cout,
           notes: payload.notes,
         })
-        // Création : on RESTE ouvert en mode édition pour permettre
-        // d'attacher les billets directement.
+        // Création : upload des docs mis en attente, puis fermeture.
         setCurrentTrajet(saved)
-        notify.success('Trajet créé — tu peux attacher les billets ci-dessous')
+        for (const f of pendingFiles) {
+          try {
+            const doc = await uploadLogistiqueDoc({
+              projectId,
+              parentType: 'trajet',
+              parentId: saved.id,
+              file: f,
+            })
+            setLocalDocs((prev) => [...prev, doc])
+          } catch (err) {
+            notify.error(`Upload ${f.name} : ` + (err?.message || err))
+          }
+        }
+        setPendingFiles([])
+        notify.success('Trajet créé')
         onSaved?.(saved)
+        onClose?.()
       }
     } catch (err) {
       notify.error('Trajet : ' + (err?.message || err))
@@ -316,95 +333,133 @@ export default function TrajetModal({
             <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--txt-3)' }}>
               Étapes (dans l&apos;ordre du voyage)
             </p>
-            <div className="flex flex-col gap-2">
-              {etapes.map((e, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-lg p-2.5 flex flex-col gap-2"
-                  style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--txt-3)' }}>
-                      {idx + 1}.
-                    </span>
-                    <select
-                      value={e.mode}
-                      onChange={(ev) => patchEtape(idx, { mode: ev.target.value })}
-                      className="text-xs px-1.5 py-1 rounded-md outline-none"
-                      style={inputStyle}
+            <div className="flex flex-col gap-2.5">
+              {etapes.map((e, idx) => {
+                const ModeIcon = (MODES.find((m) => m.value === e.mode) || MODES[0]).icon
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-xl overflow-hidden"
+                    style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+                  >
+                    {/* Barre de l'étape : n°, mode, actions */}
+                    <div
+                      className="flex items-center gap-2 px-3 py-2"
+                      style={{ background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid var(--brd-sub)' }}
                     >
-                      {MODES.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="time"
-                      value={e.heure}
-                      onChange={(ev) => patchEtape(idx, { heure: ev.target.value })}
-                      className="text-xs px-1.5 py-1 rounded-md outline-none"
-                      style={inputStyle}
-                      title="Heure de départ de l'étape"
-                    />
-                    <span className="ml-auto flex items-center gap-0.5">
-                      <IconBtn title="Monter" disabled={idx === 0} onClick={() => moveEtape(idx, -1)}>
-                        <ArrowUp className="w-3 h-3" />
-                      </IconBtn>
-                      <IconBtn
-                        title="Descendre"
-                        disabled={idx === etapes.length - 1}
-                        onClick={() => moveEtape(idx, 1)}
+                      <span
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                        style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
                       >
-                        <ArrowDown className="w-3 h-3" />
-                      </IconBtn>
-                      <IconBtn
-                        title="Supprimer l'étape"
-                        disabled={etapes.length === 1}
-                        onClick={() => removeEtape(idx)}
-                        danger
+                        {idx + 1}
+                      </span>
+                      <ModeIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--blue)' }} />
+                      <select
+                        value={e.mode}
+                        onChange={(ev) => patchEtape(idx, { mode: ev.target.value })}
+                        className="text-xs font-semibold px-1.5 py-1 rounded-md outline-none"
+                        style={{ background: 'transparent', border: '1px solid transparent', color: 'var(--txt)' }}
+                        onFocus={(ev) => (ev.currentTarget.style.borderColor = 'var(--brd)')}
+                        onBlur={(ev) => (ev.currentTarget.style.borderColor = 'transparent')}
                       >
-                        <Trash2 className="w-3 h-3" />
-                      </IconBtn>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
+                        {MODES.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="ml-auto flex items-center gap-0.5">
+                        <IconBtn title="Monter" disabled={idx === 0} onClick={() => moveEtape(idx, -1)}>
+                          <ArrowUp className="w-3 h-3" />
+                        </IconBtn>
+                        <IconBtn
+                          title="Descendre"
+                          disabled={idx === etapes.length - 1}
+                          onClick={() => moveEtape(idx, 1)}
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </IconBtn>
+                        <IconBtn
+                          title="Supprimer l'étape"
+                          disabled={etapes.length === 1}
+                          onClick={() => removeEtape(idx)}
+                          danger
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </IconBtn>
+                      </span>
+                    </div>
+
+                    {/* Départ → Arrivée : deux colonnes symétriques */}
+                    <div className="px-3 py-2.5 flex items-end gap-2">
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}>
+                          Départ
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="time"
+                            value={e.heure}
+                            onChange={(ev) => patchEtape(idx, { heure: ev.target.value })}
+                            className="text-xs px-1.5 py-1.5 rounded-md outline-none shrink-0 w-[86px]"
+                            style={inputStyle}
+                            title="Heure de départ"
+                          />
+                          <input
+                            type="text"
+                            value={e.depart}
+                            onChange={(ev) => patchEtape(idx, { depart: ev.target.value })}
+                            placeholder="Lieu (Gare de Lyon…)"
+                            className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md outline-none"
+                            style={inputStyle}
+                          />
+                        </div>
+                      </div>
+                      <span className="pb-2 shrink-0" style={{ color: 'var(--blue)' }}>
+                        →
+                      </span>
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}>
+                          Arrivée
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="time"
+                            value={e.heure_arrivee}
+                            onChange={(ev) => patchEtape(idx, { heure_arrivee: ev.target.value })}
+                            className="text-xs px-1.5 py-1.5 rounded-md outline-none shrink-0 w-[86px]"
+                            style={inputStyle}
+                            title="Heure d'arrivée"
+                          />
+                          <input
+                            type="text"
+                            value={e.arrivee}
+                            onChange={(ev) => patchEtape(idx, { arrivee: ev.target.value })}
+                            placeholder="Lieu (Mtp St-Roch…)"
+                            className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md outline-none"
+                            style={inputStyle}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Note discrète, pleine largeur, sans bordure */}
                     <input
                       type="text"
-                      value={e.depart}
-                      onChange={(ev) => patchEtape(idx, { depart: ev.target.value })}
-                      placeholder="Départ (ex. Gare de Lyon)"
-                      className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md outline-none"
-                      style={inputStyle}
-                    />
-                    <span style={{ color: 'var(--txt-3)' }}>→</span>
-                    <input
-                      type="time"
-                      value={e.heure_arrivee}
-                      onChange={(ev) => patchEtape(idx, { heure_arrivee: ev.target.value })}
-                      className="text-xs px-1.5 py-1 rounded-md outline-none shrink-0"
-                      style={inputStyle}
-                      title="Heure d'arrivée de l'étape"
-                    />
-                    <input
-                      type="text"
-                      value={e.arrivee}
-                      onChange={(ev) => patchEtape(idx, { arrivee: ev.target.value })}
-                      placeholder="Arrivée (ex. Mtp St-Roch)"
-                      className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md outline-none"
-                      style={inputStyle}
+                      value={e.note}
+                      onChange={(ev) => patchEtape(idx, { note: ev.target.value })}
+                      placeholder="Note — n° de train, conducteur, point de RDV…"
+                      className="w-full text-[11px] px-3 py-2 outline-none"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderTop: '1px solid var(--brd-sub)',
+                        color: 'var(--txt-2)',
+                      }}
                     />
                   </div>
-                  <input
-                    type="text"
-                    value={e.note}
-                    onChange={(ev) => patchEtape(idx, { note: ev.target.value })}
-                    placeholder="Note (n° de train, conducteur, point de RDV…)"
-                    className="text-xs px-2 py-1.5 rounded-md outline-none"
-                    style={inputStyle}
-                  />
-                </div>
-              ))}
+                )
+              })}
             </div>
             <button
               type="button"
@@ -441,6 +496,55 @@ export default function TrajetModal({
             <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt-3)' }}>
               Billets &amp; documents (PDF, PNG, JPG)
             </p>
+            {!currentTrajet?.id && (
+              <>
+                {pendingFiles.map((f, i) => (
+                  <div
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md mb-1.5"
+                    style={{ background: 'var(--bg-surf)', border: '1px dashed var(--brd)' }}
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                    <span className="text-xs truncate" style={{ color: 'var(--txt)' }}>
+                      {f.name}
+                    </span>
+                    <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
+                      envoyé à la création
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
+                      className="ml-auto p-1 shrink-0"
+                      style={{ color: 'var(--red, #ef4444)' }}
+                      title="Retirer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <label
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--txt-2)',
+                    border: '1px dashed var(--brd)',
+                  }}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Ajouter un document
+                  <input
+                    type="file"
+                    accept={DOC_ACCEPT}
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setPendingFiles((prev) => [...prev, f])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </>
+            )}
             {currentTrajet?.id ? (
               <>
                 {localDocs.map((doc) => (
@@ -501,11 +605,7 @@ export default function TrajetModal({
                   />
                 </label>
               </>
-            ) : (
-              <p className="text-[11px] italic" style={{ color: 'var(--txt-3)' }}>
-                Crée d&apos;abord le trajet — l&apos;ajout de billets se débloque juste après.
-              </p>
-            )}
+            ) : null}
           </div>
         </div>
 

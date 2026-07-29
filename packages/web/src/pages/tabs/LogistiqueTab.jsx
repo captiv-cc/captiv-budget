@@ -20,9 +20,9 @@ import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users } from 'l
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
 import { useLogistiqueV0 } from '../../hooks/useLogistiqueV0'
-import { fetchProjectMembers } from '../../lib/crew'
+import { fetchProjectMembers, listTechlistRows } from '../../lib/crew'
 import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
-import LogistiqueAddPersonModal from '../../features/logistique/LogistiqueAddPersonModal'
+import LogistiqueStructuredSection from '../../features/logistique/LogistiqueStructuredSection'
 import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
 import LogistiqueGridView from '../../features/logistique/LogistiqueGridView'
 import TrajetModal from '../../features/logistique/TrajetModal'
@@ -88,8 +88,6 @@ export default function LogistiqueTab() {
       cancelled = true
     }
   }, [projectId, canRead])
-
-  const [addOpen, setAddOpen] = useState(false)
 
   // LOGI-V1 P1 : vue Grille (personnes × jours) vs vue Par personne (V0).
   // Persistée par projet ; défaut = grille (la nouvelle vue centrale).
@@ -165,9 +163,6 @@ export default function LogistiqueTab() {
     }
   }
 
-  // Map<membre_id, membre> pour lookup O(1) au rendu des cards
-  const membreById = new Map(membres.map((m) => [m.id, m]))
-
   // ─── Guard permissions ────────────────────────────────────────────────
   if (!canRead) {
     return (
@@ -212,8 +207,6 @@ export default function LogistiqueTab() {
     }
   }
 
-  const existingMembreIds = entries.map((e) => e.membre_id)
-
   return (
     <div className="p-4 sm:p-6">
       {/* ─── Header ──────────────────────────────────────────────────── */}
@@ -252,20 +245,6 @@ export default function LogistiqueTab() {
               onClick={() => setView('personnes')}
             />
           </div>
-          {canEdit && view === 'personnes' && (
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium"
-              style={{
-                background: 'var(--accent)',
-                color: '#fff',
-              }}
-            >
-              <Plus className="w-4 h-4" />
-              Ajouter une personne
-            </button>
-          )}
         </div>
       </div>
 
@@ -291,43 +270,57 @@ export default function LogistiqueTab() {
         />
       )}
 
-      {/* ─── Liste des cards personnes (V0) ──────────────────────────── */}
+      {/* ─── Vue Par personne — TOUTE l'équipe (retour Hugo : la vue ne
+           listait que les entries V0 créées à la main → paraissait vide).
+           Rows principales fusionnées comme la Crew list ; la carte V0
+           (notes + docs) n'existe que si des notes ont été créées, sinon
+           carte légère avec la couche structurée + bouton d'activation. */}
       {view === 'personnes' &&
-        (entries.length === 0 ? (
-          <EmptyState canEdit={canEdit} onAdd={() => setAddOpen(true)} />
+        (membres.length === 0 ? (
+          <EmptyState />
         ) : (
           <div className="space-y-4">
-            {entries.map((entry) => {
-              const membre = membreById.get(entry.membre_id)
+            {listTechlistRows(membres).map((membre) => {
+              const entry = entries.find((e) => e.membre_id === membre.id) || null
               const hebergementMembre =
-                logiV1?.hebergementMembres.find((hm) => hm.membre_id === entry.membre_id) || null
-              return (
-                <LogistiqueEntryCard
-                  key={entry.id}
-                  entry={entry}
-                  membre={membre}
-                  documentsByKind={documentsByEntry.get(entry.id)}
-                  readOnly={!canEdit}
-                  onUpdateText={updateEntryText}
-                  onUploadDocument={uploadDocument}
-                  onDeleteDocument={deleteDocument}
-                  onRemoveEntry={removeEntry}
-                  onSetHiddenKinds={setEntryHiddenKinds}
-                  structured={
-                    logiV1 && membre
-                      ? {
-                          trajets: logiV1.trajets.filter((t) => t.membre_id === entry.membre_id),
-                          hebergements: logiV1.hebergements,
-                          hebergementMembre,
-                          nuits: logiV1.nuits.filter((n) => n.membre_id === entry.membre_id),
-                          onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
-                          onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
-                          onAssignHebergement: (hebId) => handleAssignHebergement(membre, hebId),
-                          onPatchHebergementMembre: (patch) =>
-                            hebergementMembre && handlePatchHebergementMembre(hebergementMembre, patch),
-                        }
-                      : null
+                logiV1?.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
+              const structured = logiV1
+                ? {
+                    trajets: logiV1.trajets.filter((t) => t.membre_id === membre.id),
+                    hebergements: logiV1.hebergements,
+                    hebergementMembre,
+                    nuits: logiV1.nuits.filter((n) => n.membre_id === membre.id),
+                    onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
+                    onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
+                    onAssignHebergement: (hebId) => handleAssignHebergement(membre, hebId),
+                    onPatchHebergementMembre: (patch) =>
+                      hebergementMembre && handlePatchHebergementMembre(hebergementMembre, patch),
                   }
+                : null
+              if (entry) {
+                return (
+                  <LogistiqueEntryCard
+                    key={membre.id}
+                    entry={entry}
+                    membre={membre}
+                    documentsByKind={documentsByEntry.get(entry.id)}
+                    readOnly={!canEdit}
+                    onUpdateText={updateEntryText}
+                    onUploadDocument={uploadDocument}
+                    onDeleteDocument={deleteDocument}
+                    onRemoveEntry={removeEntry}
+                    onSetHiddenKinds={setEntryHiddenKinds}
+                    structured={structured}
+                  />
+                )
+              }
+              return (
+                <LightPersonCard
+                  key={membre.id}
+                  membre={membre}
+                  structured={structured}
+                  canEdit={canEdit}
+                  onActivateNotes={() => handleAdd([membre.id])}
                 />
               )
             })}
@@ -358,16 +351,56 @@ export default function LogistiqueTab() {
         />
       )}
 
-      {/* ─── Modal Ajout ──────────────────────────────────────────────── */}
-      {canEdit && (
-        <LogistiqueAddPersonModal
-          open={addOpen}
-          onClose={() => setAddOpen(false)}
-          membres={membres}
-          existingEntryMembreIds={existingMembreIds}
-          onAdd={handleAdd}
-        />
-      )}
+    </div>
+  )
+}
+
+// ─── Carte légère (membre sans notes V0) ───────────────────────────────────
+// La couche structurée (trajets, hébergement) vit ici quoi qu'il arrive ;
+// les notes libres + documents V0 s'activent à la demande.
+function LightPersonCard({ membre, structured, canEdit, onActivateNotes }) {
+  const prenom = membre.contact?.prenom || membre.prenom || ''
+  const nom = membre.contact?.nom || membre.nom || ''
+  const fullName = `${prenom} ${nom}`.trim() || 'Sans nom'
+  const initials = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() || '?'
+  const poste = membre.devis_line?.produit || membre.specialite || membre.contact?.specialite || ''
+
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+        >
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+            {fullName}
+          </p>
+          {poste && (
+            <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
+              {poste}
+            </p>
+          )}
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onActivateNotes}
+            className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md shrink-0"
+            style={{ color: 'var(--txt-3)', border: '1px dashed var(--brd)' }}
+            title="Activer les notes libres et documents par rubrique (transport / hébergement / repas)"
+          >
+            <Plus className="w-3 h-3" />
+            Notes &amp; documents
+          </button>
+        )}
+      </div>
+      {structured && <LogistiqueStructuredSection {...structured} readOnly={!canEdit} />}
     </div>
   )
 }
@@ -391,7 +424,7 @@ function ViewBtn({ active, icon: Icon, label, onClick }) {
 }
 
 // ─── Empty state ───────────────────────────────────────────────────────────
-function EmptyState({ canEdit, onAdd }) {
+function EmptyState() {
   return (
     <div
       className="rounded-xl p-10 text-center"
@@ -402,26 +435,12 @@ function EmptyState({ canEdit, onAdd }) {
         style={{ color: 'var(--txt-3)', opacity: 0.4 }}
       />
       <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--txt)' }}>
-        Aucune logistique encore renseignée
+        Aucun membre au projet
       </h2>
-      <p className="text-sm mb-4 max-w-md mx-auto" style={{ color: 'var(--txt-3)' }}>
-        Ajoute les personnes de l&apos;équipe pour leur attribuer un transport,
-        un hébergement et des informations repas, avec leurs documents associés.
+      <p className="text-sm max-w-md mx-auto" style={{ color: 'var(--txt-3)' }}>
+        Ajoute des personnes à l&apos;équipe (onglet Équipe) — elles apparaîtront
+        automatiquement ici avec leurs trajets, hébergement et repas.
       </p>
-      {canEdit && (
-        <button
-          type="button"
-          onClick={onAdd}
-          className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium"
-          style={{
-            background: 'var(--accent)',
-            color: '#fff',
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          Ajouter une personne
-        </button>
-      )}
     </div>
   )
 }

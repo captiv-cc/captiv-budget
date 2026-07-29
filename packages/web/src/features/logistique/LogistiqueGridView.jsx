@@ -1069,7 +1069,10 @@ function MembreRow({
                     />
                   ))}
                 </span>
-                {onAddTrajet && (
+                {/* Point d'entrée UNIQUE (retour Hugo) : le « + » n'apparaît
+                    que si le jour n'a NI trajet NI marqueur avion — sinon
+                    ceux-ci sont déjà cliquables. */}
+                {onAddTrajet && trajets.length === 0 && !arrivalPart && !departPart && (
                   <button
                     type="button"
                     onClick={() =>
