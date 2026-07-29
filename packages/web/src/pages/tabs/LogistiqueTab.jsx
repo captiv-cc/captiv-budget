@@ -26,11 +26,7 @@ import LogistiqueStructuredSection from '../../features/logistique/LogistiqueStr
 import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
 import LogistiqueGridView from '../../features/logistique/LogistiqueGridView'
 import TrajetModal from '../../features/logistique/TrajetModal'
-import {
-  fetchLogistique,
-  upsertHebergementMembre,
-  deleteHebergementMembre,
-} from '../../lib/logistique'
+import { fetchLogistique, upsertHebergementMembre } from '../../lib/logistique'
 import { notify } from '../../lib/notify'
 
 const OUTIL_KEY = 'logistique_v0'
@@ -126,35 +122,16 @@ export default function LogistiqueTab() {
   // Éditeur de trajet partagé (vue Par personne). { membre, trajet|null }
   const [trajetEdit, setTrajetEdit] = useState(null)
 
-  async function handleAssignHebergement(membre, hebergementId) {
-    const current = logiV1?.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
-    try {
-      if (current && current.hebergement_id !== hebergementId) {
-        await deleteHebergementMembre({
-          hebergementId: current.hebergement_id,
-          membreId: membre.id,
-        })
-      }
-      if (hebergementId) {
-        await upsertHebergementMembre({
-          projectId,
-          hebergementId,
-          membreId: membre.id,
-          patch: current ? { chambre: current.chambre, pdj: current.pdj } : {},
-        })
-      }
-      await loadLogiV1()
-    } catch (err) {
-      notify.error('Hébergement : ' + (err?.message || err))
-    }
-  }
-
-  async function handlePatchHebergementMembre(current, patch) {
+  // Chambre / PDJ : la row hebergement_membres est créée à la volée sur le
+  // 1er edit — l'hébergement lui-même DÉRIVE des nuits (modèle validé Hugo).
+  async function handlePatchHebergementMembre(membre, hebergementMembre, patch, hebId) {
+    const targetHebId = hebergementMembre?.hebergement_id || hebId
+    if (!targetHebId) return
     try {
       await upsertHebergementMembre({
         projectId,
-        hebergementId: current.hebergement_id,
-        membreId: current.membre_id,
+        hebergementId: targetHebId,
+        membreId: membre.id,
         patch,
       })
       await loadLogiV1()
@@ -292,9 +269,8 @@ export default function LogistiqueTab() {
                     nuits: logiV1.nuits.filter((n) => n.membre_id === membre.id),
                     onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
                     onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
-                    onAssignHebergement: (hebId) => handleAssignHebergement(membre, hebId),
-                    onPatchHebergementMembre: (patch) =>
-                      hebergementMembre && handlePatchHebergementMembre(hebergementMembre, patch),
+                    onPatchHebergementMembre: (patch, hebId) =>
+                      handlePatchHebergementMembre(membre, hebergementMembre, patch, hebId),
                   }
                 : null
               if (entry) {

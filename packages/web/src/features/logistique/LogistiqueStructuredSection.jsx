@@ -42,12 +42,11 @@ export default function LogistiqueStructuredSection({
   trajets = [],
   hebergements = [],
   hebergementMembre = null, // row projet_logistique_hebergement_membres | null
-  nuits = [], // nuits du membre (dates)
+  nuits = [], // nuits du membre (dates + hebergement_id)
   readOnly = false,
   onEditTrajet, // (trajet) => void
   onAddTrajet, // () => void
-  onAssignHebergement, // (hebergementId | '') => void
-  onPatchHebergementMembre, // (patch) => void
+  onPatchHebergementMembre, // (patch, hebergementId) => void
 }) {
   // Check-in / check-out dérivés des nuits cochées (grille) : première nuit
   // = check-in, dernière nuit + 1 jour = check-out.
@@ -183,82 +182,82 @@ export default function LogistiqueStructuredSection({
         </div>
       )}
 
-      {/* ── Hébergement ─────────────────────────────────────────────────── */}
-      {(hebergementMembre || hebergements.length > 0 || !readOnly) && (
-        <div
-          className="rounded-lg px-3 py-2 flex items-center gap-2.5 flex-wrap"
-          style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
-        >
-          <BedDouble className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--purple, #a78bfa)' }} />
-          {readOnly ? (
-            <span className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
-              {hebergements.find((h) => h.id === hebergementMembre?.hebergement_id)?.nom ||
-                'Aucun hébergement'}
-            </span>
-          ) : (
-            <select
-              value={hebergementMembre?.hebergement_id || ''}
-              onChange={(e) => onAssignHebergement?.(e.target.value)}
-              className="text-xs px-2 py-1 rounded-md outline-none max-w-[220px]"
-              style={inputStyle}
-              title="Rattacher à un hébergement du projet (à déclarer via le bouton Hébergements de la grille)"
-            >
-              <option value="">— Aucun hébergement —</option>
-              {hebergements.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.nom}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {hebergementMembre && (
-            <>
-              {readOnly ? (
-                hebergementMembre.chambre && (
-                  <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
-                    Ch. {hebergementMembre.chambre}
-                  </span>
-                )
-              ) : (
-                <input
-                  type="text"
-                  value={hebergementMembre.chambre || ''}
-                  onChange={(e) => onPatchHebergementMembre?.({ chambre: e.target.value || null })}
-                  placeholder="Chambre"
-                  className="w-[90px] text-[11px] px-2 py-1 rounded-md outline-none"
-                  style={inputStyle}
-                />
-              )}
-              <label
-                className="flex items-center gap-1 text-[11px]"
-                style={{ color: 'var(--txt-2)', cursor: readOnly ? 'default' : 'pointer' }}
-                title="Petit-déjeuner inclus"
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(hebergementMembre.pdj)}
-                  disabled={readOnly}
-                  onChange={(e) => onPatchHebergementMembre?.({ pdj: e.target.checked })}
-                  style={{ accentColor: 'var(--purple, #a78bfa)' }}
-                />
-                PDJ
-              </label>
-            </>
-          )}
-
-          {checkin && checkout && (
+      {/* ── Hébergement — DÉRIVÉ des nuits cochées dans la grille (modèle
+          validé Hugo) : ici on lit le lieu et on n'édite que chambre/PDJ. */}
+      {(() => {
+        const derivedHebId =
+          hebergementMembre?.hebergement_id ||
+          nuits.map((n) => n.hebergement_id).find(Boolean) ||
+          null
+        const heb = hebergements.find((h) => h.id === derivedHebId) || null
+        if (!heb && !nuitDates.length) return null
+        return (
+          <div
+            className="rounded-lg px-3 py-2 flex items-center gap-2.5 flex-wrap"
+            style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+          >
+            <BedDouble className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--purple, #a78bfa)' }} />
             <span
-              className="text-[11px] ml-auto"
-              style={{ color: 'var(--txt-3)' }}
-              title="Calculé depuis les nuits cochées dans la grille"
+              className="text-xs font-semibold"
+              style={{ color: heb ? 'var(--txt)' : 'var(--txt-3)' }}
+              title="Dérivé des nuits cochées dans la grille"
             >
-              Check-in {frDate(checkin)} → check-out {frDate(checkout)} ·{' '}
-              {nuitDates.length} nuit{nuitDates.length > 1 ? 's' : ''}
+              {heb ? heb.nom : 'Nuits sans hébergement (aucun déclaré)'}
             </span>
-          )}
-        </div>
-      )}
+
+            {heb && (
+              <>
+                {readOnly ? (
+                  hebergementMembre?.chambre && (
+                    <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
+                      Ch. {hebergementMembre.chambre}
+                    </span>
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    defaultValue={hebergementMembre?.chambre || ''}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim() || null
+                      if (v !== (hebergementMembre?.chambre || null)) {
+                        onPatchHebergementMembre?.({ chambre: v }, heb.id)
+                      }
+                    }}
+                    placeholder="Chambre"
+                    className="w-[90px] text-[11px] px-2 py-1 rounded-md outline-none"
+                    style={inputStyle}
+                  />
+                )}
+                <label
+                  className="flex items-center gap-1 text-[11px]"
+                  style={{ color: 'var(--txt-2)', cursor: readOnly ? 'default' : 'pointer' }}
+                  title="Petit-déjeuner inclus"
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(hebergementMembre?.pdj)}
+                    disabled={readOnly}
+                    onChange={(e) => onPatchHebergementMembre?.({ pdj: e.target.checked }, heb.id)}
+                    style={{ accentColor: 'var(--purple, #a78bfa)' }}
+                  />
+                  PDJ
+                </label>
+              </>
+            )}
+
+            {checkin && checkout && (
+              <span
+                className="text-[11px] ml-auto"
+                style={{ color: 'var(--txt-3)' }}
+                title="Calculé depuis les nuits cochées dans la grille"
+              >
+                Check-in {frDate(checkin)} → check-out {frDate(checkout)} ·{' '}
+                {nuitDates.length} nuit{nuitDates.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

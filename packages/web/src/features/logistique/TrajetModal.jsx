@@ -20,6 +20,7 @@ import {
   Loader2,
   Plane,
   Plus,
+  Route,
   Train,
   TramFront,
   Trash2,
@@ -250,21 +251,30 @@ export default function TrajetModal({
           maxHeight: 'calc(100vh - 32px)',
         }}
       >
-        {/* Header */}
+        {/* Header — même gabarit que la modale Hébergements (icône carrée
+            teintée + titre + sous-titre) pour l'uniformité des 3 modales. */}
         <div
-          className="flex items-center gap-2 px-5 py-3.5 shrink-0"
+          className="flex items-center gap-2.5 px-5 py-4 shrink-0"
           style={{ borderBottom: '1px solid var(--brd-sub)' }}
         >
-          <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
-            {currentTrajet?.id ? 'Modifier le trajet' : 'Nouveau trajet'}
-          </h2>
-          <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
-            · {membreName}
-          </span>
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: 'var(--blue-bg)' }}
+          >
+            <Route className="w-4 h-4" style={{ color: 'var(--blue)' }} />
+          </div>
+          <div>
+            <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+              {currentTrajet?.id ? 'Modifier le trajet' : 'Nouveau trajet'}
+            </h2>
+            <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+              {membreName} — étapes dans l&apos;ordre du voyage, billets attachés au trajet.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => !saving && onClose?.()}
-            className="ml-auto p-1"
+            className="ml-auto p-1.5"
             style={{ color: 'var(--txt-3)' }}
           >
             <X className="w-4 h-4" />

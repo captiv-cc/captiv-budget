@@ -128,6 +128,8 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
   // cible est ambiguë (2+ sessions, aucune enveloppe couvrante), un
   // popover ancré à la cellule propose le choix — colorié comme l'Équipe.
   const [sessionPick, setSessionPick] = useState(null) // { membreId, day }
+  // Choix d'hébergement au clic sur la lune (2+ hébergements ambigus).
+  const [nuitPick, setNuitPick] = useState(null) // { membreId, day }
   // P2 : éditeur de trajet (création prête-remplie depuis la cellule, ou
   // édition au clic sur une chip). { membre, trajet|null, date, sens }
   const [trajetEdit, setTrajetEdit] = useState(null)
@@ -174,10 +176,11 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     return map
   }, [logi.repas])
 
+  // Map (et pas Set) : la row porte hebergement_id → tooltip + smart default.
   const nuitSet = useMemo(() => {
-    const set = new Set()
-    for (const n of logi.nuits) set.add(`${n.membre_id}|${n.date_nuit}`)
-    return set
+    const map = new Map()
+    for (const n of logi.nuits) map.set(`${n.membre_id}|${n.date_nuit}`, n)
+    return map
   }, [logi.nuits])
 
   const trajetsByMembreDay = useMemo(() => {
@@ -440,22 +443,62 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     }
   }
 
-  async function toggleNuit(membreId, day) {
-    if (!canEdit) return
-    const has = nuitSet.has(`${membreId}|${day}`)
+  /** Pose la nuit sur un hébergement précis (popover ou résolution auto). */
+  async function addNuitToHebergement(membreId, day, hebergementId) {
+    setNuitPick(null)
     setLogi((prev) => ({
       ...prev,
-      nuits: has
-        ? prev.nuits.filter((n) => !(n.membre_id === membreId && n.date_nuit === day))
-        : [...prev.nuits, { membre_id: membreId, date_nuit: day, hebergement_id: null }],
+      nuits: [
+        ...prev.nuits.filter((n) => !(n.membre_id === membreId && n.date_nuit === day)),
+        { membre_id: membreId, date_nuit: day, hebergement_id: hebergementId },
+      ],
     }))
     try {
-      if (has) await deleteNuit({ membreId, date: day })
-      else await setNuit({ projectId, membreId, date: day })
+      await setNuit({ projectId, membreId, date: day, hebergementId })
     } catch (err) {
       notify.error('Nuit : ' + (err?.message || err))
       load()
     }
+  }
+
+  async function toggleNuit(membreId, day) {
+    if (!canEdit) return
+    const has = nuitSet.has(`${membreId}|${day}`)
+    if (has) {
+      setLogi((prev) => ({
+        ...prev,
+        nuits: prev.nuits.filter((n) => !(n.membre_id === membreId && n.date_nuit === day)),
+      }))
+      try {
+        await deleteNuit({ membreId, date: day })
+      } catch (err) {
+        notify.error('Nuit : ' + (err?.message || err))
+        load()
+      }
+      return
+    }
+    // ON — l'hébergement dérive des NUITS (modèle validé Hugo) :
+    //   0 hébergement au projet → nuit sans hébergement ;
+    //   1 seul → affectation directe ;
+    //   2+ → smart default (l'hébergement déjà utilisé par les autres nuits
+    //   de la personne), sinon popover de choix ancré à la cellule.
+    const hebs = logi.hebergements
+    if (hebs.length <= 1) {
+      await addNuitToHebergement(membreId, day, hebs[0]?.id || null)
+      return
+    }
+    const existing = [
+      ...new Set(
+        logi.nuits
+          .filter((n) => n.membre_id === membreId && n.hebergement_id)
+          .map((n) => n.hebergement_id),
+      ),
+    ]
+    if (existing.length === 1) {
+      await addNuitToHebergement(membreId, day, existing[0])
+      return
+    }
+    setNuitPick({ membreId, day })
   }
 
   async function handleInit() {
@@ -677,6 +720,10 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
                     ? (membre, day, sens) => setTrajetEdit({ membre, trajet: null, date: day, sens })
                     : null
                 }
+                hebsList={logi.hebergements}
+                nuitPick={nuitPick}
+                onPickNuitHeb={addNuitToHebergement}
+                onCloseNuitPick={() => setNuitPick(null)}
               />
             ))}
           </tbody>
@@ -709,6 +756,7 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
           hebergements={logi.hebergements}
           hebergementMembres={logi.hebergementMembres}
           membres={techRows}
+          nuits={logi.nuits}
           docs={logi.docs}
           onMutated={load}
           onClose={() => setHebOpen(false)}
@@ -850,6 +898,10 @@ function GroupRows({
   onClosePick,
   onEditTrajet,
   onAddTrajet,
+  hebsList,
+  nuitPick,
+  onPickNuitHeb,
+  onCloseNuitPick,
 }) {
   return (
     <>
@@ -887,6 +939,10 @@ function GroupRows({
           onClosePick={onClosePick}
           onEditTrajet={onEditTrajet}
           onAddTrajet={onAddTrajet}
+          hebsList={hebsList}
+          nuitPick={nuitPick}
+          onPickNuitHeb={onPickNuitHeb}
+          onCloseNuitPick={onCloseNuitPick}
         />
       ))}
     </>
@@ -911,6 +967,10 @@ function MembreRow({
   onClosePick,
   onEditTrajet = null,
   onAddTrajet = null,
+  hebsList = [],
+  nuitPick = null,
+  onPickNuitHeb,
+  onCloseNuitPick,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
   // Heuristique sens par défaut du « + trajet » : avant/au 1er jour de
@@ -1083,7 +1143,7 @@ function MembreRow({
                       )
                     }
                     title="Ajouter un trajet ce jour"
-                    className="ml-auto w-4 h-4 rounded-sm shrink-0 flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                    className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
                     style={{ color: 'var(--blue)', border: '1px dashed var(--brd)' }}
                   >
                     +
@@ -1162,34 +1222,76 @@ function MembreRow({
                   canEdit={canEdit}
                   onClick={() => onCycleRepas(membre.id, d, 'soir')}
                 />
-                <button
-                  type="button"
-                  disabled={!canEdit}
-                  onClick={() => onToggleNuit(membre.id, d)}
-                  title={
-                    nuitSet.has(`${membre.id}|${d}`)
-                      ? 'Nuit sur place (cliquer pour retirer)'
-                      : 'Pas de nuit (cliquer pour ajouter)'
-                  }
-                  className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center transition-all ml-auto"
-                  style={{
-                    background: nuitSet.has(`${membre.id}|${d}`)
-                      ? 'rgba(167,139,250,0.22)'
-                      : 'transparent',
-                    border: nuitSet.has(`${membre.id}|${d}`)
-                      ? '1px solid rgba(167,139,250,0.5)'
-                      : '1px dashed var(--brd-sub)',
-                    cursor: canEdit ? 'pointer' : 'default',
-                  }}
-                >
-                  <Moon
-                    className="w-2.5 h-2.5"
-                    style={{
-                      color: nuitSet.has(`${membre.id}|${d}`) ? '#a78bfa' : 'var(--txt-3)',
-                      opacity: nuitSet.has(`${membre.id}|${d}`) ? 1 : 0.35,
-                    }}
-                  />
-                </button>
+                {(() => {
+                  const nuit = nuitSet.get(`${membre.id}|${d}`) || null
+                  const hebName = nuit?.hebergement_id
+                    ? hebsList.find((h) => h.id === nuit.hebergement_id)?.nom
+                    : null
+                  return (
+                    <button
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => onToggleNuit(membre.id, d)}
+                      title={
+                        nuit
+                          ? `Nuit sur place${hebName ? ` · ${hebName}` : ''} (cliquer pour retirer)`
+                          : 'Pas de nuit (cliquer pour ajouter)'
+                      }
+                      className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center transition-all"
+                      style={{
+                        background: nuit ? 'rgba(167,139,250,0.22)' : 'transparent',
+                        border: nuit
+                          ? '1px solid rgba(167,139,250,0.5)'
+                          : '1px dashed var(--brd-sub)',
+                        cursor: canEdit ? 'pointer' : 'default',
+                      }}
+                    >
+                      <Moon
+                        className="w-2.5 h-2.5"
+                        style={{
+                          color: nuit ? '#a78bfa' : 'var(--txt-3)',
+                          opacity: nuit ? 1 : 0.35,
+                        }}
+                      />
+                    </button>
+                  )
+                })()}
+
+                {/* Popover choix d'hébergement (2+ hébergements ambigus) */}
+                {nuitPick && nuitPick.membreId === membre.id && nuitPick.day === d && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={onCloseNuitPick} aria-hidden />
+                    <div
+                      className="absolute z-50 top-10 left-0 min-w-[170px] rounded-lg py-1"
+                      style={{
+                        background: 'var(--bg-elev)',
+                        border: '1px solid var(--brd)',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                      }}
+                    >
+                      <p
+                        className="px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider"
+                        style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
+                      >
+                        Nuit · quel hébergement ?
+                      </p>
+                      {hebsList.map((h) => (
+                        <button
+                          key={h.id}
+                          type="button"
+                          onClick={() => onPickNuitHeb?.(membre.id, d, h.id)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-all"
+                          style={{ color: 'var(--txt)' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <Moon className="w-3 h-3 shrink-0" style={{ color: '#a78bfa' }} />
+                          {h.nom}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </td>

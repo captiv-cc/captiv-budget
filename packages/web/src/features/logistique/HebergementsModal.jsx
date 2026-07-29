@@ -20,7 +20,6 @@ import {
   Plus,
   Trash2,
   Upload,
-  UserPlus,
   X,
 } from 'lucide-react'
 import {
@@ -48,6 +47,7 @@ export default function HebergementsModal({
   hebergements = [],
   hebergementMembres = [],
   membres = [], // rows principales techlist (fusionnées comme la Crew list)
+  nuits = [], // projet_logistique_nuits — SOURCE du rattachement (modèle Hugo)
   docs = [], // projet_logistique_docs (tous parents)
   onMutated, // reload côté appelant
   onClose,
@@ -115,8 +115,8 @@ export default function HebergementsModal({
               Hébergements du projet
             </h2>
             <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              Déclare le lieu une fois, rattache les personnes (chambre, PDJ) — les
-              nuits de la grille suivent.
+              Rooming automatique : les personnes apparaissent via leurs nuits
+              cochées dans la grille — ici tu ne gères que chambre et PDJ.
             </p>
           </div>
           <button
@@ -152,12 +152,12 @@ export default function HebergementsModal({
                 key={h.id}
                 hebergement={h}
                 assigned={hebergementMembres.filter((hm) => hm.hebergement_id === h.id)}
+                nuits={nuits.filter((n) => n.hebergement_id === h.id)}
                 membres={membres}
                 docs={docs.filter(
                   (doc) => doc.parent_type === 'hebergement' && doc.parent_id === h.id,
                 )}
                 projectId={projectId}
-                busy={busy}
                 onEdit={() => setEditingId(h.id)}
                 onDelete={() => handleDelete(h)}
                 run={run}
@@ -203,18 +203,32 @@ export default function HebergementsModal({
 function HebergementCard({
   hebergement: h,
   assigned,
+  nuits = [],
   membres,
   docs,
   projectId,
-  busy,
   onEdit,
   onDelete,
   run,
 }) {
   const [uploading, setUploading] = useState(false)
   const membreById = new Map(membres.map((m) => [m.id, m]))
-  const assignedIds = new Set(assigned.map((hm) => hm.membre_id))
-  const available = membres.filter((m) => !assignedIds.has(m.id))
+  // Rooming DÉRIVÉ des nuits (modèle validé Hugo) : quiconque a ≥ 1 nuit
+  // cochée ici apparaît automatiquement. Les rows hebergement_membres ne
+  // portent plus que chambre/PDJ (créées à la volée au premier edit).
+  const nuitCountByMembre = new Map()
+  for (const n of nuits) {
+    nuitCountByMembre.set(n.membre_id, (nuitCountByMembre.get(n.membre_id) || 0) + 1)
+  }
+  const hmByMembre = new Map(assigned.map((hm) => [hm.membre_id, hm]))
+  const personIds = Array.from(
+    new Set([...nuitCountByMembre.keys(), ...assigned.map((hm) => hm.membre_id)]),
+  ).sort((a, b) =>
+    membreName(membreById.get(a) || {}).localeCompare(
+      membreName(membreById.get(b) || {}),
+      'fr',
+    ),
+  )
 
   async function handleUpload(file) {
     if (!file) return
@@ -340,37 +354,56 @@ function HebergementCard({
           </label>
         </div>
 
-        {/* Personnes rattachées */}
+        {/* Personnes — rooming dérivé des nuits de la grille */}
         <div>
           <p
             className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
             style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}
           >
-            Personnes · {assigned.length}
+            Personnes · {personIds.length}
           </p>
-          {assigned.map((hm) => {
-            const m = membreById.get(hm.membre_id)
+          {personIds.length === 0 && (
+            <p className="text-[11px] italic" style={{ color: 'var(--txt-3)' }}>
+              Personne pour l&apos;instant — coche des nuits 🌙 dans la grille, les
+              personnes apparaîtront ici automatiquement.
+            </p>
+          )}
+          {personIds.map((membreId) => {
+            const m = membreById.get(membreId)
+            const hm = hmByMembre.get(membreId) || null
+            const nCount = nuitCountByMembre.get(membreId) || 0
             return (
               <div
-                key={hm.id}
+                key={membreId}
                 className="flex items-center gap-2 py-1"
                 style={{ borderTop: '1px solid var(--brd-sub)' }}
               >
                 <span className="text-xs font-semibold min-w-0 truncate" style={{ color: 'var(--txt)' }}>
                   {m ? membreName(m) : 'Membre supprimé'}
                 </span>
+                <span
+                  className="text-[10px] shrink-0"
+                  style={{ color: nCount ? 'var(--txt-3)' : 'var(--amber, #f59e0b)' }}
+                  title={
+                    nCount
+                      ? 'Nuits cochées dans la grille'
+                      : 'Plus aucune nuit ici — infos chambre/PDJ conservées'
+                  }
+                >
+                  {nCount} nuit{nCount > 1 ? 's' : ''}
+                </span>
                 <input
                   type="text"
-                  defaultValue={hm.chambre || ''}
+                  defaultValue={hm?.chambre || ''}
                   placeholder="Chambre"
                   onBlur={(e) => {
                     const v = e.target.value.trim() || null
-                    if (v !== (hm.chambre || null)) {
+                    if (v !== (hm?.chambre || null)) {
                       run(() =>
                         upsertHebergementMembre({
                           projectId,
                           hebergementId: h.id,
-                          membreId: hm.membre_id,
+                          membreId,
                           patch: { chambre: v },
                         }),
                       )
@@ -382,71 +415,47 @@ function HebergementCard({
                 <button
                   type="button"
                   onClick={() =>
-                    run(
-                      () =>
-                        upsertHebergementMembre({
-                          projectId,
-                          hebergementId: h.id,
-                          membreId: hm.membre_id,
-                          patch: { pdj: !hm.pdj },
-                        }),
+                    run(() =>
+                      upsertHebergementMembre({
+                        projectId,
+                        hebergementId: h.id,
+                        membreId,
+                        patch: { pdj: !hm?.pdj },
+                      }),
                     )
                   }
                   className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded-md shrink-0"
                   style={{
-                    background: hm.pdj ? 'rgba(167,139,250,0.16)' : 'transparent',
-                    color: hm.pdj ? 'var(--purple, #a78bfa)' : 'var(--txt-3)',
-                    border: `1px solid ${hm.pdj ? 'rgba(167,139,250,0.4)' : 'var(--brd-sub)'}`,
+                    background: hm?.pdj ? 'rgba(167,139,250,0.16)' : 'transparent',
+                    color: hm?.pdj ? 'var(--purple, #a78bfa)' : 'var(--txt-3)',
+                    border: `1px solid ${hm?.pdj ? 'rgba(167,139,250,0.4)' : 'var(--brd-sub)'}`,
                   }}
                   title="Petit-déjeuner inclus"
                 >
                   <Coffee className="w-3 h-3" />
                   PDJ
                 </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    run(
-                      () =>
-                        deleteHebergementMembre({ hebergementId: h.id, membreId: hm.membre_id }),
-                      'Personne détachée',
-                    )
-                  }
-                  className="p-1 shrink-0"
-                  style={{ color: 'var(--txt-3)' }}
-                  title="Détacher de cet hébergement"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                {/* Nettoyage : ne se propose que pour une row chambre/PDJ
+                    orpheline (0 nuit) — sinon le rooming suit les nuits. */}
+                {hm && nCount === 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      run(
+                        () => deleteHebergementMembre({ hebergementId: h.id, membreId }),
+                        'Infos retirées',
+                      )
+                    }
+                    className="p-1 shrink-0"
+                    style={{ color: 'var(--txt-3)' }}
+                    title="Retirer les infos chambre/PDJ (aucune nuit ici)"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
             )
           })}
-          {available.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <UserPlus className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
-              <select
-                value=""
-                disabled={busy}
-                onChange={(e) => {
-                  const membreId = e.target.value
-                  if (!membreId) return
-                  run(
-                    () => upsertHebergementMembre({ projectId, hebergementId: h.id, membreId, patch: {} }),
-                    'Personne rattachée',
-                  )
-                }}
-                className="text-[11px] px-2 py-1 rounded-md outline-none"
-                style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-              >
-                <option value="">Rattacher une personne…</option>
-                {available.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {membreName(m)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
       </div>
     </div>
