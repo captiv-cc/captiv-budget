@@ -16,7 +16,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users } from 'lucide-react'
+import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users, ClipboardList } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
 import { useLogistiqueV0 } from '../../hooks/useLogistiqueV0'
@@ -25,6 +26,7 @@ import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
 import LogistiqueStructuredSection from '../../features/logistique/LogistiqueStructuredSection'
 import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
 import LogistiqueGridView from '../../features/logistique/LogistiqueGridView'
+import LogistiqueSyntheseView from '../../features/logistique/LogistiqueSyntheseView'
 import TrajetModal from '../../features/logistique/TrajetModal'
 import { fetchLogistique, upsertHebergementMembre } from '../../lib/logistique'
 import { notify } from '../../lib/notify'
@@ -36,6 +38,7 @@ export default function LogistiqueTab() {
   // LOGI-V1 : le project (metadata.equipe pour l'ordre des catégories,
   // metadata périodes pour ancrer la modale Présence sur l'événement).
   const { project } = useProjet() || {}
+  const { org } = useAuth()
   const { can } = useProjectPermissions(projectId)
   const canRead = can(OUTIL_KEY, 'read')
   const canEdit = can(OUTIL_KEY, 'edit')
@@ -90,7 +93,8 @@ export default function LogistiqueTab() {
   const VIEW_KEY = `logistique.view.${projectId || 'global'}`
   const [view, setViewRaw] = useState(() => {
     try {
-      return localStorage.getItem(VIEW_KEY) === 'personnes' ? 'personnes' : 'grille'
+      const v = localStorage.getItem(VIEW_KEY)
+      return v === 'personnes' || v === 'synthese' ? v : 'grille'
     } catch {
       return 'grille'
     }
@@ -221,6 +225,12 @@ export default function LogistiqueTab() {
               label="Par personne"
               onClick={() => setView('personnes')}
             />
+            <ViewBtn
+              active={view === 'synthese'}
+              icon={ClipboardList}
+              label="Synthèse"
+              onClick={() => setView('synthese')}
+            />
           </div>
         </div>
       </div>
@@ -244,6 +254,16 @@ export default function LogistiqueTab() {
           project={project}
           membres={membres}
           canEdit={canEdit}
+        />
+      )}
+
+      {/* ─── Vue Synthèse (LOGI-V1 P3) ────────────────────────────────── */}
+      {view === 'synthese' && (
+        <LogistiqueSyntheseView
+          projectId={projectId}
+          project={project}
+          org={org}
+          membres={membres}
         />
       )}
 
