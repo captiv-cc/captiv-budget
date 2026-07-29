@@ -42,6 +42,7 @@ import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPerio
 import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
 import PresenceCalendarModal from '../equipe/components/PresenceCalendarModal'
 import TrajetModal from './TrajetModal'
+import HebergementsModal from './HebergementsModal'
 import {
   fetchLogistique,
   initFromEquipe,
@@ -127,6 +128,8 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
   // P2 : éditeur de trajet (création prête-remplie depuis la cellule, ou
   // édition au clic sur une chip). { membre, trajet|null, date, sens }
   const [trajetEdit, setTrajetEdit] = useState(null)
+  // P2 : gestion des hébergements du projet.
+  const [hebOpen, setHebOpen] = useState(false)
 
   const load = useCallback(async () => {
     if (!projectId) return
@@ -564,9 +567,24 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
         {canEdit && (
           <button
             type="button"
+            onClick={() => setHebOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ml-auto"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd)',
+            }}
+            title="Déclarer les hébergements du projet (hôtel, Airbnb…) — rattachement par personne dans les fiches"
+          >
+            Hébergements{logi.hebergements.length ? ` (${logi.hebergements.length})` : ''}
+          </button>
+        )}
+        {canEdit && (
+          <button
+            type="button"
             onClick={handleInit}
             disabled={initing}
-            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md ml-auto"
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md"
             style={{
               background: 'var(--bg-elev)',
               color: 'var(--txt-2)',
@@ -681,6 +699,24 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
       {/* Gestion complète des sessions/présences — MÊME modale que l'onglet
           Équipe (sélecteur de session, rejoindre/créer, renommer, arrivée/
           retour). Ouverte au clic sur le nom d'une personne. */}
+      {/* Hébergements du projet (P2) */}
+      {hebOpen && (
+        <HebergementsModal
+          projectId={projectId}
+          hebergements={logi.hebergements}
+          membresCountByHebergement={
+            new Map(
+              logi.hebergements.map((h) => [
+                h.id,
+                logi.hebergementMembres.filter((hm) => hm.hebergement_id === h.id).length,
+              ]),
+            )
+          }
+          onMutated={load}
+          onClose={() => setHebOpen(false)}
+        />
+      )}
+
       {/* Éditeur de trajet (P2) */}
       {trajetEdit && (
         <TrajetModal

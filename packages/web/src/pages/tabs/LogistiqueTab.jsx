@@ -14,7 +14,7 @@
 // Pattern aligné sur DerouleTab pour la gestion permissions / loading / error.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users } from 'lucide-react'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
@@ -25,6 +25,13 @@ import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
 import LogistiqueAddPersonModal from '../../features/logistique/LogistiqueAddPersonModal'
 import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
 import LogistiqueGridView from '../../features/logistique/LogistiqueGridView'
+import TrajetModal from '../../features/logistique/TrajetModal'
+import {
+  fetchLogistique,
+  upsertHebergementMembre,
+  deleteHebergementMembre,
+} from '../../lib/logistique'
+import { notify } from '../../lib/notify'
 
 const OUTIL_KEY = 'logistique_v0'
 
@@ -100,6 +107,61 @@ export default function LogistiqueTab() {
       localStorage.setItem(VIEW_KEY, v)
     } catch {
       /* ignore */
+    }
+  }
+
+  // LOGI-V1 P2 : données structurées (trajets, hébergements, nuits) pour la
+  // vue « Par personne » — la grille fait son propre fetch de son côté.
+  const [logiV1, setLogiV1] = useState(null)
+  const loadLogiV1 = useCallback(async () => {
+    if (!projectId) return
+    try {
+      setLogiV1(await fetchLogistique(projectId))
+    } catch (err) {
+      console.warn('[LogistiqueTab] fetchLogistique:', err?.message || err)
+    }
+  }, [projectId])
+  useEffect(() => {
+    if (view === 'personnes' && canRead) loadLogiV1()
+  }, [view, canRead, loadLogiV1])
+
+  // Éditeur de trajet partagé (vue Par personne). { membre, trajet|null }
+  const [trajetEdit, setTrajetEdit] = useState(null)
+
+  async function handleAssignHebergement(membre, hebergementId) {
+    const current = logiV1?.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
+    try {
+      if (current && current.hebergement_id !== hebergementId) {
+        await deleteHebergementMembre({
+          hebergementId: current.hebergement_id,
+          membreId: membre.id,
+        })
+      }
+      if (hebergementId) {
+        await upsertHebergementMembre({
+          projectId,
+          hebergementId,
+          membreId: membre.id,
+          patch: current ? { chambre: current.chambre, pdj: current.pdj } : {},
+        })
+      }
+      await loadLogiV1()
+    } catch (err) {
+      notify.error('Hébergement : ' + (err?.message || err))
+    }
+  }
+
+  async function handlePatchHebergementMembre(current, patch) {
+    try {
+      await upsertHebergementMembre({
+        projectId,
+        hebergementId: current.hebergement_id,
+        membreId: current.membre_id,
+        patch,
+      })
+      await loadLogiV1()
+    } catch (err) {
+      notify.error('Hébergement : ' + (err?.message || err))
     }
   }
 
@@ -237,6 +299,8 @@ export default function LogistiqueTab() {
           <div className="space-y-4">
             {entries.map((entry) => {
               const membre = membreById.get(entry.membre_id)
+              const hebergementMembre =
+                logiV1?.hebergementMembres.find((hm) => hm.membre_id === entry.membre_id) || null
               return (
                 <LogistiqueEntryCard
                   key={entry.id}
@@ -249,11 +313,43 @@ export default function LogistiqueTab() {
                   onDeleteDocument={deleteDocument}
                   onRemoveEntry={removeEntry}
                   onSetHiddenKinds={setEntryHiddenKinds}
+                  structured={
+                    logiV1 && membre
+                      ? {
+                          trajets: logiV1.trajets.filter((t) => t.membre_id === entry.membre_id),
+                          hebergements: logiV1.hebergements,
+                          hebergementMembre,
+                          nuits: logiV1.nuits.filter((n) => n.membre_id === entry.membre_id),
+                          onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
+                          onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
+                          onAssignHebergement: (hebId) => handleAssignHebergement(membre, hebId),
+                          onPatchHebergementMembre: (patch) =>
+                            hebergementMembre && handlePatchHebergementMembre(hebergementMembre, patch),
+                        }
+                      : null
+                  }
                 />
               )
             })}
           </div>
         ))}
+
+      {/* Éditeur de trajet (vue Par personne) */}
+      {trajetEdit && (
+        <TrajetModal
+          projectId={projectId}
+          membre={trajetEdit.membre}
+          membreName={
+            trajetEdit.membre?.contact
+              ? `${trajetEdit.membre.contact.prenom || ''} ${trajetEdit.membre.contact.nom || ''}`.trim()
+              : `${trajetEdit.membre?.prenom || ''} ${trajetEdit.membre?.nom || ''}`.trim()
+          }
+          trajet={trajetEdit.trajet}
+          onSaved={() => loadLogiV1()}
+          onDeleted={() => loadLogiV1()}
+          onClose={() => setTrajetEdit(null)}
+        />
+      )}
 
       {/* ─── Modal Ajout ──────────────────────────────────────────────── */}
       {canEdit && (

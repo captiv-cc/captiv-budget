@@ -15,6 +15,7 @@
 
 import { Trash2, Plus, Plane, BedDouble, UtensilsCrossed } from 'lucide-react'
 import LogistiqueSubBloc from './LogistiqueSubBloc'
+import LogistiqueStructuredSection from './LogistiqueStructuredSection'
 import {
   LOGISTIQUE_KINDS,
   labelForKind,
@@ -40,6 +41,12 @@ export default function LogistiqueEntryCard({
   onDeleteDocument,
   onRemoveEntry,
   onSetHiddenKinds, // (entryId, hiddenKinds) — admin uniquement
+  // LOGI-V1 P2 : couche structurée (trajets + hébergement) rendue en tête
+  // de carte — les textes V0 ci-dessous deviennent les « notes libres ».
+  // Shape : { trajets, hebergements, hebergementMembre, nuits,
+  //           onEditTrajet, onAddTrajet, onAssignHebergement,
+  //           onPatchHebergementMembre } | null (V0 pur si absent).
+  structured = null,
 }) {
   const fullName = membreFullName(membre)
   const initials = computeInitials(membre)
@@ -153,6 +160,11 @@ export default function LogistiqueEntryCard({
           </button>
         )}
       </div>
+
+      {/* LOGI-V1 P2 : couche structurée (trajets + hébergement). */}
+      {structured && (
+        <LogistiqueStructuredSection {...structured} readOnly={readOnly} />
+      )}
 
       {/* Sous-blocs visibles uniquement. La grille adapte le nombre de
           colonnes : 3 si tout est visible, 2 si 1 masqué, 1 si 2 masqués. */}
