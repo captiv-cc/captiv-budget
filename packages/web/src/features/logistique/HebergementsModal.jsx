@@ -28,6 +28,8 @@ import {
   deleteHebergement,
   upsertHebergementMembre,
   deleteHebergementMembre,
+  moveMembreNuits,
+  adoptNuitsSansHebergement,
   uploadLogistiqueDoc,
   deleteLogistiqueDoc,
   getLogistiqueDocUrl,
@@ -110,15 +112,9 @@ export default function HebergementsModal({
           >
             <BedDouble className="w-4 h-4" style={{ color: 'var(--purple, #a78bfa)' }} />
           </div>
-          <div>
-            <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
-              Hébergements du projet
-            </h2>
-            <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              Rooming automatique : les personnes apparaissent via leurs nuits
-              cochées dans la grille — ici tu ne gères que chambre et PDJ.
-            </p>
-          </div>
+          <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
+            Hébergements du projet
+          </h2>
           <button
             type="button"
             onClick={() => !busy && onClose?.()}
@@ -132,9 +128,74 @@ export default function HebergementsModal({
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
           {hebergements.length === 0 && editingId !== 'new' && (
             <p className="text-xs text-center py-6" style={{ color: 'var(--txt-3)' }}>
-              Aucun hébergement déclaré pour l&apos;instant.
+              Aucun hébergement déclaré.
             </p>
           )}
+
+          {/* Nuits cochées avant que l'hôtel soit connu : affectation ici. */}
+          {hebergements.length > 0 &&
+            (() => {
+              const orphans = nuits.filter((n) => !n.hebergement_id)
+              if (!orphans.length) return null
+              const byMembre = new Map()
+              for (const n of orphans) {
+                byMembre.set(n.membre_id, (byMembre.get(n.membre_id) || 0) + 1)
+              }
+              const membreById = new Map(membres.map((m) => [m.id, m]))
+              return (
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    background: 'rgba(245,158,11,0.06)',
+                    border: '1px solid rgba(245,158,11,0.35)',
+                  }}
+                >
+                  <p
+                    className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
+                    style={{ color: 'var(--amber, #f59e0b)', letterSpacing: '0.08em' }}
+                  >
+                    Nuits sans hébergement
+                  </p>
+                  {Array.from(byMembre.entries()).map(([membreId, count]) => {
+                    const m = membreById.get(membreId)
+                    return (
+                      <div
+                        key={membreId}
+                        className="flex items-center gap-2 py-1"
+                        style={{ borderTop: '1px solid var(--brd-sub)' }}
+                      >
+                        <span className="text-xs font-semibold min-w-0 truncate" style={{ color: 'var(--txt)' }}>
+                          {m ? membreName(m) : 'Membre supprimé'}
+                        </span>
+                        <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
+                          {count} nuit{count > 1 ? 's' : ''}
+                        </span>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const hebId = e.target.value
+                            if (!hebId) return
+                            run(
+                              () => adoptNuitsSansHebergement(projectId, hebId, membreId),
+                              'Nuits affectées',
+                            )
+                          }}
+                          className="text-[11px] px-2 py-1 rounded-md outline-none ml-auto"
+                          style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
+                        >
+                          <option value="">Affecter à…</option>
+                          {hebergements.map((heb) => (
+                            <option key={heb.id} value={heb.id}>
+                              {heb.nom}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           {hebergements.map((h) =>
             editingId === h.id ? (
               <HebergementForm
@@ -153,6 +214,7 @@ export default function HebergementsModal({
                 hebergement={h}
                 assigned={hebergementMembres.filter((hm) => hm.hebergement_id === h.id)}
                 nuits={nuits.filter((n) => n.hebergement_id === h.id)}
+                allHebs={hebergements}
                 membres={membres}
                 docs={docs.filter(
                   (doc) => doc.parent_type === 'hebergement' && doc.parent_id === h.id,
@@ -170,10 +232,16 @@ export default function HebergementsModal({
               busy={busy}
               onCancel={() => setEditingId(null)}
               onSubmit={async (fields) => {
-                const ok = await run(
-                  () => createHebergement({ projectId, ...fields }),
-                  'Hébergement créé',
-                )
+                const isFirst = hebergements.length === 0
+                const ok = await run(async () => {
+                  const created = await createHebergement({ projectId, ...fields })
+                  // 1er hébergement du projet : les nuits déjà cochées
+                  // (sans hébergement) le rejoignent automatiquement.
+                  if (isFirst) {
+                    const n = await adoptNuitsSansHebergement(projectId, created.id)
+                    if (n > 0) notify.success(`${n} nuit${n > 1 ? 's' : ''} existante${n > 1 ? 's' : ''} affectée${n > 1 ? 's' : ''}`)
+                  }
+                }, 'Hébergement créé')
                 if (ok) setEditingId(null)
               }}
             />
@@ -204,6 +272,7 @@ function HebergementCard({
   hebergement: h,
   assigned,
   nuits = [],
+  allHebs = [],
   membres,
   docs,
   projectId,
@@ -435,6 +504,39 @@ function HebergementCard({
                   <Coffee className="w-3 h-3" />
                   PDJ
                 </button>
+                {/* Changement d'hôtel : déplace toutes les nuits (+ chambre/
+                    PDJ) de la personne vers un autre hébergement. */}
+                {allHebs.length > 1 && nCount > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const toId = e.target.value
+                      if (!toId) return
+                      run(
+                        () =>
+                          moveMembreNuits({
+                            projectId,
+                            membreId,
+                            fromHebergementId: h.id,
+                            toHebergementId: toId,
+                          }),
+                        'Nuits déplacées',
+                      )
+                    }}
+                    className="text-[10px] px-1 py-1 rounded-md outline-none shrink-0 max-w-[110px]"
+                    style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-3)' }}
+                    title="Déplacer vers un autre hébergement"
+                  >
+                    <option value="">Déplacer…</option>
+                    {allHebs
+                      .filter((o) => o.id !== h.id)
+                      .map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.nom}
+                        </option>
+                      ))}
+                  </select>
+                )}
                 {/* Nettoyage : ne se propose que pour une row chambre/PDJ
                     orpheline (0 nuit) — sinon le rooming suit les nuits. */}
                 {hm && nCount === 0 && (

@@ -268,7 +268,7 @@ export default function TrajetModal({
               {currentTrajet?.id ? 'Modifier le trajet' : 'Nouveau trajet'}
             </h2>
             <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              {membreName} — étapes dans l&apos;ordre du voyage, billets attachés au trajet.
+              {membreName}
             </p>
           </div>
           <button
@@ -323,7 +323,7 @@ export default function TrajetModal({
                 style={{ color: 'var(--txt-3)' }}
                 title="Interne : jamais visible sur les partages"
               >
-                Coût (€, interne)
+                Coût €
               </span>
               <input
                 type="number"
@@ -331,7 +331,6 @@ export default function TrajetModal({
                 step="0.01"
                 value={cout}
                 onChange={(e) => setCout(e.target.value)}
-                placeholder="—"
                 className="text-xs px-2 py-1.5 rounded-md outline-none w-[110px]"
                 style={inputStyle}
               />
@@ -341,7 +340,7 @@ export default function TrajetModal({
           {/* Étapes */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--txt-3)' }}>
-              Étapes (dans l&apos;ordre du voyage)
+              Étapes
             </p>
             <div className="flex flex-col gap-2.5">
               {etapes.map((e, idx) => {
@@ -458,7 +457,7 @@ export default function TrajetModal({
                       type="text"
                       value={e.note}
                       onChange={(ev) => patchEtape(idx, { note: ev.target.value })}
-                      placeholder="Note — n° de train, conducteur, point de RDV…"
+                      placeholder="N° de train, conducteur, point de RDV…"
                       className="w-full text-[11px] px-3 py-2 outline-none"
                       style={{
                         background: 'transparent',
@@ -489,13 +488,13 @@ export default function TrajetModal({
           {/* Notes */}
           <label className="flex flex-col gap-1">
             <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)' }}>
-              Notes du trajet
+              Notes
             </span>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              placeholder="Ex. billets échangeables, arriver 20 min avant…"
+              placeholder="Billets échangeables, arriver 20 min avant…"
               className="text-xs px-2 py-1.5 rounded-md outline-none resize-y"
               style={{ ...inputStyle, fontFamily: 'inherit' }}
             />
@@ -504,7 +503,7 @@ export default function TrajetModal({
           {/* Documents (billets) — dispo dès que le trajet existe en base. */}
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt-3)' }}>
-              Billets &amp; documents (PDF, PNG, JPG)
+              Billets &amp; documents
             </p>
             {!currentTrajet?.id && (
               <>

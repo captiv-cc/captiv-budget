@@ -362,6 +362,55 @@ export async function upsertHebergementMembre({ projectId, hebergementId, membre
   return data
 }
 
+/**
+ * Déplace TOUTES les nuits d'un membre d'un hébergement vers un autre
+ * (changement d'hôtel en cours de route). fromHebergementId null = nuits
+ * sans hébergement. Les infos chambre/PDJ suivent (row migrée).
+ */
+export async function moveMembreNuits({ projectId, membreId, fromHebergementId = null, toHebergementId }) {
+  let q = supabase
+    .from('projet_logistique_nuits')
+    .update({ hebergement_id: toHebergementId })
+    .eq('membre_id', membreId)
+  q = fromHebergementId ? q.eq('hebergement_id', fromHebergementId) : q.is('hebergement_id', null)
+  const { error } = await q
+  if (error) throw error
+  if (fromHebergementId && toHebergementId) {
+    const { data: hm } = await supabase
+      .from('projet_logistique_hebergement_membres')
+      .select('*')
+      .eq('hebergement_id', fromHebergementId)
+      .eq('membre_id', membreId)
+      .maybeSingle()
+    if (hm) {
+      await upsertHebergementMembre({
+        projectId,
+        hebergementId: toHebergementId,
+        membreId,
+        patch: { chambre: hm.chambre, pdj: hm.pdj, notes: hm.notes },
+      })
+      await deleteHebergementMembre({ hebergementId: fromHebergementId, membreId })
+    }
+  }
+}
+
+/**
+ * Affecte les nuits SANS hébergement à un hébergement (cas : nuits cochées
+ * avant que l'hôtel soit connu). membreId optionnel = une seule personne.
+ * @returns {number} nuits affectées
+ */
+export async function adoptNuitsSansHebergement(projectId, hebergementId, membreId = null) {
+  let q = supabase
+    .from('projet_logistique_nuits')
+    .update({ hebergement_id: hebergementId })
+    .eq('project_id', projectId)
+    .is('hebergement_id', null)
+  if (membreId) q = q.eq('membre_id', membreId)
+  const { data, error } = await q.select('id')
+  if (error) throw error
+  return data?.length ?? 0
+}
+
 /** Détache un membre d'un hébergement (ses nuits gardent leur pointeur). */
 export async function deleteHebergementMembre({ hebergementId, membreId }) {
   const { error } = await supabase
