@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users } from 'lucide-react'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { useProjet } from '../ProjetLayout'
 import { useLogistiqueV0 } from '../../hooks/useLogistiqueV0'
 import { fetchProjectMembers } from '../../lib/crew'
 import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
@@ -29,6 +30,9 @@ const OUTIL_KEY = 'logistique_v0'
 
 export default function LogistiqueTab() {
   const { id: projectId } = useParams()
+  // LOGI-V1 : le project (metadata.equipe pour l'ordre des catégories,
+  // metadata périodes pour ancrer la modale Présence sur l'événement).
+  const { project } = useProjet() || {}
   const { can } = useProjectPermissions(projectId)
   const canRead = can(OUTIL_KEY, 'read')
   const canEdit = can(OUTIL_KEY, 'edit')
@@ -217,7 +221,12 @@ export default function LogistiqueTab() {
 
       {/* ─── Vue Grille (LOGI-V1 P1) ─────────────────────────────────── */}
       {view === 'grille' && (
-        <LogistiqueGridView projectId={projectId} membres={membres} canEdit={canEdit} />
+        <LogistiqueGridView
+          projectId={projectId}
+          project={project}
+          membres={membres}
+          canEdit={canEdit}
+        />
       )}
 
       {/* ─── Liste des cards personnes (V0) ──────────────────────────── */}

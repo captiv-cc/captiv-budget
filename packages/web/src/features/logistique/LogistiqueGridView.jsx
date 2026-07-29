@@ -35,8 +35,10 @@ import {
   fetchProjectSessions,
   fetchSessionsCatalog,
   joinSession,
+  listTechlistRows,
   updateSession,
 } from '../../lib/crew'
+import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPeriodes'
 import { effectiveCouleur, effectiveLabel } from '../../lib/sessions'
 import PresenceCalendarModal from '../equipe/components/PresenceCalendarModal'
 import {
@@ -99,7 +101,7 @@ function membrePoste(m) {
   return m.devis_line?.produit || m.specialite || m.contact?.specialite || ''
 }
 
-export default function LogistiqueGridView({ projectId, membres = [], canEdit = false }) {
+export default function LogistiqueGridView({ projectId, project = null, membres = [], canEdit = false }) {
   const [participations, setParticipations] = useState([])
   const [logi, setLogi] = useState({
     hebergements: [],
@@ -209,6 +211,16 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
     [catalog],
   )
 
+  // ─── Périodes projet + ancre calendrier (mêmes props que l'Équipe) ───────
+  const periodes = useMemo(() => extractPeriodes(project?.metadata), [project])
+  const anchorDate = useMemo(() => {
+    const tournageDays = hasAnyRange(periodes.tournage) ? expandDays(periodes.tournage) : []
+    const src = tournageDays[0] || days[0]
+    if (!src) return null
+    const [y, m, d] = src.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }, [periodes, days])
+
   // ─── Templates de sessions pour la modale (même logique que TechListView) ─
   const sessionTemplates = useMemo(() => {
     const map = new Map()
@@ -267,7 +279,7 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
   // masquées (toggle) — les groupes vides disparaissent avec.
   const hiddenCount = useMemo(() => {
     if (!hideEmpty) return 0
-    return membres.filter((m) => !membreHasData(m.id)).length
+    return listTechlistRows(membres).filter((m) => !membreHasData(m.id)).length
   }, [membres, hideEmpty, partsByMembre, logi]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function membreHasData(membreId) {
@@ -279,18 +291,45 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
     return false
   }
 
+  // MÊME modèle de lignes que la Crew list (retour Hugo) :
+  //   - fusion des personnes : rows PRINCIPALES uniquement, les postes
+  //     rattachés (parent_membre_id) apparaissent en badge « +N » ;
+  //   - ordre des catégories : celui configuré dans l'Équipe (localStorage
+  //     equipe.categoryOrder.<projectId>, hydraté depuis
+  //     projects.metadata.equipe.category_order).
+  const techRows = useMemo(() => listTechlistRows(membres), [membres])
+
+  const categoryOrder = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(`equipe.categoryOrder.${projectId || 'noproj'}`)
+      const parsed = raw ? JSON.parse(raw) : []
+      if (Array.isArray(parsed) && parsed.length) return parsed
+    } catch {
+      /* ignore */
+    }
+    const metaOrder = project?.metadata?.equipe?.category_order
+    return Array.isArray(metaOrder) ? metaOrder : []
+  }, [projectId, project])
+
   const groups = useMemo(() => {
     const byCat = new Map()
-    for (const m of membres) {
+    for (const m of techRows) {
       if (hideEmpty && !membreHasData(m.id)) continue
-      const cat = m.category || 'Autres'
+      const cat = m.category || 'À trier'
       const arr = byCat.get(cat) || []
       arr.push(m)
       byCat.set(cat, arr)
     }
-    return Array.from(byCat.entries())
+    const entries = Array.from(byCat.entries())
+    const orderIdx = (cat) => {
+      if (cat === 'À trier') return -1 // comme l'Équipe : "À trier" en tête
+      const i = categoryOrder.indexOf(cat)
+      return i === -1 ? categoryOrder.length : i
+    }
+    entries.sort((a, b) => orderIdx(a[0]) - orderIdx(b[0]) || a[0].localeCompare(b[0], 'fr'))
+    return entries
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membres, hideEmpty, partsByMembre, logi])
+  }, [techRows, hideEmpty, partsByMembre, logi, categoryOrder])
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
@@ -638,6 +677,11 @@ export default function LogistiqueGridView({ projectId, membres = [], canEdit = 
             load()
           }}
           personaName={membreName(presenceFor)}
+          persona={presenceFor.persona || null}
+          // Périodes Prépa/Tournage du projet + ancrage du calendrier sur
+          // l'événement (pas le mois courant) — mêmes props que l'Équipe.
+          periodes={periodes}
+          anchorDate={anchorDate}
           sessions={partsByMembre.get(presenceFor.id) || []}
           projectSessionTemplates={templatesForActive}
           sessionParticipantsCount={sessionParticipantsCount}
@@ -831,11 +875,23 @@ function MembreRow({
               : undefined
           }
         >
-          <span
-            className="block text-xs font-semibold truncate max-w-[170px] group-hover/name:underline"
-            style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
-          >
-            {membreName(membre)}
+          <span className="flex items-center gap-1.5">
+            <span
+              className="text-xs font-semibold truncate max-w-[150px] group-hover/name:underline"
+              style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
+            >
+              {membreName(membre)}
+            </span>
+            {/* Personne fusionnée : postes rattachés (comme la Crew list) */}
+            {membre.attached?.length > 0 && (
+              <span
+                className="text-[9px] font-bold px-1 py-0.5 rounded-full shrink-0"
+                style={{ background: 'var(--blue-bg)', color: 'var(--blue)' }}
+                title={`Postes rattachés : ${membre.attached.map(membrePoste).filter(Boolean).join(', ') || membre.attached.length}`}
+              >
+                +{membre.attached.length}
+              </span>
+            )}
           </span>
           {poste && (
             <span className="block text-[10px] truncate max-w-[170px]" style={{ color: 'var(--txt-3)' }}>
