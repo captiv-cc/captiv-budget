@@ -16,13 +16,14 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox } from 'lucide-react'
+import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users } from 'lucide-react'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useLogistiqueV0 } from '../../hooks/useLogistiqueV0'
 import { fetchProjectMembers } from '../../lib/crew'
 import LogistiqueEntryCard from '../../features/logistique/LogistiqueEntryCard'
 import LogistiqueAddPersonModal from '../../features/logistique/LogistiqueAddPersonModal'
 import LogistiqueGlobalCard from '../../features/logistique/LogistiqueGlobalCard'
+import LogistiqueGridView from '../../features/logistique/LogistiqueGridView'
 
 const OUTIL_KEY = 'logistique_v0'
 
@@ -78,6 +79,25 @@ export default function LogistiqueTab() {
   }, [projectId, canRead])
 
   const [addOpen, setAddOpen] = useState(false)
+
+  // LOGI-V1 P1 : vue Grille (personnes × jours) vs vue Par personne (V0).
+  // Persistée par projet ; défaut = grille (la nouvelle vue centrale).
+  const VIEW_KEY = `logistique.view.${projectId || 'global'}`
+  const [view, setViewRaw] = useState(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'personnes' ? 'personnes' : 'grille'
+    } catch {
+      return 'grille'
+    }
+  })
+  const setView = (v) => {
+    setViewRaw(v)
+    try {
+      localStorage.setItem(VIEW_KEY, v)
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Map<membre_id, membre> pour lookup O(1) au rendu des cards
   const membreById = new Map(membres.map((m) => [m.id, m]))
@@ -142,25 +162,45 @@ export default function LogistiqueTab() {
               Logistique & VHR
             </h1>
             <p className="text-xs mt-0.5" style={{ color: 'var(--txt-3)' }}>
-              Transport · Hébergement · Repas (V0 — outil provisoire)
+              Transport · Hébergement · Repas — adossé aux présences Équipe
             </p>
           </div>
         </div>
 
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium"
-            style={{
-              background: 'var(--accent)',
-              color: '#fff',
-            }}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* LOGI-V1 : bascule Grille / Par personne */}
+          <div
+            className="flex items-center rounded-md overflow-hidden"
+            style={{ border: '1px solid var(--brd)' }}
           >
-            <Plus className="w-4 h-4" />
-            Ajouter une personne
-          </button>
-        )}
+            <ViewBtn
+              active={view === 'grille'}
+              icon={Table2}
+              label="Grille"
+              onClick={() => setView('grille')}
+            />
+            <ViewBtn
+              active={view === 'personnes'}
+              icon={Users}
+              label="Par personne"
+              onClick={() => setView('personnes')}
+            />
+          </div>
+          {canEdit && view === 'personnes' && (
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium"
+              style={{
+                background: 'var(--accent)',
+                color: '#fff',
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Ajouter une personne
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ─── Bloc Global (infos générales projet) ─────────────────────── */}
@@ -175,30 +215,36 @@ export default function LogistiqueTab() {
         />
       </div>
 
-      {/* ─── Liste des cards personnes ───────────────────────────────── */}
-      {entries.length === 0 ? (
-        <EmptyState canEdit={canEdit} onAdd={() => setAddOpen(true)} />
-      ) : (
-        <div className="space-y-4">
-          {entries.map((entry) => {
-            const membre = membreById.get(entry.membre_id)
-            return (
-              <LogistiqueEntryCard
-                key={entry.id}
-                entry={entry}
-                membre={membre}
-                documentsByKind={documentsByEntry.get(entry.id)}
-                readOnly={!canEdit}
-                onUpdateText={updateEntryText}
-                onUploadDocument={uploadDocument}
-                onDeleteDocument={deleteDocument}
-                onRemoveEntry={removeEntry}
-                onSetHiddenKinds={setEntryHiddenKinds}
-              />
-            )
-          })}
-        </div>
+      {/* ─── Vue Grille (LOGI-V1 P1) ─────────────────────────────────── */}
+      {view === 'grille' && (
+        <LogistiqueGridView projectId={projectId} membres={membres} canEdit={canEdit} />
       )}
+
+      {/* ─── Liste des cards personnes (V0) ──────────────────────────── */}
+      {view === 'personnes' &&
+        (entries.length === 0 ? (
+          <EmptyState canEdit={canEdit} onAdd={() => setAddOpen(true)} />
+        ) : (
+          <div className="space-y-4">
+            {entries.map((entry) => {
+              const membre = membreById.get(entry.membre_id)
+              return (
+                <LogistiqueEntryCard
+                  key={entry.id}
+                  entry={entry}
+                  membre={membre}
+                  documentsByKind={documentsByEntry.get(entry.id)}
+                  readOnly={!canEdit}
+                  onUpdateText={updateEntryText}
+                  onUploadDocument={uploadDocument}
+                  onDeleteDocument={deleteDocument}
+                  onRemoveEntry={removeEntry}
+                  onSetHiddenKinds={setEntryHiddenKinds}
+                />
+              )
+            })}
+          </div>
+        ))}
 
       {/* ─── Modal Ajout ──────────────────────────────────────────────── */}
       {canEdit && (
@@ -211,6 +257,24 @@ export default function LogistiqueTab() {
         />
       )}
     </div>
+  )
+}
+
+// ─── ViewBtn (bascule Grille / Par personne) ───────────────────────────────
+function ViewBtn({ active, icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-2 transition-all"
+      style={{
+        background: active ? 'var(--blue-bg)' : 'var(--bg-elev)',
+        color: active ? 'var(--blue)' : 'var(--txt-2)',
+      }}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      {label}
+    </button>
   )
 }
 
