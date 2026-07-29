@@ -345,6 +345,13 @@ export default function LogistiqueTab() {
               : `${trajetEdit.membre?.prenom || ''} ${trajetEdit.membre?.nom || ''}`.trim()
           }
           trajet={trajetEdit.trajet}
+          docs={
+            trajetEdit.trajet && logiV1
+              ? logiV1.docs.filter(
+                  (doc) => doc.parent_type === 'trajet' && doc.parent_id === trajetEdit.trajet.id,
+                )
+              : []
+          }
           onSaved={() => loadLogiV1()}
           onDeleted={() => loadLogiV1()}
           onClose={() => setTrajetEdit(null)}

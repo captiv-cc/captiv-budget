@@ -37,9 +37,10 @@ export async function fetchLogistique(projectId) {
     trajets: [],
     repas: [],
     nuits: [],
+    docs: [],
   }
   if (!projectId) return empty
-  const [hRes, hmRes, tRes, rRes, nRes] = await Promise.all([
+  const [hRes, hmRes, tRes, rRes, nRes, dRes] = await Promise.all([
     supabase
       .from('projet_logistique_hebergements')
       .select('*')
@@ -63,16 +64,25 @@ export async function fetchLogistique(projectId) {
       .from('projet_logistique_nuits')
       .select('*')
       .eq('project_id', projectId),
+    supabase
+      .from('projet_logistique_docs')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }),
   ])
   for (const res of [hRes, hmRes, tRes, rRes, nRes]) {
     if (res.error) throw res.error
   }
+  // docs : table de la migration 20260729b — tolérance si pas encore
+  // appliquée (le reste de l'outil fonctionne sans).
+  if (dRes.error) console.warn('[fetchLogistique] docs:', dRes.error.message)
   return {
     hebergements: hRes.data || [],
     hebergementMembres: hmRes.data || [],
     trajets: tRes.data || [],
     repas: rRes.data || [],
     nuits: nRes.data || [],
+    docs: dRes.data || [],
   }
 }
 
@@ -243,6 +253,80 @@ export async function deleteHebergement(hebergementId) {
     .delete()
     .eq('id', hebergementId)
   if (error) throw error
+}
+
+// ═══ Documents (billets, résas) sur trajets et hébergements ═════════════════
+//
+// Bucket 'projet-logistique-docs', paths "<project_id>/<uuid>.<ext>" —
+// policies storage directes sur le 1er segment (migration 20260729b).
+
+const DOCS_BUCKET = 'projet-logistique-docs'
+export const DOC_ACCEPT = '.pdf,.png,.jpg,.jpeg'
+export const DOC_MAX_BYTES = 25 * 1024 * 1024
+
+export async function fetchLogistiqueDocs(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_logistique_docs')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+export async function uploadLogistiqueDoc({ projectId, parentType, parentId, file }) {
+  if (file.size > DOC_MAX_BYTES) {
+    throw new Error(`Fichier trop volumineux (max ${Math.round(DOC_MAX_BYTES / 1024 / 1024)} Mo)`)
+  }
+  const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
+  if (!['pdf', 'png', 'jpg', 'jpeg'].includes(ext)) {
+    throw new Error('Format non accepté (PDF, PNG, JPG uniquement)')
+  }
+  const uuid = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const storagePath = `${projectId}/${uuid}.${ext}`
+  const { error: upErr } = await supabase.storage
+    .from(DOCS_BUCKET)
+    .upload(storagePath, file, { contentType: file.type || undefined })
+  if (upErr) throw upErr
+  const { data, error } = await supabase
+    .from('projet_logistique_docs')
+    .insert({
+      project_id: projectId,
+      parent_type: parentType,
+      parent_id: parentId,
+      filename: file.name,
+      storage_path: storagePath,
+      size_bytes: file.size,
+      mime_type: file.type || null,
+    })
+    .select('*')
+    .single()
+  if (error) {
+    // Rollback du fichier si l'insert meta échoue (RLS, etc.).
+    await supabase.storage.from(DOCS_BUCKET).remove([storagePath])
+    throw error
+  }
+  return data
+}
+
+export async function deleteLogistiqueDoc(doc) {
+  const { error } = await supabase
+    .from('projet_logistique_docs')
+    .delete()
+    .eq('id', doc.id)
+  if (error) throw error
+  await supabase.storage.from(DOCS_BUCKET).remove([doc.storage_path])
+}
+
+export async function getLogistiqueDocUrl(doc) {
+  const { data, error } = await supabase.storage
+    .from(DOCS_BUCKET)
+    .createSignedUrl(doc.storage_path, 3600)
+  if (error) throw error
+  return data.signedUrl
 }
 
 // ═══ Hébergement × membre (chambre, pdj, overrides) ══════════════════════════

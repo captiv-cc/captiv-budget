@@ -139,7 +139,8 @@ export default function LogistiqueStructuredSection({
                         {e.heure && <span className="font-semibold">{e.heure}</span>}
                         {(e.depart || e.arrivee) && (
                           <span style={{ color: 'var(--txt-2)' }}>
-                            {e.depart || '?'} → {e.arrivee || '?'}
+                            {e.depart || '?'} →{e.heure_arrivee ? ` ${e.heure_arrivee}` : ''}{' '}
+                            {e.arrivee || '?'}
                           </span>
                         )}
                         {e.note && (

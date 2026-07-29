@@ -25,6 +25,8 @@ import {
   Loader2,
   Moon,
   Plane,
+  PlaneLanding,
+  PlaneTakeoff,
   Train,
   TramFront,
   Wand2,
@@ -111,6 +113,7 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     trajets: [],
     repas: [],
     nuits: [],
+    docs: [],
   })
   const [catalog, setCatalog] = useState([]) // sessions globales du projet
   const [loading, setLoading] = useState(true)
@@ -704,14 +707,9 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
         <HebergementsModal
           projectId={projectId}
           hebergements={logi.hebergements}
-          membresCountByHebergement={
-            new Map(
-              logi.hebergements.map((h) => [
-                h.id,
-                logi.hebergementMembres.filter((hm) => hm.hebergement_id === h.id).length,
-              ]),
-            )
-          }
+          hebergementMembres={logi.hebergementMembres}
+          membres={techRows}
+          docs={logi.docs}
           onMutated={load}
           onClose={() => setHebOpen(false)}
         />
@@ -726,6 +724,13 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
           trajet={trajetEdit.trajet}
           defaultDate={trajetEdit.date || null}
           defaultSens={trajetEdit.sens || 'aller'}
+          docs={
+            trajetEdit.trajet
+              ? logi.docs.filter(
+                  (doc) => doc.parent_type === 'trajet' && doc.parent_id === trajetEdit.trajet.id,
+                )
+              : []
+          }
           onSaved={() => load()}
           onDeleted={() => load()}
           onClose={() => setTrajetEdit(null)}
@@ -977,6 +982,13 @@ function MembreRow({
       {days.map((d, di) => {
         const present = presenceDays.has(d)
         const trajets = trajetsByMembreDay.get(`${membre.id}|${d}`) || []
+        // Arrivée / retour saisis dans la modale Présence (sessions Équipe) :
+        // affichés ici avec les mêmes icônes avion. Un clic ouvre l'éditeur
+        // de trajet (édite le trajet du même sens s'il existe déjà ce jour).
+        const arrivalPart = parts.find((p) => p.arrival_date === d)
+        const departPart = parts.find((p) => p.departure_date === d)
+        const allerTrajet = trajets.find((t) => t.sens === 'aller')
+        const retourTrajet = trajets.find((t) => t.sens === 'retour')
         // Désencombrement (retour Hugo) : sur un jour absent SANS aucune
         // donnée logistique, les chips M/S/nuit n'apparaissent qu'au survol
         // de la cellule — la grille vide reste lisible.
@@ -1031,6 +1043,24 @@ function MembreRow({
                   {present ? 'X' : ''}
                 </button>
                 <span className="flex items-center gap-0.5 min-w-0 overflow-hidden">
+                  {arrivalPart && !allerTrajet && (
+                    <SessionTravelMarker
+                      kind="arrivee"
+                      time={arrivalPart.arrival_time}
+                      onClick={
+                        onAddTrajet ? () => onAddTrajet(membre, d, 'aller') : null
+                      }
+                    />
+                  )}
+                  {departPart && !retourTrajet && (
+                    <SessionTravelMarker
+                      kind="retour"
+                      time={departPart.departure_time}
+                      onClick={
+                        onAddTrajet ? () => onAddTrajet(membre, d, 'retour') : null
+                      }
+                    />
+                  )}
                   {trajets.map((t) => (
                     <TrajetChip
                       key={t.id}
@@ -1168,6 +1198,35 @@ function MembreRow({
 
 // ─── Chips ─────────────────────────────────────────────────────────────────
 
+/**
+ * Marqueur arrivée/retour issu de la SESSION Équipe (arrival_date /
+ * departure_date de la participation) — mêmes icônes avion que la modale
+ * Présence. Clic = créer le trajet structuré correspondant (le marqueur
+ * s'efface alors au profit de la chip trajet, plus riche).
+ */
+function SessionTravelMarker({ kind, time, onClick }) {
+  const Icon = kind === 'arrivee' ? PlaneLanding : PlaneTakeoff
+  const label = kind === 'arrivee' ? 'Arrivée' : 'Retour'
+  const Tag = onClick ? 'button' : 'span'
+  return (
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick || undefined}
+      className="inline-flex items-center gap-0.5 h-4 px-1 rounded-sm text-[9px] font-semibold shrink-0"
+      style={{
+        background: 'rgba(167,139,250,0.16)',
+        color: '#a78bfa',
+        border: '1px solid rgba(167,139,250,0.4)',
+        cursor: onClick ? 'pointer' : 'default',
+      }}
+      title={`${label} (session Équipe)${time ? ` · ${time}` : ''}${onClick ? ' — cliquer pour créer le trajet détaillé' : ''}`}
+    >
+      <Icon className="w-2.5 h-2.5" />
+      {time || ''}
+    </Tag>
+  )
+}
+
 function RepasChip({ service, statut, canEdit, onClick }) {
   const style = statut ? REPAS_STYLE[statut] : null
   return (
@@ -1200,6 +1259,10 @@ function TrajetChip({ trajet, onClick = null }) {
     .map((e) => `${e.mode || '?'}${e.heure ? ` ${e.heure}` : ''}${e.depart || e.arrivee ? ` ${e.depart || ''}→${e.arrivee || ''}` : ''}${e.note ? ` (${e.note})` : ''}`)
     .join('  +  ')
   const Tag = onClick ? 'button' : 'span'
+  // Heure d'arrivée FINALE du trajet = heure_arrivee de la dernière étape
+  // (l'info que la prod attend : « sur site à 14h12 »).
+  const last = etapes[etapes.length - 1] || {}
+  const arrTime = last.heure_arrivee || ''
   return (
     <Tag
       type={onClick ? 'button' : undefined}
@@ -1216,6 +1279,7 @@ function TrajetChip({ trajet, onClick = null }) {
       {arrow}
       <Icon className="w-2.5 h-2.5" />
       {first.heure || ''}
+      {arrTime ? `▸${arrTime}` : ''}
     </Tag>
   )
 }

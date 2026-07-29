@@ -16,15 +16,25 @@ import {
   ArrowUp,
   Bus,
   Car,
+  FileText,
   Loader2,
   Plane,
   Plus,
   Train,
   TramFront,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react'
-import { createTrajet, updateTrajet, deleteTrajet } from '../../lib/logistique'
+import {
+  createTrajet,
+  updateTrajet,
+  deleteTrajet,
+  uploadLogistiqueDoc,
+  deleteLogistiqueDoc,
+  getLogistiqueDocUrl,
+  DOC_ACCEPT,
+} from '../../lib/logistique'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -42,7 +52,7 @@ const SENS_OPTIONS = [
   { value: 'autre', label: 'Autre' },
 ]
 
-const EMPTY_ETAPE = { mode: 'train', heure: '', depart: '', arrivee: '', note: '' }
+const EMPTY_ETAPE = { mode: 'train', heure: '', heure_arrivee: '', depart: '', arrivee: '', note: '' }
 
 export default function TrajetModal({
   projectId,
@@ -51,10 +61,14 @@ export default function TrajetModal({
   trajet = null,   // null = création
   defaultDate = null,
   defaultSens = 'aller',
+  docs = [],       // docs du trajet (parent_type='trajet')
   onSaved,         // (trajet) => void — reload côté appelant
   onDeleted,       // () => void
   onClose,
 }) {
+  // currentTrajet : après une CRÉATION, on bascule en mode édition sans
+  // fermer — pour pouvoir attacher les billets dans la foulée.
+  const [currentTrajet, setCurrentTrajet] = useState(trajet)
   const [sens, setSens] = useState(trajet?.sens || defaultSens)
   const [dateTrajet, setDateTrajet] = useState(trajet?.date_trajet || defaultDate || '')
   const [etapes, setEtapes] = useState(() =>
@@ -65,6 +79,8 @@ export default function TrajetModal({
   const [cout, setCout] = useState(trajet?.cout ?? '')
   const [notes, setNotes] = useState(trajet?.notes || '')
   const [saving, setSaving] = useState(false)
+  const [localDocs, setLocalDocs] = useState(docs)
+  const [uploading, setUploading] = useState(false)
 
   // Esc ferme
   useEffect(() => {
@@ -107,8 +123,11 @@ export default function TrajetModal({
         notes: notes.trim() || null,
       }
       let saved
-      if (trajet?.id) {
-        saved = await updateTrajet(trajet.id, payload)
+      if (currentTrajet?.id) {
+        saved = await updateTrajet(currentTrajet.id, payload)
+        notify.success('Trajet mis à jour')
+        onSaved?.(saved)
+        onClose?.()
       } else {
         saved = await createTrajet({
           projectId,
@@ -119,10 +138,12 @@ export default function TrajetModal({
           cout: payload.cout,
           notes: payload.notes,
         })
+        // Création : on RESTE ouvert en mode édition pour permettre
+        // d'attacher les billets directement.
+        setCurrentTrajet(saved)
+        notify.success('Trajet créé — tu peux attacher les billets ci-dessous')
+        onSaved?.(saved)
       }
-      notify.success(trajet?.id ? 'Trajet mis à jour' : 'Trajet créé')
-      onSaved?.(saved)
-      onClose?.()
     } catch (err) {
       notify.error('Trajet : ' + (err?.message || err))
     } finally {
@@ -130,8 +151,46 @@ export default function TrajetModal({
     }
   }
 
+  async function handleUpload(file) {
+    if (!file || !currentTrajet?.id) return
+    setUploading(true)
+    try {
+      const doc = await uploadLogistiqueDoc({
+        projectId,
+        parentType: 'trajet',
+        parentId: currentTrajet.id,
+        file,
+      })
+      setLocalDocs((prev) => [...prev, doc])
+      onSaved?.(currentTrajet)
+    } catch (err) {
+      notify.error('Upload : ' + (err?.message || err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleDeleteDoc(doc) {
+    try {
+      await deleteLogistiqueDoc(doc)
+      setLocalDocs((prev) => prev.filter((d) => d.id !== doc.id))
+      onSaved?.(currentTrajet)
+    } catch (err) {
+      notify.error('Suppression doc : ' + (err?.message || err))
+    }
+  }
+
+  async function handleOpenDoc(doc) {
+    try {
+      const url = await getLogistiqueDocUrl(doc)
+      window.open(url, '_blank', 'noopener')
+    } catch (err) {
+      notify.error('Ouverture : ' + (err?.message || err))
+    }
+  }
+
   async function handleDelete() {
-    if (!trajet?.id) return
+    if (!currentTrajet?.id) return
     const ok = await confirm({
       title: 'Supprimer ce trajet ?',
       message: 'Les étapes et le coût associés seront supprimés. Action irréversible.',
@@ -141,7 +200,7 @@ export default function TrajetModal({
     if (!ok) return
     setSaving(true)
     try {
-      await deleteTrajet(trajet.id)
+      await deleteTrajet(currentTrajet.id)
       notify.success('Trajet supprimé')
       onDeleted?.()
       onClose?.()
@@ -180,7 +239,7 @@ export default function TrajetModal({
           style={{ borderBottom: '1px solid var(--brd-sub)' }}
         >
           <h2 className="text-base font-bold" style={{ color: 'var(--txt)' }}>
-            {trajet?.id ? 'Modifier le trajet' : 'Nouveau trajet'}
+            {currentTrajet?.id ? 'Modifier le trajet' : 'Nouveau trajet'}
           </h2>
           <span className="text-xs" style={{ color: 'var(--txt-3)' }}>
             · {membreName}
@@ -320,6 +379,14 @@ export default function TrajetModal({
                     />
                     <span style={{ color: 'var(--txt-3)' }}>→</span>
                     <input
+                      type="time"
+                      value={e.heure_arrivee}
+                      onChange={(ev) => patchEtape(idx, { heure_arrivee: ev.target.value })}
+                      className="text-xs px-1.5 py-1 rounded-md outline-none shrink-0"
+                      style={inputStyle}
+                      title="Heure d'arrivée de l'étape"
+                    />
+                    <input
                       type="text"
                       value={e.arrivee}
                       onChange={(ev) => patchEtape(idx, { arrivee: ev.target.value })}
@@ -368,6 +435,78 @@ export default function TrajetModal({
               style={{ ...inputStyle, fontFamily: 'inherit' }}
             />
           </label>
+
+          {/* Documents (billets) — dispo dès que le trajet existe en base. */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt-3)' }}>
+              Billets &amp; documents (PDF, PNG, JPG)
+            </p>
+            {currentTrajet?.id ? (
+              <>
+                {localDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md mb-1.5"
+                    style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDoc(doc)}
+                      className="text-xs truncate text-left hover:underline"
+                      style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
+                      title="Ouvrir dans un nouvel onglet"
+                    >
+                      {doc.filename}
+                    </button>
+                    {doc.size_bytes && (
+                      <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
+                        {(doc.size_bytes / 1024).toFixed(0)} Ko
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDoc(doc)}
+                      className="ml-auto p-1 shrink-0"
+                      style={{ color: 'var(--red, #ef4444)' }}
+                      title="Supprimer le document"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <label
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    color: 'var(--txt-2)',
+                    border: '1px dashed var(--brd)',
+                  }}
+                >
+                  {uploading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  Ajouter un document
+                  <input
+                    type="file"
+                    accept={DOC_ACCEPT}
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => {
+                      handleUpload(e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </>
+            ) : (
+              <p className="text-[11px] italic" style={{ color: 'var(--txt-3)' }}>
+                Crée d&apos;abord le trajet — l&apos;ajout de billets se débloque juste après.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -375,7 +514,7 @@ export default function TrajetModal({
           className="flex items-center gap-2 px-5 py-3 shrink-0"
           style={{ borderTop: '1px solid var(--brd-sub)' }}
         >
-          {trajet?.id && (
+          {currentTrajet?.id && (
             <button
               type="button"
               onClick={handleDelete}
@@ -404,7 +543,7 @@ export default function TrajetModal({
               style={{ background: 'var(--blue)', color: '#fff' }}
             >
               {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {trajet?.id ? 'Enregistrer' : 'Créer le trajet'}
+              {currentTrajet?.id ? 'Enregistrer' : 'Créer le trajet'}
             </button>
           </span>
         </div>
