@@ -149,7 +149,7 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
             borderLeft: isGroupStart ? '1px solid var(--brd)' : '1px solid var(--brd-sub)',
           })
           return (
-            <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e">
+            <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e" fit>
               <table className="text-xs" style={{ borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
@@ -352,11 +352,19 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
   )
 }
 
-function Section({ icon: Icon, title, subtitle, accent, children }) {
+function Section({ icon: Icon, title, subtitle, accent, fit = false, children }) {
   return (
     <section
       className="rounded-xl overflow-hidden"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+      style={{
+        background: 'var(--bg-surf)',
+        border: '1px solid var(--brd)',
+        // fit : la carte épouse son tableau (ex. Repas à 3 colonnes) au
+        // lieu de flotter dans un bandeau pleine largeur (retour Hugo).
+        width: fit ? 'fit-content' : undefined,
+        minWidth: fit ? '380px' : undefined,
+        maxWidth: '100%',
+      }}
     >
       <header
         className="flex items-center gap-2 px-3 py-2"
