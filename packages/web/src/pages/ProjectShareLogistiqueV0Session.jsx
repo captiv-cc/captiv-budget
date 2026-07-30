@@ -141,7 +141,9 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
       trajets: payload.trajets || [],
       repas: payload.repas || [],
       nuits: payload.nuits || [],
-      docs: [],
+      // Docs V1 (billets, résas) — payloads d'avant la migration 20260730d :
+      // clé absente → chips masquées.
+      docs: payload.logistique_docs || [],
     }),
     [payload],
   )
@@ -256,6 +258,7 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
                       hebergements: logi.hebergements,
                       hebergementMembre,
                       nuits: logi.nuits.filter((n) => n.membre_id === membre.id),
+                      docs: logi.docs,
                     }
                   : null
                 if (entry) {

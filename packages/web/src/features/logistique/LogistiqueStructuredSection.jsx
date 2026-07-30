@@ -10,16 +10,22 @@
 //     petit-déj + check-in/check-out CALCULÉS depuis les nuits cochées.
 // ════════════════════════════════════════════════════════════════════════════
 
+import { useState } from 'react'
 import {
   BedDouble,
   Bus,
   Car,
+  Download,
+  FileText,
+  Image as ImageIcon,
   Pencil,
   Plane,
   Plus,
   Train,
   TramFront,
 } from 'lucide-react'
+import { DocPreviewModal, docIsImage, downloadDoc } from './LogistiqueDocViewer'
+import { notify } from '../../lib/notify'
 
 const MODE_ICONS = {
   train: Train,
@@ -43,11 +49,13 @@ export default function LogistiqueStructuredSection({
   hebergements = [],
   hebergementMembre = null, // row projet_logistique_hebergement_membres | null
   nuits = [], // nuits du membre (dates + hebergement_id)
+  docs = [], // projet_logistique_docs (tous parents — filtrés par trajet/heb ici)
   readOnly = false,
   onEditTrajet, // (trajet) => void
   onAddTrajet, // () => void
   onPatchHebergementMembre, // (patch, hebergementId) => void
 }) {
+  const [previewDoc, setPreviewDoc] = useState(null)
   // Check-in / check-out dérivés des nuits cochées (grille) : première nuit
   // = check-in, dernière nuit + 1 jour = check-out.
   const nuitDates = nuits.map((n) => n.date_nuit).sort()
@@ -156,6 +164,12 @@ export default function LogistiqueStructuredSection({
                     </span>
                   )}
                 </span>
+                <DocChips
+                  docs={docs.filter(
+                    (d) => d.parent_type === 'trajet' && d.parent_id === t.id,
+                  )}
+                  onPreview={setPreviewDoc}
+                />
                 {!readOnly && t.cout != null && (
                   <span
                     className="text-[10px] font-semibold shrink-0"
@@ -242,6 +256,12 @@ export default function LogistiqueStructuredSection({
                   />
                   PDJ
                 </label>
+                <DocChips
+                  docs={docs.filter(
+                    (d) => d.parent_type === 'hebergement' && d.parent_id === heb.id,
+                  )}
+                  onPreview={setPreviewDoc}
+                />
               </>
             )}
 
@@ -258,6 +278,53 @@ export default function LogistiqueStructuredSection({
           </div>
         )
       })()}
+
+      {previewDoc && (
+        <DocPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+      )}
     </div>
+  )
+}
+
+// ─── Chips documents (billets, résas) : clic = aperçu, flèche = télécharger ─
+function DocChips({ docs, onPreview }) {
+  if (!docs.length) return null
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap">
+      {docs.map((doc) => {
+        const DocIcon = docIsImage(doc) ? ImageIcon : FileText
+        return (
+          <span
+            key={doc.id}
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
+            style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
+          >
+            <DocIcon className="w-2.5 h-2.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+            <button
+              type="button"
+              onClick={() => onPreview(doc)}
+              className="hover:underline max-w-[140px] truncate"
+              style={{ color: 'var(--txt-2)', textUnderlineOffset: '2px' }}
+              title="Aperçu"
+            >
+              {doc.filename}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadDoc(doc).catch((err) =>
+                  notify.error('Téléchargement : ' + (err?.message || err)),
+                )
+              }
+              className="shrink-0"
+              style={{ color: 'var(--txt-3)' }}
+              title="Télécharger"
+            >
+              <Download className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        )
+      })}
+    </span>
   )
 }

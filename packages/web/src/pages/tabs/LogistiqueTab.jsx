@@ -308,6 +308,7 @@ export default function LogistiqueTab() {
                     hebergements: logiV1.hebergements,
                     hebergementMembre,
                     nuits: logiV1.nuits.filter((n) => n.membre_id === membre.id),
+                    docs: logiV1.docs,
                     onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
                     onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
                     onPatchHebergementMembre: (patch, hebId) =>
