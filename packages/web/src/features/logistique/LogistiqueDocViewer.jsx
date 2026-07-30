@@ -13,6 +13,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, ExternalLink, Loader2, X } from 'lucide-react'
 import { getLogistiqueDocUrl } from '../../lib/logistique'
 import { notify } from '../../lib/notify'
@@ -94,7 +95,11 @@ export function DocPreviewModal({ doc, onClose }) {
     }
   }
 
-  return (
+  // Portal sur <body> : les pages share animent leurs conteneurs avec un
+  // transform persistant (share-fade-in `both`), qui ferait référencer le
+  // `fixed` au conteneur au lieu du viewport — l'aperçu partirait en haut
+  // de page au lieu de suivre le scroll.
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-8"
       style={{ background: 'rgba(0,0,0,0.75)' }}
@@ -180,7 +185,8 @@ export function DocPreviewModal({ doc, onClose }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
