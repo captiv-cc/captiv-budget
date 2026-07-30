@@ -27,6 +27,10 @@ import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
 import LogistiqueEntryCard from '../features/logistique/LogistiqueEntryCard'
 import LogistiqueGlobalCard from '../features/logistique/LogistiqueGlobalCard'
+import LogistiqueShareOverview from '../features/logistique/LogistiqueShareOverview'
+import LogistiqueSyntheseSections from '../features/logistique/LogistiqueSyntheseSections'
+import { computeSynthese } from '../features/logistique/logistiqueSynthese'
+import { listTechlistRows } from '../lib/crew'
 
 const THEME_STORAGE_KEY = PROJECT_SHARE_THEME_KEY
 
@@ -118,6 +122,41 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
     return m
   }, [membres])
 
+  // ── LOGI-V1 P4 : vision d'ensemble + synthèse depuis le payload enrichi.
+  // Les payloads d'avant-migration (sans participations/repas/nuits) tombent
+  // proprement sur les listes vides → seules les fiches s'affichent.
+  const techRows = useMemo(
+    () =>
+      listTechlistRows(
+        membres.map((m) => ({
+          ...m,
+          devis_line: m.produit ? { produit: m.produit } : null,
+        })),
+      ),
+    [membres],
+  )
+  const participations = useMemo(() => payload.participations || [], [payload.participations])
+  const logi = useMemo(
+    () => ({
+      hebergements: payload.hebergements || [],
+      hebergementMembres: payload.hebergement_membres || [],
+      trajets: payload.trajets || [],
+      repas: payload.repas || [],
+      nuits: payload.nuits || [],
+      docs: [],
+    }),
+    [payload],
+  )
+  const synthese = useMemo(
+    () => computeSynthese({ techRows, participations, logi }),
+    [techRows, participations, logi],
+  )
+  const hasV1Data =
+    participations.length > 0 ||
+    logi.repas.length > 0 ||
+    logi.nuits.length > 0 ||
+    logi.trajets.length > 0
+
   // Map<entry_id, Map<kind, Array<doc>>> pour le rendu des cards
   const documentsByEntry = useMemo(() => {
     const map = new Map()
@@ -161,29 +200,65 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
           />
         </div>
 
-        {/* Liste des cards personnes */}
-        {entries.length === 0 && !globalRow && globalDocuments.length === 0 ? (
+        {/* ── Vision d'ensemble (P4, retour Hugo) : la grille RO en
+            PREMIÈRE page — présences, repas, nuits, trajets, totaux. ── */}
+        {hasV1Data && (
+          <div className="mt-5">
+            <SectionTitle>Vue d&apos;ensemble</SectionTitle>
+            <LogistiqueShareOverview
+              techRows={techRows}
+              participations={participations}
+              logi={logi}
+            />
+          </div>
+        )}
+
+        {/* ── Synthèse (repas, hébergements, arrivées/départs) ── */}
+        {hasV1Data && (
+          <div className="mt-6 flex flex-col gap-4">
+            <SectionTitle>Synthèse</SectionTitle>
+            <LogistiqueSyntheseSections synthese={synthese} showNuitsSansHebNote={false} />
+          </div>
+        )}
+
+        {/* Liste des cards personnes (notes libres + documents) */}
+        {entries.length === 0 && !globalRow && globalDocuments.length === 0 && !hasV1Data ? (
           <EmptyState />
         ) : entries.length > 0 ? (
-          <div className="mt-5 space-y-4">
-            {entries.map((entry) => {
-              const membre = membreById.get(entry.membre_id)
-              return (
-                <LogistiqueEntryCard
-                  key={entry.id}
-                  entry={entry}
-                  membre={membre}
-                  documentsByKind={documentsByEntry.get(entry.id)}
-                  readOnly={true}
-                />
-              )
-            })}
+          <div className="mt-6">
+            <SectionTitle>Par personne</SectionTitle>
+            <div className="space-y-4">
+              {entries.map((entry) => {
+                const membre = membreById.get(entry.membre_id)
+                return (
+                  <LogistiqueEntryCard
+                    key={entry.id}
+                    entry={entry}
+                    membre={membre}
+                    documentsByKind={documentsByEntry.get(entry.id)}
+                    readOnly={true}
+                  />
+                )
+              })}
+            </div>
           </div>
         ) : null}
 
         <SharePageFooter />
       </div>
     </div>
+  )
+}
+
+// ─── Titre de section de page ──────────────────────────────────────────────
+function SectionTitle({ children }) {
+  return (
+    <h2
+      className="text-[11px] font-bold uppercase tracking-wider mb-2.5"
+      style={{ color: 'var(--txt-3)', letterSpacing: '0.1em' }}
+    >
+      {children}
+    </h2>
   )
 }
 
