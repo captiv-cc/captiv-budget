@@ -196,8 +196,10 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
         </Section>
       )}
 
-      {/* ── Hébergements ──────────────────────────────────────────────── */}
-      {hebs.map(({ hebergement: h, nuitsParDate, rooming }) => (
+      {/* ── Hébergements — masqués tant qu'aucune nuit (comme le PDF) ── */}
+      {hebs
+        .filter(({ rooming }) => rooming.length > 0)
+        .map(({ hebergement: h, nuitsParDate, rooming }) => (
         <Section key={h.id} icon={BedDouble} title={h.nom} accent="#a78bfa" subtitle={h.adresse}>
           {nuitsParDate.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap px-3 py-2" style={{ borderBottom: '1px solid var(--brd-sub)' }}>
@@ -276,17 +278,27 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
                 <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}>
                   {frDay(m.date)}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5">
-                  <div>
-                    {m.arrivees.map((e, i) => (
-                      <MouvementRow key={i} icon={PlaneLanding} color="#22c55e" event={e} />
-                    ))}
-                  </div>
-                  <div>
-                    {m.departs.map((e, i) => (
-                      <MouvementRow key={i} icon={PlaneTakeoff} color="#f59e0b" event={e} />
-                    ))}
-                  </div>
+                {/* 2 colonnes uniquement quand il y a arrivées ET départs —
+                    sinon la colonne vide fait flotter l'autre (retour Hugo). */}
+                <div
+                  className={`grid grid-cols-1 gap-x-6 gap-y-0.5 ${
+                    m.arrivees.length && m.departs.length ? 'sm:grid-cols-2' : ''
+                  }`}
+                >
+                  {m.arrivees.length > 0 && (
+                    <div>
+                      {m.arrivees.map((e, i) => (
+                        <MouvementRow key={i} icon={PlaneLanding} color="#22c55e" event={e} />
+                      ))}
+                    </div>
+                  )}
+                  {m.departs.length > 0 && (
+                    <div>
+                      {m.departs.map((e, i) => (
+                        <MouvementRow key={i} icon={PlaneTakeoff} color="#f59e0b" event={e} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
