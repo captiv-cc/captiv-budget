@@ -3,22 +3,14 @@
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Modale ouverte depuis le bouton "Partager" de LogistiqueTab. Même pattern
-// que DerouleShareModal / TechlistShareModal : créer des liens propres au
-// module, les lister, copier/révoquer.
+// que DerouleShareModal / TechlistShareModal : des liens propres au module
+// (table logistique_share_tokens), page publique /share/logistique/:token
+// autonome — aucun lien avec les portails projet multi-pages.
 //
-// Particularité : la page publique logistique s'appuie sur l'infra portail
-// (project_share_tokens + RPC share_projet_logistique_v0_fetch). Un "lien
-// logistique" est donc un token portail avec enabled_pages = ['logistique_v0']
-// — l'URL copiée pointe DIRECTEMENT sur /share/projet/:token/logistique_v0
-// (le destinataire ne voit jamais le hub multi-pages).
-//
-// Trois sections configurables par lien (page_configs.logistique_v0, appliquées
-// côté serveur) : vue d'ensemble / synthèse / fiches par personne. Ex : lien
-// Équipe complet + lien Festival synthèse seule. Les toggles restent éditables
-// en direct sur chaque lien actif.
-//
-// Les portails projet multi-pages qui incluent la logistique sont listés à
-// part, en lecture seule (leur config se gère dans "Partager le projet").
+// Trois sections configurables par lien (colonnes show_*, appliquées côté
+// serveur par share_logistique_fetch) : vue d'ensemble / synthèse / fiches
+// par personne. Ex : lien Équipe complet + lien Festival synthèse seule.
+// Les toggles restent éditables en direct sur chaque lien actif.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useState } from 'react'
@@ -32,16 +24,10 @@ import {
   RotateCcw,
   Calendar,
 } from 'lucide-react'
-import {
-  DEFAULT_PAGE_CONFIGS,
-  buildProjectShareUrl,
-  getProjectShareTokenState,
-} from '../../lib/projectShare'
-import { useProjectShareTokens } from '../../hooks/useProjectShareTokens'
+import { buildShareUrl, getShareTokenState } from '../../lib/logistiqueShare'
+import { useLogistiqueShareTokens } from '../../hooks/useLogistiqueShareTokens'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
-
-const PAGE_KEY = 'logistique_v0'
 
 const SECTION_DEFS = [
   {
@@ -61,28 +47,17 @@ const SECTION_DEFS = [
   },
 ]
 
-function buildLogistiqueShareUrl(token) {
-  return `${buildProjectShareUrl(token)}/${PAGE_KEY}`
-}
-
 function getConfig(token) {
   return {
-    ...DEFAULT_PAGE_CONFIGS[PAGE_KEY],
-    ...(token?.page_configs?.[PAGE_KEY] || {}),
+    show_overview: token?.show_overview !== false,
+    show_synthese: token?.show_synthese !== false,
+    show_personnes: token?.show_personnes !== false,
   }
-}
-
-function isLogistiqueOnly(token) {
-  return (
-    Array.isArray(token.enabled_pages) &&
-    token.enabled_pages.length === 1 &&
-    token.enabled_pages[0] === PAGE_KEY
-  )
 }
 
 export default function LogistiqueShareModal({ open, onClose, projectId }) {
   const { tokens, loading, create, update, revoke, restore, remove } =
-    useProjectShareTokens(open ? projectId : null)
+    useLogistiqueShareTokens(open ? projectId : null)
 
   // ─── Form state ────────────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false)
@@ -95,26 +70,14 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
     show_personnes: true,
   })
 
-  // Seuls les tokens dédiés logistique sont gérés ici. Les portails projet
-  // multi-pages qui incluent la logistique sont montrés à part (lecture seule).
-  const { activeTokens, otherTokens, portalTokens } = useMemo(() => {
+  const { activeTokens, otherTokens } = useMemo(() => {
     const active = []
     const other = []
-    const portal = []
     for (const t of tokens) {
-      const state = getProjectShareTokenState(t)
-      if (isLogistiqueOnly(t)) {
-        if (state === 'active') active.push(t)
-        else other.push(t)
-      } else if (
-        state === 'active' &&
-        Array.isArray(t.enabled_pages) &&
-        t.enabled_pages.includes(PAGE_KEY)
-      ) {
-        portal.push(t)
-      }
+      if (getShareTokenState(t) === 'active') active.push(t)
+      else other.push(t)
     }
-    return { activeTokens: active, otherTokens: other, portalTokens: portal }
+    return { activeTokens: active, otherTokens: other }
   }, [tokens])
 
   // Pré-déplie le form si pas de lien logistique actif au 1er coup
@@ -144,12 +107,13 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
       const expiresIso = expiresAt ? `${expiresAt}T23:59:59` : null
       const newToken = await create({
         label: label.trim() || null,
-        enabledPages: [PAGE_KEY],
-        pageConfigs: { [PAGE_KEY]: sections },
+        showOverview: sections.show_overview,
+        showSynthese: sections.show_synthese,
+        showPersonnes: sections.show_personnes,
         expiresAt: expiresIso,
       })
       try {
-        await navigator.clipboard.writeText(buildLogistiqueShareUrl(newToken.token))
+        await navigator.clipboard.writeText(buildShareUrl(newToken.token))
         notify.success('Lien créé et copié dans le presse-papiers')
       } catch {
         notify.success('Lien créé')
@@ -168,7 +132,7 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
 
   async function handleCopy(t) {
     try {
-      await navigator.clipboard.writeText(buildLogistiqueShareUrl(t.token))
+      await navigator.clipboard.writeText(buildShareUrl(t.token))
       notify.success('Lien copié')
     } catch {
       notify.error('Impossible de copier')
@@ -176,7 +140,7 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
   }
 
   function handleOpen(t) {
-    window.open(buildLogistiqueShareUrl(t.token), '_blank', 'noopener,noreferrer')
+    window.open(buildShareUrl(t.token), '_blank', 'noopener,noreferrer')
   }
 
   async function handleToggleSection(t, key) {
@@ -188,7 +152,9 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
     }
     try {
       await update(t.id, {
-        pageConfigs: { ...(t.page_configs || {}), [PAGE_KEY]: next },
+        showOverview: next.show_overview,
+        showSynthese: next.show_synthese,
+        showPersonnes: next.show_personnes,
       })
     } catch (err) {
       notify.error('Mise à jour échouée : ' + (err?.message || err))
@@ -363,22 +329,6 @@ export default function LogistiqueShareModal({ open, onClose, projectId }) {
                         onOpen={() => handleOpen(t)}
                         onRestore={() => handleRestore(t)}
                         onDelete={() => handleDelete(t)}
-                      />
-                    ))}
-                  </Section>
-                )}
-                {portalTokens.length > 0 && (
-                  <Section title={`Via un portail projet (${portalTokens.length})`} muted>
-                    <p className="text-[10px] -mt-1 mb-1" style={{ color: 'var(--txt-3)' }}>
-                      Ces portails multi-pages incluent la logistique — leur config
-                      se gère depuis « Partager le projet » (header du projet).
-                    </p>
-                    {portalTokens.map((t) => (
-                      <TokenRow
-                        key={t.id}
-                        token={t}
-                        onCopy={() => handleCopy(t)}
-                        onOpen={() => handleOpen(t)}
                       />
                     ))}
                   </Section>
@@ -596,7 +546,7 @@ function TokenRow({
   onRestore,
   onDelete,
 }) {
-  const state = getProjectShareTokenState(token)
+  const state = getShareTokenState(token)
   const stateLabels = {
     active: { text: 'Actif', color: 'var(--green)' },
     expired: { text: 'Expiré', color: 'var(--amber)' },
@@ -604,7 +554,7 @@ function TokenRow({
   }
   const stateMeta = stateLabels[state] || stateLabels.active
   const config = getConfig(token)
-  const views = Number(token.view_counts?.[PAGE_KEY]) || 0
+  const views = Number(token.view_count) || 0
 
   return (
     <div

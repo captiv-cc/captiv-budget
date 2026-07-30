@@ -36,6 +36,7 @@ import ProjectShareMaterielSession from './pages/ProjectShareMaterielSession'
 import ProjectSharePlansSession from './pages/ProjectSharePlansSession'
 import ProjectShareDerouleSession from './pages/ProjectShareDerouleSession'
 import ProjectShareLogistiqueV0Session from './pages/ProjectShareLogistiqueV0Session'
+import ShareLogistiqueSession from './pages/ShareLogistiqueSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -198,6 +199,12 @@ function AppRoutes() {
       <Route
         path="/share/projet/:token/logistique_v0"
         element={<ProjectShareLogistiqueV0Session />}
+      />
+      {/* Lien dédié au module Logistique (logistique_share_tokens) — pas de
+          hub portail. */}
+      <Route
+        path="/share/logistique/:token"
+        element={<ShareLogistiqueSession />}
       />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
