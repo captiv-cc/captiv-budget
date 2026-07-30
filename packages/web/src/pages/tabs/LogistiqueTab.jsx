@@ -370,7 +370,12 @@ export default function LogistiqueTab() {
 
       {/* Partage portail (multi-liens, config Logistique par lien) */}
       {shareOpen && (
-        <ProjectShareModal open={shareOpen} onClose={() => setShareOpen(false)} projectId={projectId} />
+        <ProjectShareModal
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          projectId={projectId}
+          focusPage="logistique_v0"
+        />
       )}
 
     </div>
