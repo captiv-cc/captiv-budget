@@ -129,7 +129,7 @@ export default function CategoryBlock({
                     setEditing(false)
                   }
                 }}
-                className="text-[11px] px-2 py-0.5 rounded border outline-none font-bold uppercase tracking-widest"
+                className="text-[11px] px-2 py-0.5 rounded border outline-none font-bold tracking-widest"
                 style={{
                   background: 'var(--bg-elev)',
                   color: accentColor,
@@ -139,7 +139,8 @@ export default function CategoryBlock({
               />
             ) : (
               <span
-                className="text-[11px] font-bold uppercase tracking-widest transition-colors"
+                // Blocs libres : casse conservée telle que saisie (retour Hugo)
+                className={`text-[11px] font-bold tracking-widest transition-colors ${info.isCanonical ? 'uppercase' : ''}`}
                 style={{ color: accentColor, cursor: info.isCanonical ? 'default' : 'pointer' }}
                 title={info.isCanonical ? undefined : 'Double-cliquer pour renommer'}
                 onDoubleClick={

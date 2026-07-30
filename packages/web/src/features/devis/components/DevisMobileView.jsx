@@ -82,7 +82,7 @@ export default function DevisMobileView({
                 </span>
               )}
               <span
-                className="text-[11px] font-bold uppercase tracking-widest truncate"
+                className={`text-[11px] font-bold tracking-widest truncate ${info.isCanonical ? 'uppercase' : ''}`}
                 style={{ color: accent }}
               >
                 {info.isCanonical ? info.label : cat.name}

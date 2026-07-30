@@ -134,12 +134,14 @@ function devisNum(devis, project) {
   return `DE${y}${m}-V${devis.version_number || 1}`
 }
 
-function getCatLabel(cat) {
+// `num` = numéro séquentiel du bloc tel qu'affiché dans le builder (1-N sur
+// les canoniques présents). Les blocs libres gardent leur nom tel que saisi.
+function getCatLabel(cat, num = null) {
   const info = getBlocInfo(cat.name)
   if (!info.isCanonical) return cat.name || '—'
   const raw = info.label
   const nice = raw.charAt(0) + raw.slice(1).toLowerCase()
-  return `${info.canonicalIdx + 1}/ ${nice}`
+  return num ? `${num}/ ${nice}` : nice
 }
 
 // ─── Champs infos projet ──────────────────────────────────────────────────────
@@ -215,7 +217,25 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
 
   // ── Données ──────────────────────────────────────────────────────────────────
   const meta = project?.metadata || {}
-  const categories = devis.categories || []
+  // DEVIS-PDF-ORDER (retour Hugo) : même ordre que le builder
+  // (computeSortedCategories de DevisEditor) — blocs canoniques d'abord dans
+  // l'ordre canonique, blocs libres ensuite par sort_order. La numérotation
+  // 1-N suit les canoniques PRÉSENTS, comme à l'écran (pas l'index absolu).
+  const categories = (devis.categories || [])
+    .map((cat) => ({ cat, info: getBlocInfo(cat.name) }))
+    .sort(
+      (a, b) =>
+        a.info.canonicalIdx - b.info.canonicalIdx ||
+        (a.cat.sort_order ?? 0) - (b.cat.sort_order ?? 0),
+    )
+    .map(({ cat }) => cat)
+  const catNums = new Map()
+  {
+    let n = 1
+    for (const cat of categories) {
+      if (getBlocInfo(cat.name).isCanonical) catNums.set(cat.id, n++)
+    }
+  }
   const globalAdj = devis.globalAdj || {
     marge_globale_pct: devis.marge_globale_pct || 0,
     assurance_pct: devis.assurance_pct || 0,
@@ -571,7 +591,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     const cat = categories[i]
     const amt = recapAmounts[i]
     if (i % 2 === 0) fillRect(M, y, IW, RECAP_ROW_H, C.light)
-    txt(getCatLabel(cat), M + 2, y + 3.0, { size: 6.5 })
+    txt(getCatLabel(cat, catNums.get(cat.id)), M + 2, y + 3.0, { size: 6.5 })
     // Alignement : tous les montants cadrés à droite sur la même colonne
     const amtX = PW - M - 2
     txt(amt, amtX, y + 3.0, { size: 6.5, align: 'right' })
@@ -586,7 +606,9 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
   const pctX = PW - M - 28 // position colonne % (serrée à droite)
 
   // Blocs hors marge → annotation "(Hors [BLOC1, BLOC2])"
-  const horsMargeBlocs = categories.filter((c) => c.dans_marge === false).map((c) => getCatLabel(c))
+  const horsMargeBlocs = categories
+    .filter((c) => c.dans_marge === false)
+    .map((c) => getCatLabel(c, catNums.get(c.id)))
   const horsMargeNote = horsMargeBlocs.length > 0 ? ` (Hors ${horsMargeBlocs.join(', ')})` : ''
 
   // SOUS-TOTAL PARTIEL
@@ -774,7 +796,7 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     if (catLines.length === 0) continue
 
     const catTotal = catLines.reduce((s, l) => s + calcLine(l, taux).prixVenteHT, 0)
-    const catDisplayName = getCatLabel(cat)
+    const catDisplayName = getCatLabel(cat, catNums.get(cat.id))
     const body = []
 
     // Note du bloc (si présente) — avant les lignes, span 6 colonnes, italique gris
@@ -840,7 +862,8 @@ export async function exportDevisPDF(devis, project, client, org, taux = TAUX_DE
     // Ligne sous-total catégorie
     body.push([
       {
-        content: `SOUS-TOTAL ${catDisplayName.toUpperCase()} (HT)`,
+        // Blocs libres : casse conservée telle que saisie (retour Hugo).
+        content: `SOUS-TOTAL ${getBlocInfo(cat.name).isCanonical ? catDisplayName.toUpperCase() : catDisplayName} (HT)`,
         colSpan: 5,
         styles: {
           textColor: C.gray,
