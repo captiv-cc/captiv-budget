@@ -29,7 +29,12 @@ import LogistiqueEntryCard from '../features/logistique/LogistiqueEntryCard'
 import LogistiqueGlobalCard from '../features/logistique/LogistiqueGlobalCard'
 import LogistiqueShareOverview from '../features/logistique/LogistiqueShareOverview'
 import LogistiqueSyntheseSections from '../features/logistique/LogistiqueSyntheseSections'
-import { computeSynthese } from '../features/logistique/logistiqueSynthese'
+import LogistiqueStructuredSection from '../features/logistique/LogistiqueStructuredSection'
+import {
+  computeSynthese,
+  membreDisplayName,
+  membrePosteLabel,
+} from '../features/logistique/logistiqueSynthese'
 import { listTechlistRows } from '../lib/crew'
 
 const THEME_STORAGE_KEY = PROJECT_SHARE_THEME_KEY
@@ -115,13 +120,6 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
     [payload.global_documents],
   )
 
-  // Map<membre_id, membre> pour lookup O(1)
-  const membreById = useMemo(() => {
-    const m = new Map()
-    for (const x of membres) m.set(x.id, x)
-    return m
-  }, [membres])
-
   // ── LOGI-V1 P4 : vision d'ensemble + synthèse depuis le payload enrichi.
   // Les payloads d'avant-migration (sans participations/repas/nuits) tombent
   // proprement sur les listes vides → seules les fiches s'affichent.
@@ -156,6 +154,26 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
     logi.repas.length > 0 ||
     logi.nuits.length > 0 ||
     logi.trajets.length > 0
+
+  // Config du lien (toggles admin de la modale de partage) — un payload
+  // d'avant-migration n'a pas 'config' → tout visible par défaut.
+  const cfg = payload.config || {}
+  const showOverview = cfg.show_overview !== false
+  const showSynthese = cfg.show_synthese !== false
+  const showPersonnes = cfg.show_personnes !== false
+
+  // Fiches par personne : rows principales AVEC données (structurées ou
+  // notes V0) — même périmètre que la vue interne « Par personne ».
+  const personRows = useMemo(() => {
+    if (!showPersonnes) return []
+    return techRows.filter((m) => {
+      if (entries.some((e) => e.membre_id === m.id)) return true
+      if (participations.some((p) => p.membre_id === m.id && (p.presence_days || []).length)) return true
+      if (logi.trajets.some((t) => t.membre_id === m.id)) return true
+      if (logi.nuits.some((n) => n.membre_id === m.id)) return true
+      return false
+    })
+  }, [showPersonnes, techRows, entries, participations, logi])
 
   // Map<entry_id, Map<kind, Array<doc>>> pour le rendu des cards
   const documentsByEntry = useMemo(() => {
@@ -202,7 +220,7 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
 
         {/* ── Vision d'ensemble (P4, retour Hugo) : la grille RO en
             PREMIÈRE page — présences, repas, nuits, trajets, totaux. ── */}
-        {hasV1Data && (
+        {showOverview && hasV1Data && (
           <div className="mt-5">
             <SectionTitle>Vue d&apos;ensemble</SectionTitle>
             <LogistiqueShareOverview
@@ -214,30 +232,46 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
         )}
 
         {/* ── Synthèse (repas, hébergements, arrivées/départs) ── */}
-        {hasV1Data && (
+        {showSynthese && hasV1Data && (
           <div className="mt-6 flex flex-col gap-4">
             <SectionTitle>Synthèse</SectionTitle>
             <LogistiqueSyntheseSections synthese={synthese} showNuitsSansHebNote={false} />
           </div>
         )}
 
-        {/* Liste des cards personnes (notes libres + documents) */}
+        {/* ── Par personne : trajets/hébergement structurés + notes V0 ── */}
         {entries.length === 0 && !globalRow && globalDocuments.length === 0 && !hasV1Data ? (
           <EmptyState />
-        ) : entries.length > 0 ? (
+        ) : personRows.length > 0 ? (
           <div className="mt-6">
             <SectionTitle>Par personne</SectionTitle>
             <div className="space-y-4">
-              {entries.map((entry) => {
-                const membre = membreById.get(entry.membre_id)
+              {personRows.map((membre) => {
+                const entry = entries.find((e) => e.membre_id === membre.id) || null
+                const hebergementMembre =
+                  logi.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
+                const structured = hasV1Data
+                  ? {
+                      trajets: logi.trajets.filter((t) => t.membre_id === membre.id),
+                      hebergements: logi.hebergements,
+                      hebergementMembre,
+                      nuits: logi.nuits.filter((n) => n.membre_id === membre.id),
+                    }
+                  : null
+                if (entry) {
+                  return (
+                    <LogistiqueEntryCard
+                      key={membre.id}
+                      entry={entry}
+                      membre={membre}
+                      documentsByKind={documentsByEntry.get(entry.id)}
+                      readOnly={true}
+                      structured={structured}
+                    />
+                  )
+                }
                 return (
-                  <LogistiqueEntryCard
-                    key={entry.id}
-                    entry={entry}
-                    membre={membre}
-                    documentsByKind={documentsByEntry.get(entry.id)}
-                    readOnly={true}
-                  />
+                  <SharePersonCard key={membre.id} membre={membre} structured={structured} />
                 )
               })}
             </div>
@@ -246,6 +280,39 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
 
         <SharePageFooter />
       </div>
+    </div>
+  )
+}
+
+// ─── Carte personne légère (pas de notes V0 — structuré seul, RO) ──────────
+function SharePersonCard({ membre, structured }) {
+  const prenom = membre.contact?.prenom || membre.prenom || ''
+  const nom = membre.contact?.nom || membre.nom || ''
+  const initials = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() || '?'
+  return (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+        >
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
+            {membreDisplayName(membre)}
+          </p>
+          {membrePosteLabel(membre) && (
+            <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
+              {membrePosteLabel(membre)}
+            </p>
+          )}
+        </div>
+      </div>
+      {structured && <LogistiqueStructuredSection {...structured} readOnly />}
     </div>
   )
 }

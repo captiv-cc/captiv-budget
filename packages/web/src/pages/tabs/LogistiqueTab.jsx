@@ -16,7 +16,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users, ClipboardList } from 'lucide-react'
+import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users, ClipboardList, Share2 } from 'lucide-react'
+import ProjectShareModal from '../../features/projets/components/ProjectShareModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
@@ -126,6 +127,10 @@ export default function LogistiqueTab() {
   // Éditeur de trajet partagé (vue Par personne). { membre, trajet|null }
   const [trajetEdit, setTrajetEdit] = useState(null)
 
+  // P4+ : accès direct au partage portail (retour Hugo — bouton dédié comme
+  // les autres onglets ; la config Logistique du lien s'y règle).
+  const [shareOpen, setShareOpen] = useState(false)
+
   // Chambre / PDJ : la row hebergement_membres est créée à la volée sur le
   // 1er edit — l'hébergement lui-même DÉRIVE des nuits (modèle validé Hugo).
   async function handlePatchHebergementMembre(membre, hebergementMembre, patch, hebId) {
@@ -208,6 +213,22 @@ export default function LogistiqueTab() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-md"
+              style={{
+                background: 'var(--bg-elev)',
+                color: 'var(--txt-2)',
+                border: '1px solid var(--brd)',
+              }}
+              title="Liens de partage du projet — sections Logistique configurables par lien"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Partager
+            </button>
+          )}
           {/* LOGI-V1 : bascule Grille / Par personne */}
           <div
             className="flex items-center rounded-md overflow-hidden"
@@ -345,6 +366,11 @@ export default function LogistiqueTab() {
           onDeleted={() => loadLogiV1()}
           onClose={() => setTrajetEdit(null)}
         />
+      )}
+
+      {/* Partage portail (multi-liens, config Logistique par lien) */}
+      {shareOpen && (
+        <ProjectShareModal open={shareOpen} onClose={() => setShareOpen(false)} projectId={projectId} />
       )}
 
     </div>

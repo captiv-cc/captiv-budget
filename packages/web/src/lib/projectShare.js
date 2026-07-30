@@ -69,9 +69,14 @@ export const DEFAULT_PAGE_CONFIGS = {
     show_sensitive: true,
   },
   // Logistique V0 (outil provisoire) : pas de toggle pour l'instant — tout
-  // est visible (transport / hébergement / repas + docs). Si Hugo veut un
-  // mode "masquer notes" plus tard, on ajoutera ici.
-  logistique_v0: {},
+  // est visible (transport / hébergement / repas + docs).
+  // LOGI-V1 P4+ : 3 sections activables — permet un lien Équipe complet ET
+  // un lien Client/Festival réduit à la synthèse (multi-tokens).
+  logistique_v0: {
+    show_overview: true,
+    show_synthese: true,
+    show_personnes: true,
+  },
 }
 
 /* ─── Génération token ──────────────────────────────────────────────────── */

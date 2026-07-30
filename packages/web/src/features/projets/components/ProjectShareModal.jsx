@@ -1044,6 +1044,12 @@ function PageCard({
               onConfigChange={onConfigChange}
             />
           )}
+          {pageKey === 'logistique_v0' && (
+            <LogistiqueSubForm
+              config={config}
+              onConfigChange={onConfigChange}
+            />
+          )}
         </div>
       )}
     </div>
@@ -1393,6 +1399,37 @@ function DerouleSubForm({ config, onConfigChange }) {
         onChange={(v) => onConfigChange({ show_sensitive: v })}
         label="Afficher les notes internes et coordonnées"
         hint="Notes des créneaux/déroulés + tel/email des membres"
+      />
+    </div>
+  )
+}
+
+// ─── Sub-form Logistique & VHR (LOGI-V1 P4+) ────────────────────────────────
+//
+// 3 sections activables. Cas d'usage : lien Équipe complet, et un second
+// lien Client/Festival réduit à la synthèse (repas/rooming/mouvements) —
+// les coûts et coordonnées ne sortent jamais, quel que soit le réglage.
+
+function LogistiqueSubForm({ config, onConfigChange }) {
+  return (
+    <div className="space-y-1">
+      <Toggle
+        checked={config?.show_overview !== false}
+        onChange={(v) => onConfigChange({ show_overview: v })}
+        label="Vue d'ensemble"
+        hint="Grille personnes × jours : présences, repas, nuits, trajets, totaux"
+      />
+      <Toggle
+        checked={config?.show_synthese !== false}
+        onChange={(v) => onConfigChange({ show_synthese: v })}
+        label="Synthèse"
+        hint="Repas par jour, rooming par hébergement, arrivées & départs"
+      />
+      <Toggle
+        checked={config?.show_personnes !== false}
+        onChange={(v) => onConfigChange({ show_personnes: v })}
+        label="Fiches par personne"
+        hint="Trajets, hébergement, notes libres et documents de chacun"
       />
     </div>
   )
