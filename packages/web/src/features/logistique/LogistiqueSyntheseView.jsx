@@ -143,85 +143,77 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
             .filter((s) => s.statuts.length > 0)
           const statutLabel = (k) =>
             k === 'client' ? 'Client' : k === 'production' ? 'Prod' : 'Défrayé'
-          // Séparateur vertical au début de chaque groupe de service, et
-          // filet léger entre colonnes (lisibilité, retour Hugo).
-          const cellBorder = (isGroupStart) => ({
-            borderLeft: isGroupStart ? '1px solid var(--brd)' : '1px solid var(--brd-sub)',
-          })
+          // TRANSPOSÉ (retour Hugo) : jours en COLONNES — même orientation
+          // que la grille, l'Excel de réf et le tableau « Nuit du ». Une
+          // ligne par (service × prise en charge) réellement utilisée.
+          const lignes = services.flatMap((s) =>
+            s.statuts.map((k) => ({ svc: s.svc, svcLabel: s.label, k })),
+          )
           return (
             <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e" fit>
               <table className="text-xs" style={{ borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
-                    <Th align="left">Jour</Th>
-                    {services.map((s) => (
+                    <Th align="left" />
+                    {repasParJour.map((j) => (
                       <th
-                        key={s.svc}
-                        colSpan={s.statuts.length}
-                        className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
-                        style={{ letterSpacing: '0.08em', borderLeft: '1px solid var(--brd)' }}
+                        key={j.date}
+                        className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
+                        style={{ letterSpacing: '0.06em', borderLeft: '1px solid var(--brd-sub)' }}
                       >
-                        {s.label}
+                        {frDayShort(j.date)}
                       </th>
                     ))}
-                  </tr>
-                  <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
-                    <Th align="left" />
-                    {services.flatMap((s) =>
-                      s.statuts.map((k, i) => (
-                        <th
-                          key={`${s.svc}-${k}`}
-                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
-                          style={{ letterSpacing: '0.08em', ...cellBorder(i === 0) }}
-                        >
-                          <span style={{ color: STATUT_COLORS[k] }}>{statutLabel(k)}</span>
-                        </th>
-                      )),
-                    )}
+                    <th
+                      className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
+                      style={{ letterSpacing: '0.08em', borderLeft: '1px solid var(--brd)' }}
+                    >
+                      Total
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {repasParJour.map((j) => (
-                    <tr key={j.date} style={{ borderBottom: '1px solid var(--brd-sub)' }}>
-                      <td className="px-3 py-1.5 font-semibold" style={{ color: 'var(--txt)' }}>
-                        {frDayShort(j.date)}
-                      </td>
-                      {services.flatMap((s) =>
-                        s.statuts.map((k, i) => (
+                  {lignes.map(({ svc, svcLabel, k }, li) => {
+                    const groupStart = li === 0 || lignes[li - 1].svc !== svc
+                    return (
+                      <tr
+                        key={`${svc}-${k}`}
+                        style={{
+                          borderBottom: '1px solid var(--brd-sub)',
+                          borderTop: groupStart && li > 0 ? '1px solid var(--brd)' : undefined,
+                        }}
+                      >
+                        <td className="px-3 py-1.5 whitespace-nowrap">
+                          <span className="font-semibold" style={{ color: 'var(--txt)' }}>
+                            {svcLabel}
+                          </span>{' '}
+                          <span className="font-semibold" style={{ color: STATUT_COLORS[k] }}>
+                            {statutLabel(k)}
+                          </span>
+                        </td>
+                        {repasParJour.map((j) => (
                           <td
-                            key={`${s.svc}-${k}`}
-                            className="px-3 py-1.5 text-center tabular-nums"
+                            key={j.date}
+                            className="px-2.5 py-1.5 text-center tabular-nums"
                             style={{
-                              color: j[s.svc][k] ? 'var(--txt)' : 'var(--txt-3)',
-                              fontWeight: k === 'client' && j[s.svc][k] ? 700 : 400,
-                              ...cellBorder(i === 0),
+                              color: j[svc][k] ? 'var(--txt)' : 'var(--txt-3)',
+                              fontWeight: k === 'client' && j[svc][k] ? 700 : 400,
+                              borderLeft: '1px solid var(--brd-sub)',
                             }}
                           >
-                            {j[s.svc][k] || ''}
+                            {j[svc][k] || ''}
                           </td>
-                        )),
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: '1px solid var(--brd)' }}>
-                    <td className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)' }}>
-                      Total
-                    </td>
-                    {services.flatMap((s) =>
-                      s.statuts.map((k, i) => (
+                        ))}
                         <td
-                          key={`${s.svc}-${k}`}
                           className="px-3 py-1.5 text-center font-bold tabular-nums"
-                          style={{ color: STATUT_COLORS[k], ...cellBorder(i === 0) }}
+                          style={{ color: STATUT_COLORS[k], borderLeft: '1px solid var(--brd)' }}
                         >
-                          {totauxRepas[s.svc][k]}
+                          {totauxRepas[svc][k]}
                         </td>
-                      )),
-                    )}
-                  </tr>
-                </tfoot>
+                      </tr>
+                    )
+                  })}
+                </tbody>
               </table>
             </Section>
           )

@@ -186,11 +186,12 @@ export async function exportLogistiqueSynthesePDF({ project, org, synthese }) {
 
   const { repasParJour, totauxRepas, hebs, nuitsSansHeb, mouvements } = synthese
 
-  // ── 1. Repas — colonnes dynamiques : seules les prises en charge
-  //    réellement utilisées apparaissent (retour Hugo). ──────────────────────
+  // ── 1. Repas — TRANSPOSÉ : jours en colonnes (même orientation que la
+  //    grille, l'Excel de réf et le tableau « Nuit du »), une ligne par
+  //    (service × prise en charge) réellement utilisée, total à droite. ─────
   if (repasParJour.length) {
     const statutLabel = { client: 'Client', production: 'Prod', defraye: 'Défrayé' }
-    const cols = ['midi', 'soir'].flatMap((svc) =>
+    const lignes = ['midi', 'soir'].flatMap((svc) =>
       ['client', 'production', 'defraye']
         .filter((k) => totauxRepas[svc][k] > 0)
         .map((k) => ({ svc, k })),
@@ -201,32 +202,33 @@ export async function exportLogistiqueSynthesePDF({ project, org, synthese }) {
       startY: y,
       head: [
         [
-          { content: 'Jour', styles: { halign: 'left' } },
-          ...cols.map(({ svc, k }) => ({
-            content: `${svc === 'midi' ? 'Midi' : 'Soir'} ${statutLabel[k]}`,
-          })),
+          { content: '', styles: { halign: 'left' } },
+          ...repasParJour.map((j) => ({ content: frDayShort(j.date) })),
+          { content: 'Total' },
         ],
       ],
-      body: [
-        ...repasParJour.map((j) => [
-          { content: frDayShort(j.date), styles: { halign: 'left', fontStyle: 'bold' } },
-          ...cols.map(({ svc, k }) => ({
-            content: j[svc][k] || '',
-            styles: {
-              halign: 'center',
-              fontStyle: k === 'client' && j[svc][k] ? 'bold' : 'normal',
-              textColor: k === 'client' && j[svc][k] ? C.green : C.black,
-            },
-          })),
-        ]),
-        [
-          { content: 'TOTAL', styles: { halign: 'left', fontStyle: 'bold' } },
-          ...cols.map(({ svc, k }) => ({
-            content: totauxRepas[svc][k],
-            styles: { halign: 'center', fontStyle: 'bold' },
-          })),
-        ],
-      ],
+      body: lignes.map(({ svc, k }) => [
+        {
+          content: `${svc === 'midi' ? 'Midi' : 'Soir'} ${statutLabel[k]}`,
+          styles: {
+            halign: 'left',
+            fontStyle: 'bold',
+            textColor: k === 'client' ? C.green : k === 'production' ? C.blue : C.amber,
+          },
+        },
+        ...repasParJour.map((j) => ({
+          content: j[svc][k] || '',
+          styles: {
+            halign: 'center',
+            fontStyle: k === 'client' && j[svc][k] ? 'bold' : 'normal',
+          },
+        })),
+        {
+          content: totauxRepas[svc][k],
+          styles: { halign: 'center', fontStyle: 'bold' },
+        },
+      ]),
+      columnStyles: { 0: { cellWidth: 28 } },
       didDrawPage: redraw,
     })
     y = (doc.lastAutoTable?.finalY || y) + 10
