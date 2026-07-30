@@ -52,6 +52,7 @@ export default function LogistiqueSyntheseSections({ synthese, showNuitsSansHebN
           )
           return (
             <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e" fit>
+              <div className="overflow-x-auto">
               <table className="text-xs" style={{ borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
@@ -116,6 +117,7 @@ export default function LogistiqueSyntheseSections({ synthese, showNuitsSansHebN
                   })}
                 </tbody>
               </table>
+              </div>
             </Section>
           )
         })()}
@@ -147,7 +149,8 @@ export default function LogistiqueSyntheseSections({ synthese, showNuitsSansHebN
                 ))}
               </div>
             )}
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full text-xs" style={{ minWidth: '520px' }}>
               <thead>
                 <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd-sub)' }}>
                   <Th align="left">Personne</Th>
@@ -161,7 +164,7 @@ export default function LogistiqueSyntheseSections({ synthese, showNuitsSansHebN
               <tbody>
                 {rooming.map((r) => (
                   <tr key={r.membreId} style={{ borderBottom: '1px solid var(--brd-sub)' }}>
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-1.5 whitespace-nowrap">
                       <span className="font-semibold" style={{ color: 'var(--txt)' }}>
                         {membreDisplayName(r.membre)}
                       </span>
@@ -190,6 +193,7 @@ export default function LogistiqueSyntheseSections({ synthese, showNuitsSansHebN
                 ))}
               </tbody>
             </table>
+            </div>
           </Section>
         ))}
       {showNuitsSansHebNote && nuitsSansHeb > 0 && (
@@ -250,7 +254,8 @@ function Section({ icon: Icon, title, subtitle, accent, fit = false, children })
         background: 'var(--bg-surf)',
         border: '1px solid var(--brd)',
         width: fit ? 'fit-content' : undefined,
-        minWidth: fit ? '380px' : undefined,
+        // min() : ne jamais forcer la carte plus large que l'écran (mobile)
+        minWidth: fit ? 'min(380px, 100%)' : undefined,
         maxWidth: '100%',
       }}
     >

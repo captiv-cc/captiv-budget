@@ -475,10 +475,15 @@ function HebergementCard({
             return (
               <div
                 key={membreId}
-                className="flex items-center gap-2 py-1"
+                className="flex items-center gap-2 py-1 flex-wrap"
                 style={{ borderTop: '1px solid var(--brd-sub)' }}
               >
-                <span className="text-xs font-semibold min-w-0 truncate" style={{ color: 'var(--txt)' }}>
+                {/* min-w + wrap : sur mobile, chambre/PDJ passent à la ligne
+                    au lieu de tronquer le nom à quelques lettres. */}
+                <span
+                  className="text-xs font-semibold flex-1 truncate"
+                  style={{ color: 'var(--txt)', minWidth: '140px' }}
+                >
                   {m ? membreName(m) : 'Membre supprimé'}
                 </span>
                 <span

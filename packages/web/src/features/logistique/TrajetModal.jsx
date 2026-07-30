@@ -417,8 +417,9 @@ export default function TrajetModal({
                       </span>
                     </div>
 
-                    {/* Départ → Arrivée : deux colonnes symétriques */}
-                    <div className="px-3 py-2.5 flex items-end gap-2">
+                    {/* Départ → Arrivée : deux colonnes symétriques —
+                        empilées sur mobile (4 inputs ne tiennent pas). */}
+                    <div className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-end gap-2">
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
                         <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)', letterSpacing: '0.08em' }}>
                           Départ
@@ -442,7 +443,7 @@ export default function TrajetModal({
                           />
                         </div>
                       </div>
-                      <span className="pb-2 shrink-0" style={{ color: 'var(--blue)' }}>
+                      <span className="hidden sm:block pb-2 shrink-0" style={{ color: 'var(--blue)' }}>
                         →
                       </span>
                       <div className="flex-1 min-w-0 flex flex-col gap-1">
