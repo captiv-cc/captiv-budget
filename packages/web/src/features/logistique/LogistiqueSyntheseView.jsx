@@ -128,73 +128,104 @@ export default function LogistiqueSyntheseView({ projectId, project = null, org 
         </div>
       )}
 
-      {/* ── Repas ─────────────────────────────────────────────────────── */}
-      {repasParJour.length > 0 && (
-        <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e">
-          <table className="w-full text-xs">
-            <thead>
-              <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
-                <Th align="left">Jour</Th>
-                <Th colSpan={3}>Midi</Th>
-                <Th colSpan={3}>Soir</Th>
-              </tr>
-              <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
-                <Th align="left" />
-                {['client', 'production', 'defraye', 'client', 'production', 'defraye'].map(
-                  (k, i) => (
-                    <Th key={i}>
-                      <span style={{ color: STATUT_COLORS[k] }}>
-                        {k === 'client' ? 'Client' : k === 'production' ? 'Prod' : 'Défr.'}
-                      </span>
-                    </Th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {repasParJour.map((j) => (
-                <tr key={j.date} style={{ borderBottom: '1px solid var(--brd-sub)' }}>
-                  <td className="px-3 py-1.5 font-semibold" style={{ color: 'var(--txt)' }}>
-                    {frDayShort(j.date)}
-                  </td>
-                  {['midi', 'soir'].flatMap((svc) =>
-                    ['client', 'production', 'defraye'].map((k) => (
-                      <td
-                        key={`${svc}-${k}`}
-                        className="px-2 py-1.5 text-center tabular-nums"
-                        style={{
-                          color: j[svc][k] ? 'var(--txt)' : 'var(--txt-3)',
-                          fontWeight: k === 'client' && j[svc][k] ? 700 : 400,
-                        }}
+      {/* ── Repas — colonnes DYNAMIQUES : une prise en charge sans aucun
+          repas (ex. jamais de Défrayé) n'affiche pas sa colonne. ───────── */}
+      {repasParJour.length > 0 &&
+        (() => {
+          const services = ['midi', 'soir']
+            .map((svc) => ({
+              svc,
+              label: svc === 'midi' ? 'Midi' : 'Soir',
+              statuts: ['client', 'production', 'defraye'].filter(
+                (k) => totauxRepas[svc][k] > 0,
+              ),
+            }))
+            .filter((s) => s.statuts.length > 0)
+          const statutLabel = (k) =>
+            k === 'client' ? 'Client' : k === 'production' ? 'Prod' : 'Défrayé'
+          // Séparateur vertical au début de chaque groupe de service, et
+          // filet léger entre colonnes (lisibilité, retour Hugo).
+          const cellBorder = (isGroupStart) => ({
+            borderLeft: isGroupStart ? '1px solid var(--brd)' : '1px solid var(--brd-sub)',
+          })
+          return (
+            <Section icon={UtensilsCrossed} title="Repas" accent="#22c55e">
+              <table className="text-xs" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
+                    <Th align="left">Jour</Th>
+                    {services.map((s) => (
+                      <th
+                        key={s.svc}
+                        colSpan={s.statuts.length}
+                        className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
+                        style={{ letterSpacing: '0.08em', borderLeft: '1px solid var(--brd)' }}
                       >
-                        {j[svc][k] || ''}
+                        {s.label}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr style={{ color: 'var(--txt-3)', borderBottom: '1px solid var(--brd)' }}>
+                    <Th align="left" />
+                    {services.flatMap((s) =>
+                      s.statuts.map((k, i) => (
+                        <th
+                          key={`${s.svc}-${k}`}
+                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center"
+                          style={{ letterSpacing: '0.08em', ...cellBorder(i === 0) }}
+                        >
+                          <span style={{ color: STATUT_COLORS[k] }}>{statutLabel(k)}</span>
+                        </th>
+                      )),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {repasParJour.map((j) => (
+                    <tr key={j.date} style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+                      <td className="px-3 py-1.5 font-semibold" style={{ color: 'var(--txt)' }}>
+                        {frDayShort(j.date)}
                       </td>
-                    )),
-                  )}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '1px solid var(--brd)' }}>
-                <td className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)' }}>
-                  Total
-                </td>
-                {['midi', 'soir'].flatMap((svc) =>
-                  ['client', 'production', 'defraye'].map((k) => (
-                    <td
-                      key={`${svc}-${k}`}
-                      className="px-2 py-1.5 text-center font-bold tabular-nums"
-                      style={{ color: totauxRepas[svc][k] ? STATUT_COLORS[k] : 'var(--txt-3)' }}
-                    >
-                      {totauxRepas[svc][k] || ''}
+                      {services.flatMap((s) =>
+                        s.statuts.map((k, i) => (
+                          <td
+                            key={`${s.svc}-${k}`}
+                            className="px-3 py-1.5 text-center tabular-nums"
+                            style={{
+                              color: j[s.svc][k] ? 'var(--txt)' : 'var(--txt-3)',
+                              fontWeight: k === 'client' && j[s.svc][k] ? 700 : 400,
+                              ...cellBorder(i === 0),
+                            }}
+                          >
+                            {j[s.svc][k] || ''}
+                          </td>
+                        )),
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '1px solid var(--brd)' }}>
+                    <td className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)' }}>
+                      Total
                     </td>
-                  )),
-                )}
-              </tr>
-            </tfoot>
-          </table>
-        </Section>
-      )}
+                    {services.flatMap((s) =>
+                      s.statuts.map((k, i) => (
+                        <td
+                          key={`${s.svc}-${k}`}
+                          className="px-3 py-1.5 text-center font-bold tabular-nums"
+                          style={{ color: STATUT_COLORS[k], ...cellBorder(i === 0) }}
+                        >
+                          {totauxRepas[s.svc][k]}
+                        </td>
+                      )),
+                    )}
+                  </tr>
+                </tfoot>
+              </table>
+            </Section>
+          )
+        })()}
 
       {/* ── Hébergements — masqués tant qu'aucune nuit (comme le PDF) ── */}
       {hebs
