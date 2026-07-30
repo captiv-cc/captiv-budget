@@ -16,7 +16,9 @@ import {
   ArrowUp,
   Bus,
   Car,
+  Download,
   FileText,
+  Image as ImageIcon,
   Loader2,
   Plane,
   Plus,
@@ -33,9 +35,14 @@ import {
   deleteTrajet,
   uploadLogistiqueDoc,
   deleteLogistiqueDoc,
-  getLogistiqueDocUrl,
   DOC_ACCEPT,
 } from '../../lib/logistique'
+import {
+  DocPreviewModal,
+  DocDropZone,
+  docIsImage,
+  downloadDoc,
+} from './LogistiqueDocViewer'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -85,15 +92,16 @@ export default function TrajetModal({
   // Docs sélectionnés AVANT la création du trajet (retour Hugo : ne pas
   // attendre) — uploadés automatiquement juste après le create.
   const [pendingFiles, setPendingFiles] = useState([])
+  const [previewDoc, setPreviewDoc] = useState(null)
 
-  // Esc ferme
+  // Esc ferme (sauf si l'aperçu doc est ouvert — il consomme le Esc)
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape' && !saving) onClose?.()
+      if (e.key === 'Escape' && !saving && !previewDoc) onClose?.()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [saving, onClose])
+  }, [saving, previewDoc, onClose])
 
   function patchEtape(idx, patch) {
     setEtapes((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)))
@@ -169,23 +177,34 @@ export default function TrajetModal({
     }
   }
 
-  async function handleUpload(file) {
-    if (!file || !currentTrajet?.id) return
+  async function handleUploadFiles(files) {
+    const list = Array.from(files || []).filter(Boolean)
+    if (list.length === 0 || !currentTrajet?.id) return
     setUploading(true)
     try {
-      const doc = await uploadLogistiqueDoc({
-        projectId,
-        parentType: 'trajet',
-        parentId: currentTrajet.id,
-        file,
-      })
-      setLocalDocs((prev) => [...prev, doc])
+      for (const file of list) {
+        try {
+          const doc = await uploadLogistiqueDoc({
+            projectId,
+            parentType: 'trajet',
+            parentId: currentTrajet.id,
+            file,
+          })
+          setLocalDocs((prev) => [...prev, doc])
+        } catch (err) {
+          notify.error(`Upload ${file.name} : ` + (err?.message || err))
+        }
+      }
       onSaved?.(currentTrajet)
-    } catch (err) {
-      notify.error('Upload : ' + (err?.message || err))
     } finally {
       setUploading(false)
     }
+  }
+
+  // Drop / sélection : avant création → mis en attente ; après → upload direct.
+  function handleIncomingFiles(files) {
+    if (currentTrajet?.id) handleUploadFiles(files)
+    else setPendingFiles((prev) => [...prev, ...Array.from(files || [])])
   }
 
   async function handleDeleteDoc(doc) {
@@ -198,12 +217,11 @@ export default function TrajetModal({
     }
   }
 
-  async function handleOpenDoc(doc) {
+  async function handleDownloadDoc(doc) {
     try {
-      const url = await getLogistiqueDocUrl(doc)
-      window.open(url, '_blank', 'noopener')
+      await downloadDoc(doc)
     } catch (err) {
-      notify.error('Ouverture : ' + (err?.message || err))
+      notify.error('Téléchargement : ' + (err?.message || err))
     }
   }
 
@@ -500,7 +518,9 @@ export default function TrajetModal({
             />
           </label>
 
-          {/* Documents (billets) — dispo dès que le trajet existe en base. */}
+          {/* Documents (billets) — dispo dès que le trajet existe en base.
+              Drag & drop sur toute la section + sélection multiple. */}
+          <DocDropZone onFiles={handleIncomingFiles} disabled={uploading}>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--txt-3)' }}>
               Billets &amp; documents
@@ -538,16 +558,17 @@ export default function TrajetModal({
                     color: 'var(--txt-2)',
                     border: '1px dashed var(--brd)',
                   }}
+                  title="PDF, PNG, JPG — ou glisser-déposer sur la zone"
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  Ajouter un document
+                  Ajouter des documents
                   <input
                     type="file"
                     accept={DOC_ACCEPT}
+                    multiple
                     className="hidden"
                     onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) setPendingFiles((prev) => [...prev, f])
+                      handleIncomingFiles(e.target.files)
                       e.target.value = ''
                     }}
                   />
@@ -556,19 +577,21 @@ export default function TrajetModal({
             )}
             {currentTrajet?.id ? (
               <>
-                {localDocs.map((doc) => (
+                {localDocs.map((doc) => {
+                  const DocIcon = docIsImage(doc) ? ImageIcon : FileText
+                  return (
                   <div
                     key={doc.id}
                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-md mb-1.5"
                     style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
                   >
-                    <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+                    <DocIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
                     <button
                       type="button"
-                      onClick={() => handleOpenDoc(doc)}
+                      onClick={() => setPreviewDoc(doc)}
                       className="text-xs truncate text-left hover:underline"
                       style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
-                      title="Ouvrir dans un nouvel onglet"
+                      title="Aperçu"
                     >
                       {doc.filename}
                     </button>
@@ -579,15 +602,25 @@ export default function TrajetModal({
                     )}
                     <button
                       type="button"
-                      onClick={() => handleDeleteDoc(doc)}
+                      onClick={() => handleDownloadDoc(doc)}
                       className="ml-auto p-1 shrink-0"
+                      style={{ color: 'var(--txt-3)' }}
+                      title="Télécharger"
+                    >
+                      <Download className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDoc(doc)}
+                      className="p-1 shrink-0"
                       style={{ color: 'var(--red, #ef4444)' }}
                       title="Supprimer le document"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
-                ))}
+                  )
+                })}
                 <label
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer"
                   style={{
@@ -595,20 +628,22 @@ export default function TrajetModal({
                     color: 'var(--txt-2)',
                     border: '1px dashed var(--brd)',
                   }}
+                  title="PDF, PNG, JPG — ou glisser-déposer sur la zone"
                 >
                   {uploading ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Upload className="w-3.5 h-3.5" />
                   )}
-                  Ajouter un document
+                  Ajouter des documents
                   <input
                     type="file"
                     accept={DOC_ACCEPT}
+                    multiple
                     className="hidden"
                     disabled={uploading}
                     onChange={(e) => {
-                      handleUpload(e.target.files?.[0])
+                      handleIncomingFiles(e.target.files)
                       e.target.value = ''
                     }}
                   />
@@ -616,6 +651,7 @@ export default function TrajetModal({
               </>
             ) : null}
           </div>
+          </DocDropZone>
         </div>
 
         {/* Footer */}
@@ -657,6 +693,10 @@ export default function TrajetModal({
           </span>
         </div>
       </div>
+
+      {previewDoc && (
+        <DocPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+      )}
     </div>
   )
 }

@@ -13,7 +13,9 @@ import { useState } from 'react'
 import {
   BedDouble,
   Coffee,
+  Download,
   FileText,
+  Image as ImageIcon,
   Loader2,
   MapPin,
   Pencil,
@@ -32,9 +34,14 @@ import {
   adoptNuitsSansHebergement,
   uploadLogistiqueDoc,
   deleteLogistiqueDoc,
-  getLogistiqueDocUrl,
   DOC_ACCEPT,
 } from '../../lib/logistique'
+import {
+  DocPreviewModal,
+  DocDropZone,
+  docIsImage,
+  downloadDoc,
+} from './LogistiqueDocViewer'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -281,6 +288,7 @@ function HebergementCard({
   run,
 }) {
   const [uploading, setUploading] = useState(false)
+  const [previewDoc, setPreviewDoc] = useState(null)
   const membreById = new Map(membres.map((m) => [m.id, m]))
   // Rooming DÉRIVÉ des nuits (modèle validé Hugo) : quiconque a ≥ 1 nuit
   // cochée ici apparaît automatiquement. Les rows hebergement_membres ne
@@ -299,30 +307,34 @@ function HebergementCard({
     ),
   )
 
-  async function handleUpload(file) {
-    if (!file) return
+  async function handleUploadFiles(files) {
+    const list = Array.from(files || []).filter(Boolean)
+    if (list.length === 0) return
     setUploading(true)
     try {
-      await uploadLogistiqueDoc({
-        projectId,
-        parentType: 'hebergement',
-        parentId: h.id,
-        file,
-      })
+      for (const file of list) {
+        try {
+          await uploadLogistiqueDoc({
+            projectId,
+            parentType: 'hebergement',
+            parentId: h.id,
+            file,
+          })
+        } catch (err) {
+          notify.error(`Upload ${file.name} : ` + (err?.message || err))
+        }
+      }
       await run(() => Promise.resolve())
-    } catch (err) {
-      notify.error('Upload : ' + (err?.message || err))
     } finally {
       setUploading(false)
     }
   }
 
-  async function handleOpenDoc(doc) {
+  async function handleDownloadDoc(doc) {
     try {
-      const url = await getLogistiqueDocUrl(doc)
-      window.open(url, '_blank', 'noopener')
+      await downloadDoc(doc)
     } catch (err) {
-      notify.error('Ouverture : ' + (err?.message || err))
+      notify.error('Téléchargement : ' + (err?.message || err))
     }
   }
 
@@ -376,22 +388,34 @@ function HebergementCard({
           </p>
         )}
 
-        {/* Documents */}
+        {/* Documents — clic = aperçu, drag & drop sur la zone */}
+        <DocDropZone onFiles={handleUploadFiles} disabled={uploading}>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {docs.map((doc) => (
+          {docs.map((doc) => {
+            const DocIcon = docIsImage(doc) ? ImageIcon : FileText
+            return (
             <span
               key={doc.id}
               className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md"
               style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
             >
-              <FileText className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
+              <DocIcon className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
               <button
                 type="button"
-                onClick={() => handleOpenDoc(doc)}
+                onClick={() => setPreviewDoc(doc)}
                 className="hover:underline max-w-[180px] truncate"
                 style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
+                title="Aperçu"
               >
                 {doc.filename}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadDoc(doc)}
+                style={{ color: 'var(--txt-3)' }}
+                title="Télécharger"
+              >
+                <Download className="w-3 h-3" />
               </button>
               <button
                 type="button"
@@ -402,26 +426,33 @@ function HebergementCard({
                 <X className="w-3 h-3" />
               </button>
             </span>
-          ))}
+            )
+          })}
           <label
             className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md cursor-pointer"
             style={{ color: 'var(--txt-3)', border: '1px dashed var(--brd)' }}
-            title="Ajouter un document (résa, plan d'accès…) — PDF, PNG, JPG"
+            title="Ajouter des documents (résa, plan d'accès…) — PDF, PNG, JPG, ou glisser-déposer"
           >
             {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
             Doc
             <input
               type="file"
               accept={DOC_ACCEPT}
+              multiple
               className="hidden"
               disabled={uploading}
               onChange={(e) => {
-                handleUpload(e.target.files?.[0])
+                handleUploadFiles(e.target.files)
                 e.target.value = ''
               }}
             />
           </label>
         </div>
+        </DocDropZone>
+
+        {previewDoc && (
+          <DocPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+        )}
 
         {/* Personnes — rooming dérivé des nuits de la grille */}
         <div>
