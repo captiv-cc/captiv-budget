@@ -23,7 +23,7 @@
 // "page registrée côté DB".
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Calendar,
   CheckSquare,
@@ -142,10 +142,6 @@ export default function ProjectShareModal({
   // si non fourni ou tableau vide, le dropdown est caché et scope='all'.
   lots = [],
   lotInfoMap = {},
-  // SHARE-FOCUS : clé de SHARE_PAGES (ex 'logistique_v0'). Si fournie, la
-  // modale s'ouvre directement sur la config de cette page : édition du
-  // premier portail actif (ou form création si aucun) + scroll sur sa carte.
-  focusPage = null,
 }) {
   const { tokens, loading, create, update, revoke, restore, remove } =
     useProjectShareTokens(open ? projectId : null)
@@ -289,32 +285,6 @@ export default function ProjectShareModal({
     )
     setFormOpen(!hasActive)
   }, [open, tokens, editingTokenId])
-
-  // SHARE-FOCUS : à l'ouverture avec focusPage, une fois les tokens chargés,
-  // bascule directement sur la config de la page demandée — édition du 1er
-  // portail actif (le cas courant : il n'y en a qu'un), sinon form création —
-  // puis scrolle sur la carte de la page. Une seule fois par ouverture.
-  const focusAppliedRef = useRef(false)
-  useEffect(() => {
-    if (!open) {
-      focusAppliedRef.current = false
-      return
-    }
-    if (!focusPage || loading || focusAppliedRef.current) return
-    focusAppliedRef.current = true
-    const active = tokens.find(
-      (t) => getProjectShareTokenState(t) === 'active',
-    )
-    if (active) handleStartEdit(active)
-    else setFormOpen(true)
-    // Le form vient d'être (ré)ouvert dans ce même cycle : on attend le
-    // paint suivant pour que la carte existe dans le DOM.
-    setTimeout(() => {
-      document
-        .getElementById(`share-page-card-${focusPage}`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 120)
-  }, [open, focusPage, loading, tokens])
 
   // Reset form à chaque fermeture
   useEffect(() => {
@@ -995,7 +965,6 @@ function PageCard({
 
   return (
     <div
-      id={`share-page-card-${pageKey}`}
       className="rounded-md overflow-hidden"
       style={{
         background: 'var(--bg-surf)',

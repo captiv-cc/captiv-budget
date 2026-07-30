@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Plus, AlertCircle, Lock, Truck, Loader2, Inbox, Table2, Users, ClipboardList, Share2 } from 'lucide-react'
-import ProjectShareModal from '../../features/projets/components/ProjectShareModal'
+import LogistiqueShareModal from '../../features/logistique/LogistiqueShareModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useProjet } from '../ProjetLayout'
@@ -370,11 +370,10 @@ export default function LogistiqueTab() {
 
       {/* Partage portail (multi-liens, config Logistique par lien) */}
       {shareOpen && (
-        <ProjectShareModal
+        <LogistiqueShareModal
           open={shareOpen}
           onClose={() => setShareOpen(false)}
           projectId={projectId}
-          focusPage="logistique_v0"
         />
       )}
 
