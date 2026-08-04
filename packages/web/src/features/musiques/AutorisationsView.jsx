@@ -113,7 +113,14 @@ export default function AutorisationsView({
       byLivrable.get(r.livrable_id).rows.push(r)
     }
     const arr = Array.from(byLivrable.values())
-    arr.sort((a, b) => (a.livrable?.nom || '').localeCompare(b.livrable?.nom || '', 'fr'))
+    // Même ordre que l'onglet Livrables / la vue Attribution : blocs par
+    // sort_order, puis livrables par sort_order dans le bloc.
+    const rank = (l) => [l?.block?.sort_order ?? 999, l?.sort_order ?? 999]
+    arr.sort((a, b) => {
+      const [ab, al] = rank(a.livrable)
+      const [bb, bl] = rank(b.livrable)
+      return ab - bb || al - bl || (a.livrable?.nom || '').localeCompare(b.livrable?.nom || '', 'fr')
+    })
     for (const g of arr) {
       g.rows.sort((a, b) =>
         credit(a.proposition).localeCompare(credit(b.proposition), 'fr', { sensitivity: 'base' }),

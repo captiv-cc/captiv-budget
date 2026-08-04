@@ -47,7 +47,10 @@ export async function listAutorisationRows(projectId) {
       livrable_id,
       proposition_id,
       statut_local,
-      livrable:livrable_id (id, nom, project_id),
+      livrable:livrable_id (
+        id, nom, project_id, sort_order,
+        block:block_id (id, sort_order)
+      ),
       proposition:proposition_id (
         id, titre, artiste_text, preview_url, lien_youtube, spotify_id,
         duration_ms,
