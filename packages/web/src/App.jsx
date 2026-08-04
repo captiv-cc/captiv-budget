@@ -37,6 +37,7 @@ import ProjectSharePlansSession from './pages/ProjectSharePlansSession'
 import ProjectShareDerouleSession from './pages/ProjectShareDerouleSession'
 import ProjectShareLogistiqueV0Session from './pages/ProjectShareLogistiqueV0Session'
 import ShareLogistiqueSession from './pages/ShareLogistiqueSession'
+import ShareMusiqueAutorSession from './pages/ShareMusiqueAutorSession'
 import Unauthorized from './pages/Unauthorized'
 import AcceptInvite from './pages/AcceptInvite'
 import Settings from './pages/admin/Settings'
@@ -205,6 +206,12 @@ function AppRoutes() {
       <Route
         path="/share/logistique/:token"
         element={<ShareLogistiqueSession />}
+      />
+      {/* Portail RP autorisations musiques (MUS-7 A3) — lecture-écriture
+          limitée via token, sans compte. */}
+      <Route
+        path="/share/musiques-autor/:token"
+        element={<ShareMusiqueAutorSession />}
       />
       {/* Rendu (loueur) — accès authenticated direct. Même patron
           que /projets/:id/materiel/check/:versionId? mais scope rendu. */}
