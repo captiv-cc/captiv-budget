@@ -51,7 +51,25 @@ export default function AutorisationsView({
   const [rows, setRows] = useState([])
   const [commentCounts, setCommentCounts] = useState(new Map())
   const [loading, setLoading] = useState(true)
-  const [includePropositions, setIncludePropositions] = useState(false)
+  // Par défaut : TOUT ce qui est attribué à un média (retour Hugo : le
+  // filtre inverse vidait la vue à chaque reload). Option persistée pour ne
+  // voir que les choisies/validées.
+  const FILTER_KEY = `musiques.autorOnlyChoisies.${projectId || 'global'}`
+  const [onlyChoisies, setOnlyChoisiesRaw] = useState(() => {
+    try {
+      return localStorage.getItem(FILTER_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setOnlyChoisies = (v) => {
+    setOnlyChoisiesRaw(v)
+    try {
+      localStorage.setItem(FILTER_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
   const [eventsFor, setEventsFor] = useState(null)
 
   const who = useMemo(
@@ -85,7 +103,7 @@ export default function AutorisationsView({
 
   const groups = useMemo(() => {
     const visible = rows.filter((r) =>
-      includePropositions ? true : r.statut_local === 'choix' || r.statut_local === 'valide',
+      onlyChoisies ? r.statut_local === 'choix' || r.statut_local === 'valide' : true,
     )
     const byLivrable = new Map()
     for (const r of visible) {
@@ -102,7 +120,7 @@ export default function AutorisationsView({
       )
     }
     return arr
-  }, [rows, includePropositions])
+  }, [rows, onlyChoisies])
 
   const stats = useMemo(() => {
     const s = { a_lancer: 0, envoyee: 0, accordee: 0, refusee: 0 }
@@ -147,16 +165,16 @@ export default function AutorisationsView({
           Aucune track à autoriser.
         </p>
         <p className="text-xs mt-1.5" style={{ color: 'var(--txt-3)' }}>
-          Les tracks choisies ou validées pour un média (vue Attribution) apparaissent ici.
+          Les tracks attribuées à un média (vue Attribution) apparaissent ici.
         </p>
-        {!includePropositions && rows.length > 0 && (
+        {onlyChoisies && rows.length > 0 && (
           <button
             type="button"
-            onClick={() => setIncludePropositions(true)}
+            onClick={() => setOnlyChoisies(false)}
             className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-md"
             style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
           >
-            Inclure les propositions ({rows.length})
+            Afficher toutes les tracks attribuées ({rows.length})
           </button>
         )}
       </div>
@@ -185,10 +203,10 @@ export default function AutorisationsView({
         >
           <input
             type="checkbox"
-            checked={includePropositions}
-            onChange={(e) => setIncludePropositions(e.target.checked)}
+            checked={onlyChoisies}
+            onChange={(e) => setOnlyChoisies(e.target.checked)}
           />
-          Inclure les propositions non choisies
+          Seulement les choisies / validées
         </label>
       </div>
 
@@ -214,7 +232,19 @@ export default function AutorisationsView({
           </header>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-xs" style={{ minWidth: '860px' }}>
+            {/* table-layout fixed + colgroup : mêmes largeurs sur TOUS les
+                tableaux (retour Hugo : colonnes désalignées entre médias,
+                et l'input décalait tout au clic). */}
+            <table className="w-full text-xs" style={{ minWidth: '960px', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col />
+                <col style={{ width: 120 }} />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 110 }} />
+                <col style={{ width: 180 }} />
+                <col style={{ width: 130 }} />
+                <col style={{ width: 210 }} />
+              </colgroup>
               <thead>
                 <tr
                   className="text-[9px] uppercase tracking-widest"
@@ -285,7 +315,7 @@ function credit(p) {
 // Vide → rien, sauf au survol de la ligne (ghost "+ durée" etc.). Jamais
 // d'input visible tant qu'on n'édite pas (retour Hugo : pas de formulaire).
 
-function EditableCell({ value, ghost, canEdit, onCommit, width = 120, align = 'left' }) {
+function EditableCell({ value, ghost, canEdit, onCommit }) {
   const [editing, setEditing] = useState(false)
 
   if (editing) {
@@ -303,13 +333,8 @@ function EditableCell({ value, ghost, canEdit, onCommit, width = 120, align = 'l
           if (e.key === 'Enter') e.currentTarget.blur()
           if (e.key === 'Escape') setEditing(false)
         }}
-        className="px-1.5 py-0.5 rounded outline-none text-xs"
-        style={{
-          width,
-          background: 'var(--bg)',
-          border: '1px solid var(--blue)',
-          color: 'var(--txt)',
-        }}
+        className="w-full box-border px-1.5 py-0.5 rounded outline-none text-xs"
+        style={{ background: 'var(--bg)', border: '1px solid var(--blue)', color: 'var(--txt)' }}
       />
     )
   }
@@ -318,12 +343,8 @@ function EditableCell({ value, ghost, canEdit, onCommit, width = 120, align = 'l
       <button
         type="button"
         onClick={canEdit ? () => setEditing(true) : undefined}
-        className="text-left truncate max-w-[180px] text-xs"
-        style={{
-          color: 'var(--txt-2)',
-          cursor: canEdit ? 'text' : 'default',
-          textAlign: align,
-        }}
+        className="block w-full text-left truncate text-xs"
+        style={{ color: 'var(--txt-2)', cursor: canEdit ? 'text' : 'default' }}
         title={canEdit ? `${value} — clic pour modifier` : value}
       >
         {value}
@@ -331,11 +352,13 @@ function EditableCell({ value, ghost, canEdit, onCommit, width = 120, align = 'l
     )
   }
   if (!canEdit) return null
+  // Affordance TOUJOURS visible (retour Hugo : les RP découvrent l'outil,
+  // rien ne doit dépendre du survol) — mais en gris léger, pas un input.
   return (
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className="opacity-0 group-hover:opacity-100 text-[10px] transition-opacity"
+      className="text-[10px] opacity-60 hover:opacity-100 transition-opacity"
       style={{ color: 'var(--txt-3)' }}
     >
       + {ghost}
@@ -419,7 +442,7 @@ function MasterCell({ url, canEdit, onCommit }) {
           if (e.key === 'Enter') e.currentTarget.blur()
           if (e.key === 'Escape') setEditing(false)
         }}
-        className="px-1.5 py-0.5 rounded outline-none text-xs w-[220px]"
+        className="w-full box-border px-1.5 py-0.5 rounded outline-none text-xs"
         style={{ background: 'var(--bg)', border: '1px solid var(--blue)', color: 'var(--txt)' }}
       />
     )
@@ -442,7 +465,7 @@ function MasterCell({ url, canEdit, onCommit }) {
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="opacity-0 group-hover:opacity-100 text-[10px] transition-opacity px-0.5"
+            className="opacity-60 hover:opacity-100 text-[10px] transition-opacity px-0.5"
             style={{ color: 'var(--txt-3)' }}
             title="Modifier le lien"
           >
@@ -457,7 +480,7 @@ function MasterCell({ url, canEdit, onCommit }) {
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className="opacity-0 group-hover:opacity-100 text-[10px] transition-opacity"
+      className="text-[10px] opacity-60 hover:opacity-100 transition-opacity"
       style={{ color: 'var(--txt-3)' }}
     >
       + master
@@ -468,23 +491,25 @@ function MasterCell({ url, canEdit, onCommit }) {
 // ─── Chip toggle (Doc signé / Utilisé) ─────────────────────────────────────
 // Visible quand actif ; sinon ghost au survol de la ligne.
 
+// Toujours visibles (les RP découvrent l'outil) : outline gris quand
+// inactif, rempli coloré + ✓ quand actif.
 function ToggleChip({ active, label, color, canEdit, onToggle }) {
   if (!active && !canEdit) return null
   return (
     <button
       type="button"
       onClick={canEdit ? onToggle : undefined}
-      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded transition-opacity ${
-        active ? '' : 'opacity-0 group-hover:opacity-100'
-      }`}
+      className="text-[10px] font-semibold px-2 py-1 rounded-md whitespace-nowrap"
       style={{
-        background: active ? `${color}1a` : 'transparent',
+        background: active ? `${color}22` : 'var(--bg-elev)',
         color: active ? color : 'var(--txt-3)',
-        border: `1px solid ${active ? `${color}55` : 'var(--brd)'}`,
+        border: `1px solid ${active ? `${color}66` : 'var(--brd)'}`,
         cursor: canEdit ? 'pointer' : 'default',
       }}
+      title={active ? 'Clic pour décocher' : 'Clic pour cocher'}
     >
       {label}
+      {active ? ' ✓' : ''}
     </button>
   )
 }
@@ -583,14 +608,14 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
         <div className="flex items-center gap-1.5 justify-end">
           <ToggleChip
             active={Boolean(a?.doc_signe)}
-            label={a?.doc_signe ? 'Doc signé ✓' : 'Doc signé'}
+            label="Doc signé"
             color="#22c55e"
             canEdit={canEdit}
             onToggle={() => onPatch({ doc_signe: !a?.doc_signe })}
           />
           <ToggleChip
             active={Boolean(a?.utilise)}
-            label={a?.utilise ? 'Utilisé ✓' : 'Utilisé'}
+            label="Utilisé"
             color="#a78bfa"
             canEdit={canEdit}
             onToggle={() => onPatch({ utilise: !a?.utilise })}
@@ -598,12 +623,11 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
           <button
             type="button"
             onClick={onOpenEvents}
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-opacity ${
-              commentCount > 0 ? '' : 'opacity-0 group-hover:opacity-100'
-            }`}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md"
             style={{
               color: commentCount > 0 ? 'var(--blue)' : 'var(--txt-3)',
-              background: commentCount > 0 ? 'var(--blue-bg)' : 'transparent',
+              background: commentCount > 0 ? 'var(--blue-bg)' : 'var(--bg-elev)',
+              border: `1px solid ${commentCount > 0 ? 'var(--blue)' : 'var(--brd)'}`,
             }}
             title="Commentaires & historique"
           >
