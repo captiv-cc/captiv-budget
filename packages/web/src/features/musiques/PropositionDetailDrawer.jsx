@@ -44,6 +44,7 @@ import {
   Plus as PlusIcon,
   CalendarClock,
   MapPin,
+  Link2,
 } from 'lucide-react'
 import {
   updateProposition,
@@ -66,7 +67,8 @@ import {
 } from '../../lib/musiques'
 import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 import { getDeezerTrack } from '../../lib/musiqueSearch'
-import { fetchCreneauxByArtiste } from '../../lib/projetArtistes'
+import { fetchCreneauxByArtiste, listArtistes } from '../../lib/projetArtistes'
+import { getPreviewVolume } from '../../lib/previewVolume'
 import { formatMinHHMM } from '../../lib/deroule'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
@@ -93,6 +95,16 @@ export default function PropositionDetailDrawer({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // MUS-FEAT : rattachement manuel à un artiste de l'annuaire (cas des
+  // feats — l'artiste principal du track n'est pas dans la programmation).
+  const [artistePickOpen, setArtistePickOpen] = useState(false)
+  const [artisteQuery, setArtisteQuery] = useState('')
+  const [annuaire, setAnnuaire] = useState(null) // null = pas encore chargé
+
+  // MUS-BPM : édition manuelle du tempo (la détection auto sur preview 30s
+  // n'est pas fiable — source 'manual' prioritaire, jamais écrasée).
+  const [editingBpm, setEditingBpm] = useState(false)
 
   // Commentaires
   const [comments, setComments] = useState([])
@@ -207,6 +219,13 @@ export default function PropositionDetailDrawer({
     [audioEl],
   )
 
+  // Reset des éditions ponctuelles quand on change de proposition
+  useEffect(() => {
+    setArtistePickOpen(false)
+    setArtisteQuery('')
+    setEditingBpm(false)
+  }, [proposition?.id])
+
   if (!open || !proposition) return null
 
   const p = proposition
@@ -243,6 +262,54 @@ export default function PropositionDetailDrawer({
       notify.error(e?.message || 'Erreur sauvegarde')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // MUS-FEAT : ouvre le picker annuaire (charge la liste au 1er coup)
+  async function toggleArtistePicker() {
+    const next = !artistePickOpen
+    setArtistePickOpen(next)
+    if (next && annuaire === null && projectId) {
+      try {
+        setAnnuaire(await listArtistes(projectId))
+      } catch (e) {
+        console.warn('[Drawer] listArtistes', e)
+        setAnnuaire([])
+      }
+    }
+  }
+
+  // Rattache (ou détache si a=null) la proposition à un artiste annuaire.
+  // Cas d'usage : track "X feat. ArtisteProgrammé" — le lien auto sur
+  // l'artiste principal échoue, on choisit l'artiste programmé à la main.
+  async function handleLinkArtiste(a) {
+    setSaving(true)
+    try {
+      await updateProposition(p.id, { artiste_id: a ? a.id : null })
+      onMutated?.()
+      setArtistePickOpen(false)
+      setArtisteQuery('')
+    } catch (e) {
+      notify.error(e?.message || 'Erreur rattachement artiste')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // MUS-BPM : commit du tempo saisi à la main (source 'manual' — la
+  // détection auto ne repasse jamais dessus car tempo > 0).
+  async function commitBpm(raw) {
+    setEditingBpm(false)
+    const n = Math.round(parseFloat(raw))
+    const current = p.audio_features?.tempo > 0 ? Math.round(p.audio_features.tempo) : null
+    if (!Number.isFinite(n) || n < 40 || n > 250 || n === current) return
+    try {
+      await updateProposition(p.id, {
+        audio_features: { ...(p.audio_features || {}), tempo: n, source: 'manual' },
+      })
+      onMutated?.()
+    } catch (e) {
+      notify.error(e?.message || 'Erreur sauvegarde BPM')
     }
   }
 
@@ -288,7 +355,7 @@ export default function PropositionDetailDrawer({
     let audio = null
     const tryPlay = (u) => {
       const a = new Audio(u)
-      a.volume = 0.7
+      a.volume = getPreviewVolume()
       a.addEventListener('ended', () => setIsPlaying(false))
       return { a, pp: a.play() }
     }
@@ -549,21 +616,150 @@ export default function PropositionDetailDrawer({
                   fontWeight: 500,
                 }}
               />
-              <input
-                type="text"
-                value={artisteValue}
-                onChange={(e) => setField('artiste_text', e.target.value)}
-                onBlur={() => commitField('artiste_text')}
-                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                disabled={!canEdit || saving || Boolean(p.artiste?.nom)}
-                placeholder="Artiste"
-                title={
-                  p.artiste?.nom
-                    ? 'Lié à l\'annuaire — clic = supprime le lien pour saisir libre'
-                    : 'Artiste'
-                }
-                style={inputStyleCompact()}
-              />
+              <div style={{ position: 'relative', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={artisteValue}
+                  onChange={(e) => setField('artiste_text', e.target.value)}
+                  onBlur={() => commitField('artiste_text')}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                  disabled={!canEdit || saving || Boolean(p.artiste?.nom)}
+                  placeholder="Artiste"
+                  title={p.artiste?.nom ? 'Lié à l\'annuaire' : 'Artiste (texte libre)'}
+                  style={{ ...inputStyleCompact(), flex: 1 }}
+                />
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={toggleArtistePicker}
+                    disabled={saving}
+                    title={
+                      p.artiste?.nom
+                        ? `Lié à ${p.artiste.nom} — changer ou délier`
+                        : "Lier à un artiste de l'annuaire (cas des feats : le son apparaît alors sur son jour)"
+                    }
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      background: p.artiste?.nom ? 'rgba(59,130,246,0.12)' : 'var(--bg-elev)',
+                      color: p.artiste?.nom ? 'var(--blue, #3B82F6)' : 'var(--txt-3)',
+                      border: `1px solid ${p.artiste?.nom ? 'rgba(59,130,246,0.4)' : 'var(--brd)'}`,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Link2 size={11} />
+                    {p.artiste?.nom ? 'Lié' : 'Lier'}
+                  </button>
+                )}
+                {artistePickOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: 4,
+                      zIndex: 30,
+                      width: 260,
+                      maxHeight: 260,
+                      overflowY: 'auto',
+                      background: 'var(--bg-surf)',
+                      border: '1px solid var(--brd)',
+                      borderRadius: 8,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                      padding: 6,
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      value={artisteQuery}
+                      onChange={(e) => setArtisteQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setArtistePickOpen(false)}
+                      placeholder="Chercher un artiste…"
+                      style={{ ...inputStyleCompact(), width: '100%', marginBottom: 6 }}
+                    />
+                    {p.artiste?.nom && (
+                      <button
+                        type="button"
+                        onClick={() => handleLinkArtiste(null)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          fontSize: 11,
+                          padding: '5px 8px',
+                          borderRadius: 6,
+                          color: 'var(--red, #ef4444)',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Délier de {p.artiste.nom}
+                      </button>
+                    )}
+                    {annuaire === null ? (
+                      <p style={{ fontSize: 11, color: 'var(--txt-3)', padding: '5px 8px' }}>
+                        Chargement…
+                      </p>
+                    ) : (
+                      (annuaire || [])
+                        .filter(
+                          (a) =>
+                            !artisteQuery.trim() ||
+                            (a.nom || '')
+                              .toLowerCase()
+                              .includes(artisteQuery.trim().toLowerCase()),
+                        )
+                        .slice(0, 30)
+                        .map((a) => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => handleLinkArtiste(a)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              width: '100%',
+                              textAlign: 'left',
+                              fontSize: 12,
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              color: 'var(--txt)',
+                              background:
+                                a.id === p.artiste_id ? 'rgba(59,130,246,0.12)' : 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = 'var(--bg-hov)')
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background =
+                                a.id === p.artiste_id ? 'rgba(59,130,246,0.12)' : 'transparent')
+                            }
+                          >
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {a.nom}
+                            </span>
+                            {a.jour && (
+                              <span style={{ fontSize: 10, color: 'var(--txt-3)', flexShrink: 0 }}>
+                                {a.jour}
+                              </span>
+                            )}
+                          </button>
+                        ))
+                    )}
+                  </div>
+                )}
+              </div>
               <InlineMetaChips
                 bpm={bpm}
                 durationMs={p.duration_ms}
@@ -571,7 +767,25 @@ export default function PropositionDetailDrawer({
                 source={p.audio_features?.source}
                 jour={p.artiste?.jour}
                 scene={p.artiste?.scene}
+                onEditBpm={canEdit ? () => setEditingBpm(true) : null}
               />
+              {editingBpm && (
+                <input
+                  autoFocus
+                  type="number"
+                  min="40"
+                  max="250"
+                  defaultValue={bpm || ''}
+                  placeholder="BPM"
+                  onBlur={(e) => commitBpm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur()
+                    if (e.key === 'Escape') setEditingBpm(false)
+                  }}
+                  style={{ ...inputStyleCompact(), width: 90 }}
+                  title="Tempo corrigé à la main (prioritaire sur la détection auto)"
+                />
+              )}
             </div>
           </div>
 
@@ -1078,7 +1292,7 @@ export default function PropositionDetailDrawer({
 // sous l'artiste, au même niveau que le badge "Joue Vendredi". Le tag
 // de provenance (Deezer / client-detected) est dégradé en tooltip sur
 // la pill BPM. Aucune chip = aucun rendu (placeholder discret).
-function InlineMetaChips({ bpm, durationMs, loudness, source, jour, scene }) {
+function InlineMetaChips({ bpm, durationMs, loudness, source, jour, scene, onEditBpm }) {
   const items = []
   if (jour) {
     items.push(
@@ -1100,28 +1314,32 @@ function InlineMetaChips({ bpm, durationMs, loudness, source, jour, scene }) {
       </span>,
     )
   }
-  if (bpm) {
+  if (bpm || onEditBpm) {
     items.push(
       <span
         key="bpm"
+        onClick={onEditBpm || undefined}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 3,
           fontSize: 11,
           padding: '1px 6px',
-          background: 'rgba(245,158,11,0.15)',
-          color: '#D97706',
+          background: bpm ? 'rgba(245,158,11,0.15)' : 'var(--bg-elev)',
+          color: bpm ? '#D97706' : 'var(--txt-3)',
           borderRadius: 6,
           fontWeight: 500,
+          cursor: onEditBpm ? 'pointer' : 'default',
         }}
         title={
-          source
-            ? `Tempo : ${bpm} BPM (source ${source})`
-            : `Tempo : ${bpm} BPM`
+          (bpm
+            ? source
+              ? `Tempo : ${bpm} BPM (source ${source === 'manual' ? 'saisie manuelle' : source})`
+              : `Tempo : ${bpm} BPM`
+            : 'Tempo inconnu') + (onEditBpm ? ' — clic pour corriger' : '')
         }
       >
-        {bpm} BPM
+        {bpm ? `${bpm} BPM` : 'BPM ?'}
       </span>,
     )
   }
