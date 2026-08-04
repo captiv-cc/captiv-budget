@@ -4,6 +4,25 @@
 > **Date d'ouverture** : 2026-06-09
 > **Owner** : Hugo MARTIN
 
+## Nouveaux inputs Hugo (2026-08-04)
+
+Précision majeure sur QUI opère le tunnel : ce ne sont pas (que) les clients —
+ce sont les **chargés de comm / RP du festival** qui lancent les demandes
+d'autorisation auprès des artistes/labels, mettent à jour le suivi et
+commentent. Il faut donc une **page qui leur est accessible** (externe à
+l'équipe Captiv), probablement un lien token en lecture-ÉCRITURE limitée
+(pattern share_creneau_set_statut du déroulé).
+
+Référence produit : le tableur de suivi utilisé sur V and B Fest' 2025
+(colonnes : ARTISTE / TITRE / LIEN / jour / média / DURÉE / REMARQUES /
+UTILISÉ ? / AUTOR ? (OUI · EN COURS · NON) / DOC SIGNÉ / COMMENTAIRE /
+MASTER — groupé par séquence du film, sous un bandeau média « AFTERMOVIE »).
+
+Deuxième besoin : **partage en lecture configurable par lien** — au choix,
+les musiques *choisies*, *proposées* ou *validées* pour **chaque média**
+(= statut_local des links par livrable). Pattern multi-tokens avec config
+par lien (comme logistique_share_tokens).
+
 ## Contexte
 
 Le module Musiques se découpe en plusieurs phases successives :
