@@ -80,6 +80,7 @@ import PropositionRow from '../../features/musiques/PropositionRow'
 import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDrawer'
 import AttributionView from '../../features/musiques/AttributionView'
 import LivrablesView from '../../features/musiques/LivrablesView'
+import AutorisationsView from '../../features/musiques/AutorisationsView'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 
@@ -121,13 +122,14 @@ export default function MusiquesTab() {
   //   vrac        → liste des propositions (ex 'list')
   //   attribution → vue split vrac ↔ livrables (Kanban léger)
   //   livrables   → détail par livrable avec 3 sections (proposition/choix/valide)
-  //   autorisations → futur tunnel validation client + droits/labels (disabled)
+  //   autorisations → suivi des autorisations par track × média (MUS-7 A2)
   // Anciens 'list', 'pipeline', 'dashboard' migrés automatiquement à 'vrac'.
   const VIEW_KEY = `musiques.view.${projectId || 'global'}`
   const [viewMode, setViewModeRaw] = useState(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY)
-      if (v === 'attribution' || v === 'livrables' || v === 'annuaire') return v
+      if (v === 'attribution' || v === 'livrables' || v === 'annuaire' || v === 'autorisations')
+        return v
       return 'vrac'
     } catch {
       return 'vrac'
@@ -855,11 +857,10 @@ export default function MusiquesTab() {
           onClick={() => setViewMode('livrables')}
         />
         <ViewToggle
-          active={false}
+          active={viewMode === 'autorisations'}
           icon={ShieldCheck}
           label="Autorisations"
-          disabled
-          badge="à venir"
+          onClick={() => setViewMode('autorisations')}
         />
         {/* Volume global des previews (retour Hugo : baisser le son en visio) */}
         <label
@@ -1250,6 +1251,16 @@ export default function MusiquesTab() {
             refetch()
           }}
           onOpenDetail={(p) => setDetailPropId(p.id)}
+        />
+      )}
+
+      {/* ─── Autorisations view (MUS-7 A2) ───────────────────────────── */}
+      {!loading && viewMode === 'autorisations' && (
+        <AutorisationsView
+          projectId={projectId}
+          canEdit={canEdit}
+          playingId={playingId}
+          onTogglePlay={togglePlay}
         />
       )}
 
