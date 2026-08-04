@@ -145,7 +145,7 @@ export default function AttributionView({
     const q = vracSearch.trim().toLowerCase()
     const filtered = propositions.filter((p) => {
       if (q) {
-        const artist = (p.artiste?.nom || p.artiste_text || '').toLowerCase()
+        const artist = `${p.artiste_text || ''} ${p.artiste?.nom || ''}`.toLowerCase()
         const title = (p.titre || '').toLowerCase()
         if (!artist.includes(q) && !title.includes(q)) return false
       }
@@ -153,7 +153,7 @@ export default function AttributionView({
     })
     const sorted = [...filtered]
     const artistName = (p) =>
-      (p.artiste?.nom || p.artiste_text || '').toLowerCase()
+      (p.artiste_text || p.artiste?.nom || '').toLowerCase()
     switch (vracSort) {
       case 'note_desc':
         sorted.sort((a, b) => {
@@ -648,7 +648,7 @@ function VracItem({
   onClick,
 }) {
   const agg = aggregate || { noteAvg: null, noteCount: 0 }
-  const artistName = p.artiste?.nom || p.artiste_text || '—'
+  const artistName = p.artiste_text || p.artiste?.nom || '—'
   return (
     <div
       draggable={canEdit}
@@ -1273,7 +1273,7 @@ function LivrableColumn({
           links.map((lk) => {
             const p = propositionsById.get(lk.proposition_id)
             if (!p) return null
-            const artistName = p.artiste?.nom || p.artiste_text || '—'
+            const artistName = p.artiste_text || p.artiste?.nom || '—'
             const palette = STATUT_LOCAL_COLORS[lk.statut_local] || {
               bg: 'var(--bg-surf)',
               fg: 'var(--txt-3)',

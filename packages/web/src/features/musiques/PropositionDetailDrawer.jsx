@@ -229,7 +229,9 @@ export default function PropositionDetailDrawer({
   if (!open || !proposition) return null
 
   const p = proposition
-  const artistName = p.artiste?.nom || draft.artiste_text || p.artiste_text || '—'
+  // Crédit d'origine (artiste_text) prioritaire — le lien annuaire ne
+  // renomme jamais le track (retour Hugo : fausse les demandes d'autor).
+  const artistName = draft.artiste_text || p.artiste_text || p.artiste?.nom || '—'
 
   // Patch helper : update local draft + persistance lazy via commitField
   const setField = (field, value) => setDraft((d) => ({ ...d, [field]: value }))
@@ -416,7 +418,7 @@ export default function PropositionDetailDrawer({
   const artisteValue =
     draft.artiste_text !== undefined
       ? draft.artiste_text
-      : p.artiste?.nom || p.artiste_text || ''
+      : p.artiste_text || p.artiste?.nom || ''
   const bpm =
     p.audio_features?.tempo > 0 ? Math.round(p.audio_features.tempo) : null
 
@@ -623,9 +625,9 @@ export default function PropositionDetailDrawer({
                   onChange={(e) => setField('artiste_text', e.target.value)}
                   onBlur={() => commitField('artiste_text')}
                   onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                  disabled={!canEdit || saving || Boolean(p.artiste?.nom)}
+                  disabled={!canEdit || saving}
                   placeholder="Artiste"
-                  title={p.artiste?.nom ? 'Lié à l\'annuaire' : 'Artiste (texte libre)'}
+                  title="Crédit du track (tel qu'il apparaît sur les demandes d'autorisation) — le lien annuaire ne le modifie pas"
                   style={{ ...inputStyleCompact(), flex: 1 }}
                 />
                 {canEdit && (

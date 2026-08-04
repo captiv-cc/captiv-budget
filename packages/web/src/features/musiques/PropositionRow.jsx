@@ -208,7 +208,9 @@ export default function PropositionRow({
     myNote: null,
     tags: [],
   }
-  const artistName = p.artiste?.nom || p.artiste_text || '—'
+  // artiste_text D'ABORD : le crédit d'origine du track (ex "X feat. Y") — le
+  // lien annuaire ne sert qu'au jour/scène, il ne renomme pas le titre.
+  const artistName = p.artiste_text || p.artiste?.nom || '—'
 
   // Handler vote
   async function handleSetNote(value) {

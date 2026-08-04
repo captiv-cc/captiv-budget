@@ -596,7 +596,7 @@ function LinkItem({
   const [remarque, setRemarque] = useState(link.remarque || '')
   const [busy, setBusy] = useState(false)
   const agg = aggregate || { noteAvg: null, noteCount: 0, commentCount: 0 }
-  const artistName = p.artiste?.nom || p.artiste_text || '—'
+  const artistName = p.artiste_text || p.artiste?.nom || '—'
   const bpm = p.audio_features?.tempo > 0 ? Math.round(p.audio_features.tempo) : null
 
   async function handleSaveRemarque() {

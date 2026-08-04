@@ -743,7 +743,7 @@ function DuplicateWarning({ warning, onCancel, busy }) {
             }}
           >
             <span style={{ flex: 1 }}>
-              {p.artiste?.nom || p.artiste_text || '—'} · {p.titre}
+              {p.artiste_text || p.artiste?.nom || '—'} · {p.titre}
             </span>
             {p.created_at && (
               <span style={{ fontSize: 10, color: 'var(--txt-3)' }}>

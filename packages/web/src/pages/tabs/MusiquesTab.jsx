@@ -414,7 +414,7 @@ export default function MusiquesTab() {
       (p) =>
         !p.lien_youtube &&
         !ytFetchedRef.current.has(p.id) &&
-        (p.artiste?.nom || p.artiste_text) &&
+        (p.artiste_text || p.artiste?.nom) &&
         p.titre,
     )
     if (missing.length === 0) return undefined
@@ -423,7 +423,7 @@ export default function MusiquesTab() {
       for (const p of missing) {
         if (cancelled) break
         ytFetchedRef.current.add(p.id)
-        const artistName = p.artiste?.nom || p.artiste_text
+        const artistName = p.artiste_text || p.artiste?.nom
         try {
           const match = await findYouTubeForTrack(artistName, p.titre)
           if (cancelled) break
@@ -463,7 +463,7 @@ export default function MusiquesTab() {
         if (!ptags.some((t) => t.tag === filterTag)) return false
       }
       if (s) {
-        const artist = (p.artiste?.nom || p.artiste_text || '').toLowerCase()
+        const artist = `${p.artiste_text || ''} ${p.artiste?.nom || ''}`.toLowerCase()
         const title = (p.titre || '').toLowerCase()
         if (!artist.includes(s) && !title.includes(s)) return false
       }
@@ -1421,7 +1421,7 @@ function groupPropositions(list, groupBy) {
 function groupKeyLabel(p, groupBy) {
   switch (groupBy) {
     case 'artiste': {
-      const nom = p.artiste?.nom || p.artiste_text || ''
+      const nom = p.artiste_text || p.artiste?.nom || ''
       if (!nom) return { key: '_none', label: 'Sans artiste' }
       return { key: `art:${nom.toLowerCase()}`, label: nom }
     }
@@ -1753,7 +1753,7 @@ function sortPropositions(list, mode, aggregates) {
       noteCount: 0,
       commentCount: 0,
     }
-  const artistName = (p) => p.artiste?.nom || p.artiste_text || '~'
+  const artistName = (p) => p.artiste_text || p.artiste?.nom || '~'
   const bpm = (p) => p.audio_features?.tempo || 0
   switch (mode) {
     case 'manual':
