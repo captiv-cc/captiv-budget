@@ -21,8 +21,10 @@ import {
   MessageCircle,
   Pause,
   Play,
+  Search,
   Send,
   X,
+  Youtube,
 } from 'lucide-react'
 import {
   AUTOR_STATUTS,
@@ -35,10 +37,20 @@ export function credit(p) {
 }
 
 /** Groupe les rows (links enrichis) par média, dans l'ordre des livrables. */
-export function groupAutorRows(rows, { onlyChoisies = false } = {}) {
-  const visible = rows.filter((r) =>
-    onlyChoisies ? r.statut_local === 'choix' || r.statut_local === 'valide' : true,
-  )
+export function groupAutorRows(
+  rows,
+  { onlyChoisies = false, statutFilter = null, search = '' } = {},
+) {
+  const q = search.trim().toLowerCase()
+  const visible = rows.filter((r) => {
+    if (onlyChoisies && !(r.statut_local === 'choix' || r.statut_local === 'valide')) return false
+    if (statutFilter && (r.autorisation?.statut || 'a_lancer') !== statutFilter) return false
+    if (q) {
+      const hay = `${credit(r.proposition)} ${r.proposition?.titre || ''}`.toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    return true
+  })
   const byLivrable = new Map()
   for (const r of visible) {
     if (!byLivrable.has(r.livrable_id)) {
@@ -69,24 +81,53 @@ export function computeAutorStats(groups) {
   return s
 }
 
-/** Barre de compteurs par statut (masque les zéros). */
-export function AutorStatsBar({ stats, children }) {
+/** Barre de compteurs par statut (masque les zéros). Cliquables quand
+    onFilter est fourni : clic = filtre le tableau sur ce statut, re-clic
+    = tout afficher. */
+export function AutorStatsBar({ stats, activeFilter = null, onFilter, children }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap">
-      {AUTOR_STATUTS.map((s) =>
-        stats[s] > 0 ? (
-          <span
+    <div className="flex items-center gap-2 flex-wrap">
+      {AUTOR_STATUTS.map((s) => {
+        if (stats[s] === 0) return null
+        const active = activeFilter === s
+        return (
+          <button
             key={s}
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
-            style={{ color: AUTOR_STATUT_COLORS[s] }}
+            type="button"
+            onClick={onFilter ? () => onFilter(active ? null : s) : undefined}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+            style={{
+              color: AUTOR_STATUT_COLORS[s],
+              background: active ? `${AUTOR_STATUT_COLORS[s]}22` : 'transparent',
+              border: `1px solid ${active ? `${AUTOR_STATUT_COLORS[s]}66` : 'transparent'}`,
+              cursor: onFilter ? 'pointer' : 'default',
+            }}
+            title={onFilter ? (active ? 'Tout afficher' : 'Filtrer sur ce statut') : undefined}
           >
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: AUTOR_STATUT_COLORS[s] }} />
             {stats[s]} {AUTOR_STATUT_LABELS[s].toLowerCase()}
-          </span>
-        ) : null,
-      )}
+          </button>
+        )
+      })}
       {children}
     </div>
+  )
+}
+
+/** Recherche artiste / titre (partagée desk + portail). */
+export function AutorSearchInput({ value, onChange }) {
+  return (
+    <span className="relative inline-flex items-center">
+      <Search className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: 'var(--txt-3)' }} />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Artiste, titre…"
+        className="pl-6 pr-2 py-1 rounded-md text-xs outline-none w-[180px]"
+        style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
+      />
+    </span>
   )
 }
 
@@ -436,6 +477,18 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
                 <Play size={10} fill="#FF6E37" style={{ color: '#FF6E37', marginLeft: 1 }} />
               )}
             </button>
+          )}
+          {p?.lien_youtube && (
+            <a
+              href={p.lien_youtube}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0"
+              style={{ color: 'var(--txt-3)' }}
+              title="Ouvrir sur YouTube"
+            >
+              <Youtube className="w-3.5 h-3.5" />
+            </a>
           )}
           <span className="truncate">
             <span className="font-semibold" style={{ color: 'var(--txt)' }}>

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AlertCircle, Loader2, Pencil, ShieldCheck } from 'lucide-react'
 import AutorisationsTable, {
+  AutorSearchInput,
   AutorStatsBar,
   EventsPanel,
   computeAutorStats,
@@ -62,6 +63,8 @@ export default function ShareMusiqueAutorSession() {
 
   const [eventsLinkId, setEventsLinkId] = useState(null)
   const [posting, setPosting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statutFilter, setStatutFilter] = useState(null)
 
   const reload = useCallback(
     async (silent = false) => {
@@ -81,6 +84,15 @@ export default function ShareMusiqueAutorSession() {
 
   useEffect(() => {
     reload()
+  }, [reload])
+
+  // Refetch silencieux : les modifs des autres RP / de l'équipe arrivent
+  // sans recharger la page (pas de realtime anon sur ces tables).
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') reload(true)
+    }, 30000)
+    return () => clearInterval(t)
   }, [reload])
 
   // Thème clair/sombre — même clé que les autres pages share.
@@ -110,8 +122,13 @@ export default function ShareMusiqueAutorSession() {
 
   const links = useMemo(() => payload?.links || [], [payload])
   const events = useMemo(() => payload?.events || [], [payload])
-  const groups = useMemo(() => groupAutorRows(links), [links])
-  const stats = useMemo(() => computeAutorStats(groups), [groups])
+  // Stats sur l'ensemble (hors filtre statut) — le tableau applique le filtre.
+  const baseGroups = useMemo(() => groupAutorRows(links, { search }), [links, search])
+  const stats = useMemo(() => computeAutorStats(baseGroups), [baseGroups])
+  const groups = useMemo(
+    () => groupAutorRows(links, { search, statutFilter }),
+    [links, search, statutFilter],
+  )
   const commentCounts = useMemo(() => {
     const map = new Map()
     for (const e of events) {
@@ -269,17 +286,20 @@ export default function ShareMusiqueAutorSession() {
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <AutorStatsBar stats={stats} />
-          <button
-            type="button"
-            onClick={() => setEditingName(true)}
-            className="ml-auto inline-flex items-center gap-1.5 text-[11px]"
-            style={{ color: 'var(--txt-3)' }}
-            title="Changer de prénom"
-          >
-            Connecté : <b style={{ color: 'var(--txt-2)' }}>{rpName}</b>
-            <Pencil className="w-3 h-3" />
-          </button>
+          <AutorStatsBar stats={stats} activeFilter={statutFilter} onFilter={setStatutFilter} />
+          <span className="ml-auto flex items-center gap-3">
+            <AutorSearchInput value={search} onChange={setSearch} />
+            <button
+              type="button"
+              onClick={() => setEditingName(true)}
+              className="inline-flex items-center gap-1.5 text-[11px]"
+              style={{ color: 'var(--txt-3)' }}
+              title="Changer de prénom"
+            >
+              Connecté : <b style={{ color: 'var(--txt-2)' }}>{rpName}</b>
+              <Pencil className="w-3 h-3" />
+            </button>
+          </span>
         </div>
 
         <div className="mt-3 flex flex-col gap-3">

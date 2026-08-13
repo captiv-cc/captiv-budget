@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Share2, ShieldCheck } from 'lucide-react'
 import AutorisationsTable, {
+  AutorSearchInput,
   AutorStatsBar,
   EventsPanel,
   computeAutorStats,
@@ -42,6 +43,8 @@ export default function AutorisationsView({
   // Fil ouvert : { row, autor, events } — events rechargés à l'ouverture
   const [eventsFor, setEventsFor] = useState(null)
   const [posting, setPosting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statutFilter, setStatutFilter] = useState(null)
 
   // Par défaut : TOUTES les tracks attribuées à un média. Option persistée
   // pour ne voir que les choisies/validées.
@@ -91,8 +94,16 @@ export default function AutorisationsView({
     return unsub
   }, [projectId, reload])
 
-  const groups = useMemo(() => groupAutorRows(rows, { onlyChoisies }), [rows, onlyChoisies])
-  const stats = useMemo(() => computeAutorStats(groups), [groups])
+  // Stats sur l'ensemble (hors filtre statut) — le tableau applique le filtre.
+  const baseGroups = useMemo(
+    () => groupAutorRows(rows, { onlyChoisies, search }),
+    [rows, onlyChoisies, search],
+  )
+  const stats = useMemo(() => computeAutorStats(baseGroups), [baseGroups])
+  const groups = useMemo(
+    () => groupAutorRows(rows, { onlyChoisies, search, statutFilter }),
+    [rows, onlyChoisies, search, statutFilter],
+  )
 
   const handlePatch = useCallback(
     async (row, patch) => {
@@ -186,8 +197,9 @@ export default function AutorisationsView({
   return (
     <div className="px-5 pb-8 flex flex-col gap-3">
       <div className="flex items-center gap-3 flex-wrap pt-3">
-        <AutorStatsBar stats={stats} />
+        <AutorStatsBar stats={stats} activeFilter={statutFilter} onFilter={setStatutFilter} />
         <span className="ml-auto flex items-center gap-3">
+          <AutorSearchInput value={search} onChange={setSearch} />
           <label
             className="flex items-center gap-1.5 text-[11px] cursor-pointer select-none"
             style={{ color: 'var(--txt-3)' }}
