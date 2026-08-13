@@ -70,7 +70,7 @@ BEGIN
         WHEN 'accordee' THEN 'Autorisé'
         WHEN 'refusee'  THEN 'Refusé'
         ELSE NEW.body
-      END || ' » — ' || COALESCE(v_track, '') ||
+      END || ' » sur ' || COALESCE(v_track, '') ||
       COALESCE(' (' || v_media || ')', '');
   ELSE
     v_action := v_actor || ' a commenté ' || COALESCE(v_track, '') ||
@@ -98,7 +98,7 @@ BEGIN
     IF v_existing.id IS NOT NULL THEN
       v_count := v_existing.cnt + 1;
       UPDATE notifications
-         SET corps = v_count || ' mises à jour RP — dernière : ' || v_action,
+         SET corps = v_count || ' mises à jour RP, dernière : ' || v_action,
              data = jsonb_set(COALESCE(data, '{}'::jsonb), '{count}', to_jsonb(v_count)),
              created_at = now()
        WHERE id = v_existing.id;

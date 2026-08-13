@@ -164,7 +164,7 @@ export default function MusiqueAutorShareModal({ open, onClose, projectId }) {
               Partager aux RP
             </h2>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Le porteur du lien met à jour le suivi des autorisations — sans compte.
+              Le porteur du lien met à jour le suivi des autorisations, sans compte.
             </p>
           </div>
           <button
@@ -194,7 +194,7 @@ export default function MusiqueAutorShareModal({ open, onClose, projectId }) {
                   type="text"
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder='Ex : "Marie — comm festival"'
+                  placeholder='Ex : "Marie (comm festival)"'
                   maxLength={80}
                   className="input text-sm h-9 w-full"
                 />

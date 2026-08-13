@@ -248,7 +248,7 @@ function EditableCell({ value, ghost, canEdit, onCommit }) {
         onClick={canEdit ? () => setEditing(true) : undefined}
         className="block w-full text-left truncate text-xs"
         style={{ color: 'var(--txt-2)', cursor: canEdit ? 'text' : 'default' }}
-        title={canEdit ? `${value} — clic pour modifier` : value}
+        title={canEdit ? `${value} (clic pour modifier)` : value}
       >
         {value}
       </button>
@@ -629,7 +629,7 @@ export function EventsPanel({ row, events, canEdit, posting = false, onPost, onC
               if (e.kind === 'statut') {
                 return (
                   <p key={e.id} className="text-[10px] text-center" style={{ color: 'var(--txt-3)' }}>
-                    {date} — {author} : statut →{' '}
+                    {date} · {author} : statut{' '}
                     <b style={{ color: AUTOR_STATUT_COLORS[e.body] || 'var(--txt-2)' }}>
                       {AUTOR_STATUT_LABELS[e.body] || e.body}
                     </b>
