@@ -280,8 +280,8 @@ export default function ShareMusiqueAutorSession() {
           className="mt-5 rounded-xl px-4 py-3 text-xs leading-relaxed"
           style={{ background: 'rgba(255,110,55,0.07)', border: '1px solid rgba(255,110,55,0.25)', color: 'var(--txt-2)' }}
         >
-          Clique sur une valeur pour la modifier, sur la bulle 💬 pour échanger avec
-          l&apos;équipe. Tout s&apos;enregistre automatiquement.
+          Clique sur une valeur pour la modifier, sur la bulle 💬 pour ajouter
+          commentaires et remarques. Tout s&apos;enregistre automatiquement.
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
