@@ -204,12 +204,11 @@ export default function ShareMusiqueAutorSession() {
           <h1 className="text-lg font-bold mb-1" style={{ color: 'var(--txt)' }}>
             Autorisations musiques
           </h1>
-          <p className="text-sm mb-1" style={{ color: 'var(--txt-2)' }}>
+          <p className="text-sm mb-4" style={{ color: 'var(--txt-2)' }}>
             {project.title}
           </p>
-          <p className="text-xs leading-relaxed mb-5" style={{ color: 'var(--txt-3)' }}>
-            Indique ton prénom : il signera tes mises à jour et tes commentaires,
-            pour que l&apos;équipe sache qui a fait quoi.
+          <p className="text-xs mb-3" style={{ color: 'var(--txt-3)' }}>
+            Ton prénom signera tes modifications.
           </p>
           <form
             onSubmit={(e) => {
@@ -259,16 +258,14 @@ export default function ShareMusiqueAutorSession() {
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
 
-        {/* Mode d'emploi — les RP découvrent l'outil */}
+        {/* Mode d'emploi minimal */}
         <div
           className="mt-5 rounded-xl px-4 py-3 text-xs leading-relaxed"
           style={{ background: 'rgba(255,110,55,0.07)', border: '1px solid rgba(255,110,55,0.25)', color: 'var(--txt-2)' }}
         >
-          Pour chaque titre : lance la demande auprès de l&apos;artiste ou du label,
-          puis tiens le statut à jour (<b>À lancer → En cours → Autorisé / Refusé</b>).
-          Renseigne le contact, coche <b>Doc signé</b> quand le document est reçu, colle le
-          lien du <b>master</b> (bonne qualité), et utilise la bulle 💬 pour échanger avec
-          l&apos;équipe. Tout est enregistré automatiquement.
+          Mets à jour le statut de chaque titre, le contact label, <b>Doc signé</b> et le
+          lien du <b>master</b>. La bulle 💬 sert à échanger avec l&apos;équipe — tout
+          s&apos;enregistre automatiquement.
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">

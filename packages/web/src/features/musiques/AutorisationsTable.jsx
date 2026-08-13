@@ -13,6 +13,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Check,
   ExternalLink,
@@ -30,7 +31,7 @@ import {
 } from '../../lib/musiqueAutorisations'
 
 export function credit(p) {
-  return p?.artiste_text || p?.artiste?.nom || '—'
+  return p?.artiste_text || p?.artiste?.nom || ''
 }
 
 /** Groupe les rows (links enrichis) par média, dans l'ordre des livrables. */
@@ -226,14 +227,30 @@ function EditableCell({ value, ghost, canEdit, onCommit }) {
 }
 
 // ─── Chip statut avec menu ─────────────────────────────────────────────────
+// Menu rendu en PORTAL (position fixe calculée depuis la chip) : le conteneur
+// overflow-x-auto du tableau clippait le menu des dernières lignes, et les
+// pages share ont un transform persistant qui fausse les position:fixed
+// imbriqués.
 
 function StatutChip({ statut, envoyeeAt, canEdit, onChange }) {
-  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState(null) // { left, top, up } | null
+
+  function toggleMenu(e) {
+    if (menuPos) {
+      setMenuPos(null)
+      return
+    }
+    const r = e.currentTarget.getBoundingClientRect()
+    // 4 statuts ≈ 130px de menu : ouvre vers le haut si on est près du bas.
+    const up = window.innerHeight - r.bottom < 170
+    setMenuPos({ left: r.left, top: up ? r.top - 4 : r.bottom + 4, up })
+  }
+
   return (
-    <span className="relative inline-block">
+    <>
       <button
         type="button"
-        onClick={canEdit ? () => setOpen((v) => !v) : undefined}
+        onClick={canEdit ? toggleMenu : undefined}
         className="text-[10px] font-bold px-2 py-0.5 rounded-full"
         style={{
           background: `${AUTOR_STATUT_COLORS[statut]}1a`,
@@ -247,35 +264,44 @@ function StatutChip({ statut, envoyeeAt, canEdit, onChange }) {
       >
         {AUTOR_STATUT_LABELS[statut]}
       </button>
-      {open && (
-        <>
-          <span className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="absolute z-50 top-full left-0 mt-1 rounded-lg py-1 shadow-xl"
-            style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)', minWidth: 120 }}
-          >
-            {AUTOR_STATUTS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  if (s !== statut) onChange(s)
-                }}
-                className="flex items-center gap-2 w-full text-left text-[11px] font-semibold px-2.5 py-1.5"
-                style={{ color: AUTOR_STATUT_COLORS[s] }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: AUTOR_STATUT_COLORS[s] }} />
-                {AUTOR_STATUT_LABELS[s]}
-                {s === statut && <Check className="w-3 h-3 ml-auto" />}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </span>
+      {menuPos &&
+        createPortal(
+          <>
+            <span className="fixed inset-0 z-[80]" onClick={() => setMenuPos(null)} />
+            <div
+              className="fixed z-[81] rounded-lg py-1 shadow-xl"
+              style={{
+                left: menuPos.left,
+                top: menuPos.top,
+                transform: menuPos.up ? 'translateY(-100%)' : undefined,
+                background: 'var(--bg-surf)',
+                border: '1px solid var(--brd)',
+                minWidth: 120,
+              }}
+            >
+              {AUTOR_STATUTS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setMenuPos(null)
+                    if (s !== statut) onChange(s)
+                  }}
+                  className="flex items-center gap-2 w-full text-left text-[11px] font-semibold px-2.5 py-1.5"
+                  style={{ color: AUTOR_STATUT_COLORS[s] }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: AUTOR_STATUT_COLORS[s] }} />
+                  {AUTOR_STATUT_LABELS[s]}
+                  {s === statut && <Check className="w-3 h-3 ml-auto" />}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
   )
 }
 
@@ -375,13 +401,23 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
   const a = row.autorisation
   const statut = a?.statut || 'a_lancer'
   const isPlaying = playingId === p?.id
+  // Fond de ligne selon l'issue : vert léger si autorisé, rouge léger si
+  // refusé — l'état du média se lit d'un coup d'œil.
+  const rowBg =
+    statut === 'accordee'
+      ? 'rgba(34,197,94,0.06)'
+      : statut === 'refusee'
+        ? 'rgba(239,68,68,0.06)'
+        : zebra
+          ? 'rgba(255,255,255,0.015)'
+          : 'transparent'
 
   return (
     <tr
       className="group"
       style={{
         borderTop: '1px solid var(--brd-sub)',
-        background: zebra ? 'rgba(255,255,255,0.015)' : 'transparent',
+        background: rowBg,
       }}
     >
       <td className="px-3 py-1.5">
@@ -404,8 +440,8 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
           <span className="truncate">
             <span className="font-semibold" style={{ color: 'var(--txt)' }}>
               {credit(p)}
-            </span>{' '}
-            <span style={{ color: 'var(--txt-3)' }}>· {p?.titre || '—'}</span>
+            </span>
+            {p?.titre && <span style={{ color: 'var(--txt-3)' }}> · {p.titre}</span>}
           </span>
         </div>
       </td>
@@ -493,7 +529,9 @@ export function EventsPanel({ row, events, canEdit, posting = false, onPost, onC
     if (ok !== false) setBody('')
   }
 
-  return (
+  // Portal : les pages share ont un transform persistant qui ferait
+  // référencer ce fixed au conteneur (popup perdue en bas de page).
+  return createPortal(
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6"
       style={{ background: 'rgba(0,0,0,0.5)' }}
@@ -512,10 +550,10 @@ export function EventsPanel({ row, events, canEdit, posting = false, onPost, onC
           <MessageCircle className="w-4 h-4 shrink-0" style={{ color: 'var(--blue)' }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold truncate" style={{ color: 'var(--txt)' }}>
-              {credit(p)} · {p?.titre}
+              {[credit(p), p?.titre].filter(Boolean).join(' · ')}
             </p>
             <p className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-              {row.livrable?.nom} — commentaires &amp; historique
+              {row.livrable?.nom}
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5" style={{ color: 'var(--txt-3)' }}>
@@ -526,11 +564,7 @@ export function EventsPanel({ row, events, canEdit, posting = false, onPost, onC
         <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
           {events === null ? (
             <Loader2 className="w-4 h-4 animate-spin mx-auto my-6" style={{ color: 'var(--txt-3)' }} />
-          ) : events.length === 0 ? (
-            <p className="text-xs text-center italic py-6" style={{ color: 'var(--txt-3)' }}>
-              Aucun échange pour l&apos;instant.
-            </p>
-          ) : (
+          ) : events.length === 0 ? null : (
             events.map((e) => {
               const author = e.author?.full_name || e.author_name || 'Anonyme'
               const date = new Date(e.created_at).toLocaleString('fr-FR', {
@@ -594,6 +628,7 @@ export function EventsPanel({ row, events, canEdit, posting = false, onPost, onC
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
