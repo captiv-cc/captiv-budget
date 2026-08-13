@@ -275,25 +275,13 @@ export default function ShareMusiqueAutorSession() {
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
 
-        {/* Mode d'emploi : 3 étapes, une par ligne */}
+        {/* Aide interface, une ligne */}
         <div
-          className="mt-5 rounded-xl px-4 py-3 text-xs leading-relaxed flex flex-col gap-1"
+          className="mt-5 rounded-xl px-4 py-3 text-xs leading-relaxed"
           style={{ background: 'rgba(255,110,55,0.07)', border: '1px solid rgba(255,110,55,0.25)', color: 'var(--txt-2)' }}
         >
-          <p>
-            <b style={{ color: '#FF6E37' }}>1.</b> Lance ta demande auprès de
-            l&apos;artiste ou du label, puis passe le statut sur <b>En cours</b>.
-          </p>
-          <p>
-            <b style={{ color: '#FF6E37' }}>2.</b> Réponse reçue : passe sur{' '}
-            <b>Autorisé</b> ou <b>Refusé</b>, note le contact et coche{' '}
-            <b>Doc signé</b>.
-          </p>
-          <p>
-            <b style={{ color: '#FF6E37' }}>3.</b> Colle le lien du <b>master</b>{' '}
-            (fichier haute qualité). La bulle 💬 permet d&apos;échanger avec
-            l&apos;équipe. Tout s&apos;enregistre automatiquement.
-          </p>
+          Clique sur une valeur pour la modifier, sur la bulle 💬 pour échanger avec
+          l&apos;équipe. Tout s&apos;enregistre automatiquement.
         </div>
 
         <div className="mt-4 flex items-center gap-3 flex-wrap">
