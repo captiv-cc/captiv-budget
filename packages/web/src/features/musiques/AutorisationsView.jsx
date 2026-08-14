@@ -234,6 +234,7 @@ export default function AutorisationsView({
         onTogglePlay={onTogglePlay}
         onPatch={handlePatch}
         onOpenEvents={handleOpenEvents}
+        selfName={who.userName || ''}
       />
 
       {eventsFor && (

@@ -141,6 +141,9 @@ export default function AutorisationsTable({
   onTogglePlay,
   onPatch, // (row, patch) => void
   onOpenEvents, // (row) => void
+  // Prénom de l'utilisateur courant : pré-rempli au clic sur une cellule
+  // « Suivi par » vide (un RP se met en charge en un clic + Entrée).
+  selfName = '',
 }) {
   return (
     <>
@@ -169,11 +172,12 @@ export default function AutorisationsTable({
             {/* table-layout fixed + colgroup : mêmes largeurs sur TOUS les
                 tableaux (sinon colonnes désalignées entre médias et décalage
                 au clic sur un champ). */}
-            <table className="w-full text-xs" style={{ minWidth: '960px', tableLayout: 'fixed' }}>
+            <table className="w-full text-xs" style={{ minWidth: '1060px', tableLayout: 'fixed' }}>
               <colgroup>
                 <col />
                 <col style={{ width: 120 }} />
                 <col style={{ width: 90 }} />
+                <col style={{ width: 110 }} />
                 <col style={{ width: 110 }} />
                 <col style={{ width: 180 }} />
                 <col style={{ width: 130 }} />
@@ -188,6 +192,7 @@ export default function AutorisationsTable({
                   <th className="px-2 pt-2 pb-1 text-left font-semibold">Jour</th>
                   <th className="px-2 pt-2 pb-1 text-left font-semibold">Durée</th>
                   <th className="px-2 pt-2 pb-1 text-left font-semibold">Autorisation</th>
+                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Suivi par</th>
                   <th className="px-2 pt-2 pb-1 text-left font-semibold">Contact label</th>
                   <th className="px-2 pt-2 pb-1 text-left font-semibold">Master</th>
                   <th className="px-2 pt-2 pb-1 text-right font-semibold" />
@@ -205,6 +210,7 @@ export default function AutorisationsTable({
                     onTogglePlay={onTogglePlay}
                     onPatch={(patch) => onPatch(row, patch)}
                     onOpenEvents={() => onOpenEvents(row)}
+                    selfName={selfName}
                   />
                 ))}
               </tbody>
@@ -218,7 +224,7 @@ export default function AutorisationsTable({
 
 // ─── Cellule éditable : valeur affichée, édition au clic ───────────────────
 
-function EditableCell({ value, ghost, canEdit, onCommit }) {
+function EditableCell({ value, ghost, canEdit, onCommit, draftDefault = '' }) {
   const [editing, setEditing] = useState(false)
 
   if (editing) {
@@ -226,7 +232,7 @@ function EditableCell({ value, ghost, canEdit, onCommit }) {
       <input
         autoFocus
         type="text"
-        defaultValue={value || ''}
+        defaultValue={value || draftDefault}
         onBlur={(e) => {
           setEditing(false)
           const v = e.target.value.trim() || null
@@ -437,7 +443,7 @@ function ToggleChip({ active, label, color, canEdit, onToggle }) {
 
 // ─── Ligne track ───────────────────────────────────────────────────────────
 
-function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, onPatch, onOpenEvents }) {
+function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, onPatch, onOpenEvents, selfName = '' }) {
   const p = row.proposition
   const a = row.autorisation
   const statut = a?.statut || 'a_lancer'
@@ -518,6 +524,16 @@ function AutorRow({ row, zebra, canEdit, commentCount, playingId, onTogglePlay, 
           envoyeeAt={a?.envoyee_at}
           canEdit={canEdit}
           onChange={(s) => onPatch({ statut: s })}
+        />
+      </td>
+
+      <td className="px-2 py-1.5">
+        <EditableCell
+          value={a?.suivi_par}
+          ghost="responsable"
+          canEdit={canEdit}
+          draftDefault={selfName}
+          onCommit={(v) => onPatch({ suivi_par: v })}
         />
       </td>
 

@@ -58,7 +58,7 @@ export async function listAutorisationRows(projectId) {
       ),
       autorisation:projet_musique_autorisations!link_id (
         id, statut, envoyee_at, decidee_at, duree_utilisation, contact_label,
-        doc_signe, master_url, utilise, updated_at, updated_by_name
+        suivi_par, doc_signe, master_url, utilise, updated_at, updated_by_name
       )
     `)
   if (error) throw error

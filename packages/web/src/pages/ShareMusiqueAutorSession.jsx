@@ -310,6 +310,7 @@ export default function ShareMusiqueAutorSession() {
             onTogglePlay={togglePlay}
             onPatch={handlePatch}
             onOpenEvents={(row) => setEventsLinkId(row.id)}
+            selfName={rpName}
           />
         </div>
 
