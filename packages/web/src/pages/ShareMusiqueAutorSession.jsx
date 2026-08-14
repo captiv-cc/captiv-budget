@@ -28,6 +28,7 @@ import {
   shareAddComment,
 } from '../lib/musiqueAutorShare'
 import { getPreviewVolume } from '../lib/previewVolume'
+import PreviewVolumeControl from '../features/musiques/PreviewVolumeControl'
 import { PROJECT_SHARE_THEME_KEY } from './ProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
@@ -287,6 +288,11 @@ export default function ShareMusiqueAutorSession() {
         <div className="mt-4 flex items-center gap-3 flex-wrap">
           <AutorStatsBar stats={stats} activeFilter={statutFilter} onFilter={setStatutFilter} />
           <span className="ml-auto flex items-center gap-3">
+            <PreviewVolumeControl
+              onApply={(v) => {
+                if (audioRef.current) audioRef.current.volume = v
+              }}
+            />
             <AutorSearchInput value={search} onChange={setSearch} />
             <button
               type="button"

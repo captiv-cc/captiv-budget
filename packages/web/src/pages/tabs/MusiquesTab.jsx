@@ -49,7 +49,6 @@ import {
   Clapperboard,
   ShieldCheck,
   BookUser,
-  Volume2,
 } from 'lucide-react'
 import {
   listPropositions,
@@ -65,7 +64,7 @@ import {
   subscribeLinks,
 } from '../../lib/musiques'
 import { detectBpmFromUrl } from '../../lib/bpmDetect'
-import { getPreviewVolume, setPreviewVolume } from '../../lib/previewVolume'
+import { getPreviewVolume } from '../../lib/previewVolume'
 import {
   findYouTubeForTrack,
   getDeezerTrack,
@@ -81,6 +80,7 @@ import PropositionDetailDrawer from '../../features/musiques/PropositionDetailDr
 import AttributionView from '../../features/musiques/AttributionView'
 import LivrablesView from '../../features/musiques/LivrablesView'
 import AutorisationsView from '../../features/musiques/AutorisationsView'
+import PreviewVolumeControl from '../../features/musiques/PreviewVolumeControl'
 import PopoverFloat from '../../features/livrables/components/PopoverFloat'
 import { fetchLivrables, fetchBlocks } from '../../lib/livrables'
 
@@ -245,8 +245,6 @@ export default function MusiquesTab() {
   // Audio player partagé : un seul preview joue à la fois.
   const [playingId, setPlayingId] = useState(null)
   const [audioEl, setAudioEl] = useState(null)
-  // Volume global des previews (persisté) — réglable depuis la barre Vue.
-  const [previewVolume, setPreviewVolumeState] = useState(getPreviewVolume)
   // Set des propositions déjà analysées en BPM cette session (évite de
   // re-déclencher la détection au re-play).
   const bpmDetectedRef = useRef(new Set())
@@ -863,26 +861,13 @@ export default function MusiquesTab() {
           onClick={() => setViewMode('autorisations')}
         />
         {/* Volume global des previews (retour Hugo : baisser le son en visio) */}
-        <label
-          className="ml-auto flex items-center gap-1.5 shrink-0"
-          title={`Volume des previews : ${Math.round(previewVolume * 100)} %`}
-        >
-          <Volume2 className="w-3.5 h-3.5" style={{ color: 'var(--txt-3)' }} />
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={previewVolume}
-            onChange={(e) => {
-              const v = setPreviewVolume(parseFloat(e.target.value))
-              setPreviewVolumeState(v)
+        <span className="ml-auto">
+          <PreviewVolumeControl
+            onApply={(v) => {
               if (audioEl) audioEl.volume = v
             }}
-            className="w-20"
-            style={{ accentColor: 'var(--blue)' }}
           />
-        </label>
+        </span>
       </div>
 
       {/* ─── Filtres bar — visible uniquement pour Vrac ─────────────────

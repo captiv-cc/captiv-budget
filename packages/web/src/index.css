@@ -834,3 +834,39 @@ html[data-check-theme='light'] ::-webkit-scrollbar-thumb:hover {
     mask-image: none;
   }
 }
+
+/* Slider volume des previews musiques (PreviewVolumeControl) */
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--brd);
+  outline: none;
+  cursor: pointer;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--blue);
+  border: none;
+  transition: transform 120ms ease;
+}
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+.volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--blue);
+  border: none;
+}
+.volume-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--brd);
+}
