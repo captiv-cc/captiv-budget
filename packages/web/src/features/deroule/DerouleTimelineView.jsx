@@ -520,6 +520,12 @@ export default function DerouleTimelineView({
           nextFin = s.initialDebutMin + 30
           nextDebut = Math.max(heureDebutMin, s.initialDebutMin + snapped)
         }
+        // Drag horizontal pendant la création : étendre le futur créneau
+        // sur les colonnes traversées (multi-colonnes en un geste).
+        if (!s.multiLane) {
+          const laneId = findLaneIdAtX(e.clientX)
+          if (laneId) nextLaneId = laneId
+        }
       }
 
       const hasChanged =
@@ -576,22 +582,30 @@ export default function DerouleTimelineView({
         }
 
         if (s.hasMoved) {
+          // Drag horizontal pendant la création → créneau multi-colonnes
+          // sur la plage de lanes traversée (contiguë par construction).
+          const span = getCreateSpanRange(s)
+          const spanLaneIds = span && span.laneIds.length >= 2 ? span.laneIds : null
           // FEST-5.2 : refuse la création si la zone chevauche une indispo
-          // (sauf si on crée multi-lane, par design transversal).
+          // (sauf si on crée multi-lane, par design transversal). Vérifie
+          // chaque colonne couverte.
           if (!s.multiLane) {
-            const indispo = findIndispoOverlap(s.initialLaneId, debut, fin)
-            if (indispo) {
-              notify.error(
-                `Plage d'indispo (${formatMinHHMM(indispo.heure_debut_min)}–${formatMinHHMM(indispo.heure_fin_min)}) — création refusée`,
-              )
-              return
+            for (const lid of spanLaneIds || [s.initialLaneId]) {
+              const indispo = findIndispoOverlap(lid, debut, fin)
+              if (indispo) {
+                notify.error(
+                  `Plage d'indispo (${formatMinHHMM(indispo.heure_debut_min)}–${formatMinHHMM(indispo.heure_fin_min)}) — création refusée`,
+                )
+                return
+              }
             }
           }
           // Drag → création directe avec horaires choisis (créneau libre)
           onCreateCreneauAt?.(
             {
-              lane_id: s.multiLane ? null : s.initialLaneId,
+              lane_id: s.multiLane ? null : spanLaneIds ? spanLaneIds[0] : s.initialLaneId,
               multi_lane: s.multiLane,
+              ...(spanLaneIds ? { lane_ids: spanLaneIds } : {}),
               heure_debut_min: debut,
               heure_fin_min: fin,
             },
@@ -772,6 +786,32 @@ export default function DerouleTimelineView({
     () => [...(lanes || [])].sort((a, b) => a.sort_order - b.sort_order),
     [lanes],
   )
+
+  // Plage de lanes couverte par un drag de CRÉATION horizontal (entre la
+  // lane de départ et la lane sous le curseur — contiguë par construction).
+  // Utilisée par la preview ET par le commit (multi-colonnes en un geste).
+  function getCreateSpanRange(s) {
+    if (!s || s.mode !== 'create' || s.multiLane) return null
+    const i1 = sortedLanes.findIndex((l) => l.id === s.initialLaneId)
+    if (i1 === -1) return null
+    let i2 = s.currentLaneId
+      ? sortedLanes.findIndex((l) => l.id === s.currentLaneId)
+      : i1
+    if (i2 === -1) i2 = i1
+    const a = Math.min(i1, i2)
+    const b = Math.max(i1, i2)
+    const range = sortedLanes.slice(a, b + 1)
+    const width =
+      range.reduce((sum, l) => {
+        const w =
+          resizing && resizing.type === l.type
+            ? resizing.currentWidth
+            : getLaneWidth(l.type)
+        return sum + w
+      }, 0) +
+      (range.length - 1)
+    return { anchorLaneId: range[0].id, laneIds: range.map((l) => l.id), width }
+  }
 
   // ── Multi-colonnes : segments par lane ANCRE ─────────────────────────────
   // Pour chaque créneau lane_ids, les lanes assignées sont regroupées en
@@ -1240,38 +1280,47 @@ export default function DerouleTimelineView({
                   </div>
                 )}
               {/* Preview visuel pendant un click-and-drag de création
-                  (mode 'create') : un rectangle pointillé entre les heures
-                  choisies, affiché dans la lane d'origine du drag. */}
+                  (mode 'create') : rectangle pointillé entre les heures
+                  choisies. Un drag horizontal étend la preview sur les
+                  colonnes traversées (futur créneau multi-colonnes). */}
               {dragState &&
                 dragState.mode === 'create' &&
-                dragState.initialLaneId === lane.id &&
-                dragState.hasMoved && (
-                  <div
-                    className="absolute rounded pointer-events-none"
-                    style={{
-                      top: minToTop(dragState.currentDebutMin),
-                      left: 4,
-                      right: 4,
-                      height: durationToHeight(
-                        dragState.currentFinMin - dragState.currentDebutMin,
-                      ) - 2,
-                      background: 'rgba(55, 138, 221, 0.18)',
-                      border: '1.5px dashed var(--blue)',
-                      padding: '4px 8px',
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: 'var(--blue)',
-                      lineHeight: 1.2,
-                      overflow: 'hidden',
-                      zIndex: 4,
-                    }}
-                  >
-                    {formatMinHHMM(dragState.currentDebutMin)} – {formatMinHHMM(dragState.currentFinMin)}
-                    <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>
-                      Nouveau créneau
+                dragState.hasMoved &&
+                (() => {
+                  const span = getCreateSpanRange(dragState)
+                  const anchorId = span ? span.anchorLaneId : dragState.initialLaneId
+                  if (anchorId !== lane.id) return null
+                  const isSpan = span && span.laneIds.length >= 2
+                  return (
+                    <div
+                      className="absolute rounded pointer-events-none"
+                      style={{
+                        top: minToTop(dragState.currentDebutMin),
+                        left: 4,
+                        ...(isSpan ? { width: span.width - 8 } : { right: 4 }),
+                        height: durationToHeight(
+                          dragState.currentFinMin - dragState.currentDebutMin,
+                        ) - 2,
+                        background: 'rgba(55, 138, 221, 0.18)',
+                        border: '1.5px dashed var(--blue)',
+                        padding: '4px 8px',
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: 'var(--blue)',
+                        lineHeight: 1.2,
+                        overflow: 'hidden',
+                        zIndex: 4,
+                      }}
+                    >
+                      {formatMinHHMM(dragState.currentDebutMin)} – {formatMinHHMM(dragState.currentFinMin)}
+                      <div style={{ fontSize: 10, opacity: 0.75, marginTop: 1 }}>
+                        {isSpan
+                          ? `Nouveau créneau · ${span.laneIds.length} colonnes`
+                          : 'Nouveau créneau'}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
 
               {/* FEST-3.2 : placeholder visible tant que le QuickCreateMenu
                   est ouvert. Hugo : "ajouter un mini preview de l'endroit

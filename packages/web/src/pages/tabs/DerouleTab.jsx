@@ -452,6 +452,10 @@ export default function DerouleTab() {
       heure_debut_min: draft.heure_debut_min ?? 540,
       heure_fin_min: draft.heure_fin_min ?? 570,
       multi_lane: draft.multi_lane ?? false,
+      // Multi-colonnes : drag de création horizontal sur plusieurs lanes.
+      ...(Array.isArray(draft.lane_ids) && draft.lane_ids.length >= 2
+        ? { lane_ids: draft.lane_ids }
+        : {}),
       // FEST-3.2 raffinements Hugo : lieu et notes hérités depuis le show
       // source via QuickCreateMenu (_lieuInferred + show.notes).
       lieu_text: draft.lieu_text ?? null,
