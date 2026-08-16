@@ -175,10 +175,16 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
   const dateLabel = formatHumanDate(deroule?.date_jour)
   ctx.fillText(dateLabel, PAD_X, 120, W - PAD_X * 2)
 
-  // Cadreur destinataire
+  // Cadreur destinataire. Fallback lane : si le membre est absent de la
+  // liste (payload share filtré, fiche fusionnée), le libellé de sa lane
+  // perso fait foi — jamais de « Pour ? ».
   ctx.fillStyle = C.accent
   ctx.font = '600 32px -apple-system, system-ui, sans-serif'
-  const cadreurName = getMembreFullName(membreId, membres)
+  let cadreurName = getMembreFullName(membreId, membres)
+  if (cadreurName === '?') {
+    const lane = (lanes || []).find((l) => l.membre_id === membreId)
+    if (lane?.libelle) cadreurName = lane.libelle
+  }
   ctx.fillText(`Pour ${cadreurName}`, PAD_X, 180, W - PAD_X * 2)
 
   // ─── Body : grille horaire ────────────────────────────────────────────

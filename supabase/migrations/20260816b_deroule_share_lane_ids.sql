@@ -139,30 +139,13 @@ BEGIN
       )
       FROM projet_membres m
       LEFT JOIN contacts c ON c.id = m.contact_id
+      -- TOUS les membres du projet, sans filtre. L'ancien filtre « assignés
+      -- à un créneau » (optimisation payload) a causé une famille de bugs :
+      -- sélecteur Cadreur incomplet, liste d'export trouée, « Pour ? » sur
+      -- le PNG — chaque surface qui résout un nom (lane perso, fiche
+      -- fusionnée « +1 ») tombait sur un membre absent. Quelques rows de
+      -- plus dans le payload valent mieux que ça.
       WHERE m.project_id = v_project_id
-        -- NB : le filtre parent_membre_id IS NULL ne s'applique qu'à la
-        -- branche assignations — une lane perso peut référencer un membre
-        -- rattaché (fiche fusionnée « +1 ») qu'il faut quand même exposer.
-        AND (
-          (m.parent_membre_id IS NULL AND EXISTS (
-            SELECT 1
-              FROM projet_deroule_creneau_membres cm
-              JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
-              JOIN projet_deroules d2 ON d2.id = cr.deroule_id
-             WHERE cm.membre_id = m.id
-               AND d2.project_id = v_project_id
-          ))
-          -- Cadreurs avec lane perso mais sans assignation directe : la vue
-          -- Cadreur du share les liste via lanes.membre_id — le membre doit
-          -- donc être présent dans le payload (fix « HM manquant »).
-          OR EXISTS (
-            SELECT 1
-              FROM projet_deroule_lanes pl
-              JOIN projet_deroules pd ON pd.id = pl.deroule_id
-             WHERE pl.membre_id = m.id
-               AND pd.project_id = v_project_id
-          )
-        )
     ), '[]'::jsonb),
     'generated_at', now()
   )
@@ -315,30 +298,13 @@ BEGIN
       )
       FROM projet_membres m
       LEFT JOIN contacts c ON c.id = m.contact_id
+      -- TOUS les membres du projet, sans filtre. L'ancien filtre « assignés
+      -- à un créneau » (optimisation payload) a causé une famille de bugs :
+      -- sélecteur Cadreur incomplet, liste d'export trouée, « Pour ? » sur
+      -- le PNG — chaque surface qui résout un nom (lane perso, fiche
+      -- fusionnée « +1 ») tombait sur un membre absent. Quelques rows de
+      -- plus dans le payload valent mieux que ça.
       WHERE m.project_id = v_project_id
-        -- NB : le filtre parent_membre_id IS NULL ne s'applique qu'à la
-        -- branche assignations — une lane perso peut référencer un membre
-        -- rattaché (fiche fusionnée « +1 ») qu'il faut quand même exposer.
-        AND (
-          (m.parent_membre_id IS NULL AND EXISTS (
-            SELECT 1
-              FROM projet_deroule_creneau_membres cm
-              JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
-              JOIN projet_deroules d2 ON d2.id = cr.deroule_id
-             WHERE cm.membre_id = m.id
-               AND d2.project_id = v_project_id
-          ))
-          -- Cadreurs avec lane perso mais sans assignation directe : la vue
-          -- Cadreur du share les liste via lanes.membre_id — le membre doit
-          -- donc être présent dans le payload (fix « HM manquant »).
-          OR EXISTS (
-            SELECT 1
-              FROM projet_deroule_lanes pl
-              JOIN projet_deroules pd ON pd.id = pl.deroule_id
-             WHERE pl.membre_id = m.id
-               AND pd.project_id = v_project_id
-          )
-        )
     ), '[]'::jsonb),
     'generated_at', now()
   )
