@@ -100,37 +100,54 @@ function normalizeHex(hex) {
 }
 
 // ─── Helpers texte ────────────────────────────────────────────────────────
+/** Réduit une ligne à maxWidth avec ellipsis (un canvas ne clippe pas). */
+function truncLine(ctx, line, maxWidth) {
+  if (ctx.measureText(line).width <= maxWidth) return line
+  let out = line.replace(/…$/, '')
+  while (out.length > 1 && ctx.measureText(`${out}…`).width > maxWidth) {
+    out = out.slice(0, -1)
+  }
+  return `${out}…`
+}
+
 /**
- * Wrap un texte sur N lignes max avec ellipsis sur la dernière si overflow.
- * Retourne un tableau de lignes.
+ * Wrap un texte sur N lignes max avec ellipsis si overflow. GARANTIT
+ * qu'aucune ligne rendue ne dépasse maxWidth — y compris un mot seul plus
+ * large que la colonne (ex « RIGODIAT-CALCIATI »), que l'ancienne version
+ * laissait déborder du cadre.
  */
 function wrapText(ctx, text, maxWidth, maxLines = 2) {
   if (!text) return []
-  const words = String(text).split(/\s+/)
+  const words = String(text).split(/\s+/).filter(Boolean)
   const lines = []
   let current = ''
+  let truncated = false
   for (const word of words) {
     const test = current ? `${current} ${word}` : word
     if (ctx.measureText(test).width <= maxWidth) {
       current = test
-    } else {
-      if (current) lines.push(current)
+    } else if (!current) {
+      // Mot seul déjà trop large : il occupe sa ligne, réduit plus bas.
       current = word
-      if (lines.length >= maxLines) break
+    } else {
+      lines.push(current)
+      current = word
+      if (lines.length >= maxLines) {
+        truncated = true
+        current = ''
+        break
+      }
     }
   }
-  if (current && lines.length < maxLines) lines.push(current)
-  // Ellipsis sur la dernière si on a dû couper
-  if (lines.length === maxLines) {
-    let last = lines[lines.length - 1]
-    while (last.length > 0 && ctx.measureText(`${last}…`).width > maxWidth) {
-      last = last.slice(0, -1)
-    }
-    if (lines.length === maxLines && words.length > lines.flatMap((l) => l.split(/\s+/)).length) {
-      lines[lines.length - 1] = `${last}…`
-    }
+  if (current) {
+    if (lines.length < maxLines) lines.push(current)
+    else truncated = true
   }
-  return lines
+  const out = lines.map((l) => truncLine(ctx, l, maxWidth))
+  if (truncated && out.length > 0 && !out[out.length - 1].endsWith('…')) {
+    out[out.length - 1] = truncLine(ctx, `${out[out.length - 1]}…`, maxWidth)
+  }
+  return out
 }
 
 // ─── Rendu principal ──────────────────────────────────────────────────────
@@ -403,7 +420,7 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false, creneau
   const titleFontSize = h > 80 ? 28 : h > 50 ? 24 : 20
   ctx.font = `700 ${titleFontSize}px -apple-system, system-ui, sans-serif`
   ctx.textBaseline = 'top'
-  const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
+  const titre = creneau.titre || TYPE_LABELS[creneau.type] || ''
   const maxLines = h > 130 ? 3 : h > 80 ? 2 : 1
   // Réserve la place de l'icône d'alerte sur la 1ère ligne du titre.
   const titleMaxW = Math.max(8, w - 24 - titleRightInset)
@@ -423,6 +440,7 @@ function renderCreneauBox(ctx, creneau, { x, y, w, h, multiLane = false, creneau
       `${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`,
       x + 14,
       yCursor,
+      w - 28,
     )
     yCursor += 22
   }
