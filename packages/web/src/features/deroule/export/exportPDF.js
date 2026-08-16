@@ -65,6 +65,54 @@ const C = {
   alertInfo: [59, 130, 246], // blue
 }
 
+// ─── Typographie : wrap/troncature garantis ──────────────────────────────
+// splitTextToSize casse les mots trop longs en plein milieu (« ROB BIE » pour
+// Robbie Williams) et un pdf.text({ maxWidth }) wrappe verticalement hors du
+// bloc. Ici : wrap AU MOT uniquement, et tout débord est tronqué avec ellipse.
+// ATTENTION : dépend de la font/size courante — la régler avant d'appeler.
+
+function truncLine(pdf, line, maxWidth) {
+  if (pdf.getTextWidth(line) <= maxWidth) return line
+  let out = line.replace(/…$/, '')
+  while (out.length > 1 && pdf.getTextWidth(`${out}…`) > maxWidth) out = out.slice(0, -1)
+  return `${out}…`
+}
+
+/**
+ * Wrap au mot. Un mot seul plus large que la ligne est accepté sur sa ligne
+ * puis tronqué (jamais de césure). `firstMaxWidth` réduit la 1re ligne
+ * (heure préfixée inline). Garantie : aucune ligne retournée ne dépasse.
+ */
+function wrapText(pdf, text, maxWidth, maxLines, firstMaxWidth = null) {
+  const words = String(text || '').split(/\s+/).filter(Boolean)
+  if (words.length === 0 || maxLines < 1) return []
+  const widthFor = (idx) => (idx === 0 && firstMaxWidth != null ? firstMaxWidth : maxWidth)
+  const lines = []
+  let cur = ''
+  let i = 0
+  while (i < words.length && lines.length < maxLines) {
+    const word = words[i]
+    const test = cur ? `${cur} ${word}` : word
+    if (!cur || pdf.getTextWidth(test) <= widthFor(lines.length)) {
+      cur = test
+      i += 1
+    } else {
+      lines.push(cur)
+      cur = ''
+    }
+  }
+  if (cur && lines.length < maxLines) {
+    lines.push(cur)
+    cur = ''
+  }
+  const truncated = i < words.length || Boolean(cur)
+  const out = lines.map((l, idx) => truncLine(pdf, l, widthFor(idx)))
+  if (truncated && out.length > 0 && !/…$/.test(out[out.length - 1])) {
+    out[out.length - 1] = truncLine(pdf, `${out[out.length - 1]}…`, widthFor(out.length - 1))
+  }
+  return out
+}
+
 // ─── Helpers couleur ─────────────────────────────────────────────────────
 function hexToRgb(hex) {
   if (!hex || typeof hex !== 'string') return [128, 128, 128]
@@ -231,14 +279,14 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
     pdf.setDrawColor(...hexToRgb(baseHex))
     pdf.setLineWidth(0.6)
     pdf.line(x, bodyTop, x + laneW, bodyTop)
-    // Label
-    pdf.setFontSize(8.5)
+    // Label : UNE ligne, font réduite si nom long, tronqué avec ellipse.
+    // (pdf.text({ maxWidth }) wrappait verticalement hors du bandeau.)
     pdf.setFont('helvetica', 'bold')
     pdf.setTextColor(...C.text)
-    const label = getLaneShortLabel(lane, membres)
-    pdf.text(label || '—', x + 1.5, bodyTop + LANE_HEADER_H - 2.5, {
-      maxWidth: laneW - 3,
-    })
+    const label = getLaneShortLabel(lane, membres) || ''
+    pdf.setFontSize(8.5)
+    if (pdf.getTextWidth(label) > laneW - 3) pdf.setFontSize(7)
+    pdf.text(truncLine(pdf, label, laneW - 3), x + 1.5, bodyTop + LANE_HEADER_H - 2.5)
     // Bordures verticales entre lanes
     pdf.setDrawColor(...C.borderLight)
     pdf.setLineWidth(0.15)
@@ -281,16 +329,54 @@ function renderDayPage(pdf, { project, deroule, lanes, creneaux, membres, genera
   }
 
   // ─── Créneaux par lane ────────────────────────────────────────────────
+  // Les multi-colonnes (lane_ids ≥ 2) sont exclus ici et rendus fusionnés
+  // juste après — sinon getCreneauxForLane en produit une copie par lane.
+  const isMultiCols = (c) =>
+    !c.multi_lane && Array.isArray(c.lane_ids) && c.lane_ids.length >= 2
   for (let i = 0; i < sortedLanes.length; i += 1) {
     const lane = sortedLanes[i]
     const xLane = gridLeft + i * laneW
     const laneCreneaux = getCreneauxForLane(creneaux, lane.id, true) // pas de multi_lane ici
+      .filter((c) => !isMultiCols(c))
     for (const c of laneCreneaux) {
       renderCreneauBox(pdf, c, {
         x: xLane + 0.4,
         y: gridTop + (c.heure_debut_min - minStart) * pxPerMin,
         w: laneW - 0.8,
         h: Math.max(2, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
+        creneauxById,
+        projectTypes,
+      })
+    }
+  }
+
+  // ─── Créneaux multi-colonnes : blocs fusionnés sur les runs contigus ──
+  // Même logique que la timeline desk/share : plages contiguës dans l'ordre
+  // des colonnes = un bloc large ; sinon un segment par run avec badge.
+  const laneIndexById = new Map(sortedLanes.map((l, idx) => [l.id, idx]))
+  for (const c of creneaux || []) {
+    if (!isMultiCols(c)) continue
+    const idxs = [...new Set(
+      c.lane_ids.map((id) => laneIndexById.get(id)).filter((v) => v != null),
+    )].sort((a, b) => a - b)
+    if (idxs.length === 0) continue
+    const runs = []
+    let run = [idxs[0]]
+    for (let k = 1; k < idxs.length; k += 1) {
+      if (idxs[k] === idxs[k - 1] + 1) run.push(idxs[k])
+      else {
+        runs.push(run)
+        run = [idxs[k]]
+      }
+    }
+    runs.push(run)
+    for (const r of runs) {
+      renderCreneauBox(pdf, c, {
+        x: gridLeft + r[0] * laneW + 0.4,
+        y: gridTop + (c.heure_debut_min - minStart) * pxPerMin,
+        w: r.length * laneW - 0.8,
+        h: Math.max(2, (c.heure_fin_min - c.heure_debut_min) * pxPerMin),
+        spanBadge: runs.length > 1 ? `${idxs.length} col.` : null,
         creneauxById,
         projectTypes,
       })
@@ -390,7 +476,7 @@ function drawHatchOverlay(pdf, x, y, w, h, [r, g, b]) {
 /**
  * Dessine une "box" représentant un créneau dans la grille.
  */
-function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneauxById = null, projectTypes = null }) {
+function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, spanBadge = null, creneauxById = null, projectTypes = null }) {
   if (h < 1) return
   const baseColor = getCreneauColor(creneau, projectTypes)
   const rgb = hexToRgb(baseColor)
@@ -429,6 +515,15 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
     pdf.text(dureeStr, x + w - 1.5, y + 3, { align: 'right' })
   }
 
+  // Badge segments multi-colonnes non contigus ("3 col."), à gauche du badge durée
+  if (spanBadge && h >= 8) {
+    pdf.setFontSize(6.5)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setTextColor(...C.textFaint)
+    pdf.text(spanBadge, x + w - 1.5 - badgeWidth, y + 3, { align: 'right' })
+    badgeWidth += pdf.getTextWidth(spanBadge) + 2
+  }
+
   // (A) Bande d'alerte : calculée AVANT le texte pour borner contentMaxY.
   const showAlerte = Boolean(ea) && h >= 9
   const alertColorHex = showAlerte
@@ -452,14 +547,14 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
   const titleFontSize = h > 8 ? 8 : 7
   const lineH = titleFontSize * 0.4
   const titleY = y + 2.5
-  const titre = creneau.titre || TYPE_LABELS[creneau.type] || '—'
+  const titre = creneau.titre || TYPE_LABELS[creneau.type] || ''
   const maxLines = h > 16 ? 3 : h > 8 ? 2 : 1
   const titleMaxW = Math.max(8, w - 2 - badgeWidth - 1)
 
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(titleFontSize)
-  const titleLines = pdf.splitTextToSize(titre, titleMaxW)
-  const nTitleLines = Math.min(titleLines.length, maxLines)
+  const titleLines = wrapText(pdf, titre, titleMaxW, maxLines)
+  const nTitleLines = titleLines.length
   // La ligne d'horaire dédiée tient-elle sous le titre ?
   const timeLineFits = titleY + nTitleLines * lineH + 0.8 + 2 < contentMaxY
 
@@ -477,26 +572,16 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
     cursorY += 3
   } else {
     // Pas la place pour une ligne dédiée → heure de début préfixée au titre,
-    // mais EN PETIT GRIS (cohérente avec les autres horaires) ; titre en gras.
+    // EN PETIT GRIS ; titre en gras. Wrap AU MOT : la 1re ligne est réduite
+    // par la largeur de l'heure, jamais de césure en plein mot.
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(6.5)
     const timeW = pdf.getTextWidth(startStr) + 1.5
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(titleFontSize)
-    // Wrap : 1ère ligne réduite par la largeur de l'heure, suite pleine largeur.
-    let lines
-    if (pdf.getTextWidth(titleLines[0] || '') <= titleMaxW - timeW) {
-      lines = titleLines
-    } else {
-      const firstFit = pdf.splitTextToSize(titre, Math.max(6, titleMaxW - timeW))
-      const first = firstFit[0] || titre
-      const rest = titre.slice(first.length).replace(/^\s+/, '')
-      const restLines = rest ? pdf.splitTextToSize(rest, titleMaxW) : []
-      lines = [first, ...restLines]
-    }
-    const nLines = Math.min(lines.length, maxLines)
+    const lines = wrapText(pdf, titre, titleMaxW, maxLines, Math.max(6, titleMaxW - timeW))
     pdf.setTextColor(...C.text)
-    for (let i = 0; i < nLines; i += 1) {
+    for (let i = 0; i < lines.length; i += 1) {
       pdf.text(lines[i], i === 0 ? x + 1.5 + timeW : x + 1.5, titleY + i * lineH)
     }
     // Heure de début en petit gris, posée dans l'espace réservé en tête de ligne.
@@ -504,18 +589,16 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
     pdf.setFontSize(6.5)
     pdf.setTextColor(...C.textMuted)
     pdf.text(startStr, x + 1.5, titleY)
-    cursorY = titleY + nLines * lineH + 0.8
+    cursorY = titleY + Math.max(1, lines.length) * lineH + 0.8
   }
 
-  // (F) Lieu sous les horaires (si présent et place dispo)
+  // (F) Lieu sous les horaires (si présent et place dispo) — une ligne tronquée
   if (creneau.lieu_text && h >= 11 && cursorY + 2 < contentMaxY) {
     pdf.setFont('helvetica', 'italic')
     pdf.setFontSize(6)
     pdf.setTextColor(...C.textMuted)
-    const lieuLines = pdf.splitTextToSize(creneau.lieu_text, w - 2.5)
-    if (lieuLines[0]) {
-      pdf.text(lieuLines[0], x + 1.5, cursorY)
-    }
+    const lieu = truncLine(pdf, creneau.lieu_text, w - 3)
+    if (lieu) pdf.text(lieu, x + 1.5, cursorY)
   }
 
   // (A) Alerte : bande de fond orange/bleu + triangle vectoriel + texte
@@ -533,12 +616,12 @@ function renderCreneauBox(pdf, creneau, { x, y, w, h, multiLane = false, creneau
     pdf.setFontSize(6.5)
     pdf.setFont('helvetica', 'bold')
     pdf.setTextColor(...rgbDarken(alertRgb, 0.35))
+    // Une seule ligne tronquée — { maxWidth } wrapperait hors de la bande.
     const alertTextX = triX + triSize + 1
     pdf.text(
-      ea.text || '',
+      truncLine(pdf, ea.text || '', w - (alertTextX - x) - 1),
       alertTextX,
       alertBandY + ALERT_BAND_H - 1.3,
-      { maxWidth: w - (alertTextX - x) - 1 },
     )
   }
 
