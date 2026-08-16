@@ -387,9 +387,9 @@ function ShareContent({
     )
   }, [creneaux, currentDeroule])
 
-  // Premier cadreur sélectionnable du jour (lane perso ou assignation) —
-  // fallback de l'export PNG lancé depuis la vue Timeline.
-  const firstCadreurId = useMemo(() => {
+  // Cadreurs du jour (lane perso ou assignation) — liste du sous-menu
+  // « Planning cadreur (PNG) » : le choix du cadreur est TOUJOURS explicite.
+  const cadreurOptions = useMemo(() => {
     const ids = new Set()
     for (const l of currentLanes) {
       if (l.type === 'personne' && l.membre_id) ids.add(l.membre_id)
@@ -397,8 +397,14 @@ function ShareContent({
     for (const c of currentCreneaux) {
       for (const id of c.member_ids || []) ids.add(id)
     }
-    for (const id of ids) if (membreById.has(id)) return id
-    return null
+    return [...ids]
+      .map((id) => membreById.get(id))
+      .filter(Boolean)
+      .map((m) => ({
+        id: m.id,
+        nom: `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '?',
+      }))
+      .sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }))
   }, [currentLanes, currentCreneaux, membreById])
 
   // Note : on n'utilise PAS le brand_color de l'org pour les éléments
@@ -450,18 +456,10 @@ function ShareContent({
               <div className="flex items-stretch gap-2 shrink-0">
                 <ViewToggle view={view} onChange={setView} />
                 <ExportButtons
-                  hasCadreur={Boolean(selectedCadreurId || firstCadreurId)}
-                  onExport={(type) => {
-                    // PNG depuis la vue Timeline : bascule en vue Cadreur
-                    // (sélection auto du premier) puis lance l'export.
-                    if (type === 'png') {
-                      if (!selectedCadreurId && firstCadreurId) {
-                        handleSelectCadreur(firstCadreurId)
-                      }
-                      setView('cadreur')
-                    }
-                    setExportRequest({ type })
-                  }}
+                  cadreurs={cadreurOptions}
+                  onExport={(type, membreId = null) =>
+                    setExportRequest({ type, membreId })
+                  }
                 />
               </div>
             </div>
@@ -559,7 +557,7 @@ function ShareContent({
           lanes={currentLanes}
           creneaux={currentCreneaux}
           membres={membres}
-          membreId={selectedCadreurId || firstCadreurId}
+          membreId={exportRequest.membreId || selectedCadreurId}
           onClose={() => setExportRequest(null)}
         />
       )}
@@ -723,10 +721,18 @@ function ToggleBtn({ active, onClick, title, children }) {
 // V2 : un seul bouton icône Download (~36px) qui ouvre un petit menu
 // déroulant juste en-dessous avec les 2 options. Tap-out = close.
 
-function ExportButtons({ hasCadreur, onExport }) {
+function ExportButtons({ cadreurs = [], onExport }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const containerRef = useRef(null)
-  const pngDisabled = !hasCadreur
+  const pngDisabled = cadreurs.length === 0
+  // Sous-menu : liste des cadreurs du jour, dépliée au clic sur l'item PNG
+  // (le choix du cadreur est toujours explicite — jamais de sélection auto).
+  const [pngListOpen, setPngListOpen] = useState(false)
+
+  // Replie le sous-menu cadreurs à chaque (ré)ouverture du menu
+  useEffect(() => {
+    setPngListOpen(false)
+  }, [menuOpen])
 
   // Close au clic outside
   useEffect(() => {
@@ -804,15 +810,40 @@ function ExportButtons({ hasCadreur, onExport }) {
             icon={<ImageIcon className="w-4 h-4" />}
             label="Planning cadreur (PNG)"
             sublabel={
-              pngDisabled ? 'Aucun cadreur sur ce jour' : 'Format mobile, 1 cadreur'
+              pngDisabled ? 'Aucun cadreur sur ce jour' : 'Format mobile, choisis le cadreur'
             }
             disabled={pngDisabled}
             onClick={() => {
               if (pngDisabled) return
-              setMenuOpen(false)
-              onExport('png')
+              setPngListOpen((v) => !v)
             }}
           />
+          {pngListOpen &&
+            cadreurs.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setPngListOpen(false)
+                  onExport('png', m.id)
+                }}
+                className="w-full text-left rounded transition-colors"
+                style={{
+                  padding: '6px 10px 6px 36px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--txt)',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                {m.nom}
+              </button>
+            ))}
         </div>
       )}
     </div>
