@@ -115,7 +115,16 @@ export default function DerouleCadreurView({
       for (const id of ids) set.add(id)
     }
     return [...set]
-      .map((id) => membreById.get(id))
+      .map((id) => {
+        const m = membreById.get(id)
+        if (m) return m
+        // Membre absent de la liste (payload share filtré, fiche fusionnée…)
+        // mais il A une lane perso : le sélecteur doit quand même le lister —
+        // fallback sur le libellé de la lane.
+        const lane = personLanes.find((l) => l.membre_id === id)
+        if (!lane) return null
+        return { id, nom: lane.libelle || '?', prenom: '' }
+      })
       .filter(Boolean)
       .sort((a, b) => {
         const an = `${a.contact?.nom || a.nom || ''} ${a.contact?.prenom || a.prenom || ''}`.toLowerCase()
@@ -128,7 +137,9 @@ export default function DerouleCadreurView({
   // Si rien sélectionné, prendre le premier candidat (s'il existe).
   const effectiveMembreId = selectedMembreId || candidateMembres[0]?.id || null
   const selectedMembre = effectiveMembreId
-    ? membreById.get(effectiveMembreId)
+    ? membreById.get(effectiveMembreId) ||
+      candidateMembres.find((m) => m.id === effectiveMembreId) ||
+      null
     : null
   const selectedMembreLane = useMemo(
     () =>

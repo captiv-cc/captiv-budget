@@ -140,16 +140,18 @@ BEGIN
       FROM projet_membres m
       LEFT JOIN contacts c ON c.id = m.contact_id
       WHERE m.project_id = v_project_id
-        AND m.parent_membre_id IS NULL
+        -- NB : le filtre parent_membre_id IS NULL ne s'applique qu'à la
+        -- branche assignations — une lane perso peut référencer un membre
+        -- rattaché (fiche fusionnée « +1 ») qu'il faut quand même exposer.
         AND (
-          EXISTS (
+          (m.parent_membre_id IS NULL AND EXISTS (
             SELECT 1
               FROM projet_deroule_creneau_membres cm
               JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
               JOIN projet_deroules d2 ON d2.id = cr.deroule_id
              WHERE cm.membre_id = m.id
                AND d2.project_id = v_project_id
-          )
+          ))
           -- Cadreurs avec lane perso mais sans assignation directe : la vue
           -- Cadreur du share les liste via lanes.membre_id — le membre doit
           -- donc être présent dans le payload (fix « HM manquant »).
@@ -314,16 +316,18 @@ BEGIN
       FROM projet_membres m
       LEFT JOIN contacts c ON c.id = m.contact_id
       WHERE m.project_id = v_project_id
-        AND m.parent_membre_id IS NULL
+        -- NB : le filtre parent_membre_id IS NULL ne s'applique qu'à la
+        -- branche assignations — une lane perso peut référencer un membre
+        -- rattaché (fiche fusionnée « +1 ») qu'il faut quand même exposer.
         AND (
-          EXISTS (
+          (m.parent_membre_id IS NULL AND EXISTS (
             SELECT 1
               FROM projet_deroule_creneau_membres cm
               JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
               JOIN projet_deroules d2 ON d2.id = cr.deroule_id
              WHERE cm.membre_id = m.id
                AND d2.project_id = v_project_id
-          )
+          ))
           -- Cadreurs avec lane perso mais sans assignation directe : la vue
           -- Cadreur du share les liste via lanes.membre_id — le membre doit
           -- donc être présent dans le payload (fix « HM manquant »).
