@@ -1300,12 +1300,12 @@ function CompactView({
           onClick={() => {
             const next = !draft.multi_lane
             if (next) {
-              onSavePartial?.({ multi_lane: true, lane_id: null })
+              onSavePartial?.({ multi_lane: true, lane_id: null, lane_ids: null })
             } else {
               const defaultLane =
                 lanes.find((l) => l.type === 'global') || lanes[0]
               if (defaultLane) {
-                onSavePartial?.({ multi_lane: false, lane_id: defaultLane.id })
+                onSavePartial?.({ multi_lane: false, lane_id: defaultLane.id, lane_ids: null })
               }
             }
           }}
@@ -1317,6 +1317,70 @@ function CompactView({
           >
             <CustomCheckbox checked={Boolean(draft.multi_lane)} />
             <span>Bloc multi-lane (couvre toutes les lanes)</span>
+          </span>
+        </div>
+      )}
+
+      {/* Multi-colonnes : pastilles des lanes assignées. Un clic coche /
+          décoche une colonne — 2+ cochées = bloc multi-colonnes (fusionné
+          si voisines, copies liées sinon). Simple : pas de mode, pas de
+          modale. Masqué si « toutes les lanes » est actif. */}
+      {editMode && canEdit && !draft.multi_lane && !isCreate && lanes.length > 1 && (
+        <div className="cp-line" style={{ alignItems: 'flex-start' }}>
+          <span className="cp-line-icon" style={{ fontSize: 13 }}>⧉</span>
+          <span
+            className="cp-line-value"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}
+          >
+            {[...lanes]
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((l) => {
+                const assigned = draft.lane_ids?.length
+                  ? draft.lane_ids
+                  : draft.lane_id
+                    ? [draft.lane_id]
+                    : []
+                const checked = assigned.includes(l.id)
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => {
+                      let next = checked
+                        ? assigned.filter((id) => id !== l.id)
+                        : [...assigned, l.id]
+                      if (next.length === 0) return // toujours ≥ 1 colonne
+                      // Ordonne selon l'ordre des colonnes ; la 1re = ancre.
+                      const orderIdx = new Map(
+                        [...lanes]
+                          .sort((a, b) => a.sort_order - b.sort_order)
+                          .map((x, i) => [x.id, i]),
+                      )
+                      next = [...next].sort(
+                        (a, b) => (orderIdx.get(a) ?? 99) - (orderIdx.get(b) ?? 99),
+                      )
+                      onSavePartial?.({
+                        multi_lane: false,
+                        lane_id: next[0],
+                        lane_ids: next.length >= 2 ? next : null,
+                      })
+                    }}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '3px 9px',
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                      background: checked ? 'rgba(59,130,246,0.15)' : 'var(--bg-elev)',
+                      color: checked ? 'var(--blue, #3B82F6)' : 'var(--txt-3)',
+                      border: `1px solid ${checked ? 'rgba(59,130,246,0.5)' : 'var(--brd)'}`,
+                    }}
+                    title={checked ? 'Retirer cette colonne' : 'Ajouter cette colonne'}
+                  >
+                    {l.libelle || '?'}
+                  </button>
+                )
+              })}
           </span>
         </div>
       )}
@@ -2974,6 +3038,7 @@ function initDraft(creneau) {
       typeof creneau.heure_fin_min === 'number' ? creneau.heure_fin_min : 600, // 10:00
     lane_id: creneau.lane_id || null,
     multi_lane: creneau.multi_lane || false,
+    lane_ids: creneau.lane_ids || null,
     type: creneau.type || 'autre',
     couleur: creneau.couleur || null,
     lieu_text: creneau.lieu_text || null,

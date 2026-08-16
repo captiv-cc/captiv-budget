@@ -174,12 +174,15 @@ export function useDeroule(projectId, selectedDateJour) {
 
   // ─── Dérivés mémoïsés ─────────────────────────────────────────────────────
 
-  /** Map laneId → liste de créneaux triés par heure_debut. */
+  /** Map laneId → liste de créneaux triés par heure_debut.
+      Les créneaux multi-COLONNES (lane_ids 2+) en sont exclus : ils sont
+      rendus à part par la timeline (bloc fusionné / copies liées). */
   const creneauxByLane = useMemo(() => {
     const map = new Map()
     for (const lane of lanes) map.set(lane.id, [])
     map.set(null, []) // bucket pour multi_lane
     for (const c of creneaux) {
+      if (!c.multi_lane && Array.isArray(c.lane_ids) && c.lane_ids.length >= 2) continue
       const key = c.multi_lane ? null : c.lane_id
       const arr = map.get(key) || []
       arr.push(c)
@@ -194,6 +197,17 @@ export function useDeroule(projectId, selectedDateJour) {
   /** Créneaux multi-lane (à rendre par-dessus toutes les colonnes). */
   const creneauxMultiLane = useMemo(
     () => D.sortCreneauxByTime(creneaux.filter((c) => c.multi_lane)),
+    [creneaux],
+  )
+
+  /** Créneaux multi-COLONNES : assignés à 2+ lanes précises (lane_ids). */
+  const creneauxMultiCols = useMemo(
+    () =>
+      D.sortCreneauxByTime(
+        creneaux.filter(
+          (c) => !c.multi_lane && Array.isArray(c.lane_ids) && c.lane_ids.length >= 2,
+        ),
+      ),
     [creneaux],
   )
 
@@ -331,6 +345,7 @@ export function useDeroule(projectId, selectedDateJour) {
     creneaux,
     creneauxByLane,
     creneauxMultiLane,
+    creneauxMultiCols,
     // Mutations
     reload,
     createDeroule,

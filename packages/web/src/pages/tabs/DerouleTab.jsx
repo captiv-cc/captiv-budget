@@ -172,6 +172,7 @@ export default function DerouleTab() {
     creneaux,
     creneauxByLane,
     creneauxMultiLane,
+    creneauxMultiCols,
     createDeroule,
     // updateDeroule, // exposé par le hook, sera utilisé en Sprint 2 (notes session)
     deleteDeroule,
@@ -1330,6 +1331,7 @@ export default function DerouleTab() {
           lanes={lanes}
           creneauxByLane={creneauxByLane}
           creneauxMultiLane={creneauxMultiLane}
+          creneauxMultiCols={creneauxMultiCols}
           membres={membres}
           conflictsByCreneau={conflictsByCreneau}
           canEdit={canEdit}

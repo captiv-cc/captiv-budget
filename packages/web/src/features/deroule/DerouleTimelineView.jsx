@@ -91,6 +91,9 @@ export default function DerouleTimelineView({
   lanes,
   creneauxByLane,
   creneauxMultiLane,
+  // Multi-colonnes : créneaux assignés à 2+ lanes précises (lane_ids) —
+  // rendus en bloc fusionné si contiguës, copies liées sinon.
+  creneauxMultiCols = [],
   membres,
   conflictsByCreneau,
   canEdit,
@@ -179,8 +182,9 @@ export default function DerouleTimelineView({
       for (const c of cs) arr.push(c)
     }
     for (const c of creneauxMultiLane || []) arr.push(c)
+    for (const c of creneauxMultiCols || []) arr.push(c)
     return arr
-  }, [lanes, creneauxByLane, creneauxMultiLane])
+  }, [lanes, creneauxByLane, creneauxMultiLane, creneauxMultiCols])
   // Index par id pour la lookup du créneau source (incohérence temporelle).
   const allCreneauxById = useMemo(() => {
     const m = new Map()
@@ -388,7 +392,10 @@ export default function DerouleTimelineView({
       initialDebutMin: creneau.heure_debut_min,
       initialFinMin: creneau.heure_fin_min,
       initialLaneId: creneau.lane_id,
-      multiLane: creneau.multi_lane,
+      // Les blocs multi-colonnes (lane_ids) se comportent comme les
+      // multi-lane pour le drag : heures seulement, pas de changement de
+      // colonne (les colonnes se gèrent dans le panneau).
+      multiLane: creneau.multi_lane || (Array.isArray(creneau.lane_ids) && creneau.lane_ids.length >= 2),
       // valeurs courantes pendant le drag (override visuel + commit final)
       currentDebutMin: creneau.heure_debut_min,
       currentFinMin: creneau.heure_fin_min,
@@ -766,6 +773,54 @@ export default function DerouleTimelineView({
     [lanes],
   )
 
+  // ── Multi-colonnes : segments par lane ANCRE ─────────────────────────────
+  // Pour chaque créneau lane_ids, les lanes assignées sont regroupées en
+  // plages CONTIGUËS dans l'ordre courant des colonnes. Chaque plage devient
+  // un segment rendu dans sa première lane, avec une largeur qui couvre
+  // toutes ses colonnes. Plusieurs segments (lanes non voisines) = copies
+  // liées du même créneau (badge ⧉ N).
+  const multiColsByAnchor = useMemo(() => {
+    const idxById = new Map(sortedLanes.map((l, i) => [l.id, i]))
+    const map = new Map()
+    for (const c of creneauxMultiCols || []) {
+      const idxs = (c.lane_ids || [])
+        .map((id) => idxById.get(id))
+        .filter((i) => i !== undefined)
+        .sort((a, b) => a - b)
+      if (idxs.length === 0) continue
+      const runs = []
+      let run = [idxs[0]]
+      for (let k = 1; k < idxs.length; k += 1) {
+        if (idxs[k] === idxs[k - 1] + 1) run.push(idxs[k])
+        else {
+          runs.push(run)
+          run = [idxs[k]]
+        }
+      }
+      runs.push(run)
+      runs.forEach((r, ri) => {
+        const anchor = sortedLanes[r[0]]
+        // Largeur = somme des largeurs des colonnes couvertes (elles varient
+        // par type de lane) + les bordures intermédiaires (1px chacune).
+        const width =
+          r.reduce((s, i) => {
+            const lane = sortedLanes[i]
+            const w =
+              resizing && resizing.type === lane.type
+                ? resizing.currentWidth
+                : getLaneWidth(lane.type)
+            return s + w
+          }, 0) +
+          (r.length - 1)
+        const arr = map.get(anchor.id) || []
+        arr.push({ creneau: c, width, segIndex: ri, segCount: runs.length })
+        map.set(anchor.id, arr)
+      })
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creneauxMultiCols, sortedLanes, resizing])
+
   // FEST-1 : plus de cap dur 5 lanes. Le scroll horizontal gère N lanes.
   // On garde un hint visuel "live recommande max 5" au-delà de ce seuil.
   const isOverLiveCap = sortedLanes.length > MAX_LANES_LIVE
@@ -1075,6 +1130,43 @@ export default function DerouleTimelineView({
                     />
                   )
                 })}
+              {/* Créneaux multi-COLONNES ancrés sur cette lane : bloc large
+                  couvrant les colonnes contiguës assignées (débordement à
+                  droite volontaire), copies liées si lanes non voisines. */}
+              {(multiColsByAnchor.get(lane.id) || []).map(
+                ({ creneau: c, width, segIndex, segCount }) => {
+                  const isThisDragging = dragState?.creneauId === c.id
+                  const debut = isThisDragging ? dragState.currentDebutMin : c.heure_debut_min
+                  const fin = isThisDragging ? dragState.currentFinMin : c.heure_fin_min
+                  return (
+                    <CreneauBlock
+                      key={`${c.id}-seg${segIndex}`}
+                      creneau={c}
+                      top={minToTop(debut)}
+                      height={durationToHeight(fin - debut)}
+                      membreInitiales={membreInitiales}
+                      onClick={(_c, rect) => handleBlockClick(c, rect)}
+                      canEdit={canEdit}
+                      onMouseDownDrag={handleBlockMouseDown}
+                      isDragging={isThisDragging && dragState.hasMoved}
+                      conflicts={conflictsByCreneau?.get?.(c.id) || []}
+                      isLinked={Boolean(c.source_creneau_id)}
+                      sourceTimingIssue={
+                        c.source_creneau_id
+                          ? getSourceTimingIssue(c, allCreneauxById.get(c.source_creneau_id))
+                          : null
+                      }
+                      laneType={lane.type}
+                      laneWidth={width}
+                      spanWidth={width}
+                      spanBadge={segCount > 1 ? `⧉ ${c.lane_ids.length}` : null}
+                      projectTypes={projectTypes}
+                      onContextMenu={(e) => handleBlockContextMenu(e, c)}
+                    />
+                  )
+                },
+              )}
+
               {/* Fantôme à la position D'ORIGINE pendant un déplacement (move).
                   Reste visible tant que le créneau n'est pas relâché → on voit
                   d'où il part. Teinté à la couleur du créneau, atténué. */}
@@ -2250,6 +2342,10 @@ function CreneauBlock({
   laneType = null,
   // FEST-5.5.5 : largeur de la lane (utilisée pour rendu adaptatif)
   laneWidth = null,
+  // Multi-colonnes : largeur explicite du bloc (couvre plusieurs lanes,
+  // déborde de sa colonne d'ancrage) + badge « ⧉ N » si copies liées.
+  spanWidth = null,
+  spanBadge = null,
   // Types V2 : projectTypes (core + custom) pour résoudre les couleurs
   // des types personnalisés. Sans ça les types custom rendent en gris.
   projectTypes = null,
@@ -2413,7 +2509,7 @@ function CreneauBlock({
       style={{
         top,
         left: 4,
-        right: 4,
+        ...(spanWidth ? { width: spanWidth - 8 } : { right: 4 }),
         height: Math.max(minH, height - 2),
         // FEST-5.2 : indispo = pattern hachures gris diagonales 45° par-dessus
         // un fond gris sombre semi-transparent. Bordure gauche fine vs
@@ -2458,7 +2554,8 @@ function CreneauBlock({
             }`
           : 'none',
         outlineOffset: isDragging ? 1 : 0,
-        zIndex: isDragging ? 5 : 'auto',
+        // Multi-colonnes : au-dessus des blocs mono des lanes couvertes.
+        zIndex: isDragging ? 5 : spanWidth ? 3 : 'auto',
         userSelect: 'none',
         transition: isDragging ? 'none' : 'box-shadow 0.15s, opacity 0.15s',
         // UX-2 : shadow subtile pour profondeur
@@ -2476,6 +2573,28 @@ function CreneauBlock({
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >
+      {/* Multi-colonnes non contiguës : badge ⧉ N — indique que ce bloc a
+          des copies liées dans d'autres colonnes (même créneau). */}
+      {spanBadge && (
+        <div
+          title="Ce créneau couvre des colonnes non voisines : mêmes infos, copies synchronisées."
+          style={{
+            position: 'absolute',
+            top: 3,
+            right: 4,
+            fontSize: 9,
+            fontWeight: 700,
+            padding: '0 4px',
+            borderRadius: 4,
+            background: 'rgba(0,0,0,0.35)',
+            color: '#fff',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          {spanBadge}
+        </div>
+      )}
       {/* Mini-icône d'incohérence horaire (toujours visible, même sur
           les petits blocs). Icône Clock pour signaler "problème horaire"
           et distinguer des alertes (AlertTriangle). Le badge texte

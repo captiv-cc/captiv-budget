@@ -1124,6 +1124,13 @@ export async function createCreneau(payload) {
       heure_fin_min: finMin,
       lane_id: payload.multi_lane ? null : payload.lane_id ?? null,
       multi_lane: payload.multi_lane === true,
+      // Multi-colonnes : 2+ lanes précises (lane_id reste l'ancre).
+      lane_ids:
+        !payload.multi_lane &&
+        Array.isArray(payload.lane_ids) &&
+        payload.lane_ids.length >= 2
+          ? payload.lane_ids
+          : null,
       titre: payload.titre ?? '',
       description: payload.description ?? null,
       type: payload.type ?? 'autre',
@@ -1160,11 +1167,22 @@ export async function createCreneau(payload) {
 export async function updateCreneau(creneauId, fields) {
   if (!creneauId) throw new Error('updateCreneau: creneauId manquant')
 
-  // Cohérence multi_lane / lane_id : si on toggle multi_lane=true, on
-  // doit clear lane_id ; si on set lane_id, on force multi_lane=false.
+  // Cohérence multi_lane / lane_id / lane_ids :
+  //   - multi_lane=true → clear lane_id ET lane_ids
+  //   - lane_ids fourni avec < 2 éléments → normalisé à NULL (mono-lane)
+  //   - set lane_id seul → multi_lane=false (comportement historique)
   const safeFields = { ...fields }
-  if (safeFields.multi_lane === true) safeFields.lane_id = null
-  else if (safeFields.lane_id) safeFields.multi_lane = false
+  if (safeFields.multi_lane === true) {
+    safeFields.lane_id = null
+    safeFields.lane_ids = null
+  } else if ('lane_ids' in safeFields) {
+    if (!Array.isArray(safeFields.lane_ids) || safeFields.lane_ids.length < 2) {
+      safeFields.lane_ids = null
+    }
+    if (safeFields.lane_id || safeFields.lane_ids) safeFields.multi_lane = false
+  } else if (safeFields.lane_id) {
+    safeFields.multi_lane = false
+  }
 
   const { data, error } = await supabase
     .from('projet_deroule_creneaux')
