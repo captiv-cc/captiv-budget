@@ -1490,12 +1490,17 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
             de suivre le scroll de la page → headers flottants au
             milieu de la timeline. Le sticky day selector (top de page)
             couvre l'essentiel du besoin nav. */}
+        {/* Wrapper commun header + body : impose la MÊME largeur aux deux
+            rangées flex. Sans lui, chaque rangée calcule sa largeur seule
+            dans le scroller — les noms longs des lanes personne gonflent
+            l'intrinsèque du header au-delà du body (56 + n×120) et les
+            colonnes dérivent par rapport aux traits verticaux. */}
+        <div style={{ minWidth: 'fit-content' }}>
         <div
           className="flex"
           style={{
             background: 'var(--bg-elev)',
             borderBottom: '1px solid var(--brd)',
-            minWidth: 'fit-content',
           }}
         >
           <div
@@ -1531,7 +1536,6 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
           style={{
             height: totalDisplayHeight + 16,
             minHeight: 200,
-            minWidth: 'fit-content',
           }}
         >
           {/* Colonne heures */}
@@ -1655,6 +1659,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
               </div>
             </div>
           )}
+        </div>
         </div>
 
         {/* [SHARE-3] Légende des types de créneau présents */}
