@@ -387,6 +387,20 @@ function ShareContent({
     )
   }, [creneaux, currentDeroule])
 
+  // Premier cadreur sélectionnable du jour (lane perso ou assignation) —
+  // fallback de l'export PNG lancé depuis la vue Timeline.
+  const firstCadreurId = useMemo(() => {
+    const ids = new Set()
+    for (const l of currentLanes) {
+      if (l.type === 'personne' && l.membre_id) ids.add(l.membre_id)
+    }
+    for (const c of currentCreneaux) {
+      for (const id of c.member_ids || []) ids.add(id)
+    }
+    for (const id of ids) if (membreById.has(id)) return id
+    return null
+  }, [currentLanes, currentCreneaux, membreById])
+
   // Note : on n'utilise PAS le brand_color de l'org pour les éléments
   // interactifs (sélecteur de date, toggle vue) — un brand sombre rendrait
   // les états sélectionnés invisibles. Le SharePageHeader gère lui-même le
@@ -436,9 +450,18 @@ function ShareContent({
               <div className="flex items-stretch gap-2 shrink-0">
                 <ViewToggle view={view} onChange={setView} />
                 <ExportButtons
-                  view={view}
-                  hasCadreur={Boolean(selectedCadreurId)}
-                  onExport={(type) => setExportRequest({ type })}
+                  hasCadreur={Boolean(selectedCadreurId || firstCadreurId)}
+                  onExport={(type) => {
+                    // PNG depuis la vue Timeline : bascule en vue Cadreur
+                    // (sélection auto du premier) puis lance l'export.
+                    if (type === 'png') {
+                      if (!selectedCadreurId && firstCadreurId) {
+                        handleSelectCadreur(firstCadreurId)
+                      }
+                      setView('cadreur')
+                    }
+                    setExportRequest({ type })
+                  }}
                 />
               </div>
             </div>
@@ -536,7 +559,7 @@ function ShareContent({
           lanes={currentLanes}
           creneaux={currentCreneaux}
           membres={membres}
-          membreId={selectedCadreurId}
+          membreId={selectedCadreurId || firstCadreurId}
           onClose={() => setExportRequest(null)}
         />
       )}
@@ -700,10 +723,10 @@ function ToggleBtn({ active, onClick, title, children }) {
 // V2 : un seul bouton icône Download (~36px) qui ouvre un petit menu
 // déroulant juste en-dessous avec les 2 options. Tap-out = close.
 
-function ExportButtons({ view, hasCadreur, onExport }) {
+function ExportButtons({ hasCadreur, onExport }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const containerRef = useRef(null)
-  const pngDisabled = view !== 'cadreur' || !hasCadreur
+  const pngDisabled = !hasCadreur
 
   // Close au clic outside
   useEffect(() => {
@@ -781,9 +804,7 @@ function ExportButtons({ view, hasCadreur, onExport }) {
             icon={<ImageIcon className="w-4 h-4" />}
             label="Planning cadreur (PNG)"
             sublabel={
-              pngDisabled
-                ? 'Bascule en vue Cadreur pour activer'
-                : 'Format mobile, 1 cadreur'
+              pngDisabled ? 'Aucun cadreur sur ce jour' : 'Format mobile, 1 cadreur'
             }
             disabled={pngDisabled}
             onClick={() => {
@@ -1174,19 +1195,16 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
   }, [heureDebutMin, heureFinMin, stepMin])
 
   // Partition créneaux : par lane (mono) + multi_lane (overlay sur tout).
-  // Multi-colonnes (lane_ids 2+) : le créneau apparaît dans CHAQUE colonne
-  // couverte (lecture seule → duplication d'affichage, simple et juste).
+  // Les multi-colonnes (lane_ids 2+) sont rendus à part en blocs FUSIONNÉS
+  // (cf. multiColsByAnchor plus bas).
   const creneauxByLane = useMemo(() => {
     const map = new Map()
     for (const lane of lanes) map.set(lane.id, [])
     for (const c of creneaux) {
       if (c.multi_lane) continue
-      const targets =
-        Array.isArray(c.lane_ids) && c.lane_ids.length >= 2 ? c.lane_ids : [c.lane_id]
-      for (const lid of targets) {
-        if (!map.has(lid)) map.set(lid, [])
-        map.get(lid).push(c)
-      }
+      if (Array.isArray(c.lane_ids) && c.lane_ids.length >= 2) continue
+      if (!map.has(c.lane_id)) map.set(c.lane_id, [])
+      map.get(c.lane_id).push(c)
     }
     return map
   }, [lanes, creneaux])
@@ -1198,6 +1216,41 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
     () => [...lanes].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
     [lanes],
   )
+
+  // Multi-colonnes : segments par lane ANCRE (mêmes règles que la timeline
+  // desk) — plages contiguës dans l'ordre des colonnes = un bloc fusionné
+  // (les colonnes sont en flex égal → largeur = spanCount × 100 %), lanes
+  // non voisines = copies liées avec badge ⧉ N.
+  const multiColsByAnchor = useMemo(() => {
+    const idxById = new Map(sortedLanes.map((l, i) => [l.id, i]))
+    const map = new Map()
+    for (const c of creneaux) {
+      if (c.multi_lane) continue
+      if (!Array.isArray(c.lane_ids) || c.lane_ids.length < 2) continue
+      const idxs = c.lane_ids
+        .map((id) => idxById.get(id))
+        .filter((i) => i !== undefined)
+        .sort((a, b) => a - b)
+      if (idxs.length === 0) continue
+      const runs = []
+      let run = [idxs[0]]
+      for (let k = 1; k < idxs.length; k += 1) {
+        if (idxs[k] === idxs[k - 1] + 1) run.push(idxs[k])
+        else {
+          runs.push(run)
+          run = [idxs[k]]
+        }
+      }
+      runs.push(run)
+      runs.forEach((r, ri) => {
+        const anchor = sortedLanes[r[0]].id
+        const arr = map.get(anchor) || []
+        arr.push({ creneau: c, spanCount: r.length, segCount: runs.length, segIndex: ri })
+        map.set(anchor, arr)
+      })
+    }
+    return map
+  }, [creneaux, sortedLanes])
 
   // [SHARE-3] Légende — uniquement les types présents dans le jour, mais
   // résolus via projectTypes (core + custom) pour avoir libellé + couleur
@@ -1539,6 +1592,24 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
                 ))}
                 {/* Créneaux mono-lane */}
                 {creneauxLane.map((c) => renderBlock(c, false))}
+                {/* Créneaux multi-colonnes ancrés ici : bloc fusionné qui
+                    couvre spanCount colonnes (colonnes en flex égal). */}
+                {(multiColsByAnchor.get(lane.id) || []).map(
+                  ({ creneau: c, spanCount, segCount, segIndex }) => (
+                    <ReadOnlyBlock
+                      key={`${c.id}-seg${segIndex}`}
+                      creneau={c}
+                      top={minToDisplayY(c.heure_debut_min)}
+                      height={durationToDisplayHeight(c.heure_debut_min, c.heure_fin_min)}
+                      membreById={membreById}
+                      creneauxById={creneauxById}
+                      projectTypes={projectTypes}
+                      spanCount={spanCount}
+                      spanBadge={segCount > 1 ? `⧉${c.lane_ids.length}` : null}
+                      onClick={(rect) => onSelectCreneau?.(c, rect)}
+                    />
+                  ),
+                )}
               </div>
             )
           })}
@@ -1647,7 +1718,7 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
 // Ordre des infos cohérent entre compact et normal : titre EN PREMIER,
 // heure ENSUITE (alignement avec le layout normal sur 2 lignes).
 
-function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, projectTypes = null, isMultiLane = false, onClick }) {
+function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, projectTypes = null, isMultiLane = false, spanCount = 1, spanBadge = null, onClick }) {
   const color = effectiveCouleurCreneau(c, projectTypes)
   const minH = 22
   const memberIds = Array.isArray(c.member_ids) ? c.member_ids : []
@@ -1667,8 +1738,12 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, proj
   // confiné à sa colonne avec une petite marge.
   const blockStyle = {
     top,
-    left: isMultiLane ? 4 : 4,
-    right: isMultiLane ? 4 : 4,
+    left: 4,
+    // Multi-colonnes : les colonnes sont en flex égal → un bloc couvrant
+    // spanCount colonnes = spanCount × 100 % (+ bordures intermédiaires).
+    ...(spanCount > 1
+      ? { width: `calc(${spanCount * 100}% + ${spanCount - 1}px - 8px)` }
+      : { right: 4 }),
     height: renderedHeight,
     background: `${color}26`,
     borderLeft: `3px solid ${color}`,
@@ -1678,11 +1753,11 @@ function ReadOnlyBlock({ creneau: c, top, height, membreById, creneauxById, proj
     opacity: isCancel ? 0.5 : 1,
     textDecoration: isCancel ? 'line-through' : 'none',
     pointerEvents: 'auto',
-    zIndex: isMultiLane ? 5 : 2,
+    zIndex: isMultiLane ? 5 : spanCount > 1 ? 4 : 2,
     cursor: 'pointer',
   }
 
-  const titrePrefix = isMultiLane ? '↔ ' : ''
+  const titrePrefix = isMultiLane ? '↔ ' : spanBadge ? `${spanBadge} ` : ''
   const titre = c.titre || '(sans titre)'
 
   // Sprint mobile-cadreur : indicateur d'alerte sur les blocs timeline.

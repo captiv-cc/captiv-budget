@@ -3,8 +3,10 @@
 -- ════════════════════════════════════════════════════════════════════════════
 --
 -- D3 du chantier multi-colonnes (cf. 20260816a) : les deux RPCs de partage
--- exposent lane_ids pour que les pages publiques rendent le créneau dans
--- chaque colonne couverte. Base : 20260608b (dernière définition).
+-- exposent lane_ids (rendu fusionné côté pages publiques) et incluent dans
+-- le payload membres les cadreurs qui n'ont qu'une lane perso sans
+-- assignation directe (fix sélecteur vue Cadreur du share).
+-- Base : 20260608b (dernière définition).
 -- Idempotent. Dépend de : 20260816a_deroule_creneau_lane_ids.sql.
 -- ════════════════════════════════════════════════════════════════════════════
 
@@ -139,13 +141,25 @@ BEGIN
       LEFT JOIN contacts c ON c.id = m.contact_id
       WHERE m.project_id = v_project_id
         AND m.parent_membre_id IS NULL
-        AND EXISTS (
-          SELECT 1
-            FROM projet_deroule_creneau_membres cm
-            JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
-            JOIN projet_deroules d2 ON d2.id = cr.deroule_id
-           WHERE cm.membre_id = m.id
-             AND d2.project_id = v_project_id
+        AND (
+          EXISTS (
+            SELECT 1
+              FROM projet_deroule_creneau_membres cm
+              JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
+              JOIN projet_deroules d2 ON d2.id = cr.deroule_id
+             WHERE cm.membre_id = m.id
+               AND d2.project_id = v_project_id
+          )
+          -- Cadreurs avec lane perso mais sans assignation directe : la vue
+          -- Cadreur du share les liste via lanes.membre_id — le membre doit
+          -- donc être présent dans le payload (fix « HM manquant »).
+          OR EXISTS (
+            SELECT 1
+              FROM projet_deroule_lanes pl
+              JOIN projet_deroules pd ON pd.id = pl.deroule_id
+             WHERE pl.membre_id = m.id
+               AND pd.project_id = v_project_id
+          )
         )
     ), '[]'::jsonb),
     'generated_at', now()
@@ -301,13 +315,25 @@ BEGIN
       LEFT JOIN contacts c ON c.id = m.contact_id
       WHERE m.project_id = v_project_id
         AND m.parent_membre_id IS NULL
-        AND EXISTS (
-          SELECT 1
-            FROM projet_deroule_creneau_membres cm
-            JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
-            JOIN projet_deroules d2 ON d2.id = cr.deroule_id
-           WHERE cm.membre_id = m.id
-             AND d2.project_id = v_project_id
+        AND (
+          EXISTS (
+            SELECT 1
+              FROM projet_deroule_creneau_membres cm
+              JOIN projet_deroule_creneaux cr ON cr.id = cm.creneau_id
+              JOIN projet_deroules d2 ON d2.id = cr.deroule_id
+             WHERE cm.membre_id = m.id
+               AND d2.project_id = v_project_id
+          )
+          -- Cadreurs avec lane perso mais sans assignation directe : la vue
+          -- Cadreur du share les liste via lanes.membre_id — le membre doit
+          -- donc être présent dans le payload (fix « HM manquant »).
+          OR EXISTS (
+            SELECT 1
+              FROM projet_deroule_lanes pl
+              JOIN projet_deroules pd ON pd.id = pl.deroule_id
+             WHERE pl.membre_id = m.id
+               AND pd.project_id = v_project_id
+          )
         )
     ), '[]'::jsonb),
     'generated_at', now()
