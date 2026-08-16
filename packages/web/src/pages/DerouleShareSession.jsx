@@ -388,24 +388,43 @@ function ShareContent({
   }, [creneaux, currentDeroule])
 
   // Cadreurs du jour (lane perso ou assignation) — liste du sous-menu
-  // « Planning cadreur (PNG) » : le choix du cadreur est TOUJOURS explicite.
+  // « Planning cadreur (PNG) ». Fallback lane : un id absent du payload
+  // membres (fiche fusionnée, filtre RPC) est listé via le libellé de sa
+  // lane perso — même logique que le sélecteur de la vue Cadreur.
   const cadreurOptions = useMemo(() => {
     const ids = new Set()
+    const laneByMembre = new Map()
     for (const l of currentLanes) {
-      if (l.type === 'personne' && l.membre_id) ids.add(l.membre_id)
+      if (l.type === 'personne' && l.membre_id) {
+        ids.add(l.membre_id)
+        laneByMembre.set(l.membre_id, l)
+      }
     }
     for (const c of currentCreneaux) {
       for (const id of c.member_ids || []) ids.add(id)
     }
     return [...ids]
-      .map((id) => membreById.get(id))
+      .map((id) => {
+        const m = membreById.get(id)
+        if (m) {
+          return {
+            id,
+            nom:
+              `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '?',
+          }
+        }
+        const lane = laneByMembre.get(id)
+        return lane ? { id, nom: lane.libelle || '?' } : null
+      })
       .filter(Boolean)
-      .map((m) => ({
-        id: m.id,
-        nom: `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '?',
-      }))
       .sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }))
   }, [currentLanes, currentCreneaux, membreById])
+
+  // En vue Cadreur, l'export PNG porte directement sur le cadreur affiché.
+  const currentCadreur =
+    view === 'cadreur'
+      ? cadreurOptions.find((m) => m.id === selectedCadreurId) || cadreurOptions[0] || null
+      : null
 
   // Note : on n'utilise PAS le brand_color de l'org pour les éléments
   // interactifs (sélecteur de date, toggle vue) — un brand sombre rendrait
@@ -457,6 +476,7 @@ function ShareContent({
                 <ViewToggle view={view} onChange={setView} />
                 <ExportButtons
                   cadreurs={cadreurOptions}
+                  currentCadreur={currentCadreur}
                   onExport={(type, membreId = null) =>
                     setExportRequest({ type, membreId })
                   }
@@ -721,7 +741,7 @@ function ToggleBtn({ active, onClick, title, children }) {
 // V2 : un seul bouton icône Download (~36px) qui ouvre un petit menu
 // déroulant juste en-dessous avec les 2 options. Tap-out = close.
 
-function ExportButtons({ cadreurs = [], onExport }) {
+function ExportButtons({ cadreurs = [], currentCadreur = null, onExport }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const containerRef = useRef(null)
   const pngDisabled = cadreurs.length === 0
@@ -810,15 +830,26 @@ function ExportButtons({ cadreurs = [], onExport }) {
             icon={<ImageIcon className="w-4 h-4" />}
             label="Planning cadreur (PNG)"
             sublabel={
-              pngDisabled ? 'Aucun cadreur sur ce jour' : 'Format mobile, choisis le cadreur'
+              pngDisabled
+                ? 'Aucun cadreur sur ce jour'
+                : currentCadreur
+                  ? `Format mobile · ${currentCadreur.nom}`
+                  : 'Format mobile, choisis le cadreur'
             }
             disabled={pngDisabled}
             onClick={() => {
               if (pngDisabled) return
+              // Vue Cadreur : exporte directement la personne affichée.
+              if (currentCadreur) {
+                setMenuOpen(false)
+                onExport('png', currentCadreur.id)
+                return
+              }
               setPngListOpen((v) => !v)
             }}
           />
           {pngListOpen &&
+            !currentCadreur &&
             cadreurs.map((m) => (
               <button
                 key={m.id}
