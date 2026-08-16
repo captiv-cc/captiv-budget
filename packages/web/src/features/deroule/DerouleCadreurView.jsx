@@ -146,7 +146,10 @@ export default function DerouleCadreurView({
     return sortCreneauxByTime(
       (creneaux || []).filter((c) => {
         const isHisLane =
-          selectedMembreLane && c.lane_id === selectedMembreLane.id
+          selectedMembreLane &&
+          (c.lane_id === selectedMembreLane.id ||
+            // Multi-colonnes : sa lane fait partie des colonnes couvertes
+            (Array.isArray(c.lane_ids) && c.lane_ids.includes(selectedMembreLane.id)))
         const isAssigned =
           Array.isArray(c.member_ids) &&
           c.member_ids.includes(effectiveMembreId)

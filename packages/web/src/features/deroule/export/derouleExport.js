@@ -102,6 +102,11 @@ export function getCreneauxForLane(creneaux, laneId, excludeMultiLane = false) {
   return creneaux
     .filter((c) => {
       if (c.multi_lane && !excludeMultiLane) return true
+      // Multi-colonnes : le créneau apparaît dans CHAQUE lane couverte
+      // (exports PDF/PNG et toute surface passant par ce helper).
+      if (Array.isArray(c.lane_ids) && c.lane_ids.length >= 2) {
+        return c.lane_ids.includes(laneId)
+      }
       return c.lane_id === laneId
     })
     .sort((a, b) => (a.heure_debut_min || 0) - (b.heure_debut_min || 0))

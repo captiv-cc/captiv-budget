@@ -1173,14 +1173,20 @@ function CreneauxTimeline({ deroule, creneaux, lanes, membreById, creneauxById, 
     return out
   }, [heureDebutMin, heureFinMin, stepMin])
 
-  // Partition créneaux : par lane (mono) + multi_lane (overlay sur tout)
+  // Partition créneaux : par lane (mono) + multi_lane (overlay sur tout).
+  // Multi-colonnes (lane_ids 2+) : le créneau apparaît dans CHAQUE colonne
+  // couverte (lecture seule → duplication d'affichage, simple et juste).
   const creneauxByLane = useMemo(() => {
     const map = new Map()
     for (const lane of lanes) map.set(lane.id, [])
     for (const c of creneaux) {
       if (c.multi_lane) continue
-      if (!map.has(c.lane_id)) map.set(c.lane_id, [])
-      map.get(c.lane_id).push(c)
+      const targets =
+        Array.isArray(c.lane_ids) && c.lane_ids.length >= 2 ? c.lane_ids : [c.lane_id]
+      for (const lid of targets) {
+        if (!map.has(lid)) map.set(lid, [])
+        map.get(lid).push(c)
+      }
     }
     return map
   }, [lanes, creneaux])

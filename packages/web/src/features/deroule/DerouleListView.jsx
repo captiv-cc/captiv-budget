@@ -89,6 +89,11 @@ export default function DerouleListView({
           {sorted.map((c) => {
             const color = effectiveCouleurCreneau(c, projectTypes)
             const lane = c.multi_lane ? null : laneById.get(c.lane_id)
+            // Multi-colonnes : libellés des lanes couvertes (badge ⧉)
+            const multiColsLanes =
+              !c.multi_lane && Array.isArray(c.lane_ids) && c.lane_ids.length >= 2
+                ? c.lane_ids.map((id) => laneById.get(id)?.libelle).filter(Boolean)
+                : null
             const dureeMin = creneauDureeMin(c)
             const dureeStr = dureeMin >= 60
               ? `${Math.floor(dureeMin / 60)}h${dureeMin % 60 ? String(dureeMin % 60).padStart(2, '0') : ''}`
@@ -121,8 +126,13 @@ export default function DerouleListView({
                       background: c.multi_lane ? 'rgba(136,135,128,0.2)' : `${color}22`,
                       color: c.multi_lane ? 'var(--txt-2)' : color,
                     }}
+                    title={multiColsLanes ? multiColsLanes.join(', ') : undefined}
                   >
-                    {c.multi_lane ? '↔ Multi' : (lane?.libelle || '—')}
+                    {c.multi_lane
+                      ? '↔ Multi'
+                      : multiColsLanes
+                        ? `⧉ ${multiColsLanes.length} colonnes`
+                        : lane?.libelle || '—'}
                   </span>
                 </td>
                 <td className="px-3 py-2 align-middle" style={{ color: 'var(--txt)' }}>
