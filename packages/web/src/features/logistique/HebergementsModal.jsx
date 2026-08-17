@@ -150,9 +150,13 @@ export default function HebergementsModal({
           </button>
         </div>
 
-        {/* min-h-0 : sans ça un enfant flex garde min-height:auto, refuse de
-            se rétracter sous son contenu et le scroll ne s'active jamais. */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+        {/* Deux garde-fous indispensables au scroll :
+            - min-h-0 sur le conteneur : sans ça il garde min-height:auto et
+              refuse de se rétracter sous son contenu ;
+            - [&>*]:shrink-0 : en flex-col les cartes se compriment par défaut
+              et, comme elles sont en overflow-hidden, leur contenu est coupé
+              au lieu de faire déborder (donc rien à scroller). */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3 [&>*]:shrink-0">
           {hebergements.length === 0 && editingId !== 'new' && (
             <p className="text-xs text-center py-6" style={{ color: 'var(--txt-3)' }}>
               Aucun hébergement déclaré.
@@ -171,7 +175,7 @@ export default function HebergementsModal({
               const membreById = new Map(membres.map((m) => [m.id, m]))
               return (
                 <div
-                  className="rounded-xl px-4 py-3"
+                  className="rounded-xl px-4 py-3 shrink-0"
                   style={{
                     background: 'rgba(245,158,11,0.06)',
                     border: '1px solid rgba(245,158,11,0.35)',
@@ -276,7 +280,7 @@ export default function HebergementsModal({
             <button
               type="button"
               onClick={() => setEditingId('new')}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg self-start"
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg self-start shrink-0"
               style={{
                 background: 'var(--bg-elev)',
                 color: 'var(--txt-2)',
@@ -368,7 +372,7 @@ function HebergementCard({
 
   return (
     <div
-      className="rounded-xl overflow-hidden"
+      className="rounded-xl overflow-hidden shrink-0"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
     >
       {/* En-tête */}
@@ -654,7 +658,7 @@ function HebergementForm({ initial = null, busy, onSubmit, onCancel }) {
           notes: notes.trim() || null,
         })
       }}
-      className="rounded-xl p-4 flex flex-col gap-2.5"
+      className="rounded-xl p-4 flex flex-col gap-2.5 shrink-0"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--blue)' }}
     >
       <div className="flex gap-2">

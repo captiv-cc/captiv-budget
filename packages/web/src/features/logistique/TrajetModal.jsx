@@ -299,7 +299,9 @@ export default function TrajetModal({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+        {/* [&>*]:shrink-0 : en flex-col les enfants se compriment par défaut
+            au lieu de déborder — le scroll ne s'active alors jamais. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-4 [&>*]:shrink-0">
           {/* Sens + date + coût */}
           <div className="flex items-end gap-3 flex-wrap">
             <label className="flex flex-col gap-1">
