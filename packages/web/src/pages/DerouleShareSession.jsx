@@ -57,6 +57,7 @@ import DerouleCadreurView from '../features/deroule/DerouleCadreurView'
 import { buildDerouleMultiJourPdf } from '../features/deroule/export/exportPDF'
 import { buildDerouleCadreurPng } from '../features/deroule/export/exportPNG'
 import { getProjectCreneauTypes } from '../lib/creneauTypes'
+import { readShareIdentity, writeShareIdentity } from '../lib/shareIdentity'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -261,14 +262,25 @@ function ShareContent({
   }, [view])
 
   // Cadreur sélectionné (synchronisé avec ?cadreur=<id> dans l'URL).
-  const [selectedCadreurId, setSelectedCadreurId] = useState(urlCadreurId)
+  // À défaut d'un id dans l'URL, on reprend l'identité que la personne a
+  // déjà déclarée sur une autre page publique du projet (logistique) —
+  // mémorisée par projet, cf. lib/shareIdentity. Elle reste modifiable et
+  // ne change PAS la vue active : on ne bascule jamais en vue Cadreur
+  // tout seul (principe posé sur l'export PNG).
+  const [selectedCadreurId, setSelectedCadreurId] = useState(
+    () => urlCadreurId || readShareIdentity(project.id),
+  )
   useEffect(() => {
     // Sync URL → state quand l'URL change (cas back/forward navigation)
-    setSelectedCadreurId(urlCadreurId)
-    if (urlCadreurId) setView('cadreur')
+    if (urlCadreurId) {
+      setSelectedCadreurId(urlCadreurId)
+      setView('cadreur')
+    }
   }, [urlCadreurId])
   function handleSelectCadreur(membreId) {
     setSelectedCadreurId(membreId)
+    // Ce choix vaut identité pour les autres pages publiques du projet.
+    writeShareIdentity(project.id, membreId)
     const next = new URLSearchParams(searchParams)
     if (membreId) next.set('cadreur', membreId)
     else next.delete('cadreur')

@@ -18,20 +18,7 @@ import {
   membreDisplayName,
   membrePosteLabel,
 } from './logistiqueSynthese'
-
-const STORAGE_PREFIX = 'logistique.share.moi.'
-
-/** Identité mémorisée pour ce lien (null si jamais choisie). */
-function readMoi(storageKey) {
-  if (!storageKey || typeof localStorage === 'undefined') return null
-  return localStorage.getItem(STORAGE_PREFIX + storageKey) || null
-}
-
-function writeMoi(storageKey, membreId) {
-  if (!storageKey || typeof localStorage === 'undefined') return
-  if (membreId) localStorage.setItem(STORAGE_PREFIX + storageKey, membreId)
-  else localStorage.removeItem(STORAGE_PREFIX + storageKey)
-}
+import { readShareIdentity, writeShareIdentity } from '../../lib/shareIdentity'
 
 function initialsOf(membre) {
   const prenom = membre.contact?.prenom || membre.prenom || ''
@@ -71,13 +58,13 @@ function resumeFor(membre, { trajets, nuits, hebergements }) {
 }
 
 export default function LogistiqueSharePersonnes({
-  storageKey,
+  projectId, // identité mémorisée par PROJET → partagée avec le déroulé
   personRows,
   logi,
   renderCard, // (membre) => ReactNode — la carte complète, fournie par la page
   between = null, // inséré entre « Ma fiche » et l'équipe (infos générales)
 }) {
-  const [moiId, setMoiId] = useState(() => readMoi(storageKey))
+  const [moiId, setMoiId] = useState(() => readShareIdentity(projectId))
   const [picking, setPicking] = useState(false)
   const [query, setQuery] = useState('')
   const [openIds, setOpenIds] = useState(() => new Set())
@@ -97,7 +84,7 @@ export default function LogistiqueSharePersonnes({
 
   function choose(id) {
     setMoiId(id)
-    writeMoi(storageKey, id)
+    writeShareIdentity(projectId, id)
     setPicking(false)
   }
 

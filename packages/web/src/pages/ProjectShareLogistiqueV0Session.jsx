@@ -91,12 +91,7 @@ export default function ProjectShareLogistiqueV0Session() {
   return (
     <div style={{ background: 'var(--bg)' }}>
       <BackToHubLink token={token} />
-      <LogistiqueShareView
-        payload={payload}
-        theme={theme}
-        setTheme={setTheme}
-        storageKey={token}
-      />
+      <LogistiqueShareView payload={payload} theme={theme} setTheme={setTheme} />
     </div>
   )
 }
@@ -105,7 +100,7 @@ export default function ProjectShareLogistiqueV0Session() {
 // On la nomme exported pour permettre une réutilisation future si besoin
 // (par exemple dans un mode preview admin du share).
 
-export function LogistiqueShareView({ payload, theme, setTheme, storageKey = null }) {
+export function LogistiqueShareView({ payload, theme, setTheme }) {
   const share = payload.share || {}
   const project = payload.project || {}
   const org = payload.org || null
@@ -227,7 +222,7 @@ export function LogistiqueShareView({ payload, theme, setTheme, storageKey = nul
         {personRows.length > 0 && (
           <div className="mt-5">
             <LogistiqueSharePersonnes
-              storageKey={storageKey}
+              projectId={project.id}
               personRows={personRows}
               logi={logi}
               between={
