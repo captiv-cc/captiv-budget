@@ -215,8 +215,8 @@ export function LogistiqueShareView({ payload, theme, setTheme, storageKey = nul
         <ShareNav
           items={[
             personRows.length > 0 && { id: 'ma-fiche', label: 'Ma fiche' },
-            personRows.length > 1 && { id: 'equipe', label: 'Équipe' },
             hasInfos && { id: 'infos', label: 'Infos' },
+            personRows.length > 1 && { id: 'equipe', label: 'Équipe' },
             showSynthese && hasV1Data && { id: 'synthese', label: 'Synthèse' },
             showOverview && hasV1Data && { id: 'vue-ensemble', label: 'Vue d’ensemble' },
           ].filter(Boolean)}
