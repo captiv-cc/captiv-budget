@@ -53,7 +53,7 @@ import { getProjectCreneauTypes } from '../../lib/creneauTypes'
 import {
   buildCadreurGroups,
   creneauxForCadreurGroup,
-  findCadreurGroup,
+  resolveCadreurGroup,
 } from './cadreurIdentity'
 
 export default function DerouleCadreurView({
@@ -129,14 +129,36 @@ export default function DerouleCadreurView({
   )
 
   // ─── Sélection courante ────────────────────────────────────────────────
-  // Si rien sélectionné, prendre le premier candidat (s'il existe).
-  const selectedGroup =
-    findCadreurGroup(groups, selectedMembreId) || groups[0] || null
+  // Une personne demandée explicitement (sélecteur, ?cadreur=, identité
+  // mémorisée) est TOUJOURS celle qu'on affiche — même si elle n'a aucune
+  // mission ce jour-là. Basculer sur un autre cadreur afficherait le
+  // planning de quelqu'un d'autre sous son nom.
+  const selectedGroup = useMemo(() => {
+    if (!selectedMembreId) return groups[0] || null
+    const resolved = resolveCadreurGroup({
+      groups,
+      membreId: selectedMembreId,
+      membres,
+    })
+    if (resolved) return resolved
+    // Pas au planning du jour : groupe vide à son nom (0 mission).
+    const m = (membres || []).find((x) => x.id === selectedMembreId)
+    if (!m) return null
+    const prenom = m.contact?.prenom || m.prenom || ''
+    const nom = m.contact?.nom || m.nom || ''
+    return {
+      key: `absent:${selectedMembreId}`,
+      id: selectedMembreId,
+      ids: [selectedMembreId],
+      laneIds: [],
+      nom: `${prenom} ${nom}`.trim() || '?',
+    }
+  }, [groups, selectedMembreId, membres])
   const effectiveMembreId = selectedGroup?.id || null
   const selectedMembre = effectiveMembreId
     ? membreById.get(effectiveMembreId) ||
       candidateMembres.find((m) => m.id === effectiveMembreId) ||
-      null
+      (selectedGroup ? { id: effectiveMembreId, nom: selectedGroup.nom, prenom: '' } : null)
     : null
   const selectedMembreLane = useMemo(
     () =>

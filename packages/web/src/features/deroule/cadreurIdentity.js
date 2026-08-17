@@ -54,7 +54,7 @@ export function buildCadreurGroups({ lanes = [], creneaux = [], membres = [] }) 
     const nom = membre ? displayName(membre) : lane?.libelle || ''
     const key = membre ? personaKey(membre) : `lane:${id}`
 
-    const g = groups.get(key) || { id, ids: [], laneIds: [], nom: nom || '?' }
+    const g = groups.get(key) || { key, id, ids: [], laneIds: [], nom: nom || '?' }
     if (!g.ids.includes(id)) g.ids.push(id)
     if (lane && !g.laneIds.includes(lane.id)) {
       g.laneIds.push(lane.id)
@@ -75,6 +75,29 @@ export function buildCadreurGroups({ lanes = [], creneaux = [], membres = [] }) 
 export function findCadreurGroup(groups, membreId) {
   if (!membreId) return null
   return groups.find((g) => g.ids.includes(membreId)) || null
+}
+
+/**
+ * Résout un membre_id venu d'AILLEURS que du déroulé (identité mémorisée sur
+ * la logistique, lien ?cadreur=…, deep-link mobile) vers le groupe de la
+ * personne.
+ *
+ * L'id reçu désigne souvent la row principale de la techlist, alors que le
+ * déroulé ne connaît que les rows portant une lane ou une assignation : la
+ * recherche par id échoue donc, et retomber sur le premier cadreur de la
+ * liste afficherait le planning de quelqu'un d'autre. On repasse donc par la
+ * personne (personaKey) avant d'abandonner.
+ *
+ * @returns le groupe, ou null si la personne n'est pas au planning du jour.
+ */
+export function resolveCadreurGroup({ groups = [], membreId, membres = [] }) {
+  if (!membreId) return null
+  const direct = findCadreurGroup(groups, membreId)
+  if (direct) return direct
+  const membre = (membres || []).find((m) => m.id === membreId)
+  if (!membre) return null
+  const key = personaKey(membre)
+  return groups.find((g) => g.key === key) || null
 }
 
 /**

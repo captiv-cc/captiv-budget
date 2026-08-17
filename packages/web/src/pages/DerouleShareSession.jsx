@@ -58,7 +58,7 @@ import { buildDerouleMultiJourPdf } from '../features/deroule/export/exportPDF'
 import { buildDerouleCadreurPng } from '../features/deroule/export/exportPNG'
 import { getProjectCreneauTypes } from '../lib/creneauTypes'
 import { readShareIdentity, writeShareIdentity } from '../lib/shareIdentity'
-import { buildCadreurGroups, findCadreurGroup } from '../features/deroule/cadreurIdentity'
+import { buildCadreurGroups, resolveCadreurGroup } from '../features/deroule/cadreurIdentity'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -407,21 +407,42 @@ function ShareContent({
   // Regroupés par personne : quelqu'un qui cumule deux postes a plusieurs
   // rows projet_membres, il ne doit apparaître qu'une fois (cf.
   // features/deroule/cadreurIdentity.js).
-  const cadreurOptions = useMemo(
+  const cadreurGroups = useMemo(
     () =>
       buildCadreurGroups({
         lanes: currentLanes,
         creneaux: currentCreneaux,
         membres,
-      }).map((g) => ({ id: g.id, nom: g.nom })),
+      }),
     [currentLanes, currentCreneaux, membres],
   )
+  const cadreurOptions = useMemo(
+    () => cadreurGroups.map((g) => ({ id: g.id, nom: g.nom })),
+    [cadreurGroups],
+  )
 
-  // En vue Cadreur, l'export PNG porte directement sur le cadreur affiché.
-  const currentCadreur =
-    view === 'cadreur'
-      ? cadreurOptions.find((m) => m.id === selectedCadreurId) || cadreurOptions[0] || null
-      : null
+  // En vue Cadreur, l'export PNG porte sur la personne affichée. On résout
+  // par PERSONNE : l'id mémorisé désigne souvent une autre row que celles
+  // du planning, et prendre alors le premier de la liste exporterait le
+  // planning de quelqu'un d'autre.
+  const currentCadreur = useMemo(() => {
+    if (view !== 'cadreur') return null
+    const g = resolveCadreurGroup({
+      groups: cadreurGroups,
+      membreId: selectedCadreurId,
+      membres,
+    })
+    if (g) return { id: g.id, nom: g.nom }
+    if (selectedCadreurId) {
+      const m = (membres || []).find((x) => x.id === selectedCadreurId)
+      if (m) {
+        const nom = `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim()
+        return { id: selectedCadreurId, nom: nom || '?' }
+      }
+      return null
+    }
+    return cadreurOptions[0] || null
+  }, [view, cadreurGroups, cadreurOptions, selectedCadreurId, membres])
 
   // Note : on n'utilise PAS le brand_color de l'org pour les éléments
   // interactifs (sélecteur de date, toggle vue) — un brand sombre rendrait
@@ -971,10 +992,11 @@ function ExportSharePreviewSheet({
         } else {
           // Toutes les rows de la personne (postes cumulés) — sinon on
           // exporterait le planning d'une seule de ses casquettes.
-          const group = findCadreurGroup(
-            buildCadreurGroups({ lanes, creneaux, membres }),
+          const group = resolveCadreurGroup({
+            groups: buildCadreurGroups({ lanes, creneaux, membres }),
             membreId,
-          )
+            membres,
+          })
           r = await buildDerouleCadreurPng({
             project,
             deroulesData,

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildCadreurGroups,
   findCadreurGroup,
+  resolveCadreurGroup,
   creneauxForCadreurGroup,
 } from './cadreurIdentity'
 
@@ -47,7 +48,9 @@ describe('buildCadreurGroups', () => {
       creneaux: [],
       membres: [],
     })
-    expect(groups).toEqual([{ id: 'x', ids: ['x'], laneIds: ['laneX'], nom: 'Inconnu' }])
+    expect(groups).toEqual([
+      { key: 'lane:x', id: 'x', ids: ['x'], laneIds: ['laneX'], nom: 'Inconnu' },
+    ])
   })
 })
 
@@ -68,5 +71,47 @@ describe('creneauxForCadreurGroup', () => {
 
   it('renvoie une liste vide sans groupe', () => {
     expect(creneauxForCadreurGroup(CRENEAUX, null)).toEqual([])
+  })
+})
+
+describe('resolveCadreurGroup', () => {
+  // Le cas réel : l'identité mémorisée sur la logistique désigne la row
+  // principale de la techlist ('p'), que le déroulé ne connaît pas — ni lane,
+  // ni assignation. Sans résolution par personne, on retombait sur le premier
+  // cadreur de la liste et on affichait SON planning.
+  const MEMBRES_AVEC_PRINCIPALE = [
+    ...MEMBRES,
+    { id: 'p', contact_id: 'c1', prenom: 'Hugo', nom: 'Martin' },
+  ]
+
+  it('retrouve la personne depuis une row inconnue du déroulé', () => {
+    const groups = buildCadreurGroups({
+      lanes: LANES,
+      creneaux: CRENEAUX,
+      membres: MEMBRES_AVEC_PRINCIPALE,
+    })
+    const g = resolveCadreurGroup({
+      groups,
+      membreId: 'p',
+      membres: MEMBRES_AVEC_PRINCIPALE,
+    })
+    expect(g.nom).toBe('Hugo Martin')
+    expect(creneauxForCadreurGroup(CRENEAUX, g).map((c) => c.id).sort()).toEqual([
+      'c1',
+      'c2',
+      'c4',
+    ])
+  })
+
+  it('ne se rabat JAMAIS sur un autre cadreur', () => {
+    const groups = buildCadreurGroups({ lanes: LANES, creneaux: CRENEAUX, membres: MEMBRES })
+    expect(
+      resolveCadreurGroup({ groups, membreId: 'inconnu', membres: MEMBRES }),
+    ).toBeNull()
+  })
+
+  it('renvoie null sans id demandé', () => {
+    const groups = buildCadreurGroups({ lanes: LANES, creneaux: CRENEAUX, membres: MEMBRES })
+    expect(resolveCadreurGroup({ groups, membreId: null, membres: MEMBRES })).toBeNull()
   })
 })
