@@ -78,7 +78,12 @@ export default function ShareLogistiqueSession() {
 
   return (
     <div style={{ background: 'var(--bg)' }}>
-      <LogistiqueShareView payload={payload} theme={theme} setTheme={setTheme} />
+      <LogistiqueShareView
+        payload={payload}
+        theme={theme}
+        setTheme={setTheme}
+        storageKey={token}
+      />
     </div>
   )
 }

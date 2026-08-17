@@ -15,9 +15,12 @@ import {
   BedDouble,
   Bus,
   Car,
+  ChevronDown,
+  ChevronRight,
   Download,
   FileText,
   Image as ImageIcon,
+  MapPin,
   Pencil,
   Plane,
   Plus,
@@ -42,6 +45,65 @@ function frDate(iso) {
   const d = new Date(`${iso}T12:00:00`)
   const s = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
   return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/** Ouvre l'adresse dans l'app de cartes du téléphone (Plans / Google Maps). */
+function mapsHref(adresse) {
+  return `https://maps.google.com/?q=${encodeURIComponent(adresse.replace(/\s+/g, ' ').trim())}`
+}
+
+// Téléphones FR (06 78 09 84 35, +33…) et URLs — rendus tapables dans les
+// notes d'hébergement : sur le terrain on appelle la réception, on ne
+// recopie pas un numéro à la main.
+const LINKIFY_RE = /(https?:\/\/[^\s]+|(?:\+33|0)\s?[1-9](?:[\s.-]?\d{2}){4})/g
+
+function LinkifiedText({ text, style }) {
+  const parts = String(text).split(LINKIFY_RE)
+  return (
+    <span className="whitespace-pre-line" style={style}>
+      {parts.map((part, i) => {
+        if (!part) return null
+        if (/^https?:\/\//.test(part)) {
+          return (
+            <a key={i} href={part} target="_blank" rel="noreferrer" style={{ color: 'var(--blue)' }}>
+              {part}
+            </a>
+          )
+        }
+        if (/^(?:\+33|0)\s?[1-9](?:[\s.-]?\d{2}){4}$/.test(part)) {
+          return (
+            <a key={i} href={`tel:${part.replace(/[\s.-]/g, '')}`} style={{ color: 'var(--blue)' }}>
+              {part}
+            </a>
+          )
+        }
+        return <span key={i}>{part}</span>
+      })}
+    </span>
+  )
+}
+
+/** Notes d'un hébergement, repliées par défaut. */
+function HebergementNotes({ notes }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold"
+        style={{ color: 'var(--txt-2)' }}
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        Infos pratiques
+      </button>
+      {open && (
+        <div className="mt-1 pl-4 text-[11px] leading-relaxed">
+          <LinkifiedText text={notes} style={{ color: 'var(--txt-2)' }} />
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** Lendemain d'une date ISO (check-out = dernière nuit + 1 jour). */
@@ -181,8 +243,9 @@ export default function LogistiqueStructuredSection({
                         {e.heure && <span className="font-semibold">{e.heure}</span>}
                         {(e.depart || e.arrivee) && (
                           <span style={{ color: 'var(--txt-2)' }}>
-                            {e.depart || '?'} →{e.heure_arrivee ? ` ${e.heure_arrivee}` : ''}{' '}
-                            {e.arrivee || '?'}
+                            {e.depart || 'à préciser'} →
+                            {e.heure_arrivee ? ` ${e.heure_arrivee}` : ''}{' '}
+                            {e.arrivee || 'à préciser'}
                           </span>
                         )}
                         {e.note && (
@@ -243,74 +306,112 @@ export default function LogistiqueStructuredSection({
         return (
           <div
             key={s.hebergementId || 'sans'}
-            className="rounded-lg px-3 py-2 flex items-center gap-2.5 flex-wrap"
+            className="rounded-lg px-3 py-2.5 flex flex-col gap-1.5"
             style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
           >
-            <BedDouble className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--purple, #a78bfa)' }} />
-            <span
-              className="text-xs font-semibold"
-              style={{ color: heb ? 'var(--txt)' : 'var(--txt-3)' }}
-              title="Dérivé des nuits cochées dans la grille"
-            >
-              {heb ? heb.nom : 'Nuits sans hébergement (aucun déclaré)'}
-            </span>
-
-            {heb && (
-              <>
-                {readOnly ? (
-                  s.hm?.chambre && (
-                    <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
-                      Ch. {s.hm.chambre}
-                    </span>
-                  )
-                ) : (
-                  <input
-                    type="text"
-                    defaultValue={s.hm?.chambre || ''}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim() || null
-                      if (v !== (s.hm?.chambre || null)) {
-                        onPatchHebergementMembre?.({ chambre: v }, heb.id)
-                      }
-                    }}
-                    placeholder="Chambre"
-                    className="w-[90px] text-[11px] px-2 py-1 rounded-md outline-none"
-                    style={inputStyle}
-                  />
-                )}
-                <label
-                  className="flex items-center gap-1 text-[11px]"
-                  style={{ color: 'var(--txt-2)', cursor: readOnly ? 'default' : 'pointer' }}
-                  title="Petit-déjeuner inclus"
-                >
-                  <input
-                    type="checkbox"
-                    checked={Boolean(s.hm?.pdj)}
-                    disabled={readOnly}
-                    onChange={(e) => onPatchHebergementMembre?.({ pdj: e.target.checked }, heb.id)}
-                    style={{ accentColor: 'var(--purple, #a78bfa)' }}
-                  />
-                  PDJ
-                </label>
-                <DocChips
-                  docs={docs.filter(
-                    (d) => d.parent_type === 'hebergement' && d.parent_id === heb.id,
-                  )}
-                  onPreview={setPreviewDoc}
-                />
-              </>
-            )}
-
-            {s.checkin && s.checkout && (
+            {/* Ligne 1 : nom + chambre + PDJ */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <BedDouble className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--purple, #a78bfa)' }} />
               <span
-                className="text-[11px] ml-auto"
-                style={{ color: 'var(--txt-3)' }}
-                title="Calculé depuis les nuits cochées dans la grille"
+                className="text-xs font-semibold"
+                style={{ color: heb ? 'var(--txt)' : 'var(--txt-3)' }}
+                title="Dérivé des nuits cochées dans la grille"
               >
-                Check-in {frDate(s.checkin)} → check-out {frDate(s.checkout)} ·{' '}
-                {s.nuits} nuit{s.nuits > 1 ? 's' : ''}
+                {heb ? heb.nom : 'Nuits sans hébergement (aucun déclaré)'}
               </span>
+
+              {heb && (
+                <>
+                  {readOnly ? (
+                    s.hm?.chambre && (
+                      <span
+                        className="text-[11px] font-semibold px-1.5 py-0.5 rounded"
+                        style={{ background: 'rgba(167,139,250,0.14)', color: 'var(--purple, #a78bfa)' }}
+                      >
+                        Chambre {s.hm.chambre}
+                      </span>
+                    )
+                  ) : (
+                    <input
+                      type="text"
+                      defaultValue={s.hm?.chambre || ''}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim() || null
+                        if (v !== (s.hm?.chambre || null)) {
+                          onPatchHebergementMembre?.({ chambre: v }, heb.id)
+                        }
+                      }}
+                      placeholder="Chambre"
+                      className="w-[90px] text-[11px] px-2 py-1 rounded-md outline-none"
+                      style={inputStyle}
+                    />
+                  )}
+                  {/* En lecture, le PDJ n'apparaît que s'il est inclus : une
+                      case vide grise n'apprend rien à qui lit sa fiche. */}
+                  {readOnly ? (
+                    s.hm?.pdj && (
+                      <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
+                        Petit-déjeuner inclus
+                      </span>
+                    )
+                  ) : (
+                    <label
+                      className="flex items-center gap-1 text-[11px] cursor-pointer"
+                      style={{ color: 'var(--txt-2)' }}
+                      title="Petit-déjeuner inclus"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(s.hm?.pdj)}
+                        onChange={(e) => onPatchHebergementMembre?.({ pdj: e.target.checked }, heb.id)}
+                        style={{ accentColor: 'var(--purple, #a78bfa)' }}
+                      />
+                      PDJ
+                    </label>
+                  )}
+                </>
+              )}
+
+              {s.checkin && s.checkout && (
+                <span
+                  className="text-[11px] ml-auto"
+                  style={{ color: 'var(--txt-2)' }}
+                  title="Calculé depuis les nuits cochées dans la grille"
+                >
+                  {frDate(s.checkin)} → {frDate(s.checkout)} · {s.nuits} nuit
+                  {s.nuits > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+
+            {/* Ligne 2 : adresse cliquable (ouvre l'app de cartes) */}
+            {heb?.adresse && (
+              <a
+                href={mapsHref(heb.adresse)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-start gap-1 text-[11px] w-fit"
+                style={{ color: 'var(--blue)' }}
+              >
+                <MapPin className="w-3 h-3 mt-0.5 shrink-0" />
+                <span className="whitespace-pre-line">{heb.adresse}</span>
+              </a>
             )}
+
+            {/* Docs (résa, fiche d'accès) */}
+            {heb && (
+              <DocChips
+                docs={docs.filter(
+                  (d) => d.parent_type === 'hebergement' && d.parent_id === heb.id,
+                )}
+                onPreview={setPreviewDoc}
+              />
+            )}
+
+            {/* Infos pratiques : les notes de l'hébergement (badge, clés,
+                horaires d'accueil…) — repliées pour ne pas noyer la fiche,
+                numéros et liens rendus tapables. */}
+            {heb?.notes && <HebergementNotes notes={heb.notes} />}
           </div>
         )
       })}

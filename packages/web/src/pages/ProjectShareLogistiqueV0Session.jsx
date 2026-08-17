@@ -30,11 +30,8 @@ import LogistiqueGlobalCard from '../features/logistique/LogistiqueGlobalCard'
 import LogistiqueShareOverview from '../features/logistique/LogistiqueShareOverview'
 import LogistiqueSyntheseSections from '../features/logistique/LogistiqueSyntheseSections'
 import LogistiqueStructuredSection from '../features/logistique/LogistiqueStructuredSection'
-import {
-  computeSynthese,
-  membreDisplayName,
-  membrePosteLabel,
-} from '../features/logistique/logistiqueSynthese'
+import LogistiqueSharePersonnes from '../features/logistique/LogistiqueSharePersonnes'
+import { computeSynthese } from '../features/logistique/logistiqueSynthese'
 import { listTechlistRows } from '../lib/crew'
 
 const THEME_STORAGE_KEY = PROJECT_SHARE_THEME_KEY
@@ -98,6 +95,7 @@ export default function ProjectShareLogistiqueV0Session() {
         payload={payload}
         theme={theme}
         setTheme={setTheme}
+        storageKey={token}
       />
     </div>
   )
@@ -107,7 +105,7 @@ export default function ProjectShareLogistiqueV0Session() {
 // On la nomme exported pour permettre une réutilisation future si besoin
 // (par exemple dans un mode preview admin du share).
 
-export function LogistiqueShareView({ payload, theme, setTheme }) {
+export function LogistiqueShareView({ payload, theme, setTheme, storageKey = null }) {
   const share = payload.share || {}
   const project = payload.project || {}
   const org = payload.org || null
@@ -189,6 +187,8 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
     return map
   }, [documents])
 
+  const hasInfos = Boolean(globalRow?.text) || globalDocuments.length > 0
+
   // Header meta items
   const metaItems = []
   if (project.ref_projet) metaItems.push({ type: 'ref', value: project.ref_projet })
@@ -210,45 +210,27 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
           onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         />
 
-        {/* Bloc Global (infos générales projet) — le composant se masque
-            tout seul en mode readOnly si le bloc est vide (text + 0 docs). */}
-        <div className="mt-5">
-          <LogistiqueGlobalCard
-            text={globalRow?.text}
-            documents={globalDocuments}
-            readOnly={true}
-          />
-        </div>
+        {/* Barre de navigation : sur mobile la page est longue, on doit
+            pouvoir sauter à sa fiche ou à la synthèse sans scroller. */}
+        <ShareNav
+          items={[
+            personRows.length > 0 && { id: 'ma-fiche', label: 'Ma fiche' },
+            personRows.length > 1 && { id: 'equipe', label: 'Équipe' },
+            hasInfos && { id: 'infos', label: 'Infos' },
+            showSynthese && hasV1Data && { id: 'synthese', label: 'Synthèse' },
+            showOverview && hasV1Data && { id: 'vue-ensemble', label: 'Vue d’ensemble' },
+          ].filter(Boolean)}
+        />
 
-        {/* ── Vision d'ensemble (P4, retour Hugo) : la grille RO en
-            PREMIÈRE page — présences, repas, nuits, trajets, totaux. ── */}
-        {showOverview && hasV1Data && (
+        {/* ── Ma fiche + équipe repliée : ce que le terrain vient chercher,
+            donc en tête. Les vues collectives suivent. ── */}
+        {personRows.length > 0 && (
           <div className="mt-5">
-            <SectionTitle>Vue d&apos;ensemble</SectionTitle>
-            <LogistiqueShareOverview
-              techRows={techRows}
-              participations={participations}
+            <LogistiqueSharePersonnes
+              storageKey={storageKey}
+              personRows={personRows}
               logi={logi}
-            />
-          </div>
-        )}
-
-        {/* ── Synthèse (repas, hébergements, arrivées/départs) ── */}
-        {showSynthese && hasV1Data && (
-          <div className="mt-6 flex flex-col gap-4">
-            <SectionTitle>Synthèse</SectionTitle>
-            <LogistiqueSyntheseSections synthese={synthese} showNuitsSansHebNote={false} />
-          </div>
-        )}
-
-        {/* ── Par personne : trajets/hébergement structurés + notes V0 ── */}
-        {entries.length === 0 && !globalRow && globalDocuments.length === 0 && !hasV1Data ? (
-          <EmptyState />
-        ) : personRows.length > 0 ? (
-          <div className="mt-6">
-            <SectionTitle>Par personne</SectionTitle>
-            <div className="space-y-4">
-              {personRows.map((membre) => {
+              renderCard={(membre) => {
                 const entry = entries.find((e) => e.membre_id === membre.id) || null
                 const structured = hasV1Data
                   ? {
@@ -264,22 +246,58 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
                 if (entry) {
                   return (
                     <LogistiqueEntryCard
-                      key={membre.id}
                       entry={entry}
                       membre={membre}
                       documentsByKind={documentsByEntry.get(entry.id)}
                       readOnly={true}
                       structured={structured}
+                      bare
                     />
                   )
                 }
-                return (
-                  <SharePersonCard key={membre.id} membre={membre} structured={structured} />
-                )
-              })}
-            </div>
+                return structured ? (
+                  <LogistiqueStructuredSection {...structured} readOnly />
+                ) : null
+              }}
+            />
           </div>
-        ) : null}
+        )}
+
+        {/* Bloc Global (infos générales projet) — le composant se masque
+            tout seul en mode readOnly si le bloc est vide (text + 0 docs). */}
+        <div className="mt-6 scroll-mt-20" id="infos">
+          <LogistiqueGlobalCard
+            text={globalRow?.text}
+            documents={globalDocuments}
+            readOnly={true}
+          />
+        </div>
+
+        {/* ── Synthèse (repas, hébergements, arrivées/départs) ── */}
+        {showSynthese && hasV1Data && (
+          <div className="mt-6 flex flex-col gap-4 scroll-mt-20" id="synthese">
+            <SectionTitle>Synthèse</SectionTitle>
+            <LogistiqueSyntheseSections synthese={synthese} showNuitsSansHebNote={false} />
+          </div>
+        )}
+
+        {/* ── Vision d'ensemble : la grille RO, outil de coordination —
+            large, elle se lit au calme, donc après les infos perso. ── */}
+        {showOverview && hasV1Data && (
+          <div className="mt-6 scroll-mt-20" id="vue-ensemble">
+            <SectionTitle>Vue d&apos;ensemble</SectionTitle>
+            <LogistiqueShareOverview
+              techRows={techRows}
+              participations={participations}
+              logi={logi}
+            />
+          </div>
+        )}
+
+        {entries.length === 0 &&
+          !globalRow &&
+          globalDocuments.length === 0 &&
+          !hasV1Data && <EmptyState />}
 
         <SharePageFooter />
       </div>
@@ -287,36 +305,37 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
   )
 }
 
-// ─── Carte personne légère (pas de notes V0 — structuré seul, RO) ──────────
-function SharePersonCard({ membre, structured }) {
-  const prenom = membre.contact?.prenom || membre.prenom || ''
-  const nom = membre.contact?.nom || membre.nom || ''
-  const initials = `${prenom[0] || ''}${nom[0] || ''}`.toUpperCase() || '?'
+// ─── Barre de navigation collante ──────────────────────────────────────────
+// Ancres natives (scroll-mt-20 sur les sections pour ne pas passer sous la
+// barre). Pas de state, pas de router : ça survit au rechargement et on peut
+// partager un lien vers une section.
+function ShareNav({ items }) {
+  if (items.length < 2) return null
   return (
-    <div
-      className="rounded-xl p-4"
-      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
+    <nav
+      className="sticky top-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 mt-4 overflow-x-auto"
+      style={{
+        background: 'var(--bg)',
+        borderBottom: '1px solid var(--brd-sub)',
+      }}
     >
-      <div className="flex items-center gap-3 mb-3">
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
-        >
-          {initials}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold truncate" style={{ color: 'var(--txt)' }}>
-            {membreDisplayName(membre)}
-          </p>
-          {membrePosteLabel(membre) && (
-            <p className="text-[11px] truncate" style={{ color: 'var(--txt-3)' }}>
-              {membrePosteLabel(membre)}
-            </p>
-          )}
-        </div>
+      <div className="flex items-center gap-1.5 w-max">
+        {items.map((it) => (
+          <a
+            key={it.id}
+            href={`#${it.id}`}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap"
+            style={{
+              background: 'var(--bg-surf)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd-sub)',
+            }}
+          >
+            {it.label}
+          </a>
+        ))}
       </div>
-      {structured && <LogistiqueStructuredSection {...structured} readOnly />}
-    </div>
+    </nav>
   )
 }
 

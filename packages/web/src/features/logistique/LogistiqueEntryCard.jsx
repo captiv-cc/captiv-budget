@@ -47,6 +47,9 @@ export default function LogistiqueEntryCard({
   //           onEditTrajet, onAddTrajet, onAssignHebergement,
   //           onPatchHebergementMembre } | null (V0 pur si absent).
   structured = null,
+  // Page publique : la carte est déjà encadrée et titrée par le bloc parent
+  // (« Ma fiche » ou l'accordéon équipe) — on ne rend que le contenu.
+  bare = false,
 }) {
   const fullName = membreFullName(membre)
   const initials = computeInitials(membre)
@@ -101,19 +104,29 @@ export default function LogistiqueEntryCard({
   // Détecte si la personne a vraiment 0 sous-bloc visible (cas où tout est
   // masqué). On affiche une note pour l'admin pour lui dire qu'il peut
   // restaurer un sous-bloc. Côté share, on cache juste la card vide.
+  // En mode bare, la personne est déjà annoncée par le bloc parent : on
+  // rend quand même trajets et hébergements, sinon sa fiche serait vide.
   if (readOnly && visibleKinds.length === 0) {
+    if (bare && structured) {
+      return <LogistiqueStructuredSection {...structured} readOnly />
+    }
     return null
   }
 
   return (
     <div
-      className="rounded-xl p-4"
-      style={{
-        background: 'var(--bg-surf)',
-        border: '1px solid var(--brd)',
-      }}
+      className={bare ? '' : 'rounded-xl p-4'}
+      style={
+        bare
+          ? undefined
+          : {
+              background: 'var(--bg-surf)',
+              border: '1px solid var(--brd)',
+            }
+      }
     >
       {/* Header */}
+      {!bare && (
       <div className="flex items-center gap-3 mb-3">
         <div
           className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold"
@@ -160,6 +173,7 @@ export default function LogistiqueEntryCard({
           </button>
         )}
       </div>
+      )}
 
       {/* LOGI-V1 P2 : couche structurée (trajets + hébergement). */}
       {structured && (
