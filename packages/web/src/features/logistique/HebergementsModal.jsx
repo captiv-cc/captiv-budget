@@ -13,9 +13,6 @@ import { useState } from 'react'
 import {
   BedDouble,
   Coffee,
-  Download,
-  FileText,
-  Image as ImageIcon,
   Loader2,
   MapPin,
   Pencil,
@@ -39,7 +36,7 @@ import {
 import {
   DocPreviewModal,
   DocDropZone,
-  docIsImage,
+  DocRow,
   downloadDoc,
 } from './LogistiqueDocViewer'
 import { confirm } from '../../lib/confirm'
@@ -422,46 +419,20 @@ function HebergementCard({
 
         {/* Documents — clic = aperçu, drag & drop sur la zone */}
         <DocDropZone onFiles={handleUploadFiles} disabled={uploading}>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {docs.map((doc) => {
-            const DocIcon = docIsImage(doc) ? ImageIcon : FileText
-            return (
-            <span
+        <div className="flex flex-col gap-1.5">
+          {docs.map((doc) => (
+            <DocRow
               key={doc.id}
-              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md"
-              style={{ background: 'var(--bg-elev)', border: '1px solid var(--brd-sub)' }}
-            >
-              <DocIcon className="w-3 h-3" style={{ color: 'var(--txt-3)' }} />
-              <button
-                type="button"
-                onClick={() => setPreviewDoc(doc)}
-                className="hover:underline max-w-[180px] truncate"
-                style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
-                title="Aperçu"
-              >
-                {doc.filename}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDownloadDoc(doc)}
-                style={{ color: 'var(--txt-3)' }}
-                title="Télécharger"
-              >
-                <Download className="w-3 h-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => run(() => deleteLogistiqueDoc(doc), 'Document supprimé')}
-                style={{ color: 'var(--red, #ef4444)' }}
-                title="Supprimer"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-            )
-          })}
+              doc={doc}
+              count={docs.length}
+              onPreview={setPreviewDoc}
+              onDownload={handleDownloadDoc}
+              onDelete={(d) => run(() => deleteLogistiqueDoc(d), 'Document supprimé')}
+              onRenamed={() => run(() => Promise.resolve())}
+            />
+          ))}
           <label
-            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md cursor-pointer"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md cursor-pointer self-start"
             style={{ color: 'var(--txt-3)', border: '1px dashed var(--brd)' }}
             title="Ajouter des documents (résa, plan d'accès…) — PDF, PNG, JPG, ou glisser-déposer"
           >

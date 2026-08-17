@@ -28,7 +28,7 @@ import {
   TramFront,
   UtensilsCrossed,
 } from 'lucide-react'
-import { DocPreviewModal, docIsImage, downloadDoc } from './LogistiqueDocViewer'
+import { DocPreviewModal, docIsImage, docLabel, downloadDoc } from './LogistiqueDocViewer'
 import { notify } from '../../lib/notify'
 
 const MODE_ICONS = {
@@ -340,6 +340,7 @@ export default function LogistiqueStructuredSection({
                     (d) => d.parent_type === 'trajet' && d.parent_id === t.id,
                   )}
                   onPreview={setPreviewDoc}
+                  sens={t.sens}
                 />
                 {!readOnly && t.cout != null && (
                   <span
@@ -504,7 +505,9 @@ export default function LogistiqueStructuredSection({
 }
 
 // ─── Chips documents (billets, résas) : clic = aperçu, flèche = télécharger ─
-function DocChips({ docs, onPreview }) {
+// `sens` (trajet parent) sert au libellé déduit quand le doc n'a pas de nom
+// saisi. Le nom de fichier reste en infobulle.
+function DocChips({ docs, onPreview, sens = null }) {
   if (!docs.length) return null
   return (
     <span className="inline-flex items-center gap-1 flex-wrap">
@@ -520,11 +523,11 @@ function DocChips({ docs, onPreview }) {
             <button
               type="button"
               onClick={() => onPreview(doc)}
-              className="hover:underline max-w-[140px] truncate"
+              className="hover:underline max-w-[180px] truncate"
               style={{ color: 'var(--txt-2)', textUnderlineOffset: '2px' }}
-              title="Aperçu"
+              title={doc.filename}
             >
-              {doc.filename}
+              {docLabel(doc, { sens, count: docs.length })}
             </button>
             <button
               type="button"

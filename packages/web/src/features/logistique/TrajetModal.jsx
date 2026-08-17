@@ -16,9 +16,7 @@ import {
   ArrowUp,
   Bus,
   Car,
-  Download,
   FileText,
-  Image as ImageIcon,
   Loader2,
   Plane,
   Plus,
@@ -40,7 +38,7 @@ import {
 import {
   DocPreviewModal,
   DocDropZone,
-  docIsImage,
+  DocRow,
   downloadDoc,
 } from './LogistiqueDocViewer'
 import { confirm } from '../../lib/confirm'
@@ -580,50 +578,22 @@ export default function TrajetModal({
             )}
             {currentTrajet?.id ? (
               <>
-                {localDocs.map((doc) => {
-                  const DocIcon = docIsImage(doc) ? ImageIcon : FileText
-                  return (
-                  <div
+                {localDocs.map((doc) => (
+                  <DocRow
                     key={doc.id}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md mb-1.5"
-                    style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
-                  >
-                    <DocIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDoc(doc)}
-                      className="text-xs truncate text-left hover:underline"
-                      style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
-                      title="Aperçu"
-                    >
-                      {doc.filename}
-                    </button>
-                    {doc.size_bytes && (
-                      <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
-                        {(doc.size_bytes / 1024).toFixed(0)} Ko
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadDoc(doc)}
-                      className="ml-auto p-1 shrink-0"
-                      style={{ color: 'var(--txt-3)' }}
-                      title="Télécharger"
-                    >
-                      <Download className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDoc(doc)}
-                      className="p-1 shrink-0"
-                      style={{ color: 'var(--red, #ef4444)' }}
-                      title="Supprimer le document"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                  )
-                })}
+                    doc={doc}
+                    sens={sens}
+                    count={localDocs.length}
+                    onPreview={setPreviewDoc}
+                    onDownload={handleDownloadDoc}
+                    onDelete={handleDeleteDoc}
+                    onRenamed={(updated) =>
+                      setLocalDocs((prev) =>
+                        prev.map((d) => (d.id === updated.id ? updated : d)),
+                      )
+                    }
+                  />
+                ))}
                 <label
                   className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer"
                   style={{

@@ -14,8 +14,17 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Download, ExternalLink, Loader2, X } from 'lucide-react'
-import { getLogistiqueDocUrl } from '../../lib/logistique'
+import {
+  Download,
+  ExternalLink,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { getLogistiqueDocUrl, renameLogistiqueDoc } from '../../lib/logistique'
 import { notify } from '../../lib/notify'
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg']
@@ -28,6 +37,35 @@ function fileExt(name) {
 export function docIsImage(doc) {
   if (doc?.mime_type?.startsWith('image/')) return true
   return IMAGE_EXTS.includes(fileExt(doc?.filename))
+}
+
+/**
+ * Libellé affiché pour un document. Un nom de fichier brut
+ * (« HM-ALLER-MONTPELLIER_GARE-DE-LYON.pdf ») est illisible une fois tronqué
+ * dans une chip, donc :
+ *   1. le libellé saisi côté desk (colonne `label`) ;
+ *   2. sinon un libellé déduit du contexte (« Billet aller », « Réservation »)
+ *      — seulement quand le parent ne porte qu'UN document, sinon on ne
+ *      saurait plus les distinguer ;
+ *   3. sinon le nom de fichier sans extension.
+ *
+ * @param {object} doc
+ * @param {{ sens?: string, count?: number }} [ctx] sens du trajet parent,
+ *        nombre de documents sur ce parent.
+ */
+export function docLabel(doc, ctx = {}) {
+  if (doc?.label) return doc.label
+  const alone = (ctx.count ?? 1) <= 1
+  if (alone) {
+    if (doc?.parent_type === 'trajet') {
+      if (ctx.sens === 'aller') return 'Billet aller'
+      if (ctx.sens === 'retour') return 'Billet retour'
+      return 'Billet'
+    }
+    if (doc?.parent_type === 'hebergement') return 'Réservation'
+  }
+  const name = doc?.filename || 'Document'
+  return name.replace(/\.[^.]+$/, '')
 }
 
 /**
@@ -187,6 +225,107 @@ export function DocPreviewModal({ doc, onClose }) {
       </div>
     </div>,
     document.body,
+  )
+}
+
+/* ─── Ligne document éditable (modales desk) ────────────────────────────── */
+
+/**
+ * Une ligne de document dans les modales internes : aperçu, renommage
+ * inline, téléchargement, suppression. Le renommage écrit `label` et
+ * remonte la row à jour via onRenamed pour que l'appelant rafraîchisse.
+ */
+export function DocRow({ doc, sens = null, count = 1, onPreview, onDownload, onDelete, onRenamed }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const DocIcon = docIsImage(doc) ? ImageIcon : FileText
+
+  async function save() {
+    if (saving) return
+    setSaving(true)
+    try {
+      const updated = await renameLogistiqueDoc(doc.id, draft)
+      onRenamed?.(updated)
+      setEditing(false)
+    } catch (err) {
+      notify.error('Renommage : ' + (err?.message || err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md mb-1.5"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+    >
+      <DocIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+      {editing ? (
+        <input
+          type="text"
+          value={draft}
+          autoFocus
+          disabled={saving}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          onBlur={save}
+          placeholder={docLabel(doc, { sens, count })}
+          className="flex-1 min-w-0 text-xs px-2 py-1 rounded-md outline-none"
+          style={{ background: 'var(--bg)', border: '1px solid var(--blue)', color: 'var(--txt)' }}
+        />
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => onPreview?.(doc)}
+            className="text-xs truncate text-left hover:underline"
+            style={{ color: 'var(--txt)', textUnderlineOffset: '2px' }}
+            title={doc.filename}
+          >
+            {docLabel(doc, { sens, count })}
+          </button>
+          {doc.size_bytes && (
+            <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
+              {(doc.size_bytes / 1024).toFixed(0)} Ko
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(doc.label || '')
+              setEditing(true)
+            }}
+            className="ml-auto p-1 shrink-0"
+            style={{ color: 'var(--txt-3)' }}
+            title="Renommer (le nom du fichier reste inchangé)"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDownload?.(doc)}
+            className="p-1 shrink-0"
+            style={{ color: 'var(--txt-3)' }}
+            title="Télécharger"
+          >
+            <Download className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete?.(doc)}
+            className="p-1 shrink-0"
+            style={{ color: 'var(--red, #ef4444)' }}
+            title="Supprimer le document"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </>
+      )}
+    </div>
   )
 }
 

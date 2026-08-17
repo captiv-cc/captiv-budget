@@ -321,6 +321,23 @@ export async function deleteLogistiqueDoc(doc) {
   await supabase.storage.from(DOCS_BUCKET).remove([doc.storage_path])
 }
 
+/**
+ * Renomme un document (libellé lisible affiché à la place du nom de
+ * fichier). Chaîne vide → NULL, l'UI retombe sur le libellé déduit.
+ * Cf. 20260818a_logistique_doc_label.sql.
+ */
+export async function renameLogistiqueDoc(docId, label) {
+  const clean = (label || '').trim()
+  const { data, error } = await supabase
+    .from('projet_logistique_docs')
+    .update({ label: clean || null })
+    .eq('id', docId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function getLogistiqueDocUrl(doc) {
   const { data, error } = await supabase.storage
     .from(DOCS_BUCKET)
