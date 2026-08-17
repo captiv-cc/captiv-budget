@@ -230,6 +230,17 @@ export function LogistiqueShareView({ payload, theme, setTheme, storageKey = nul
               storageKey={storageKey}
               personRows={personRows}
               logi={logi}
+              between={
+                hasInfos ? (
+                  <div className="scroll-mt-20" id="infos">
+                    <LogistiqueGlobalCard
+                      text={globalRow?.text}
+                      documents={globalDocuments}
+                      readOnly={true}
+                    />
+                  </div>
+                ) : null
+              }
               renderCard={(membre) => {
                 const entry = entries.find((e) => e.membre_id === membre.id) || null
                 const structured = hasV1Data
@@ -240,6 +251,7 @@ export function LogistiqueShareView({ payload, theme, setTheme, storageKey = nul
                         (hm) => hm.membre_id === membre.id,
                       ),
                       nuits: logi.nuits.filter((n) => n.membre_id === membre.id),
+                      repas: logi.repas.filter((r) => r.membre_id === membre.id),
                       docs: logi.docs,
                     }
                   : null
@@ -263,15 +275,17 @@ export function LogistiqueShareView({ payload, theme, setTheme, storageKey = nul
           </div>
         )}
 
-        {/* Bloc Global (infos générales projet) — le composant se masque
-            tout seul en mode readOnly si le bloc est vide (text + 0 docs). */}
-        <div className="mt-6 scroll-mt-20" id="infos">
-          <LogistiqueGlobalCard
-            text={globalRow?.text}
-            documents={globalDocuments}
-            readOnly={true}
-          />
-        </div>
+        {/* Infos générales quand il n'y a aucune fiche personne : le slot
+            `between` ci-dessus ne s'affiche pas, on les rend ici. */}
+        {hasInfos && personRows.length === 0 && (
+          <div className="mt-6 scroll-mt-20" id="infos">
+            <LogistiqueGlobalCard
+              text={globalRow?.text}
+              documents={globalDocuments}
+              readOnly={true}
+            />
+          </div>
+        )}
 
         {/* ── Synthèse (repas, hébergements, arrivées/départs) ── */}
         {showSynthese && hasV1Data && (

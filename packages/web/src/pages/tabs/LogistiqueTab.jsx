@@ -310,6 +310,7 @@ export default function LogistiqueTab() {
                       (hm) => hm.membre_id === membre.id,
                     ),
                     nuits: logiV1.nuits.filter((n) => n.membre_id === membre.id),
+                    repas: logiV1.repas.filter((r) => r.membre_id === membre.id),
                     docs: logiV1.docs,
                     onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
                     onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),

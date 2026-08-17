@@ -10,7 +10,7 @@
 //     petit-déj + check-in/check-out CALCULÉS depuis les nuits cochées.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BedDouble,
   Bus,
@@ -26,6 +26,7 @@ import {
   Plus,
   Train,
   TramFront,
+  UtensilsCrossed,
 } from 'lucide-react'
 import { DocPreviewModal, docIsImage, downloadDoc } from './LogistiqueDocViewer'
 import { notify } from '../../lib/notify'
@@ -80,6 +81,77 @@ function LinkifiedText({ text, style }) {
         return <span key={i}>{part}</span>
       })}
     </span>
+  )
+}
+
+const REPAS_LABELS = { client: 'Client', production: 'Production', defraye: 'Défrayé' }
+const REPAS_COLORS = { client: '#22c55e', production: '#3b82f6', defraye: '#f59e0b' }
+
+/** Repas pris en charge, groupés par jour, repliés par défaut. */
+function RepasBloc({ repas }) {
+  const [open, setOpen] = useState(false)
+  const jours = useMemo(() => {
+    const byDate = new Map()
+    for (const r of repas) {
+      if (!r.statut) continue
+      const e = byDate.get(r.date_repas) || {}
+      e[r.service] = r.statut
+      byDate.set(r.date_repas, e)
+    }
+    return Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b))
+  }, [repas])
+
+  if (jours.length === 0) return null
+
+  return (
+    <div
+      className="rounded-lg px-3 py-2"
+      style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 text-left"
+      >
+        <UtensilsCrossed className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
+        <span className="text-xs font-semibold" style={{ color: 'var(--txt)' }}>
+          Repas pris en charge
+        </span>
+        <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+          {jours.length} jour{jours.length > 1 ? 's' : ''}
+        </span>
+        {open ? (
+          <ChevronDown className="w-3.5 h-3.5 ml-auto shrink-0" style={{ color: 'var(--txt-3)' }} />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" style={{ color: 'var(--txt-3)' }} />
+        )}
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col">
+          {jours.map(([date, services]) => (
+            <div
+              key={date}
+              className="flex items-center gap-2 py-1 flex-wrap"
+              style={{ borderTop: '1px solid var(--brd-sub)' }}
+            >
+              <span className="text-[11px] font-medium" style={{ color: 'var(--txt-2)', minWidth: 90 }}>
+                {frDate(date)}
+              </span>
+              {['midi', 'soir'].map((svc) =>
+                services[svc] ? (
+                  <span key={svc} className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                    {svc}{' '}
+                    <span style={{ color: REPAS_COLORS[services[svc]], fontWeight: 600 }}>
+                      {REPAS_LABELS[services[svc]]}
+                    </span>
+                  </span>
+                ) : null,
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -154,6 +226,7 @@ export default function LogistiqueStructuredSection({
   hebergements = [],
   hebergementMembres = [], // rows projet_logistique_hebergement_membres du membre
   nuits = [], // nuits du membre (dates + hebergement_id)
+  repas = [], // repas du membre (date_repas, service, statut)
   docs = [], // projet_logistique_docs (tous parents — filtrés par trajet/heb ici)
   readOnly = false,
   onEditTrajet, // (trajet) => void
@@ -372,19 +445,22 @@ export default function LogistiqueStructuredSection({
                 </>
               )}
 
-              {s.checkin && s.checkout && (
-                <span
-                  className="text-[11px] ml-auto"
-                  style={{ color: 'var(--txt-2)' }}
-                  title="Calculé depuis les nuits cochées dans la grille"
-                >
-                  {frDate(s.checkin)} → {frDate(s.checkout)} · {s.nuits} nuit
-                  {s.nuits > 1 ? 's' : ''}
-                </span>
-              )}
             </div>
 
-            {/* Ligne 2 : adresse cliquable (ouvre l'app de cartes) */}
+            {/* Ligne 2 : séjour. Alignée à gauche sous le nom (en ml-auto
+                elle se retrouvait orpheline à droite dès que ça wrappait). */}
+            {s.checkin && s.checkout && (
+              <span
+                className="text-[11px]"
+                style={{ color: 'var(--txt-2)' }}
+                title="Calculé depuis les nuits cochées dans la grille"
+              >
+                {frDate(s.checkin)} → {frDate(s.checkout)} · {s.nuits} nuit
+                {s.nuits > 1 ? 's' : ''}
+              </span>
+            )}
+
+            {/* Ligne 3 : adresse cliquable (ouvre l'app de cartes) */}
             {heb?.adresse && (
               <a
                 href={mapsHref(heb.adresse)}
@@ -415,6 +491,10 @@ export default function LogistiqueStructuredSection({
           </div>
         )
       })}
+
+      {/* ── Repas pris en charge : l'info manquait de la fiche alors que
+          c'est une question de tous les midis sur le terrain. Repliée. ── */}
+      {repas.length > 0 && <RepasBloc repas={repas} />}
 
       {previewDoc && (
         <DocPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />

@@ -75,6 +75,7 @@ export default function LogistiqueSharePersonnes({
   personRows,
   logi,
   renderCard, // (membre) => ReactNode — la carte complète, fournie par la page
+  between = null, // inséré entre « Ma fiche » et l'équipe (infos générales)
 }) {
   const [moiId, setMoiId] = useState(() => readMoi(storageKey))
   const [picking, setPicking] = useState(false)
@@ -147,6 +148,10 @@ export default function LogistiqueSharePersonnes({
           />
         )}
       </section>
+
+      {/* Infos générales : juste après sa fiche, avant l'équipe — ça
+          concerne tout le monde et ça se lit en arrivant. */}
+      {between}
 
       {/* ── Le reste de l'équipe, replié ──────────────────────────────────── */}
       {autres.length > 0 && (
@@ -257,31 +262,33 @@ function IdentityPicker({ personRows, currentId, onChoose, onCancel }) {
       className="rounded-xl p-4"
       style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)' }}
     >
-      <div className="flex items-center gap-2.5 mb-3">
+      <div className="flex items-start gap-2.5 mb-3">
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: 'var(--blue-bg)' }}
         >
           <UserRound className="w-4 h-4" style={{ color: 'var(--blue)' }} />
         </div>
-        <div className="min-w-0">
-          <p className="text-sm font-bold" style={{ color: 'var(--txt)' }}>
-            Qui es-tu ?
-          </p>
-          <p className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-3">
+            <p className="text-sm font-bold" style={{ color: 'var(--txt)' }}>
+              Qui es-tu ?
+            </p>
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="ml-auto text-[11px] font-semibold shrink-0"
+                style={{ color: 'var(--txt-3)' }}
+              >
+                Annuler
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
             Tes infos s&apos;afficheront en haut de la page à chaque visite.
           </p>
         </div>
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="ml-auto text-[11px] font-semibold"
-            style={{ color: 'var(--txt-3)' }}
-          >
-            Annuler
-          </button>
-        )}
       </div>
 
       {personRows.length > 8 && (
