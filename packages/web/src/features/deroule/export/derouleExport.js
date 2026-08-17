@@ -35,11 +35,15 @@ import {
  */
 export function filterLanesForCadreurExport(lanes, membreId) {
   if (!Array.isArray(lanes)) return []
+  // membreId peut être une liste : une personne qui cumule deux postes a
+  // plusieurs rows projet_membres, donc potentiellement plusieurs lanes
+  // perso (cf. features/deroule/cadreurIdentity.js).
+  const ids = new Set(Array.isArray(membreId) ? membreId : [membreId])
   return [...lanes]
     .filter((l) => {
       if (l.type === 'global') return true
       if (l.type === 'lieu') return true
-      if (l.type === 'personne' && l.membre_id === membreId) return true
+      if (l.type === 'personne' && ids.has(l.membre_id)) return true
       return false
     })
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
@@ -256,7 +260,8 @@ export function getLaneShortLabel(lane, membres = []) {
  * Nom complet d'un cadreur depuis son membre_id.
  */
 export function getMembreFullName(membreId, membres = []) {
-  const m = (membres || []).find((mb) => mb.id === membreId)
+  const ids = Array.isArray(membreId) ? membreId : [membreId]
+  const m = (membres || []).find((mb) => ids.includes(mb.id))
   if (!m) return '?'
   const prenom = m.contact?.prenom || m.prenom || ''
   const nom = m.contact?.nom || m.nom || ''

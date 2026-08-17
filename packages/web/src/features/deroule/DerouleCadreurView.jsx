@@ -50,6 +50,11 @@ import {
 import useBreakpoint from '../../hooks/useBreakpoint'
 import { extractPlainText } from '../../components/rich-editor/utils'
 import { getProjectCreneauTypes } from '../../lib/creneauTypes'
+import {
+  buildCadreurGroups,
+  creneauxForCadreurGroup,
+  findCadreurGroup,
+} from './cadreurIdentity'
 
 export default function DerouleCadreurView({
   // Types V2 : projet complet pour résoudre les couleurs des types custom.
@@ -105,37 +110,29 @@ export default function DerouleCadreurView({
     [lanes],
   )
 
-  // Membres "candidats" pour la vue Cadreur : ceux qui ont une lane perso
-  // OU ceux assignés à au moins un créneau via member_ids.
-  const candidateMembres = useMemo(() => {
-    const set = new Set()
-    for (const l of personLanes) set.add(l.membre_id)
-    for (const c of creneaux || []) {
-      const ids = Array.isArray(c.member_ids) ? c.member_ids : []
-      for (const id of ids) set.add(id)
-    }
-    return [...set]
-      .map((id) => {
-        const m = membreById.get(id)
-        if (m) return m
-        // Membre absent de la liste (payload share filtré, fiche fusionnée…)
-        // mais il A une lane perso : le sélecteur doit quand même le lister —
-        // fallback sur le libellé de la lane.
-        const lane = personLanes.find((l) => l.membre_id === id)
-        if (!lane) return null
-        return { id, nom: lane.libelle || '?', prenom: '' }
-      })
-      .filter(Boolean)
-      .sort((a, b) => {
-        const an = `${a.contact?.nom || a.nom || ''} ${a.contact?.prenom || a.prenom || ''}`.toLowerCase()
-        const bn = `${b.contact?.nom || b.nom || ''} ${b.contact?.prenom || b.prenom || ''}`.toLowerCase()
-        return an.localeCompare(bn, 'fr')
-      })
-  }, [personLanes, creneaux, membreById])
+  // Candidats pour la vue Cadreur, regroupés PAR PERSONNE : quelqu'un qui
+  // cumule deux postes a plusieurs rows projet_membres, et ses créneaux
+  // peuvent être répartis entre elles (cf. cadreurIdentity.js).
+  const groups = useMemo(
+    () => buildCadreurGroups({ lanes, creneaux, membres }),
+    [lanes, creneaux, membres],
+  )
+  const candidateMembres = useMemo(
+    () =>
+      groups.map((g) => {
+        const m = membreById.get(g.id)
+        // On garde la row pour l'avatar / la spécialité, en forçant l'id du
+        // représentant du groupe.
+        return m ? { ...m, id: g.id } : { id: g.id, nom: g.nom, prenom: '' }
+      }),
+    [groups, membreById],
+  )
 
   // ─── Sélection courante ────────────────────────────────────────────────
   // Si rien sélectionné, prendre le premier candidat (s'il existe).
-  const effectiveMembreId = selectedMembreId || candidateMembres[0]?.id || null
+  const selectedGroup =
+    findCadreurGroup(groups, selectedMembreId) || groups[0] || null
+  const effectiveMembreId = selectedGroup?.id || null
   const selectedMembre = effectiveMembreId
     ? membreById.get(effectiveMembreId) ||
       candidateMembres.find((m) => m.id === effectiveMembreId) ||
@@ -150,24 +147,13 @@ export default function DerouleCadreurView({
   )
 
   // ─── Calcul des missions du cadreur ───────────────────────────────────
-  // Une mission = créneau qui appartient à sa lane perso OU qui contient
-  // son id dans member_ids.
-  const cadreurMissions = useMemo(() => {
-    if (!effectiveMembreId) return []
-    return sortCreneauxByTime(
-      (creneaux || []).filter((c) => {
-        const isHisLane =
-          selectedMembreLane &&
-          (c.lane_id === selectedMembreLane.id ||
-            // Multi-colonnes : sa lane fait partie des colonnes couvertes
-            (Array.isArray(c.lane_ids) && c.lane_ids.includes(selectedMembreLane.id)))
-        const isAssigned =
-          Array.isArray(c.member_ids) &&
-          c.member_ids.includes(effectiveMembreId)
-        return isHisLane || isAssigned
-      }),
-    )
-  }, [creneaux, effectiveMembreId, selectedMembreLane])
+  // Une mission = créneau porté par une de ses lanes perso (multi-colonnes
+  // comprises) ou l'assignant via member_ids — sur n'importe laquelle de
+  // ses rows.
+  const cadreurMissions = useMemo(
+    () => sortCreneauxByTime(creneauxForCadreurGroup(creneaux, selectedGroup)),
+    [creneaux, selectedGroup],
+  )
 
   // Total minutes "actives" : somme des durées de missions
   const totalActiveMin = useMemo(

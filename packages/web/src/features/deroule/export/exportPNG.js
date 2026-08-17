@@ -197,9 +197,10 @@ function renderToCanvas({ project, deroule, lanes, creneaux, membres, membreId, 
   // perso fait foi — jamais de « Pour ? ».
   ctx.fillStyle = C.accent
   ctx.font = '600 32px -apple-system, system-ui, sans-serif'
-  let cadreurName = getMembreFullName(membreId, membres)
+  const membreIds = Array.isArray(membreId) ? membreId : [membreId]
+  let cadreurName = getMembreFullName(membreIds, membres)
   if (cadreurName === '?') {
-    const lane = (lanes || []).find((l) => l.membre_id === membreId)
+    const lane = (lanes || []).find((l) => membreIds.includes(l.membre_id))
     if (lane?.libelle) cadreurName = lane.libelle
   }
   ctx.fillText(`Pour ${cadreurName}`, PAD_X, 180, W - PAD_X * 2)

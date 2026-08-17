@@ -58,6 +58,7 @@ import { buildDerouleMultiJourPdf } from '../features/deroule/export/exportPDF'
 import { buildDerouleCadreurPng } from '../features/deroule/export/exportPNG'
 import { getProjectCreneauTypes } from '../lib/creneauTypes'
 import { readShareIdentity, writeShareIdentity } from '../lib/shareIdentity'
+import { buildCadreurGroups, findCadreurGroup } from '../features/deroule/cadreurIdentity'
 
 // Constantes timeline (alignées sur DerouleTimelineView admin pour cohérence
 // visuelle entre back-office et page partagée).
@@ -403,34 +404,18 @@ function ShareContent({
   // « Planning cadreur (PNG) ». Fallback lane : un id absent du payload
   // membres (fiche fusionnée, filtre RPC) est listé via le libellé de sa
   // lane perso — même logique que le sélecteur de la vue Cadreur.
-  const cadreurOptions = useMemo(() => {
-    const ids = new Set()
-    const laneByMembre = new Map()
-    for (const l of currentLanes) {
-      if (l.type === 'personne' && l.membre_id) {
-        ids.add(l.membre_id)
-        laneByMembre.set(l.membre_id, l)
-      }
-    }
-    for (const c of currentCreneaux) {
-      for (const id of c.member_ids || []) ids.add(id)
-    }
-    return [...ids]
-      .map((id) => {
-        const m = membreById.get(id)
-        if (m) {
-          return {
-            id,
-            nom:
-              `${m.contact?.prenom || m.prenom || ''} ${m.contact?.nom || m.nom || ''}`.trim() || '?',
-          }
-        }
-        const lane = laneByMembre.get(id)
-        return lane ? { id, nom: lane.libelle || '?' } : null
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }))
-  }, [currentLanes, currentCreneaux, membreById])
+  // Regroupés par personne : quelqu'un qui cumule deux postes a plusieurs
+  // rows projet_membres, il ne doit apparaître qu'une fois (cf.
+  // features/deroule/cadreurIdentity.js).
+  const cadreurOptions = useMemo(
+    () =>
+      buildCadreurGroups({
+        lanes: currentLanes,
+        creneaux: currentCreneaux,
+        membres,
+      }).map((g) => ({ id: g.id, nom: g.nom })),
+    [currentLanes, currentCreneaux, membres],
+  )
 
   // En vue Cadreur, l'export PNG porte directement sur le cadreur affiché.
   const currentCadreur =
@@ -984,10 +969,16 @@ function ExportSharePreviewSheet({
             generatedAt: new Date(),
           })
         } else {
+          // Toutes les rows de la personne (postes cumulés) — sinon on
+          // exporterait le planning d'une seule de ses casquettes.
+          const group = findCadreurGroup(
+            buildCadreurGroups({ lanes, creneaux, membres }),
+            membreId,
+          )
           r = await buildDerouleCadreurPng({
             project,
             deroulesData,
-            membreId,
+            membreId: group?.ids || membreId,
             generatedAt: new Date(),
           })
         }
