@@ -51,6 +51,24 @@ function membreName(m) {
   return `${prenom} ${nom}`.trim() || 'Sans nom'
 }
 
+function shortDate(iso) {
+  const d = new Date(`${iso}T12:00:00`)
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+}
+
+/**
+ * « 20 → 25 août · 5 nuits » — la plage rend lisible le cas d'une personne
+ * répartie sur deux hébergements (A puis B).
+ */
+function formatSejour(dates) {
+  if (!dates.length) return '0 nuit'
+  const sorted = [...dates].sort()
+  const out = new Date(`${sorted[sorted.length - 1]}T12:00:00`)
+  out.setDate(out.getDate() + 1)
+  const label = `${shortDate(sorted[0])} → ${shortDate(out.toISOString().slice(0, 10))}`
+  return `${label} · ${sorted.length} nuit${sorted.length > 1 ? 's' : ''}`
+}
+
 export default function HebergementsModal({
   projectId,
   hebergements = [],
@@ -132,7 +150,9 @@ export default function HebergementsModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+        {/* min-h-0 : sans ça un enfant flex garde min-height:auto, refuse de
+            se rétracter sous son contenu et le scroll ne s'active jamais. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
           {hebergements.length === 0 && editingId !== 'new' && (
             <p className="text-xs text-center py-6" style={{ color: 'var(--txt-3)' }}>
               Aucun hébergement déclaré.
@@ -293,10 +313,18 @@ function HebergementCard({
   // Rooming DÉRIVÉ des nuits (modèle validé Hugo) : quiconque a ≥ 1 nuit
   // cochée ici apparaît automatiquement. Les rows hebergement_membres ne
   // portent plus que chambre/PDJ (créées à la volée au premier edit).
-  const nuitCountByMembre = new Map()
+  // Dates par personne : indispensable dès qu'une personne change de logement
+  // en cours de projet (A jusqu'au 24, B ensuite) — chaque carte montre la
+  // plage qui la concerne.
+  const datesByMembre = new Map()
   for (const n of nuits) {
-    nuitCountByMembre.set(n.membre_id, (nuitCountByMembre.get(n.membre_id) || 0) + 1)
+    const arr = datesByMembre.get(n.membre_id) || []
+    arr.push(n.date_nuit)
+    datesByMembre.set(n.membre_id, arr)
   }
+  const nuitCountByMembre = new Map(
+    Array.from(datesByMembre.entries()).map(([id, dates]) => [id, dates.length]),
+  )
   const hmByMembre = new Map(assigned.map((hm) => [hm.membre_id, hm]))
   const personIds = Array.from(
     new Set([...nuitCountByMembre.keys(), ...assigned.map((hm) => hm.membre_id)]),
@@ -495,7 +523,7 @@ function HebergementCard({
                       : 'Plus aucune nuit ici — infos chambre/PDJ conservées'
                   }
                 >
-                  {nCount} nuit{nCount > 1 ? 's' : ''}
+                  {formatSejour(datesByMembre.get(membreId) || [])}
                 </span>
                 <input
                   type="text"
@@ -561,9 +589,9 @@ function HebergementCard({
                     }}
                     className="text-[10px] px-1 py-1 rounded-md outline-none shrink-0 max-w-[110px]"
                     style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt-3)' }}
-                    title="Déplacer vers un autre hébergement"
+                    title="Déplacer TOUTES les nuits vers un autre hébergement. Pour n'en basculer qu'une partie (changement de logement en cours de séjour), clique la nuit 🌙 concernée dans la grille."
                   >
-                    <option value="">Déplacer…</option>
+                    <option value="">Tout déplacer…</option>
                     {allHebs
                       .filter((o) => o.id !== h.id)
                       .map((o) => (

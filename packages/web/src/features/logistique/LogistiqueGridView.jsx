@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Bus,
   Car,
+  Check,
   Loader2,
   Moon,
   Plane,
@@ -30,6 +31,7 @@ import {
   Train,
   TramFront,
   Wand2,
+  X,
 } from 'lucide-react'
 import {
   createSession,
@@ -461,20 +463,33 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     }
   }
 
+  /** Décoche une nuit (bouton du popover ou toggle direct). */
+  async function removeNuit(membreId, day) {
+    setNuitPick(null)
+    setLogi((prev) => ({
+      ...prev,
+      nuits: prev.nuits.filter((n) => !(n.membre_id === membreId && n.date_nuit === day)),
+    }))
+    try {
+      await deleteNuit({ membreId, date: day })
+    } catch (err) {
+      notify.error('Nuit : ' + (err?.message || err))
+      load()
+    }
+  }
+
   async function toggleNuit(membreId, day) {
     if (!canEdit) return
-    const has = nuitSet.has(`${membreId}|${day}`)
-    if (has) {
-      setLogi((prev) => ({
-        ...prev,
-        nuits: prev.nuits.filter((n) => !(n.membre_id === membreId && n.date_nuit === day)),
-      }))
-      try {
-        await deleteNuit({ membreId, date: day })
-      } catch (err) {
-        notify.error('Nuit : ' + (err?.message || err))
-        load()
+    const nuit = nuitSet.get(`${membreId}|${day}`) || null
+    if (nuit) {
+      // Plusieurs hébergements au projet : la nuit porte une info à changer
+      // (bascule de logement en cours de séjour) → popover. Sinon décoche
+      // directe.
+      if (logi.hebergements.length >= 2) {
+        setNuitPick({ membreId, day, current: nuit.hebergement_id || null })
+        return
       }
+      await removeNuit(membreId, day)
       return
     }
     // ON — l'hébergement dérive des NUITS (modèle validé Hugo) :
@@ -723,6 +738,7 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
                 hebsList={logi.hebergements}
                 nuitPick={nuitPick}
                 onPickNuitHeb={addNuitToHebergement}
+                onRemoveNuit={removeNuit}
                 onCloseNuitPick={() => setNuitPick(null)}
               />
             ))}
@@ -901,6 +917,7 @@ function GroupRows({
   hebsList,
   nuitPick,
   onPickNuitHeb,
+  onRemoveNuit,
   onCloseNuitPick,
 }) {
   return (
@@ -942,6 +959,7 @@ function GroupRows({
           hebsList={hebsList}
           nuitPick={nuitPick}
           onPickNuitHeb={onPickNuitHeb}
+          onRemoveNuit={onRemoveNuit}
           onCloseNuitPick={onCloseNuitPick}
         />
       ))}
@@ -970,6 +988,7 @@ function MembreRow({
   hebsList = [],
   nuitPick = null,
   onPickNuitHeb,
+  onRemoveNuit,
   onCloseNuitPick,
 }) {
   const presenceDays = new Set(parts.flatMap((p) => p.presence_days || []))
@@ -1234,7 +1253,9 @@ function MembreRow({
                       onClick={() => onToggleNuit(membre.id, d)}
                       title={
                         nuit
-                          ? `Nuit sur place${hebName ? ` · ${hebName}` : ''} (cliquer pour retirer)`
+                          ? `Nuit sur place${hebName ? ` · ${hebName}` : ''} (cliquer pour ${
+                              hebsList.length >= 2 ? 'changer d’hébergement ou retirer' : 'retirer'
+                            })`
                           : 'Pas de nuit (cliquer pour ajouter)'
                       }
                       className="w-4 h-4 rounded-sm shrink-0 flex items-center justify-center transition-all"
@@ -1257,7 +1278,9 @@ function MembreRow({
                   )
                 })()}
 
-                {/* Popover choix d'hébergement (2+ hébergements ambigus) */}
+                {/* Popover hébergement de la nuit : au 1er clic quand le
+                    choix est ambigu, et sur une nuit déjà posée dès qu'il y a
+                    2+ hébergements (bascule de logement en cours de séjour). */}
                 {nuitPick && nuitPick.membreId === membre.id && nuitPick.day === d && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={onCloseNuitPick} aria-hidden />
@@ -1275,20 +1298,47 @@ function MembreRow({
                       >
                         Nuit · quel hébergement ?
                       </p>
-                      {hebsList.map((h) => (
+                      {hebsList.map((h) => {
+                        const active = nuitPick.current === h.id
+                        return (
+                          <button
+                            key={h.id}
+                            type="button"
+                            onClick={() => onPickNuitHeb?.(membre.id, d, h.id)}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-all"
+                            style={{
+                              color: 'var(--txt)',
+                              background: active ? 'rgba(167,139,250,0.12)' : 'transparent',
+                              fontWeight: active ? 600 : 400,
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = active
+                                ? 'rgba(167,139,250,0.12)'
+                                : 'transparent')
+                            }
+                          >
+                            <Moon className="w-3 h-3 shrink-0" style={{ color: '#a78bfa' }} />
+                            {h.nom}
+                            {active && (
+                              <Check className="w-3 h-3 ml-auto shrink-0" style={{ color: '#a78bfa' }} />
+                            )}
+                          </button>
+                        )
+                      })}
+                      {nuitPick.current !== undefined && (
                         <button
-                          key={h.id}
                           type="button"
-                          onClick={() => onPickNuitHeb?.(membre.id, d, h.id)}
-                          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left transition-all"
-                          style={{ color: 'var(--txt)' }}
+                          onClick={() => onRemoveNuit?.(membre.id, d)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left"
+                          style={{ color: 'var(--txt-3)', borderTop: '1px solid var(--brd-sub)' }}
                           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                           onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                         >
-                          <Moon className="w-3 h-3 shrink-0" style={{ color: '#a78bfa' }} />
-                          {h.nom}
+                          <X className="w-3 h-3 shrink-0" />
+                          Retirer la nuit
                         </button>
-                      ))}
+                      )}
                     </div>
                   </>
                 )}

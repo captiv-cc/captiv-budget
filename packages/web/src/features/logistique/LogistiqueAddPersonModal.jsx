@@ -155,7 +155,7 @@ export default function LogistiqueAddPersonModal({
         </div>
 
         {/* Liste des membres */}
-        <div className="flex-1 overflow-y-auto px-2 pb-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
           {availableMembres.length === 0 ? (
             <div
               className="text-center py-8 text-sm"

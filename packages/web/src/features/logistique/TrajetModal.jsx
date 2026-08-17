@@ -299,7 +299,7 @@ export default function TrajetModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-4">
           {/* Sens + date + coût */}
           <div className="flex items-end gap-3 flex-wrap">
             <label className="flex flex-col gap-1">

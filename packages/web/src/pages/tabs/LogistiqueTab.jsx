@@ -133,8 +133,10 @@ export default function LogistiqueTab() {
 
   // Chambre / PDJ : la row hebergement_membres est créée à la volée sur le
   // 1er edit — l'hébergement lui-même DÉRIVE des nuits (modèle validé Hugo).
-  async function handlePatchHebergementMembre(membre, hebergementMembre, patch, hebId) {
-    const targetHebId = hebergementMembre?.hebergement_id || hebId
+  // hebId vient du bloc édité : une personne peut avoir plusieurs séjours
+  // (logement A puis B), chacun avec sa chambre et son PDJ.
+  async function handlePatchHebergementMembre(membre, patch, hebId) {
+    const targetHebId = hebId
     if (!targetHebId) return
     try {
       await upsertHebergementMembre({
@@ -300,19 +302,19 @@ export default function LogistiqueTab() {
           <div className="space-y-4">
             {listTechlistRows(membres).map((membre) => {
               const entry = entries.find((e) => e.membre_id === membre.id) || null
-              const hebergementMembre =
-                logiV1?.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
               const structured = logiV1
                 ? {
                     trajets: logiV1.trajets.filter((t) => t.membre_id === membre.id),
                     hebergements: logiV1.hebergements,
-                    hebergementMembre,
+                    hebergementMembres: logiV1.hebergementMembres.filter(
+                      (hm) => hm.membre_id === membre.id,
+                    ),
                     nuits: logiV1.nuits.filter((n) => n.membre_id === membre.id),
                     docs: logiV1.docs,
                     onEditTrajet: (t) => setTrajetEdit({ membre, trajet: t }),
                     onAddTrajet: () => setTrajetEdit({ membre, trajet: null }),
                     onPatchHebergementMembre: (patch, hebId) =>
-                      handlePatchHebergementMembre(membre, hebergementMembre, patch, hebId),
+                      handlePatchHebergementMembre(membre, patch, hebId),
                   }
                 : null
               if (entry) {

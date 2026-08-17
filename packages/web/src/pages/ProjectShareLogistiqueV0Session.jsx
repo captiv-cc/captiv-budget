@@ -250,13 +250,13 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
             <div className="space-y-4">
               {personRows.map((membre) => {
                 const entry = entries.find((e) => e.membre_id === membre.id) || null
-                const hebergementMembre =
-                  logi.hebergementMembres.find((hm) => hm.membre_id === membre.id) || null
                 const structured = hasV1Data
                   ? {
                       trajets: logi.trajets.filter((t) => t.membre_id === membre.id),
                       hebergements: logi.hebergements,
-                      hebergementMembre,
+                      hebergementMembres: logi.hebergementMembres.filter(
+                        (hm) => hm.membre_id === membre.id,
+                      ),
                       nuits: logi.nuits.filter((n) => n.membre_id === membre.id),
                       docs: logi.docs,
                     }

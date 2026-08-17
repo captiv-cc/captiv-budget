@@ -44,10 +44,53 @@ function frDate(iso) {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
+/** Lendemain d'une date ISO (check-out = dernière nuit + 1 jour). */
+function nextDay(iso) {
+  const d = new Date(`${iso}T12:00:00`)
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Séjours d'une personne, un par hébergement (double hébergement : A jusqu'au
+ * 24, B ensuite). Les nuits portent chacune leur hebergement_id, donc on
+ * regroupe par hébergement et on dérive check-in / check-out de CHAQUE groupe.
+ * Trié par date de check-in. Les rows chambre/PDJ sans nuit restante
+ * apparaissent quand même (infos conservées).
+ */
+function buildSejours(nuits, hebergementMembres) {
+  const byHeb = new Map()
+  for (const n of nuits) {
+    const key = n.hebergement_id || '__sans__'
+    const dates = byHeb.get(key) || []
+    dates.push(n.date_nuit)
+    byHeb.set(key, dates)
+  }
+  for (const hm of hebergementMembres) {
+    if (hm.hebergement_id && !byHeb.has(hm.hebergement_id)) {
+      byHeb.set(hm.hebergement_id, [])
+    }
+  }
+  const hmByHeb = new Map(hebergementMembres.map((hm) => [hm.hebergement_id, hm]))
+  return Array.from(byHeb.entries())
+    .map(([key, dates]) => {
+      const sorted = [...dates].sort()
+      const hebId = key === '__sans__' ? null : key
+      return {
+        hebergementId: hebId,
+        hm: hebId ? hmByHeb.get(hebId) || null : null,
+        nuits: sorted.length,
+        checkin: sorted[0] || null,
+        checkout: sorted.length ? nextDay(sorted[sorted.length - 1]) : null,
+      }
+    })
+    .sort((a, b) => (a.checkin || '9999').localeCompare(b.checkin || '9999'))
+}
+
 export default function LogistiqueStructuredSection({
   trajets = [],
   hebergements = [],
-  hebergementMembre = null, // row projet_logistique_hebergement_membres | null
+  hebergementMembres = [], // rows projet_logistique_hebergement_membres du membre
   nuits = [], // nuits du membre (dates + hebergement_id)
   docs = [], // projet_logistique_docs (tous parents — filtrés par trajet/heb ici)
   readOnly = false,
@@ -56,17 +99,9 @@ export default function LogistiqueStructuredSection({
   onPatchHebergementMembre, // (patch, hebergementId) => void
 }) {
   const [previewDoc, setPreviewDoc] = useState(null)
-  // Check-in / check-out dérivés des nuits cochées (grille) : première nuit
-  // = check-in, dernière nuit + 1 jour = check-out.
-  const nuitDates = nuits.map((n) => n.date_nuit).sort()
-  const checkin = nuitDates[0] || null
-  const checkout = nuitDates.length
-    ? (() => {
-        const d = new Date(`${nuitDates[nuitDates.length - 1]}T12:00:00`)
-        d.setDate(d.getDate() + 1)
-        return d.toISOString().slice(0, 10)
-      })()
-    : null
+  // Un séjour par hébergement : une personne peut basculer de logement en
+  // cours de projet, chaque bloc porte ses propres dates.
+  const sejours = buildSejours(nuits, hebergementMembres)
 
   const inputStyle = {
     background: 'var(--bg)',
@@ -196,17 +231,18 @@ export default function LogistiqueStructuredSection({
         </div>
       )}
 
-      {/* ── Hébergement — DÉRIVÉ des nuits cochées dans la grille (modèle
-          validé Hugo) : ici on lit le lieu et on n'édite que chambre/PDJ. */}
-      {(() => {
-        const derivedHebId =
-          hebergementMembre?.hebergement_id ||
-          nuits.map((n) => n.hebergement_id).find(Boolean) ||
-          null
-        const heb = hebergements.find((h) => h.id === derivedHebId) || null
-        if (!heb && !nuitDates.length) return null
+      {/* ── Hébergements — DÉRIVÉS des nuits cochées dans la grille (modèle
+          validé Hugo) : ici on lit le lieu et on n'édite que chambre/PDJ.
+          Un bloc par séjour : une personne peut changer de logement en cours
+          de projet, chaque bloc porte ses propres check-in / check-out. */}
+      {sejours.map((s) => {
+        const heb = s.hebergementId
+          ? hebergements.find((h) => h.id === s.hebergementId) || null
+          : null
+        if (!heb && !s.nuits) return null
         return (
           <div
+            key={s.hebergementId || 'sans'}
             className="rounded-lg px-3 py-2 flex items-center gap-2.5 flex-wrap"
             style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd-sub)' }}
           >
@@ -222,18 +258,18 @@ export default function LogistiqueStructuredSection({
             {heb && (
               <>
                 {readOnly ? (
-                  hebergementMembre?.chambre && (
+                  s.hm?.chambre && (
                     <span className="text-[11px]" style={{ color: 'var(--txt-2)' }}>
-                      Ch. {hebergementMembre.chambre}
+                      Ch. {s.hm.chambre}
                     </span>
                   )
                 ) : (
                   <input
                     type="text"
-                    defaultValue={hebergementMembre?.chambre || ''}
+                    defaultValue={s.hm?.chambre || ''}
                     onBlur={(e) => {
                       const v = e.target.value.trim() || null
-                      if (v !== (hebergementMembre?.chambre || null)) {
+                      if (v !== (s.hm?.chambre || null)) {
                         onPatchHebergementMembre?.({ chambre: v }, heb.id)
                       }
                     }}
@@ -249,7 +285,7 @@ export default function LogistiqueStructuredSection({
                 >
                   <input
                     type="checkbox"
-                    checked={Boolean(hebergementMembre?.pdj)}
+                    checked={Boolean(s.hm?.pdj)}
                     disabled={readOnly}
                     onChange={(e) => onPatchHebergementMembre?.({ pdj: e.target.checked }, heb.id)}
                     style={{ accentColor: 'var(--purple, #a78bfa)' }}
@@ -265,19 +301,19 @@ export default function LogistiqueStructuredSection({
               </>
             )}
 
-            {checkin && checkout && (
+            {s.checkin && s.checkout && (
               <span
                 className="text-[11px] ml-auto"
                 style={{ color: 'var(--txt-3)' }}
                 title="Calculé depuis les nuits cochées dans la grille"
               >
-                Check-in {frDate(checkin)} → check-out {frDate(checkout)} ·{' '}
-                {nuitDates.length} nuit{nuitDates.length > 1 ? 's' : ''}
+                Check-in {frDate(s.checkin)} → check-out {frDate(s.checkout)} ·{' '}
+                {s.nuits} nuit{s.nuits > 1 ? 's' : ''}
               </span>
             )}
           </div>
         )
-      })()}
+      })}
 
       {previewDoc && (
         <DocPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />
