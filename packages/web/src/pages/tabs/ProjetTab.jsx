@@ -18,6 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { notify } from '../../lib/notify'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
+import { OUTILS, ACTIONS } from '../../lib/permissions'
 import ProjectAvatar from '../../features/projets/components/ProjectAvatar'
 import DateRangesInput from '../../features/projets/components/DateRangesInput'
 import PeriodesRecapWidget from '../../features/projets/components/PeriodesRecapWidget'
@@ -229,12 +230,20 @@ function fullName(person) {
 export default function ProjetTab() {
   const { project, setProject, projectId } = useOutletContext()
   const { isAdmin, isChargeProd } = useAuth()
-  const canEdit = isAdmin || isChargeProd
 
   // Permissions par outil (pour masquer/adapter les blocs liés aux outils
   // dont l'utilisateur n'a pas accès, ex: livrables)
-  const { canSee: canSeeOutil } = useProjectPermissions(projectId)
+  const { can: canOutil, canSee: canSeeOutil } = useProjectPermissions(projectId)
   const canSeeLivrables = canSeeOutil('livrables')
+
+  // Édition de la fiche : droit outil « Fiche projet » (les internes
+  // l'obtiennent par bypass dans can()). Cf. 20260817a_projet_info_edit.sql
+  // pour la policy UPDATE correspondante.
+  const canEdit = canOutil(OUTILS.PROJET_INFO, ACTIONS.EDIT)
+  // Périmètre administratif (réf projet, BC, date devis, note de prod,
+  // gestion des accès) : admin / charge_prod uniquement, quel que soit le
+  // droit sur la fiche. Un trigger fige ces colonnes pour les autres.
+  const canSeeAdmin = isAdmin || isChargeProd
 
   // Mode édition + draft local
   const [editing, setEditing] = useState(false)
@@ -274,7 +283,7 @@ export default function ProjetTab() {
   }, [projectId])
 
   useEffect(() => {
-    if (!projectId || !canEdit) return
+    if (!projectId || !canSeeAdmin) return
     // ⚠️ project_access a une PK composite (user_id, project_id) — pas de colonne `id`.
     // On compte sur user_id pour récupérer le bon `count`.
     supabase
@@ -282,7 +291,7 @@ export default function ProjetTab() {
       .select('user_id', { count: 'exact', head: true })
       .eq('project_id', projectId)
       .then(({ count }) => setAccessCount(count ?? 0))
-  }, [projectId, canEdit])
+  }, [projectId, canSeeAdmin])
 
   // ─── Actions ───────────────────────────────────────────────────────────────
   function startEdit() {
@@ -349,6 +358,7 @@ export default function ProjetTab() {
           project={project}
           get={get}
           canEdit={canEdit}
+          canSeeAdmin={canSeeAdmin}
           onEdit={startEdit}
           persons={persons}
           loadingMembres={loadingMembres}
@@ -363,6 +373,7 @@ export default function ProjetTab() {
           draft={draft}
           setDraft={setDraft}
           clientsList={clientsList}
+          canSeeAdmin={canSeeAdmin}
           onCancel={cancelEdit}
           onSave={saveEdit}
           saving={saving}
@@ -382,6 +393,7 @@ function ReadView({
   project,
   get,
   canEdit,
+  canSeeAdmin,
   onEdit,
   persons,
   loadingMembres,
@@ -406,17 +418,17 @@ function ReadView({
   // fonctionne pas ici car il ne spanne que les rows explicites.
   // Items potentiels :
   //   - Hero (toujours)
-  //   - AdminFooter (canEdit)
+  //   - AdminFooter (canSeeAdmin)
   //   - Identité (toujours)
   //   - Widget Livrables (LIV-17) — si canSeeLivrables
-  //   - Note de prod (canEdit && project.note_prod)
+  //   - Note de prod (canSeeAdmin && project.note_prod)
   const showLivrablesBlock = canSeeLivrables
   const leftRowCount =
     1 + // Hero
-    (canEdit ? 1 : 0) + // AdminFooter
+    (canSeeAdmin ? 1 : 0) + // AdminFooter
     1 + // Identité
     (showLivrablesBlock ? 1 : 0) + // Livrables
-    (canEdit && project.note_prod ? 1 : 0) // Note de prod
+    (canSeeAdmin && project.note_prod ? 1 : 0) // Note de prod
   // Tailwind a besoin des classes literales pour les détecter :
   // lg:row-span-2 lg:row-span-3 lg:row-span-4 lg:row-span-5
   const equipeRowSpanClass =
@@ -624,7 +636,7 @@ function ReadView({
       )}
 
       {/* ── FOOTER ADMIN (admin/charge_prod uniquement, juste sous le hero) ─ */}
-      {canEdit && (
+      {canSeeAdmin && (
         <AdminFooter project={project} accessCount={accessCount} className="lg:col-span-2" />
       )}
 
@@ -758,7 +770,7 @@ function ReadView({
       )}
 
       {/* ── NOTE DE PROD (admin/charge_prod uniquement) ──────────────────── */}
-      {canEdit && project.note_prod && (
+      {canSeeAdmin && project.note_prod && (
         <SectionCard
           icon={<StickyNote className="w-4 h-4" />}
           title="Note de production / hors devis"
@@ -1000,6 +1012,7 @@ function EditModal({
   draft,
   setDraft,
   clientsList,
+  canSeeAdmin,
   onCancel,
   onSave,
   saving,
@@ -1054,7 +1067,9 @@ function EditModal({
               Modifier le projet
             </h2>
             <p className="text-xs" style={{ color: 'var(--txt-3)' }}>
-              Identité, planning, spécifications et notes de production
+              {canSeeAdmin
+                ? 'Identité, planning, spécifications et notes de production'
+                : 'Identité, planning et spécifications'}
             </p>
           </div>
           <button
@@ -1081,7 +1096,10 @@ function EditModal({
         {/* Contenu scrollable */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
 
-      {/* ── BLOC DÉTAILS ADMIN (repliable, en 2e position pour ne pas l'oublier) ─ */}
+      {/* ── BLOC DÉTAILS ADMIN (repliable, en 2e position pour ne pas l'oublier)
+             Réservé admin/charge_prod : ces colonnes sont figées en base pour
+             les autres profils (20260817a_projet_info_edit.sql). ─────────── */}
+      {canSeeAdmin && (
       <div className="card overflow-visible">
         <button
           type="button"
@@ -1123,6 +1141,7 @@ function EditModal({
           </div>
         )}
       </div>
+      )}
 
       {/* ── BLOC IDENTITÉ ────────────────────────────────────────────────── */}
       <Block icon={<Clapperboard className="w-4 h-4" />} title="Identité">
@@ -1150,21 +1169,23 @@ function EditModal({
               onChange={(e) => setA('description', e.target.value)}
             />
           </div>
-          <div>
-            <FieldLabel>Client</FieldLabel>
-            <select
-              className="input text-sm"
-              value={draft.client_id || ''}
-              onChange={(e) => setA('client_id', e.target.value)}
-            >
-              <option value="">— Aucun client —</option>
-              {clientsList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nom_commercial}
-                </option>
-              ))}
-            </select>
-          </div>
+          {canSeeAdmin && (
+            <div>
+              <FieldLabel>Client</FieldLabel>
+              <select
+                className="input text-sm"
+                value={draft.client_id || ''}
+                onChange={(e) => setA('client_id', e.target.value)}
+              >
+                <option value="">— Aucun client —</option>
+                {clientsList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nom_commercial}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {/* FEST-5.1c : champ Lieu + géocodage (utilisé pour le golden hour
               dans le déroulé festival). Géocodage Nominatim onBlur. */}
           <LieuField draft={draft} setDraft={setDraft} />
@@ -1249,7 +1270,8 @@ function EditModal({
         </div>
       </Block>
 
-      {/* ── BLOC NOTE DE PROD ────────────────────────────────────────────── */}
+      {/* ── BLOC NOTE DE PROD (admin/charge_prod) ────────────────────────── */}
+      {canSeeAdmin && (
       <Block icon={<StickyNote className="w-4 h-4" />} title="Note de production / hors devis">
         <textarea
           className="w-full text-sm rounded-lg p-3 resize-none focus:outline-none focus:ring-1"
@@ -1265,6 +1287,7 @@ function EditModal({
           onChange={(e) => setA('noteProd', e.target.value)}
         />
       </Block>
+      )}
         </div>
         {/* /Contenu scrollable */}
 
