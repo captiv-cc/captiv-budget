@@ -40,6 +40,7 @@ import {
   fetchSessionsCatalog,
   joinSession,
   listTechlistRows,
+  syncMembreFromSessions,
   updateSession,
 } from '../../lib/crew'
 import { extractPeriodes, expandDays, hasAnyRange } from '../../lib/projectPeriodes'
@@ -353,6 +354,43 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
    * - participation existante sur cette session → ajoute le jour ;
    * - sinon → joinSession (le membre rejoint la session globale).
    */
+  // ─── Miroir projet_membres.presence_days ─────────────────────────────────
+  // La présence vit sur la participation (projet_session_membres), mais
+  // l'onglet Équipe, ses partages et la techlist lisent la copie agrégée
+  // portée par projet_membres (arrival_date / departure_date /
+  // presence_days) — celle que useCrew resynchronise après chaque mutation.
+  // Sans ce miroir, cocher une présence ICI ne se voyait nulle part
+  // ailleurs : la logistique et l'Équipe affichaient deux vérités.
+  //
+  // On écrit sur TOUTES les rows de la personne (une personne qui cumule
+  // deux postes en a plusieurs), comme le fait useCrew.
+  const syncPresenceToMembre = useCallback(
+    async (membre, nextParticipations) => {
+      const personaIds = [membre.id, ...(membre.attached || []).map((a) => a.id)]
+      const own = (nextParticipations || []).filter((p) => p.membre_id === membre.id)
+      try {
+        await syncMembreFromSessions(personaIds, own)
+      } catch (err) {
+        console.error('[logistique] sync presence_days', err)
+      }
+    },
+    [],
+  )
+
+  /**
+   * Après une mutation de la modale Présence : on relit les participations
+   * en base (elle a pu créer / supprimer une session) puis on rafraîchit le
+   * miroir projet_membres.
+   */
+  async function syncPresenceAfterModal(membre) {
+    try {
+      const fresh = await fetchProjectSessions(projectId)
+      await syncPresenceToMembre(membre, fresh)
+    } catch (err) {
+      console.error('[logistique] sync presence after modal', err)
+    }
+  }
+
   async function addPresenceToSession(membre, day, sessionId) {
     setSessionPick(null)
     const parts = partsByMembre.get(membre.id) || []
@@ -360,12 +398,15 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     try {
       if (part) {
         const nextDays = [...(part.presence_days || []), day].sort()
-        setParticipations((prev) =>
-          prev.map((p) => (p.id === part.id ? { ...p, presence_days: nextDays } : p)),
+        const next = participations.map((p) =>
+          p.id === part.id ? { ...p, presence_days: nextDays } : p,
         )
+        setParticipations(next)
         await updateSession(part.id, { presence_days: nextDays })
+        await syncPresenceToMembre(membre, next)
       } else {
-        await joinSession(membre.id, sessionId, { presence_days: [day] })
+        const created = await joinSession(membre.id, sessionId, { presence_days: [day] })
+        await syncPresenceToMembre(membre, [...participations, created])
         await load()
       }
     } catch (err) {
@@ -382,11 +423,13 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
     const holder = parts.find((p) => (p.presence_days || []).includes(day))
     if (holder) {
       const nextDays = (holder.presence_days || []).filter((d) => d !== day)
-      setParticipations((prev) =>
-        prev.map((p) => (p.id === holder.id ? { ...p, presence_days: nextDays } : p)),
+      const next = participations.map((p) =>
+        p.id === holder.id ? { ...p, presence_days: nextDays } : p,
       )
+      setParticipations(next)
       try {
         await updateSession(holder.id, { presence_days: nextDays })
+        await syncPresenceToMembre(membre, next)
       } catch (err) {
         notify.error('Présence : ' + (err?.message || err))
         load()
@@ -819,26 +862,31 @@ export default function LogistiqueGridView({ projectId, project = null, membres 
           sessionParticipantsCount={sessionParticipantsCount}
           onCreateSession={async (payload) => {
             const s = await createSession(presenceFor.id, payload)
+            await syncPresenceAfterModal(presenceFor)
             await load()
             return s
           }}
           onJoinSession={async (sessionId, payload) => {
             const s = await joinSession(presenceFor.id, sessionId, payload)
+            await syncPresenceAfterModal(presenceFor)
             await load()
             return s
           }}
           onUpdateSessionMeta={async (participationId, fields) => {
             const s = await updateSession(participationId, fields)
+            await syncPresenceAfterModal(presenceFor)
             await load()
             return s
           }}
           onRemoveSession={async (participationId) => {
             await deleteSession(participationId)
+            await syncPresenceAfterModal(presenceFor)
             await load()
           }}
           onSave={async (fields, sessionId) => {
             if (!sessionId) return undefined
             const s = await updateSession(sessionId, fields)
+            await syncPresenceAfterModal(presenceFor)
             await load()
             return s
           }}

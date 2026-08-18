@@ -47,7 +47,12 @@ function dayHeader(iso) {
   }
 }
 
-export default function LogistiqueShareOverview({ techRows = [], participations = [], logi }) {
+export default function LogistiqueShareOverview({
+  techRows = [],
+  participations = [],
+  logi,
+  categoryOrder = [],
+}) {
   const partsByMembre = useMemo(() => {
     const map = new Map()
     for (const p of participations) {
@@ -95,19 +100,31 @@ export default function LogistiqueShareOverview({ techRows = [], participations 
     return isoRange(sorted[0], sorted[sorted.length - 1])
   }, [participations, logi.trajets])
 
-  // Personnes avec au moins une donnée (présence / repas / nuit / trajet).
-  const rows = useMemo(
-    () =>
-      techRows.filter((m) => {
-        const parts = partsByMembre.get(m.id) || []
-        if (parts.some((p) => (p.presence_days || []).length)) return true
-        if (logi.repas.some((r) => r.membre_id === m.id)) return true
-        if (logi.nuits.some((n) => n.membre_id === m.id)) return true
-        if (logi.trajets.some((t) => t.membre_id === m.id)) return true
-        return false
-      }),
-    [techRows, partsByMembre, logi],
-  )
+  // Personnes avec au moins une donnée (présence / repas / nuit / trajet),
+  // dans l'ordre des catégories DÉFINI DANS L'ÉQUIPE. Sans ça, le tri du RPC
+  // (category, sort_order) rangeait les catégories par ordre alphabétique —
+  // CAPTATION avant PRODUCTION — alors que le desk suit l'ordre choisi.
+  const rows = useMemo(() => {
+    const kept = techRows.filter((m) => {
+      const parts = partsByMembre.get(m.id) || []
+      if (parts.some((p) => (p.presence_days || []).length)) return true
+      if (logi.repas.some((r) => r.membre_id === m.id)) return true
+      if (logi.nuits.some((n) => n.membre_id === m.id)) return true
+      if (logi.trajets.some((t) => t.membre_id === m.id)) return true
+      return false
+    })
+    if (!categoryOrder.length) return kept
+    // « À trier » (category null) en tête, comme l'Équipe et la grille interne.
+    const rank = (m) => {
+      if (!m.category) return -1
+      const i = categoryOrder.indexOf(m.category)
+      return i === -1 ? categoryOrder.length : i
+    }
+    return kept
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i)
+      .map(({ m }) => m)
+  }, [techRows, partsByMembre, logi, categoryOrder])
 
   const totals = useMemo(() => {
     const byDay = new Map()

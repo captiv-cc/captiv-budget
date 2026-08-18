@@ -182,6 +182,13 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
     return map
   }, [documents])
 
+  // Ordre des catégories crew défini dans l'Équipe (payload : migration
+  // 20260818c). Absent d'un payload plus ancien → ordre du RPC.
+  const categoryOrder = useMemo(
+    () => (Array.isArray(payload.category_order) ? payload.category_order : []),
+    [payload.category_order],
+  )
+
   const hasInfos = Boolean(globalRow?.text) || globalDocuments.length > 0
 
   // Header meta items
@@ -299,6 +306,7 @@ export function LogistiqueShareView({ payload, theme, setTheme }) {
               techRows={techRows}
               participations={participations}
               logi={logi}
+              categoryOrder={categoryOrder}
             />
           </div>
         )}
