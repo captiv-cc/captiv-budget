@@ -52,6 +52,7 @@ import {
 } from '../../lib/derouleSoftLinks'
 import { notify } from '../../lib/notify'
 import { getProjectCreneauTypes } from '../../lib/creneauTypes'
+import { buildUncoveredArtisteSet } from './artisteCoverage'
 import { colorFromUserId } from '../../hooks/useProjectPresence'
 import QuickCreateMenu from './QuickCreateMenu'
 import AssignCadreurMenu from './AssignCadreurMenu'
@@ -191,6 +192,14 @@ export default function DerouleTimelineView({
     for (const c of allCreneaux) m.set(c.id, c)
     return m
   }, [allCreneaux])
+
+  // Artistes que personne ne filme : repère de lecture pour préparer la
+  // journée. Volontairement discret — beaucoup d'artistes n'ont pas de
+  // cadreur et c'est très bien ainsi (cf. artisteCoverage.js).
+  const uncoveredArtistes = useMemo(
+    () => buildUncoveredArtisteSet({ lanes, creneaux: allCreneaux }),
+    [lanes, allCreneaux],
+  )
 
   // FEST-5.2 : détecte si un nouveau créneau (ou un déplacement) chevauche
   // une plage d'indisponibilité (type='indispo') dans la lane cible. Si oui,
@@ -1155,6 +1164,7 @@ export default function DerouleTimelineView({
                       isDragging={isThisDragging && dragState.hasMoved}
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
+                      noCadreur={uncoveredArtistes.has(c.id)}
                       sourceTimingIssue={
                         c.source_creneau_id
                           ? getSourceTimingIssue(
@@ -1191,6 +1201,7 @@ export default function DerouleTimelineView({
                       isDragging={isThisDragging && dragState.hasMoved}
                       conflicts={conflictsByCreneau?.get?.(c.id) || []}
                       isLinked={Boolean(c.source_creneau_id)}
+                      noCadreur={uncoveredArtistes.has(c.id)}
                       sourceTimingIssue={
                         c.source_creneau_id
                           ? getSourceTimingIssue(c, allCreneauxById.get(c.source_creneau_id))
@@ -1508,6 +1519,7 @@ export default function DerouleTimelineView({
                 onMouseDownDrag={handleBlockMouseDown}
                 isDragging={isThisDragging && dragState.hasMoved}
                 conflicts={conflictsByCreneau?.get?.(c.id) || []}
+                noCadreur={uncoveredArtistes.has(c.id)}
                 projectTypes={projectTypes}
               />
             )
@@ -2385,6 +2397,10 @@ function CreneauBlock({
   isDragging,
   conflicts = [],
   isLinked = false,
+  // Artiste que personne ne filme (cf. artisteCoverage.js) : simple repère
+  // de lecture, jamais une alerte — tous les artistes n'ont pas à être
+  // couverts.
+  noCadreur = false,
   // Incohérence horaire vs créneau source (soft link). 'outside_*' = sévère
   // (rouge, créneau hors plage artiste), autres = warning (orange).
   sourceTimingIssue = null,
@@ -2622,6 +2638,29 @@ function CreneauBlock({
           : `${creneau.titre} · ${formatMinHHMM(creneau.heure_debut_min)} – ${formatMinHHMM(creneau.heure_fin_min)}`
       }
     >
+      {/* Artiste sans cadreur : fin liseré pointillé sur le bord droit.
+          Volontairement sourd (gris translucide) — c'est un repère de
+          lecture, pas une alerte : tous les artistes n'ont pas vocation à
+          être filmés. Hors flux, donc sans effet sur le texte du bloc. */}
+      {noCadreur && !isIndispo && (
+        <span
+          aria-hidden
+          title="Aucun cadreur sur ce créneau"
+          style={{
+            position: 'absolute',
+            top: 3,
+            bottom: 3,
+            right: 2,
+            width: 2,
+            borderRadius: 2,
+            backgroundImage:
+              'repeating-linear-gradient(to bottom, rgba(255,255,255,0.34) 0 3px, transparent 3px 6px)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+      )}
+
       {/* Multi-colonnes non contiguës : badge ⧉ N — indique que ce bloc a
           des copies liées dans d'autres colonnes (même créneau). */}
       {spanBadge && (
