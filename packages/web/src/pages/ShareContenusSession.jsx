@@ -76,8 +76,10 @@ export default function ShareContenusSession() {
   }, [theme])
 
   const load = useCallback(
-    async (pwd) => {
-      setLoading(true)
+    // silent : rafraîchit les données sans repasser par l'écran de
+    // chargement. Sinon le formulaire ouvert est démonté et la saisie perdue.
+    async (pwd, { silent = false } = {}) => {
+      if (!silent) setLoading(true)
       try {
         const data = await fetchContenusShare(token, pwd ?? null)
         setPayload(data)
@@ -94,7 +96,7 @@ export default function ShareContenusSession() {
           setError(e)
         }
       } finally {
-        setLoading(false)
+        if (!silent) setLoading(false)
       }
     },
     [token],
@@ -123,7 +125,7 @@ export default function ShareContenusSession() {
   )
 
   async function reload() {
-    await load(password)
+    await load(password, { silent: true })
   }
 
   async function handlePatch(contenu, patch) {
@@ -190,7 +192,19 @@ export default function ShareContenusSession() {
   async function handleCreateRef(kind, valeur) {
     try {
       await shareAddRef({ token, password, kind, valeur })
-      await reload()
+      // Ajout local plutôt que rechargement : la valeur vient d'être créée
+      // depuis un champ, et le formulaire autour est en cours de saisie.
+      setPayload((prev) => {
+        const rows = prev?.refs || []
+        const existe = rows.some(
+          (r) => r.kind === kind && r.valeur.toLowerCase() === valeur.trim().toLowerCase(),
+        )
+        if (existe) return prev
+        return {
+          ...prev,
+          refs: [...rows, { id: `local-${kind}-${valeur}`, kind, valeur: valeur.trim() }],
+        }
+      })
     } catch (e) {
       notify.error('Liste : ' + (e?.message || e))
     }
