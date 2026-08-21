@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOutletContext, useParams } from 'react-router-dom'
-import { Images, Loader2, Lock, Plus } from 'lucide-react'
+import { Images, Loader2, Lock, Plus, Share2 } from 'lucide-react'
 import { useProjectPermissions } from '../../hooks/useProjectPermissions'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -34,6 +34,7 @@ import { supabase } from '../../lib/supabase'
 import ContenusTable from '../../features/contenus/ContenusTable'
 import RefSelect from '../../features/contenus/RefSelect'
 import JourSelect from '../../features/contenus/JourSelect'
+import ContenusShareModal from '../../features/contenus/ContenusShareModal'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -55,6 +56,7 @@ export default function ContenusTab() {
   const [artistes, setArtistes] = useState([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
 
   // Le prénom de l'auteur : côté desk on le connaît, côté portail il est
   // saisi. Dans les deux cas il est écrit sur chaque modification.
@@ -237,17 +239,32 @@ export default function ContenusTab() {
           </p>
         </div>
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="ml-auto flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
-            style={{ background: 'var(--blue)', color: '#fff' }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Ajouter un contenu
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg"
+              style={{ color: 'var(--txt-2)', border: '1px solid var(--brd)' }}
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Partager
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg"
+              style={{ background: 'var(--blue)', color: '#fff' }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ajouter un contenu
+            </button>
+          </>
         )}
       </header>
+
+      {shareOpen && (
+        <ContenusShareModal projectId={projectId} onClose={() => setShareOpen(false)} />
+      )}
 
       {adding && (
         <ContenuForm

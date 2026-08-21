@@ -60,6 +60,7 @@ import LogistiqueTab from './pages/tabs/LogistiqueTab'
 import ProductionTab from './pages/tabs/ProductionTab'
 import MusiquesTab from './pages/tabs/MusiquesTab'
 import ContenusTab from './pages/tabs/ContenusTab'
+import ShareContenusSession from './pages/ShareContenusSession'
 import MoodboardTab from './pages/tabs/MoodboardTab'
 import FeedbackPage from './pages/FeedbackPage'
 import LivrablesTab from './pages/tabs/LivrablesTab'
@@ -208,6 +209,10 @@ function AppRoutes() {
         path="/share/logistique/:token"
         element={<ShareLogistiqueSession />}
       />
+      {/* Portail Contenus : suivi photographes (lecture) et équipe festival
+          (écriture derrière mot de passe). Cf. 20260821c_contenus_share.sql */}
+      <Route path="/share/contenus/:token" element={<ShareContenusSession />} />
+
       {/* Portail RP autorisations musiques (MUS-7 A3) — lecture-écriture
           limitée via token, sans compte. */}
       <Route
