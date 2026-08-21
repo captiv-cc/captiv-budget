@@ -14,6 +14,8 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Eye,
+  EyeOff,
   ExternalLink,
   Image as ImageIcon,
   MessageCircle,
@@ -32,6 +34,16 @@ import {
 import useBreakpoint from '../../hooks/useBreakpoint'
 import RefSelect from './RefSelect'
 import JourSelect, { labelForDate } from './JourSelect'
+
+// Teinte de fond par statut : une pastille seule se repère mal dans une
+// longue liste. Très légère — la ligne doit rester lisible, pas criarde.
+// Même parti pris que le portail RP des autorisations musiques.
+const ROW_TINT = {
+  valide: 'rgba(34,197,94,0.07)',
+  refuse: 'rgba(239,68,68,0.06)',
+  a_revoir: 'rgba(245,158,11,0.06)',
+  en_attente: 'transparent',
+}
 
 const GROUP_BY_OPTIONS = [
   { value: 'espace', label: 'Espace' },
@@ -62,6 +74,9 @@ export default function ContenusTable({
   const isMobile = breakpoint === 'sm'
 
   const [statutFilter, setStatutFilter] = useState(null)
+  // Une fois validé, un contenu n'a plus besoin d'être sous les yeux : ce
+  // qui reste à traiter doit pouvoir occuper tout l'écran.
+  const [hideValides, setHideValides] = useState(false)
   const [typeFilter, setTypeFilter] = useState(null)
   const [query, setQuery] = useState('')
   const [groupBy, setGroupBy] = useState('espace')
@@ -86,6 +101,7 @@ export default function ContenusTable({
   const filtered = useMemo(() => {
     const q = normalize(query).trim()
     return contenus.filter((c) => {
+      if (hideValides && c.statut === 'valide') return false
       if (statutFilter && c.statut !== statutFilter) return false
       if (typeFilter && c.type !== typeFilter) return false
       if (!q) return true
@@ -93,7 +109,7 @@ export default function ContenusTable({
         .map(normalize)
         .some((v) => v.includes(q))
     })
-  }, [contenus, statutFilter, typeFilter, query])
+  }, [contenus, statutFilter, typeFilter, query, hideValides])
 
   const groups = useMemo(() => {
     const byKey = new Map()
@@ -127,7 +143,10 @@ export default function ContenusTable({
             <button
               key={s}
               type="button"
-              onClick={() => setStatutFilter(active ? null : s)}
+              onClick={() => {
+                setStatutFilter(active ? null : s)
+                if (!active && s === 'valide') setHideValides(false)
+              }}
               className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg"
               style={{
                 background: active ? `${CONTENU_STATUT_COLORS[s]}1f` : 'var(--bg-surf)',
@@ -165,6 +184,24 @@ export default function ContenusTable({
           ))}
         </div>
 
+        <button
+          type="button"
+          onClick={() => {
+            setHideValides((v) => !v)
+            if (!hideValides && statutFilter === 'valide') setStatutFilter(null)
+          }}
+          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+          style={{
+            background: hideValides ? 'var(--blue-bg)' : 'var(--bg-surf)',
+            color: hideValides ? 'var(--blue)' : 'var(--txt-2)',
+            border: `1px solid ${hideValides ? 'var(--blue)' : 'var(--brd-sub)'}`,
+          }}
+          title={hideValides ? 'Réafficher les contenus validés' : 'Ne garder que ce qui reste à traiter'}
+        >
+          {hideValides ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          {hideValides ? 'Tout afficher' : 'Masquer les validés'}
+        </button>
+
         <div className="relative ml-auto">
           <Search
             className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2"
@@ -199,7 +236,9 @@ export default function ContenusTable({
         <p className="text-sm text-center py-10" style={{ color: 'var(--txt-3)' }}>
           {contenus.length === 0
             ? 'Aucun contenu pour le moment.'
-            : 'Aucun contenu ne correspond à ces filtres.'}
+            : hideValides
+              ? 'Tout est validé.'
+              : 'Aucun contenu ne correspond à ces filtres.'}
         </p>
       )}
 
@@ -309,7 +348,12 @@ function Th({ children, width }) {
 function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, onPatch, onDelete, onCreateRef, onOpenEvents }) {
   const TypeIcon = c.type === 'video' ? Video : ImageIcon
   return (
-    <tr style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+    <tr
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: ROW_TINT[c.statut] || 'transparent',
+      }}
+    >
       <td className="px-3 py-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <button
@@ -420,7 +464,13 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, 
 function ContenuCard({ contenu: c, canEdit, jours, commentCount, onPatch, onDelete, onOpenEvents }) {
   const TypeIcon = c.type === 'video' ? Video : ImageIcon
   return (
-    <div className="px-4 py-3 flex flex-col gap-2" style={{ borderBottom: '1px solid var(--brd-sub)' }}>
+    <div
+      className="px-4 py-3 flex flex-col gap-2"
+      style={{
+        borderBottom: '1px solid var(--brd-sub)',
+        background: ROW_TINT[c.statut] || 'transparent',
+      }}
+    >
       <div className="flex items-start gap-2">
         <TypeIcon className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
         <div className="min-w-0 flex-1">
@@ -483,6 +533,16 @@ function ContenuCard({ contenu: c, canEdit, jours, commentCount, onPatch, onDele
   )
 }
 
+/** Prénom normalisé, pour comparer « Hugo » et « Hugo MARTIN ». */
+function firstName(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)[0]
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
 /**
  * Qui a ajouté le contenu, et quand. C'est ce qui remplace les rôles : tout
  * le monde édite derrière le même mot de passe, la trace fait foi.
@@ -494,12 +554,16 @@ function TraceLine({ contenu: c }) {
     month: '2-digit',
   })
   const qui = c.created_by_name || null
+  // « Hugo » et « Hugo MARTIN » sont la même personne : on compare le
+  // prénom, sinon la ligne répète l'auteur sous deux formes.
+  const memePersonne =
+    qui &&
+    c.updated_by_name &&
+    firstName(qui) === firstName(c.updated_by_name)
   return (
     <p className="text-[10px] mt-0.5 pl-6" style={{ color: 'var(--txt-3)', opacity: 0.75 }}>
       {qui ? `Ajouté par ${qui} · ${quand}` : `Ajouté le ${quand}`}
-      {c.updated_by_name && c.updated_by_name !== qui
-        ? ` · modifié par ${c.updated_by_name}`
-        : ''}
+      {c.updated_by_name && !memePersonne ? ` · modifié par ${c.updated_by_name}` : ''}
     </p>
   )
 }
