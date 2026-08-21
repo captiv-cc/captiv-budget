@@ -45,6 +45,8 @@ export const OUTILS = {
   CALLSHEET: 'callsheet',
   PRODUCTION: 'production',
   LIVRABLES: 'livrables',
+  // CONTENUS V1 (2026-08-21) — validation des photos/vidéos par la presse.
+  CONTENUS: 'contenus',
   MATERIEL: 'materiel',
   PLANS: 'plans',
   DECORS: 'decors',

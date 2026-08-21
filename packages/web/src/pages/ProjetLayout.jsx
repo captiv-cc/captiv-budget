@@ -55,6 +55,7 @@ import {
   Menu,
   Music,
   Image as ImageIcon,
+  Images,
   Share2,
   Truck,
 } from 'lucide-react'
@@ -153,6 +154,14 @@ const ALL_TABS = [
     path: 'livrables',
     finance: false,
     outil: 'livrables',
+  },
+  {
+    key: 'contenus',
+    label: 'Contenus',
+    icon: Images,
+    path: 'contenus',
+    finance: false,
+    outil: 'contenus',
   },
   {
     key: 'materiel',
