@@ -30,6 +30,7 @@ export default function JourSelect({
   jours = [], // [{ date, label }]
   canEdit = true,
   onChange,
+  compact = false,
   className = '',
   style = null,
 }) {
@@ -62,6 +63,7 @@ export default function JourSelect({
       placeholder="Jour"
       canEdit={canEdit}
       allowCreate={false}
+      compact={compact}
       className={className}
       style={style}
       onChange={(label) => {

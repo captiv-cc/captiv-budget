@@ -27,6 +27,7 @@ import {
   CONTENU_STATUT_LABELS,
   CONTENU_TYPE_LABELS,
   contenuSujet,
+  resolveSujet,
 } from '../../lib/contenus'
 import useBreakpoint from '../../hooks/useBreakpoint'
 import RefSelect from './RefSelect'
@@ -51,6 +52,7 @@ export default function ContenusTable({
   canEdit = false,
   refs = { espace: [], photographe: [], suivi: [] },
   jours = [],
+  artistes = [],
   onPatch, // (contenu, patch) => Promise
   onDelete, // (contenu) => Promise
   onComment, // (contenu, text) => Promise
@@ -231,6 +233,7 @@ export default function ContenusTable({
                   canEdit={canEdit}
                   refs={refs}
                   jours={jours}
+                  artistes={artistes}
                   commentCount={(eventsByContenu.get(c.id) || []).filter((e) => e.kind === 'comment').length}
                   onPatch={onPatch}
                   onDelete={onDelete}
@@ -262,6 +265,7 @@ export default function ContenusTable({
                       canEdit={canEdit}
                       refs={refs}
                       jours={jours}
+                      artistes={artistes}
                       commentCount={(eventsByContenu.get(c.id) || []).filter((e) => e.kind === 'comment').length}
                       onPatch={onPatch}
                       onDelete={onDelete}
@@ -302,26 +306,40 @@ function Th({ children, width }) {
 
 // ─── Ligne (desktop) ────────────────────────────────────────────────────────
 
-function ContenuRow({ contenu: c, canEdit, refs, jours, commentCount, onPatch, onDelete, onCreateRef, onOpenEvents }) {
+function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, onPatch, onDelete, onCreateRef, onOpenEvents }) {
   const TypeIcon = c.type === 'video' ? Video : ImageIcon
   return (
     <tr style={{ borderBottom: '1px solid var(--brd-sub)' }}>
       <td className="px-3 py-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <TypeIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />
-          <span className="font-semibold truncate" style={{ color: 'var(--txt)' }}>
-            {contenuSujet(c)}
-          </span>
-          <span className="text-[10px] shrink-0" style={{ color: 'var(--txt-3)' }}>
-            {CONTENU_TYPE_LABELS[c.type]}
-          </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            type="button"
+            onClick={canEdit ? () => onPatch(c, { type: c.type === 'video' ? 'photo' : 'video' }) : undefined}
+            className="shrink-0 p-0.5 rounded"
+            style={{ color: 'var(--txt-3)', cursor: canEdit ? 'pointer' : 'default' }}
+            title={canEdit ? `${CONTENU_TYPE_LABELS[c.type]} — cliquer pour basculer` : CONTENU_TYPE_LABELS[c.type]}
+          >
+            <TypeIcon className="w-3.5 h-3.5" />
+          </button>
+          <RefSelect
+            value={contenuSujet(c)}
+            options={artistes.map((a) => a.nom)}
+            placeholder="Artiste ou moment"
+            canEdit={canEdit}
+            compact
+            className="flex-1 min-w-0 font-semibold"
+            style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent', color: 'var(--txt)' }}
+            onChange={(v) => onPatch(c, resolveSujet(v, artistes))}
+          />
         </div>
+        <TraceLine contenu={c} />
       </td>
       <td className="px-3 py-2" style={{ color: 'var(--txt-2)' }}>
         <JourSelect
           value={c.date_contenu}
           jours={jours}
           canEdit={canEdit}
+          compact
           className="w-full"
           style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
           onChange={(v) => onPatch(c, { date_contenu: v })}
@@ -333,6 +351,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, commentCount, onPatch, o
           options={refs.espace}
           placeholder="+ espace"
           canEdit={canEdit}
+          compact
           className="w-full"
           style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
           onChange={(v) => onPatch(c, { espace: v })}
@@ -345,6 +364,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, commentCount, onPatch, o
           options={refs.photographe}
           placeholder="+ photographe"
           canEdit={canEdit}
+          compact
           className="w-full"
           style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
           onChange={(v) => onPatch(c, { photographe: v })}
@@ -365,6 +385,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, commentCount, onPatch, o
           options={refs.suivi}
           placeholder="+ responsable"
           canEdit={canEdit}
+          compact
           className="w-full"
           style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
           onChange={(v) => onPatch(c, { suivi_par: v })}
@@ -416,6 +437,7 @@ function ContenuCard({ contenu: c, canEdit, jours, commentCount, onPatch, onDele
               .filter(Boolean)
               .join(' · ')}
           </p>
+          <TraceLine contenu={c} />
         </div>
         <StatutChip
           statut={c.statut}
@@ -458,6 +480,27 @@ function ContenuCard({ contenu: c, canEdit, jours, commentCount, onPatch, onDele
         </span>
       </div>
     </div>
+  )
+}
+
+/**
+ * Qui a ajouté le contenu, et quand. C'est ce qui remplace les rôles : tout
+ * le monde édite derrière le même mot de passe, la trace fait foi.
+ */
+function TraceLine({ contenu: c }) {
+  if (!c.created_at) return null
+  const quand = new Date(c.created_at).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+  })
+  const qui = c.created_by_name || null
+  return (
+    <p className="text-[10px] mt-0.5 pl-6" style={{ color: 'var(--txt-3)', opacity: 0.75 }}>
+      {qui ? `Ajouté par ${qui} · ${quand}` : `Ajouté le ${quand}`}
+      {c.updated_by_name && c.updated_by_name !== qui
+        ? ` · modifié par ${c.updated_by_name}`
+        : ''}
+    </p>
   )
 }
 

@@ -231,6 +231,40 @@ export function refValues(refs, kind) {
     .map((r) => r.valeur)
 }
 
+// ─── Annuaire artistes ─────────────────────────────────────────────────────
+
+/**
+ * Artistes déjà déclarés sur le projet (annuaire partagé avec le déroulé et
+ * les musiques). Sert d'auto-complétion au champ sujet : sans ça, « Macklemore »
+ * retapé à la main casse le regroupement par artiste.
+ */
+export async function listProjetArtistes(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_artistes')
+    .select('id, nom')
+    .eq('project_id', projectId)
+    .order('nom', { ascending: true })
+  if (error) return []
+  return data || []
+}
+
+/**
+ * Traduit une saisie de sujet en patch : un nom reconnu dans l'annuaire est
+ * LIÉ (artiste_id), tout le reste devient un libellé libre. On ne crée jamais
+ * d'artiste depuis ce module — l'annuaire appartient au déroulé.
+ */
+export function resolveSujet(valeur, artistes = []) {
+  const clean = (valeur || '').trim()
+  if (!clean) return { artiste_id: null, artiste_text: null }
+  const found = (artistes || []).find(
+    (a) => (a.nom || '').toLowerCase() === clean.toLowerCase(),
+  )
+  return found
+    ? { artiste_id: found.id, artiste_text: null }
+    : { artiste_id: null, artiste_text: clean }
+}
+
 // ─── Jours du projet ────────────────────────────────────────────────────────
 
 /**

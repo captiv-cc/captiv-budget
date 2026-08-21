@@ -24,7 +24,9 @@ import {
   listContenuEvents,
   listContenuRefs,
   listContenus,
+  listProjetArtistes,
   listProjetJours,
+  resolveSujet,
   refValues,
   updateContenu,
 } from '../../lib/contenus'
@@ -50,6 +52,7 @@ export default function ContenusTab() {
   const [events, setEvents] = useState([])
   const [refRows, setRefRows] = useState([])
   const [jours, setJours] = useState([])
+  const [artistes, setArtistes] = useState([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
 
@@ -66,16 +69,18 @@ export default function ContenusTab() {
       return
     }
     try {
-      const [rows, evts, refs, days] = await Promise.all([
+      const [rows, evts, refs, days, arts] = await Promise.all([
         listContenus(projectId),
         listContenuEvents(projectId),
         listContenuRefs(projectId),
         listProjetJours(projectId),
+        listProjetArtistes(projectId),
       ])
       setContenus(rows)
       setEvents(evts)
       setRefRows(refs)
       setJours(days)
+      setArtistes(arts)
     } catch (err) {
       notify.error('Contenus : ' + (err?.message || err))
     } finally {
@@ -248,6 +253,7 @@ export default function ContenusTab() {
         <ContenuForm
           refs={refs}
           jours={jours}
+          artistes={artistes}
           onCancel={() => setAdding(false)}
           onSubmit={handleCreate}
           onCreateRef={handleCreateRef}
@@ -260,6 +266,7 @@ export default function ContenusTab() {
         canEdit={canEdit}
         refs={refs}
         jours={jours}
+        artistes={artistes}
         onPatch={handlePatch}
         onDelete={handleDelete}
         onComment={handleComment}
@@ -271,7 +278,7 @@ export default function ContenusTab() {
 
 // ─── Formulaire de création ────────────────────────────────────────────────
 
-export function ContenuForm({ refs, jours, onCancel, onSubmit, onCreateRef }) {
+export function ContenuForm({ refs, jours, artistes, onCancel, onSubmit, onCreateRef }) {
   const [type, setType] = useState('photo')
   const [sujet, setSujet] = useState('')
   const [espace, setEspace] = useState(null)
@@ -294,7 +301,7 @@ export function ContenuForm({ refs, jours, onCancel, onSubmit, onCreateRef }) {
     try {
       await onSubmit({
         type,
-        artiste_text: sujet.trim(),
+        ...resolveSujet(sujet, artistes),
         espace: espace || null,
         date_contenu: date || null,
         photographe: photographe || null,
@@ -329,14 +336,12 @@ export function ContenuForm({ refs, jours, onCancel, onSubmit, onCreateRef }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
+        <RefSelect
           value={sujet}
-          onChange={(e) => setSujet(e.target.value)}
+          options={artistes.map((a) => a.nom)}
           placeholder="Artiste ou moment *"
-          autoFocus
-          className="flex-1 min-w-[180px] text-xs px-2.5 py-2 rounded-lg outline-none"
-          style={inputStyle}
+          className="flex-1 min-w-[180px]"
+          onChange={(v) => setSujet(v || '')}
         />
       </div>
 

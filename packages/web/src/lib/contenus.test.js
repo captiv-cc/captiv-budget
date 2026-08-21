@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { contenuSujet, refValues, formatJourLabel } from './contenus'
+import { contenuSujet, refValues, formatJourLabel, resolveSujet } from './contenus'
 
 describe('contenuSujet', () => {
   it('préfère le libellé libre à l’annuaire', () => {
@@ -47,5 +47,35 @@ describe('formatJourLabel', () => {
 
   it('renvoie une chaîne vide sans date', () => {
     expect(formatJourLabel(null, 0)).toBe('')
+  })
+})
+
+describe('resolveSujet', () => {
+  const artistes = [
+    { id: 'a1', nom: 'Macklemore' },
+    { id: 'a2', nom: 'Dimitri Vegas' },
+  ]
+
+  it('lie un artiste connu au lieu de dupliquer son nom', () => {
+    expect(resolveSujet('Macklemore', artistes)).toEqual({
+      artiste_id: 'a1',
+      artiste_text: null,
+    })
+  })
+
+  it('reconnaît l’artiste quelle que soit la casse', () => {
+    expect(resolveSujet('  macklemore ', artistes).artiste_id).toBe('a1')
+  })
+
+  it('garde un moment libre en texte', () => {
+    expect(resolveSujet('Ambiance camping', artistes)).toEqual({
+      artiste_id: null,
+      artiste_text: 'Ambiance camping',
+    })
+  })
+
+  it('vide les deux champs sur une saisie vide', () => {
+    expect(resolveSujet('   ', artistes)).toEqual({ artiste_id: null, artiste_text: null })
+    expect(resolveSujet(null)).toEqual({ artiste_id: null, artiste_text: null })
   })
 })

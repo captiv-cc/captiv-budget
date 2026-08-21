@@ -23,6 +23,9 @@ export default function RefSelect({
   allowCreate = true,
   onChange, // (valeur|null) => void
   onCreate, // (valeur) => Promise — persiste la nouvelle entrée
+  // En cellule de tableau : croix et chevron seulement au survol. Affichées
+  // en permanence, elles formaient un mur de symboles sur 40 lignes.
+  compact = false,
   className = '',
   style = null,
 }) {
@@ -77,7 +80,7 @@ export default function RefSelect({
         ref={btnRef}
         type="button"
         onClick={() => (menu ? setMenu(null) : open())}
-        className={`flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg text-left ${className}`}
+        className={`group flex items-center gap-2 text-xs px-2.5 py-2 rounded-lg text-left ${className}`}
         style={{
           background: 'var(--bg)',
           border: '1px solid var(--brd)',
@@ -95,13 +98,22 @@ export default function RefSelect({
               e.stopPropagation()
               onChange(null)
             }}
-            className="shrink-0 opacity-50 hover:opacity-100"
+            className={`shrink-0 transition-opacity ${
+              compact ? 'opacity-0 group-hover:opacity-60' : 'opacity-50 hover:opacity-100'
+            }`}
             title="Vider"
           >
             <X className="w-3 h-3" />
           </span>
         )}
-        {canEdit && <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--txt-3)' }} />}
+        {canEdit && (
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 transition-opacity ${
+              compact && value ? 'opacity-0 group-hover:opacity-60' : ''
+            }`}
+            style={{ color: 'var(--txt-3)' }}
+          />
+        )}
       </button>
 
       {menu &&
