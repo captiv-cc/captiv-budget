@@ -23,7 +23,13 @@ import {
   shareDeleteContenu,
   shareUpdateContenu,
 } from '../lib/contenusShare'
-import { formatJourLabel, refValues } from '../lib/contenus'
+import {
+  VOIR_TOUT,
+  formatJourLabel,
+  readContenuIdentity,
+  refValues,
+  writeContenuIdentity,
+} from '../lib/contenus'
 import { PROJECT_SHARE_THEME_KEY } from './ProjectShareSession'
 import SharePageHeader from '../components/share/SharePageHeader'
 import SharePageFooter from '../components/share/SharePageFooter'
@@ -52,6 +58,9 @@ export default function ShareContenusSession() {
   const [error, setError] = useState(null)
   const [needPassword, setNeedPassword] = useState(false)
   const [adding, setAdding] = useState(false)
+  // Lien de suivi : qui consulte ? Mémorisé par projet, comme l'identité
+  // des pages logistique et déroulé.
+  const [moi, setMoi] = useState(null)
 
   const [theme, setTheme] = useState(() =>
     localStorage.getItem(PROJECT_SHARE_THEME_KEY) === 'light' ? 'light' : 'dark',
@@ -72,6 +81,7 @@ export default function ShareContenusSession() {
       try {
         const data = await fetchContenusShare(token, pwd ?? null)
         setPayload(data)
+        setMoi(readContenuIdentity(data?.project?.id))
         setNeedPassword(false)
         setError(null)
       } catch (e) {
@@ -220,6 +230,23 @@ export default function ShareContenusSession() {
     )
   }
 
+  // Lien de suivi : on demande une fois qui consulte, pour lui montrer ses
+  // contenus d'abord. « Voir tout » est mémorisé aussi, sinon la question
+  // reviendrait à chaque visite.
+  if (!canEdit && !moi && refs.photographe.length > 0) {
+    return (
+      <PhotographeGate
+        photographes={refs.photographe}
+        onPick={(nom) => {
+          writeContenuIdentity(payload.project?.id, nom)
+          setMoi(nom)
+        }}
+      />
+    )
+  }
+
+  const mineName = !canEdit && moi && moi !== VOIR_TOUT ? moi : null
+
   const project = payload.project || {}
   const metaItems = []
   if (payload.share?.label) metaItems.push({ type: 'label', value: payload.share.label })
@@ -243,6 +270,21 @@ export default function ShareContenusSession() {
               ? 'Clique sur une valeur pour la modifier, sur la bulle 💬 pour commenter. Tout s’enregistre automatiquement.'
               : 'Suivi de validation des contenus. Lecture seule.'}
           </p>
+          {!canEdit && moi && (
+            <span className="text-xs ml-auto flex items-center gap-2" style={{ color: 'var(--txt-3)' }}>
+              {moi === VOIR_TOUT ? 'Tous les contenus' : moi}
+              <button
+                type="button"
+                onClick={() => {
+                  writeContenuIdentity(payload.project?.id, null)
+                  setMoi(null)
+                }}
+                style={{ color: 'var(--blue)' }}
+              >
+                changer
+              </button>
+            </span>
+          )}
           {canEdit && (
             <span className="text-xs ml-auto flex items-center gap-2" style={{ color: 'var(--txt-3)' }}>
               Connecté : <strong style={{ color: 'var(--txt-2)' }}>{authorName}</strong>
@@ -296,6 +338,7 @@ export default function ShareContenusSession() {
             onDelete={handleDelete}
             onComment={handleComment}
             onCreateRef={handleCreateRef}
+            mineName={mineName}
           />
         </div>
 
@@ -347,6 +390,45 @@ function PasswordGate({ onSubmit }) {
           Entrer
         </button>
       </form>
+    </Centered>
+  )
+}
+
+function PhotographeGate({ photographes, onPick }) {
+  return (
+    <Centered
+      icon={<UserRound className="w-6 h-6" style={{ color: 'var(--blue)' }} />}
+      title="Qui es-tu ?"
+    >
+      <p className="text-xs mb-3" style={{ color: 'var(--txt-3)' }}>
+        Tes contenus s&apos;afficheront en premier. Tu pourras toujours voir
+        ceux de toute l&apos;équipe.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {photographes.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onPick(p)}
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+            style={{
+              background: 'var(--bg-elev)',
+              color: 'var(--txt-2)',
+              border: '1px solid var(--brd-sub)',
+            }}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => onPick(VOIR_TOUT)}
+        className="text-[11px] font-semibold mt-3"
+        style={{ color: 'var(--blue)' }}
+      >
+        Je ne suis pas dans la liste — voir tous les contenus
+      </button>
     </Centered>
   )
 }

@@ -300,3 +300,25 @@ export async function listProjetJours(projectId) {
   }
   return out
 }
+
+// ─── Identité du lecteur (lien photographes) ────────────────────────────────
+//
+// Le lien de suivi est le même pour tous les photographes : sans savoir qui
+// lit, chacun doit chercher ses contenus au milieu de ceux des autres. On
+// mémorise donc son nom PAR PROJET (localStorage), comme l'identité des
+// pages logistique et déroulé. La valeur 'ALL' signifie « j'ai répondu, je
+// veux voir tout » : sans elle, on reposerait la question à chaque visite.
+
+const MOI_PREFIX = 'contenus.moi.'
+export const VOIR_TOUT = 'ALL'
+
+export function readContenuIdentity(projectId) {
+  if (!projectId || typeof localStorage === 'undefined') return null
+  return localStorage.getItem(MOI_PREFIX + projectId) || null
+}
+
+export function writeContenuIdentity(projectId, valeur) {
+  if (!projectId || typeof localStorage === 'undefined') return
+  if (valeur) localStorage.setItem(MOI_PREFIX + projectId, valeur)
+  else localStorage.removeItem(MOI_PREFIX + projectId)
+}

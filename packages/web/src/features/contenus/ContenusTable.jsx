@@ -11,7 +11,7 @@
 // horizontalement y est inutilisable.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Eye,
@@ -21,6 +21,7 @@ import {
   MessageCircle,
   Search,
   Trash2,
+  UserRound,
   Video,
 } from 'lucide-react'
 import {
@@ -69,6 +70,9 @@ export default function ContenusTable({
   onDelete, // (contenu) => Promise
   onComment, // (contenu, text) => Promise
   onCreateRef, // (kind, valeur) => Promise
+  // Nom du photographe qui consulte (lien de suivi). Fourni → bascule
+  // « Mes contenus », active par défaut : il vient voir les siens.
+  mineName = null,
 }) {
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'sm'
@@ -77,6 +81,13 @@ export default function ContenusTable({
   // Une fois validé, un contenu n'a plus besoin d'être sous les yeux : ce
   // qui reste à traiter doit pouvoir occuper tout l'écran.
   const [hideValides, setHideValides] = useState(false)
+  const [onlyMine, setOnlyMine] = useState(false)
+
+  // L'identité arrive après le premier rendu (localStorage puis payload) :
+  // on active la bascule dès qu'elle est connue, une seule fois.
+  useEffect(() => {
+    if (mineName) setOnlyMine(true)
+  }, [mineName])
   const [typeFilter, setTypeFilter] = useState(null)
   const [query, setQuery] = useState('')
   const [groupBy, setGroupBy] = useState('espace')
@@ -101,6 +112,7 @@ export default function ContenusTable({
   const filtered = useMemo(() => {
     const q = normalize(query).trim()
     return contenus.filter((c) => {
+      if (onlyMine && mineName && c.photographe !== mineName) return false
       if (hideValides && c.statut === 'valide') return false
       if (statutFilter && c.statut !== statutFilter) return false
       if (typeFilter && c.type !== typeFilter) return false
@@ -109,7 +121,7 @@ export default function ContenusTable({
         .map(normalize)
         .some((v) => v.includes(q))
     })
-  }, [contenus, statutFilter, typeFilter, query, hideValides])
+  }, [contenus, statutFilter, typeFilter, query, hideValides, onlyMine, mineName])
 
   const groups = useMemo(() => {
     const byKey = new Map()
@@ -184,6 +196,23 @@ export default function ContenusTable({
           ))}
         </div>
 
+        {mineName && (
+          <button
+            type="button"
+            onClick={() => setOnlyMine((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+            style={{
+              background: onlyMine ? 'var(--blue-bg)' : 'var(--bg-surf)',
+              color: onlyMine ? 'var(--blue)' : 'var(--txt-2)',
+              border: `1px solid ${onlyMine ? 'var(--blue)' : 'var(--brd-sub)'}`,
+            }}
+            title={onlyMine ? 'Voir les contenus de toute l’équipe' : `Ne voir que les contenus de ${mineName}`}
+          >
+            <UserRound className="w-3.5 h-3.5" />
+            {onlyMine ? 'Mes contenus' : 'Tout le monde'}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => {
@@ -236,9 +265,11 @@ export default function ContenusTable({
         <p className="text-sm text-center py-10" style={{ color: 'var(--txt-3)' }}>
           {contenus.length === 0
             ? 'Aucun contenu pour le moment.'
-            : hideValides
-              ? 'Tout est validé.'
-              : 'Aucun contenu ne correspond à ces filtres.'}
+            : onlyMine && mineName
+              ? `Aucun contenu à ton nom (${mineName}) pour l'instant.`
+              : hideValides
+                ? 'Tout est validé.'
+                : 'Aucun contenu ne correspond à ces filtres.'}
         </p>
       )}
 
