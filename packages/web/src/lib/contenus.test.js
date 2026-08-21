@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { contenuSujet, suggestValues } from './contenus'
+import { contenuSujet, refValues, formatJourLabel } from './contenus'
 
 describe('contenuSujet', () => {
   it('préfère le libellé libre à l’annuaire', () => {
@@ -21,27 +21,31 @@ describe('contenuSujet', () => {
   })
 })
 
-describe('suggestValues', () => {
-  const contenus = [
-    { photographe: 'Nico Lavail', scene: 'Château' },
-    { photographe: 'Josic', scene: 'Château' },
-    { photographe: '  ', scene: null },
-    { photographe: 'Nico Lavail', scene: 'Mediator' },
+describe('refValues', () => {
+  const refs = [
+    { kind: 'espace', valeur: 'Château' },
+    { kind: 'photographe', valeur: 'Nico Lavail' },
+    { kind: 'espace', valeur: 'Camping' },
   ]
 
-  it('dédoublonne et trie sans casse', () => {
-    expect(suggestValues(contenus, 'photographe')).toEqual(['Josic', 'Nico Lavail'])
+  it('ne renvoie que la liste demandée', () => {
+    expect(refValues(refs, 'espace')).toEqual(['Château', 'Camping'])
+    expect(refValues(refs, 'photographe')).toEqual(['Nico Lavail'])
   })
 
-  it('fusionne les valeurs extérieures (scènes du déroulé)', () => {
-    expect(suggestValues(contenus, 'scene', ['Terminal', 'Château'])).toEqual([
-      'Château',
-      'Mediator',
-      'Terminal',
-    ])
+  it('tolère une liste absente', () => {
+    expect(refValues(null, 'espace')).toEqual([])
+    expect(refValues(refs, 'suivi')).toEqual([])
+  })
+})
+
+describe('formatJourLabel', () => {
+  it('numérote le jour de festival et rappelle la date', () => {
+    expect(formatJourLabel('2026-08-20', 0)).toBe('Jour 1 · jeudi 20 août')
+    expect(formatJourLabel('2026-08-21', 1)).toBe('Jour 2 · vendredi 21 août')
   })
 
-  it('tolère une liste vide', () => {
-    expect(suggestValues(null, 'scene')).toEqual([])
+  it('renvoie une chaîne vide sans date', () => {
+    expect(formatJourLabel(null, 0)).toBe('')
   })
 })

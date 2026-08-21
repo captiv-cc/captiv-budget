@@ -29,19 +29,14 @@ import {
   contenuSujet,
 } from '../../lib/contenus'
 import useBreakpoint from '../../hooks/useBreakpoint'
+import RefSelect from './RefSelect'
+import JourSelect, { labelForDate } from './JourSelect'
 
 const GROUP_BY_OPTIONS = [
-  { value: 'scene', label: 'Scène' },
+  { value: 'espace', label: 'Espace' },
   { value: 'date', label: 'Date' },
   { value: 'artiste', label: 'Artiste' },
 ]
-
-function frDate(iso) {
-  if (!iso) return ''
-  const d = new Date(`${iso}T12:00:00`)
-  const s = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
-  return s.charAt(0).toUpperCase() + s.slice(1)
-}
 
 function normalize(s) {
   return String(s || '')
@@ -54,10 +49,12 @@ export default function ContenusTable({
   contenus = [],
   events = [],
   canEdit = false,
-  suggestions = { scene: [], photographe: [] },
+  refs = { espace: [], photographe: [], suivi: [] },
+  jours = [],
   onPatch, // (contenu, patch) => Promise
   onDelete, // (contenu) => Promise
   onComment, // (contenu, text) => Promise
+  onCreateRef, // (kind, valeur) => Promise
 }) {
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'sm'
@@ -65,7 +62,7 @@ export default function ContenusTable({
   const [statutFilter, setStatutFilter] = useState(null)
   const [typeFilter, setTypeFilter] = useState(null)
   const [query, setQuery] = useState('')
-  const [groupBy, setGroupBy] = useState('scene')
+  const [groupBy, setGroupBy] = useState('espace')
   const [eventsFor, setEventsFor] = useState(null)
 
   const counts = useMemo(() => {
@@ -90,7 +87,7 @@ export default function ContenusTable({
       if (statutFilter && c.statut !== statutFilter) return false
       if (typeFilter && c.type !== typeFilter) return false
       if (!q) return true
-      return [contenuSujet(c), c.scene, c.photographe, c.suivi_par]
+      return [contenuSujet(c), c.espace, c.photographe, c.suivi_par]
         .map(normalize)
         .some((v) => v.includes(q))
     })
@@ -100,21 +97,23 @@ export default function ContenusTable({
     const byKey = new Map()
     for (const c of filtered) {
       let key
-      if (groupBy === 'date') key = c.date_contenu ? frDate(c.date_contenu) : 'Date non précisée'
+      if (groupBy === 'date') {
+        key = c.date_contenu ? labelForDate(c.date_contenu, jours) : 'Date non précisée'
+      }
       else if (groupBy === 'artiste') key = contenuSujet(c)
-      else key = (c.scene || '').trim() || 'Scène non précisée'
+      else key = (c.espace || '').trim() || 'Espace non précisé'
       const arr = byKey.get(key) || []
       arr.push(c)
       byKey.set(key, arr)
     }
     // Les entrées non renseignées ferment la liste, jamais l'inverse.
     return [...byKey.entries()].sort(([a], [b]) => {
-      const aVide = a.startsWith('Scène non') || a.startsWith('Date non')
-      const bVide = b.startsWith('Scène non') || b.startsWith('Date non')
+      const aVide = a.startsWith('Espace non') || a.startsWith('Date non')
+      const bVide = b.startsWith('Espace non') || b.startsWith('Date non')
       if (aVide !== bVide) return aVide ? 1 : -1
       return a.localeCompare(b, 'fr', { sensitivity: 'base' })
     })
-  }, [filtered, groupBy])
+  }, [filtered, groupBy, jours])
 
   return (
     <div className="flex flex-col gap-4">
@@ -173,7 +172,7 @@ export default function ContenusTable({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Artiste, scène, photographe…"
+            placeholder="Artiste, espace, photographe…"
             className="text-xs pl-8 pr-3 py-1.5 rounded-lg outline-none w-[190px] sm:w-[240px]"
             style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
           />
@@ -230,9 +229,12 @@ export default function ContenusTable({
                   key={c.id}
                   contenu={c}
                   canEdit={canEdit}
+                  refs={refs}
+                  jours={jours}
                   commentCount={(eventsByContenu.get(c.id) || []).filter((e) => e.kind === 'comment').length}
                   onPatch={onPatch}
                   onDelete={onDelete}
+                  onCreateRef={onCreateRef}
                   onOpenEvents={() => setEventsFor(c)}
                 />
               ))}
@@ -244,7 +246,7 @@ export default function ContenusTable({
                   <tr style={{ color: 'var(--txt-3)' }}>
                     <Th>Contenu</Th>
                     <Th width={130}>Date</Th>
-                    <Th width={130}>Scène</Th>
+                    <Th width={150}>Espace</Th>
                     <Th width={140}>Photographe</Th>
                     <Th width={120}>Statut</Th>
                     <Th width={130}>Suivi par</Th>
@@ -258,10 +260,12 @@ export default function ContenusTable({
                       key={c.id}
                       contenu={c}
                       canEdit={canEdit}
-                      suggestions={suggestions}
+                      refs={refs}
+                      jours={jours}
                       commentCount={(eventsByContenu.get(c.id) || []).filter((e) => e.kind === 'comment').length}
                       onPatch={onPatch}
                       onDelete={onDelete}
+                      onCreateRef={onCreateRef}
                       onOpenEvents={() => setEventsFor(c)}
                     />
                   ))}
@@ -298,7 +302,7 @@ function Th({ children, width }) {
 
 // ─── Ligne (desktop) ────────────────────────────────────────────────────────
 
-function ContenuRow({ contenu: c, canEdit, suggestions, commentCount, onPatch, onDelete, onOpenEvents }) {
+function ContenuRow({ contenu: c, canEdit, refs, jours, commentCount, onPatch, onDelete, onCreateRef, onOpenEvents }) {
   const TypeIcon = c.type === 'video' ? Video : ImageIcon
   return (
     <tr style={{ borderBottom: '1px solid var(--brd-sub)' }}>
@@ -314,31 +318,37 @@ function ContenuRow({ contenu: c, canEdit, suggestions, commentCount, onPatch, o
         </div>
       </td>
       <td className="px-3 py-2" style={{ color: 'var(--txt-2)' }}>
-        <EditableCell
+        <JourSelect
           value={c.date_contenu}
-          type="date"
-          ghost="date"
-          display={c.date_contenu ? frDate(c.date_contenu) : ''}
+          jours={jours}
           canEdit={canEdit}
-          onCommit={(v) => onPatch(c, { date_contenu: v })}
+          className="w-full"
+          style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
+          onChange={(v) => onPatch(c, { date_contenu: v })}
         />
       </td>
       <td className="px-3 py-2">
-        <EditableCell
-          value={c.scene}
-          ghost="scène"
-          options={suggestions.scene}
+        <RefSelect
+          value={c.espace}
+          options={refs.espace}
+          placeholder="+ espace"
           canEdit={canEdit}
-          onCommit={(v) => onPatch(c, { scene: v })}
+          className="w-full"
+          style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
+          onChange={(v) => onPatch(c, { espace: v })}
+          onCreate={(v) => onCreateRef('espace', v)}
         />
       </td>
       <td className="px-3 py-2">
-        <EditableCell
+        <RefSelect
           value={c.photographe}
-          ghost="photographe"
-          options={suggestions.photographe}
+          options={refs.photographe}
+          placeholder="+ photographe"
           canEdit={canEdit}
-          onCommit={(v) => onPatch(c, { photographe: v })}
+          className="w-full"
+          style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
+          onChange={(v) => onPatch(c, { photographe: v })}
+          onCreate={(v) => onCreateRef('photographe', v)}
         />
       </td>
       <td className="px-3 py-2">
@@ -350,11 +360,15 @@ function ContenuRow({ contenu: c, canEdit, suggestions, commentCount, onPatch, o
         />
       </td>
       <td className="px-3 py-2">
-        <EditableCell
+        <RefSelect
           value={c.suivi_par}
-          ghost="responsable"
+          options={refs.suivi}
+          placeholder="+ responsable"
           canEdit={canEdit}
-          onCommit={(v) => onPatch(c, { suivi_par: v })}
+          className="w-full"
+          style={{ padding: '2px 6px', background: 'transparent', border: '1px solid transparent' }}
+          onChange={(v) => onPatch(c, { suivi_par: v })}
+          onCreate={(v) => onCreateRef('suivi', v)}
         />
       </td>
       <td className="px-3 py-2">
@@ -382,7 +396,7 @@ function ContenuRow({ contenu: c, canEdit, suggestions, commentCount, onPatch, o
 
 // ─── Carte (mobile) ─────────────────────────────────────────────────────────
 
-function ContenuCard({ contenu: c, canEdit, commentCount, onPatch, onDelete, onOpenEvents }) {
+function ContenuCard({ contenu: c, canEdit, jours, commentCount, onPatch, onDelete, onOpenEvents }) {
   const TypeIcon = c.type === 'video' ? Video : ImageIcon
   return (
     <div className="px-4 py-3 flex flex-col gap-2" style={{ borderBottom: '1px solid var(--brd-sub)' }}>
@@ -395,8 +409,8 @@ function ContenuCard({ contenu: c, canEdit, commentCount, onPatch, onDelete, onO
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--txt-3)' }}>
             {[
               CONTENU_TYPE_LABELS[c.type],
-              c.scene,
-              c.date_contenu ? frDate(c.date_contenu) : null,
+              c.espace,
+              c.date_contenu ? labelForDate(c.date_contenu, jours) : null,
               c.photographe,
             ]
               .filter(Boolean)
@@ -448,66 +462,6 @@ function ContenuCard({ contenu: c, canEdit, commentCount, onPatch, onDelete, onO
 }
 
 // ─── Cellules ───────────────────────────────────────────────────────────────
-
-function EditableCell({ value, display, ghost, canEdit, onCommit, type = 'text', options = [] }) {
-  const [editing, setEditing] = useState(false)
-  const listId = options.length ? `sugg-${ghost}` : undefined
-
-  if (editing) {
-    return (
-      <>
-        <input
-          autoFocus
-          type={type}
-          defaultValue={value || ''}
-          list={listId}
-          onBlur={(e) => {
-            setEditing(false)
-            const v = e.target.value.trim() || null
-            if (v !== (value || null)) onCommit(v)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          className="w-full box-border px-1.5 py-0.5 rounded outline-none text-xs"
-          style={{ background: 'var(--bg)', border: '1px solid var(--blue)', color: 'var(--txt)' }}
-        />
-        {listId && (
-          <datalist id={listId}>
-            {options.map((o) => (
-              <option key={o} value={o} />
-            ))}
-          </datalist>
-        )}
-      </>
-    )
-  }
-  if (value) {
-    return (
-      <button
-        type="button"
-        onClick={canEdit ? () => setEditing(true) : undefined}
-        className="block w-full text-left truncate text-xs"
-        style={{ color: 'var(--txt-2)', cursor: canEdit ? 'text' : 'default' }}
-        title={canEdit ? 'Cliquer pour modifier' : undefined}
-      >
-        {display || value}
-      </button>
-    )
-  }
-  if (!canEdit) return null
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="text-[10px] opacity-60 hover:opacity-100 transition-opacity"
-      style={{ color: 'var(--txt-3)' }}
-    >
-      + {ghost}
-    </button>
-  )
-}
 
 function DriveCell({ contenu: c, canEdit, onPatch }) {
   const [editing, setEditing] = useState(false)

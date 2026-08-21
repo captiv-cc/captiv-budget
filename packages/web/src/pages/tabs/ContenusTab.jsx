@@ -19,14 +19,19 @@ import {
   CONTENU_TYPE_LABELS,
   addContenuEvent,
   createContenu,
+  createContenuRef,
   deleteContenu,
   listContenuEvents,
+  listContenuRefs,
   listContenus,
-  suggestValues,
+  listProjetJours,
+  refValues,
   updateContenu,
 } from '../../lib/contenus'
 import { supabase } from '../../lib/supabase'
 import ContenusTable from '../../features/contenus/ContenusTable'
+import RefSelect from '../../features/contenus/RefSelect'
+import JourSelect from '../../features/contenus/JourSelect'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -43,7 +48,8 @@ export default function ContenusTab() {
 
   const [contenus, setContenus] = useState([])
   const [events, setEvents] = useState([])
-  const [scenesDeroule, setScenesDeroule] = useState([])
+  const [refRows, setRefRows] = useState([])
+  const [jours, setJours] = useState([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
 
@@ -60,12 +66,16 @@ export default function ContenusTab() {
       return
     }
     try {
-      const [rows, evts] = await Promise.all([
+      const [rows, evts, refs, days] = await Promise.all([
         listContenus(projectId),
         listContenuEvents(projectId),
+        listContenuRefs(projectId),
+        listProjetJours(projectId),
       ])
       setContenus(rows)
       setEvents(evts)
+      setRefRows(refs)
+      setJours(days)
     } catch (err) {
       notify.error('Contenus : ' + (err?.message || err))
     } finally {
@@ -78,8 +88,10 @@ export default function ContenusTab() {
     load()
   }, [load])
 
-  // Scènes déjà déclarées dans le déroulé : elles alimentent les suggestions
-  // sans imposer de double saisie ni coupler les deux modules.
+  // Amorce des espaces : les scènes du déroulé sont proposées tant que la
+  // liste du module est vide. Elles ne sont jamais écrites d'office — le
+  // festival ajoute aussi camping, village, site concert…
+  const [scenesDeroule, setScenesDeroule] = useState([])
   useEffect(() => {
     if (!projectId) return
     let alive = true
@@ -93,20 +105,32 @@ export default function ContenusTab() {
       .then(({ data, error }) => {
         // Sans droit sur le déroulé, on se passe simplement des suggestions.
         if (!alive || error) return
-        setScenesDeroule((data || []).map((l) => l.libelle).filter(Boolean))
+        setScenesDeroule([...new Set((data || []).map((l) => l.libelle).filter(Boolean))])
       })
     return () => {
       alive = false
     }
   }, [projectId])
 
-  const suggestions = useMemo(
-    () => ({
-      scene: suggestValues(contenus, 'scene', scenesDeroule),
-      photographe: suggestValues(contenus, 'photographe'),
-    }),
-    [contenus, scenesDeroule],
-  )
+  const refs = useMemo(() => {
+    const espaces = refValues(refRows, 'espace')
+    return {
+      // Union ordonnée : la liste du module d'abord, les scènes du déroulé
+      // en complément tant qu'elles n'y ont pas été reprises.
+      espace: [...espaces, ...scenesDeroule.filter((s) => !espaces.some((e) => e.toLowerCase() === s.toLowerCase()))],
+      photographe: refValues(refRows, 'photographe'),
+      suivi: refValues(refRows, 'suivi'),
+    }
+  }, [refRows, scenesDeroule])
+
+  async function handleCreateRef(kind, valeur) {
+    try {
+      const row = await createContenuRef({ projectId, kind, valeur, existing: refRows })
+      if (row && !refRows.some((r) => r.id === row.id)) setRefRows((prev) => [...prev, row])
+    } catch (err) {
+      notify.error('Liste : ' + (err?.message || err))
+    }
+  }
 
   async function handlePatch(contenu, patch) {
     // Optimiste : la liste ne doit pas clignoter à chaque clic de statut.
@@ -222,9 +246,11 @@ export default function ContenusTab() {
 
       {adding && (
         <ContenuForm
-          suggestions={suggestions}
+          refs={refs}
+          jours={jours}
           onCancel={() => setAdding(false)}
           onSubmit={handleCreate}
+          onCreateRef={handleCreateRef}
         />
       )}
 
@@ -232,10 +258,12 @@ export default function ContenusTab() {
         contenus={contenus}
         events={events}
         canEdit={canEdit}
-        suggestions={suggestions}
+        refs={refs}
+        jours={jours}
         onPatch={handlePatch}
         onDelete={handleDelete}
         onComment={handleComment}
+        onCreateRef={handleCreateRef}
       />
     </div>
   )
@@ -243,14 +271,14 @@ export default function ContenusTab() {
 
 // ─── Formulaire de création ────────────────────────────────────────────────
 
-export function ContenuForm({ suggestions, onCancel, onSubmit }) {
+export function ContenuForm({ refs, jours, onCancel, onSubmit, onCreateRef }) {
   const [type, setType] = useState('photo')
   const [sujet, setSujet] = useState('')
-  const [scene, setScene] = useState('')
-  const [date, setDate] = useState('')
-  const [photographe, setPhotographe] = useState('')
+  const [espace, setEspace] = useState(null)
+  const [date, setDate] = useState(null)
+  const [photographe, setPhotographe] = useState(null)
   const [driveUrl, setDriveUrl] = useState('')
-  const [suiviPar, setSuiviPar] = useState('')
+  const [suiviPar, setSuiviPar] = useState(null)
   const [busy, setBusy] = useState(false)
 
   const inputStyle = {
@@ -267,11 +295,11 @@ export function ContenuForm({ suggestions, onCancel, onSubmit }) {
       await onSubmit({
         type,
         artiste_text: sujet.trim(),
-        scene: scene.trim() || null,
+        espace: espace || null,
         date_contenu: date || null,
-        photographe: photographe.trim() || null,
+        photographe: photographe || null,
         drive_url: driveUrl.trim() || null,
-        suivi_par: suiviPar.trim() || null,
+        suivi_par: suiviPar || null,
       })
     } finally {
       setBusy(false)
@@ -313,41 +341,23 @@ export function ContenuForm({ suggestions, onCancel, onSubmit }) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
-          value={scene}
-          onChange={(e) => setScene(e.target.value)}
-          placeholder="Scène"
-          list="form-scenes"
-          className="flex-1 min-w-[140px] text-xs px-2.5 py-2 rounded-lg outline-none"
-          style={inputStyle}
+        <RefSelect
+          value={espace}
+          options={refs.espace}
+          placeholder="Espace (scène, camping…)"
+          className="flex-1 min-w-[180px]"
+          onChange={setEspace}
+          onCreate={(v) => onCreateRef('espace', v)}
         />
-        <datalist id="form-scenes">
-          {suggestions.scene.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="text-xs px-2.5 py-2 rounded-lg outline-none"
-          style={inputStyle}
-        />
-        <input
-          type="text"
+        <JourSelect value={date} jours={jours} onChange={setDate} className="min-w-[160px]" />
+        <RefSelect
           value={photographe}
-          onChange={(e) => setPhotographe(e.target.value)}
+          options={refs.photographe}
           placeholder="Photographe"
-          list="form-photographes"
-          className="flex-1 min-w-[140px] text-xs px-2.5 py-2 rounded-lg outline-none"
-          style={inputStyle}
+          className="flex-1 min-w-[160px]"
+          onChange={setPhotographe}
+          onCreate={(v) => onCreateRef('photographe', v)}
         />
-        <datalist id="form-photographes">
-          {suggestions.photographe.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -359,13 +369,13 @@ export function ContenuForm({ suggestions, onCancel, onSubmit }) {
           className="flex-1 min-w-[200px] text-xs px-2.5 py-2 rounded-lg outline-none"
           style={inputStyle}
         />
-        <input
-          type="text"
+        <RefSelect
           value={suiviPar}
-          onChange={(e) => setSuiviPar(e.target.value)}
+          options={refs.suivi}
           placeholder="Suivi par"
-          className="flex-1 min-w-[140px] text-xs px-2.5 py-2 rounded-lg outline-none"
-          style={inputStyle}
+          className="flex-1 min-w-[160px]"
+          onChange={setSuiviPar}
+          onCreate={(v) => onCreateRef('suivi', v)}
         />
       </div>
 

@@ -45,7 +45,7 @@ export const CONTENU_EDITABLE_FIELDS = [
   'type',
   'artiste_id',
   'artiste_text',
-  'scene',
+  'espace',
   'date_contenu',
   'photographe',
   'drive_url',
@@ -54,7 +54,7 @@ export const CONTENU_EDITABLE_FIELDS = [
 ]
 
 const SELECT_COLS = `
-  id, project_id, type, artiste_id, artiste_text, scene, date_contenu,
+  id, project_id, type, artiste_id, artiste_text, espace, date_contenu,
   photographe, drive_url, suivi_par, statut, decide_at,
   created_at, updated_at, created_by_name, updated_by_name,
   artiste:artiste_id (id, nom, jour)
@@ -168,24 +168,101 @@ export async function addContenuEvent({ projectId, contenuId, kind = 'comment', 
   return data
 }
 
-// ─── Suggestions de saisie ──────────────────────────────────────────────────
+// ─── Listes de référence (espaces, photographes, suivi) ────────────────────
+//
+// Trois listes par projet, alimentées à la volée : saisir une valeur inédite
+// dans un champ l'ajoute à la liste, elle est proposée ensuite. Le festival
+// gère donc ses espaces et ses photographes sans rien administrer.
+
+export const REF_KINDS = ['espace', 'photographe', 'suivi']
+
+export const REF_LABELS = {
+  espace: 'Espace',
+  photographe: 'Photographe',
+  suivi: 'Suivi par',
+}
+
+export async function listContenuRefs(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_contenu_refs')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: true })
+    .order('valeur', { ascending: true })
+  if (error) throw error
+  return data || []
+}
 
 /**
- * Valeurs déjà employées dans le projet pour un champ libre (photographe,
- * scène). Sert de datalist : pas de table de configuration à administrer,
- * et les filtres restent fiables parce qu'on retape rarement un nom déjà
- * proposé. `extra` permet d'injecter des valeurs d'ailleurs (les scènes du
- * déroulé, par exemple).
+ * Ajoute une valeur si elle n'existe pas déjà (comparaison insensible à la
+ * casse, comme l'index unique). Renvoie la row existante le cas échéant.
  */
-export function suggestValues(contenus, field, extra = []) {
-  const set = new Set()
-  for (const c of contenus || []) {
-    const v = (c?.[field] || '').trim()
-    if (v) set.add(v)
+export async function createContenuRef({ projectId, kind, valeur, existing = [] }) {
+  const clean = (valeur || '').trim()
+  if (!clean) return null
+  const already = existing.find(
+    (r) => r.kind === kind && r.valeur.toLowerCase() === clean.toLowerCase(),
+  )
+  if (already) return already
+  const { data, error } = await supabase
+    .from('projet_contenu_refs')
+    .insert({ project_id: projectId, kind, valeur: clean })
+    .select('*')
+    .single()
+  if (error) {
+    // Course entre deux saisies simultanées : l'index a tranché, on n'a
+    // rien à signaler à l'utilisateur.
+    if (error.code === '23505') return null
+    throw error
   }
-  for (const v of extra) {
-    const clean = (v || '').trim()
-    if (clean) set.add(clean)
+  return data
+}
+
+export async function deleteContenuRef(id) {
+  const { error } = await supabase.from('projet_contenu_refs').delete().eq('id', id)
+  if (error) throw error
+}
+
+/** Valeurs d'une liste, prêtes pour un menu déroulant. */
+export function refValues(refs, kind) {
+  return (refs || [])
+    .filter((r) => r.kind === kind)
+    .map((r) => r.valeur)
+}
+
+// ─── Jours du projet ────────────────────────────────────────────────────────
+
+/**
+ * Étiquette un jour du projet : « Jour 2 · vendredi 21 août ». Les contenus
+ * se repèrent au jour de festival bien plus qu'à la date calendaire.
+ */
+export function formatJourLabel(iso, index) {
+  if (!iso) return ''
+  const d = new Date(`${iso}T12:00:00`)
+  const jour = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+  return `Jour ${index + 1} · ${jour}`
+}
+
+/**
+ * Jours du projet, dérivés des journées de déroulé déjà créées (source la
+ * plus fiable : ce sont les jours réellement travaillés). Vide si le projet
+ * n'a pas de déroulé — l'UI retombe alors sur une date libre.
+ */
+export async function listProjetJours(projectId) {
+  if (!projectId) return []
+  const { data, error } = await supabase
+    .from('projet_deroules')
+    .select('date_jour')
+    .eq('project_id', projectId)
+    .order('date_jour', { ascending: true })
+  if (error) return []
+  const seen = new Set()
+  const out = []
+  for (const row of data || []) {
+    if (!row.date_jour || seen.has(row.date_jour)) continue
+    seen.add(row.date_jour)
+    out.push({ date: row.date_jour, label: formatJourLabel(row.date_jour, out.length) })
   }
-  return [...set].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }))
+  return out
 }
