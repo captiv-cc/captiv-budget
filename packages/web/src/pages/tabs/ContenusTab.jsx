@@ -33,7 +33,7 @@ import { notify } from '../../lib/notify'
 const OUTIL_KEY = 'contenus'
 
 export default function ContenusTab() {
-  const { projectId } = useParams()
+  const { id: projectId } = useParams()
   const outletCtx = useOutletContext?.() || {}
   const project = outletCtx.project || null
   const { can } = useProjectPermissions(projectId)
@@ -53,7 +53,12 @@ export default function ContenusTab() {
     profile?.prenom || profile?.full_name || profile?.email?.split('@')[0] || null
 
   const load = useCallback(async () => {
-    if (!projectId) return
+    // Toujours relâcher le chargement, même sans projet : sinon l'onglet
+    // tourne indéfiniment au lieu d'afficher quelque chose.
+    if (!projectId) {
+      setLoading(false)
+      return
+    }
     try {
       const [rows, evts] = await Promise.all([
         listContenus(projectId),
