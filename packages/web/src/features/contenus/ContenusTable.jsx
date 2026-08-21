@@ -31,6 +31,7 @@ import {
   CONTENU_TYPE_LABELS,
   contenuSujet,
   resolveSujet,
+  statutCountLabel,
 } from '../../lib/contenus'
 import useBreakpoint from '../../hooks/useBreakpoint'
 import RefSelect from './RefSelect'
@@ -44,6 +45,9 @@ const ROW_TINT = {
   refuse: 'rgba(239,68,68,0.06)',
   a_revoir: 'rgba(245,158,11,0.06)',
   en_attente: 'transparent',
+  // Pas encore capté : la ligne s'efface légèrement, elle n'attend rien
+  // de la presse.
+  non_shoote: 'transparent',
 }
 
 const GROUP_BY_OPTIONS = [
@@ -94,7 +98,7 @@ export default function ContenusTable({
   const [eventsFor, setEventsFor] = useState(null)
 
   const counts = useMemo(() => {
-    const out = { en_attente: 0, valide: 0, a_revoir: 0, refuse: 0 }
+    const out = { non_shoote: 0, en_attente: 0, valide: 0, a_revoir: 0, refuse: 0 }
     for (const c of contenus) out[c.statut] = (out[c.statut] || 0) + 1
     return out
   }, [contenus])
@@ -170,7 +174,7 @@ export default function ContenusTable({
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ background: CONTENU_STATUT_COLORS[s] }}
               />
-              {counts[s] || 0} {CONTENU_STATUT_LABELS[s].toLowerCase()}
+              {counts[s] || 0} {statutCountLabel(s, counts[s] || 0)}
             </button>
           )
         })}

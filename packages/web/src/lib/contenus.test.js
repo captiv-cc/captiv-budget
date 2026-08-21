@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { contenuSujet, refValues, formatJourLabel, resolveSujet } from './contenus'
+import {
+  contenuSujet,
+  refValues,
+  formatJourLabel,
+  resolveSujet,
+  statutCountLabel,
+} from './contenus'
 
 describe('contenuSujet', () => {
   it('préfère le libellé libre à l’annuaire', () => {
@@ -77,5 +83,23 @@ describe('resolveSujet', () => {
   it('vide les deux champs sur une saisie vide', () => {
     expect(resolveSujet('   ', artistes)).toEqual({ artiste_id: null, artiste_text: null })
     expect(resolveSujet(null)).toEqual({ artiste_id: null, artiste_text: null })
+  })
+})
+
+describe('statutCountLabel', () => {
+  it('accorde ce qui s’accorde', () => {
+    expect(statutCountLabel('valide', 1)).toBe('validé')
+    expect(statutCountLabel('valide', 2)).toBe('validés')
+    expect(statutCountLabel('non_shoote', 3)).toBe('non shootés')
+    expect(statutCountLabel('refuse', 2)).toBe('refusés')
+  })
+
+  it('laisse invariables les états qui le sont', () => {
+    expect(statutCountLabel('en_attente', 5)).toBe('en attente')
+    expect(statutCountLabel('a_revoir', 5)).toBe('à revoir')
+  })
+
+  it('traite zéro comme un singulier', () => {
+    expect(statutCountLabel('valide', 0)).toBe('validé')
   })
 })

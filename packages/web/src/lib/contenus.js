@@ -24,20 +24,48 @@ export const CONTENU_TYPE_LABELS = {
   video: 'Vidéo',
 }
 
-export const CONTENU_STATUTS = ['en_attente', 'valide', 'a_revoir', 'refuse']
+// Cycle de vie complet : non_shoote (prévu, pas encore capté) → en_attente
+// (capté, chez la presse) → décision.
+export const CONTENU_STATUTS = ['non_shoote', 'en_attente', 'valide', 'a_revoir', 'refuse']
 
 export const CONTENU_STATUT_LABELS = {
+  non_shoote: 'Non shooté',
   en_attente: 'En attente',
   valide: 'Validé',
   a_revoir: 'À revoir',
   refuse: 'Refusé',
 }
 
+// Le gris revient à « non shooté » (rien n'existe encore) et « en attente »
+// passe au bleu : quelque chose est en cours chez la presse. Même code
+// couleur que les autorisations musiques.
 export const CONTENU_STATUT_COLORS = {
-  en_attente: '#9ca3af',
+  non_shoote: '#9ca3af',
+  en_attente: '#3b82f6',
   valide: '#22c55e',
   a_revoir: '#f59e0b',
   refuse: '#ef4444',
+}
+
+/**
+ * Libellé d'un compteur de statut, accordé : « 2 validés », « 2 en attente ».
+ * Les états invariables ne prennent pas de marque de pluriel.
+ */
+export function statutCountLabel(statut, n) {
+  const pluriel = n > 1
+  switch (statut) {
+    case 'non_shoote':
+      return pluriel ? 'non shootés' : 'non shooté'
+    case 'valide':
+      return pluriel ? 'validés' : 'validé'
+    case 'refuse':
+      return pluriel ? 'refusés' : 'refusé'
+    case 'a_revoir':
+      return 'à revoir'
+    case 'en_attente':
+    default:
+      return 'en attente'
+  }
 }
 
 // Colonnes éditables — sert de whitelist commune au desk et au portail.
