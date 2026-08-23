@@ -4,53 +4,66 @@
 //
 // Usage :
 //   const cols = useColumnWidths('livrables', { nom: 240, statut: 108 })
-//   <colgroup>{cols.col('nom')}</colgroup>
+//   <colgroup>{...}<col style={{ width: cols.widths.nom }} /></colgroup>
 //   <th style={{ position: 'relative' }}>Nom<ColumnResizer {...cols.handle('nom')} /></th>
+//
+// Tous les tableaux qui partagent une clé partagent aussi leurs largeurs EN
+// DIRECT (store commun) : sur une page qui empile un tableau par bloc, un
+// geste dans l'un déplace tous les autres, et les colonnes restent alignées.
 //
 // Le réglage vit dans le navigateur : c'est un confort d'affichage propre à
 // chacun, pas une donnée du projet.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import {
   clampWidth,
   clearStoredWidths,
-  mergeWidths,
-  readStoredWidths,
+  getWidths,
+  resetWidthsStore,
+  subscribeWidths,
+  updateWidths,
   writeStoredWidths,
 } from '../lib/columnWidths'
 
 export default function useColumnWidths(storageKey, defaults) {
-  const [widths, setWidths] = useState(() =>
-    mergeWidths(defaults, readStoredWidths(storageKey)),
-  )
   // Les défauts sont figés au montage : un objet littéral recréé à chaque
   // rendu relancerait la lecture sans fin.
   const defaultsRef = useRef(defaults)
 
-  const setWidth = useCallback((key, px) => {
-    setWidths((prev) => ({ ...prev, [key]: clampWidth(px) }))
-  }, [])
+  const subscribe = useCallback(
+    (listener) => subscribeWidths(storageKey, listener),
+    [storageKey],
+  )
+  const getSnapshot = useCallback(
+    () => getWidths(storageKey, defaultsRef.current),
+    [storageKey],
+  )
+  const widths = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+
+  const setWidth = useCallback(
+    (key, px) => {
+      updateWidths(storageKey, (prev) => ({ ...prev, [key]: clampWidth(px) }))
+    },
+    [storageKey],
+  )
 
   // Persistance à la fin du geste, pas à chaque pixel parcouru.
   const commit = useCallback(() => {
-    setWidths((prev) => {
-      writeStoredWidths(storageKey, prev)
-      return prev
-    })
+    writeStoredWidths(storageKey, getWidths(storageKey, defaultsRef.current))
   }, [storageKey])
 
-  const resetColumn = useCallback((key) => {
-    setWidths((prev) => {
-      const next = { ...prev, [key]: defaultsRef.current[key] }
-      writeStoredWidths(storageKey, next)
-      return next
-    })
-  }, [storageKey])
+  const resetColumn = useCallback(
+    (key) => {
+      updateWidths(storageKey, (prev) => ({ ...prev, [key]: defaultsRef.current[key] }))
+      writeStoredWidths(storageKey, getWidths(storageKey, defaultsRef.current))
+    },
+    [storageKey],
+  )
 
   const resetAll = useCallback(() => {
     clearStoredWidths(storageKey)
-    setWidths({ ...defaultsRef.current })
+    resetWidthsStore(storageKey, defaultsRef.current)
   }, [storageKey])
 
   const isCustom = useMemo(

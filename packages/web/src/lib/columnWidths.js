@@ -64,3 +64,57 @@ export function clearStoredWidths(storageKey) {
   if (!storageKey || typeof localStorage === 'undefined') return
   localStorage.removeItem(PREFIX + storageKey)
 }
+
+// ─── Store partagé par clé ──────────────────────────────────────────────────
+//
+// Une page affiche souvent PLUSIEURS tableaux de même nature (un bloc de
+// livrables par catégorie). Ils partagent la même clé, donc les mêmes
+// largeurs — mais chaque composant a son propre état React : redimensionner
+// dans un bloc laissait les autres en arrière jusqu'au rechargement, et les
+// colonnes se désalignaient d'un bloc à l'autre.
+//
+// On tient donc les largeurs dans un petit store par clé, auquel toutes les
+// instances s'abonnent : un geste dans un tableau déplace tous les autres.
+
+const stores = new Map()
+
+function ensureStore(storageKey, defaults) {
+  let store = stores.get(storageKey)
+  if (!store) {
+    store = {
+      widths: mergeWidths(defaults, readStoredWidths(storageKey)),
+      listeners: new Set(),
+    }
+    stores.set(storageKey, store)
+  }
+  return store
+}
+
+export function subscribeWidths(storageKey, listener) {
+  const store = ensureStore(storageKey, {})
+  store.listeners.add(listener)
+  return () => store.listeners.delete(listener)
+}
+
+/**
+ * Référence STABLE tant que rien ne change : useSyncExternalStore boucle
+ * indéfiniment si on lui rend un nouvel objet à chaque lecture.
+ */
+export function getWidths(storageKey, defaults) {
+  return ensureStore(storageKey, defaults).widths
+}
+
+export function updateWidths(storageKey, updater) {
+  const store = ensureStore(storageKey, {})
+  const next = updater(store.widths)
+  if (next === store.widths) return
+  store.widths = next
+  for (const listener of store.listeners) listener()
+}
+
+/** Réinitialise la clé (utilisé par « rétablir les largeurs » et les tests). */
+export function resetWidthsStore(storageKey, defaults) {
+  const store = ensureStore(storageKey, defaults)
+  store.widths = { ...defaults }
+  for (const listener of store.listeners) listener()
+}
