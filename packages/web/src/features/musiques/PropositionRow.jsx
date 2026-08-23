@@ -38,6 +38,7 @@ import {
   Square,
   GripVertical,
 } from 'lucide-react'
+import WaveformMini from './WaveformMini'
 import {
   upsertMyNote,
   removeMyNote,
@@ -621,6 +622,16 @@ export default function PropositionRow({
         >
           <Youtube size={15} style={{ color: hasYoutube ? '#FF0000' : 'var(--txt-3)' }} />
         </button>
+
+        {/* Fichier de travail : présence et forme d'onde. C'est ce qui
+            décide de ce qu'on pourra faire dans un berceau — couper un
+            morceau entier, ou seulement caler un extrait de 30 s. */}
+        <WaveformMini
+          peaks={p.audio_peaks}
+          width={64}
+          height={18}
+          className="shrink-0 hidden lg:inline-block"
+        />
 
         {/* Menu actions rapides (statut + supprimer) */}
         {canEdit && (

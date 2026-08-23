@@ -50,6 +50,7 @@ import {
   ShieldCheck,
   BookUser,
 } from 'lucide-react'
+import AudioDropZone from '../../features/musiques/AudioDropZone'
 import {
   listPropositions,
   listAllNotes,
@@ -1250,6 +1251,23 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Vrac (liste propositions — MUS-1.11) ────────────────────── */}
+      {/* Fichiers de travail : socle du berceau musical. Sans eux, on ne
+          peut ni couper ni enchaîner — seulement écouter un extrait 30 s. */}
+      {!loading && viewMode === 'vrac' && canEdit && (
+        <div className="mb-3">
+          <AudioDropZone
+            projectId={projectId}
+            propositions={propositions}
+            userId={user?.id || null}
+            onUploaded={(updated) =>
+              setPropositions((prev) =>
+                prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+              )
+            }
+          />
+        </div>
+      )}
+
       {!loading && visiblePropositions.length > 0 && viewMode === 'vrac' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {groupedView.map((group) => (
