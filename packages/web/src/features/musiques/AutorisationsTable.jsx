@@ -26,6 +26,8 @@ import {
   X,
   Youtube,
 } from 'lucide-react'
+import useColumnWidths from '../../hooks/useColumnWidths'
+import ColumnResizer from '../../components/table/ColumnResizer'
 import {
   AUTOR_STATUTS,
   AUTOR_STATUT_LABELS,
@@ -133,6 +135,22 @@ export function AutorSearchInput({ value, onChange }) {
 
 // ─── Tableau complet (tous les médias) ─────────────────────────────────────
 
+// Largeurs par défaut, réglables et mémorisées par utilisateur.
+const AUTOR_COLUMNS = [
+  { key: 'track', label: 'Track', width: 320 },
+  { key: 'jour', label: 'Jour', width: 120 },
+  { key: 'duree', label: 'Durée', width: 90 },
+  { key: 'autorisation', label: 'Autorisation', width: 110 },
+  { key: 'suivi', label: 'Suivi par', width: 110 },
+  { key: 'contact', label: 'Contact label', width: 180 },
+  { key: 'master', label: 'Master', width: 130 },
+  { key: 'actions', label: '', width: 210, align: 'right' },
+]
+
+const AUTOR_DEFAULT_WIDTHS = Object.fromEntries(
+  AUTOR_COLUMNS.map((c) => [c.key, c.width]),
+)
+
 export default function AutorisationsTable({
   groups,
   canEdit = false,
@@ -145,8 +163,22 @@ export default function AutorisationsTable({
   // « Suivi par » vide (un RP se met en charge en un clic + Entrée).
   selfName = '',
 }) {
+  // Largeurs propres à chaque utilisateur, mémorisées dans son navigateur.
+  const cols = useColumnWidths('musiques.autorisations', AUTOR_DEFAULT_WIDTHS)
+  const totalWidth = Object.values(cols.widths).reduce((a, b) => a + b, 0)
+
   return (
     <>
+      {cols.isCustom && (
+        <button
+          type="button"
+          onClick={cols.resetAll}
+          className="self-end text-[10px] font-semibold"
+          style={{ color: 'var(--txt-3)' }}
+        >
+          Rétablir les largeurs
+        </button>
+      )}
       {groups.map(({ livrable, rows: groupRows }) => (
         <section
           key={livrable?.id || 'none'}
@@ -172,30 +204,33 @@ export default function AutorisationsTable({
             {/* table-layout fixed + colgroup : mêmes largeurs sur TOUS les
                 tableaux (sinon colonnes désalignées entre médias et décalage
                 au clic sur un champ). */}
-            <table className="w-full text-xs" style={{ minWidth: '1060px', tableLayout: 'fixed' }}>
+            <table
+              className="w-full text-xs"
+              style={{ minWidth: totalWidth, tableLayout: 'fixed' }}
+            >
               <colgroup>
-                <col />
-                <col style={{ width: 120 }} />
-                <col style={{ width: 90 }} />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 110 }} />
-                <col style={{ width: 180 }} />
-                <col style={{ width: 130 }} />
-                <col style={{ width: 210 }} />
+                {AUTOR_COLUMNS.map((c) => (
+                  <col key={c.key} style={{ width: cols.widths[c.key] }} />
+                ))}
               </colgroup>
               <thead>
                 <tr
                   className="text-[9px] uppercase tracking-widest"
                   style={{ color: 'var(--txt-3)', opacity: 0.8 }}
                 >
-                  <th className="px-3 pt-2 pb-1 text-left font-semibold">Track</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Jour</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Durée</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Autorisation</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Suivi par</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Contact label</th>
-                  <th className="px-2 pt-2 pb-1 text-left font-semibold">Master</th>
-                  <th className="px-2 pt-2 pb-1 text-right font-semibold" />
+                  {AUTOR_COLUMNS.map((c, i) => (
+                    <th
+                      key={c.key}
+                      className={`${i === 0 ? 'px-3' : 'px-2'} pt-2 pb-1 font-semibold relative ${
+                        c.align === 'right' ? 'text-right' : 'text-left'
+                      }`}
+                    >
+                      {c.label}
+                      {/* Dernière colonne : pas de poignée, il n'y a rien à
+                          repousser à sa droite. */}
+                      {i < AUTOR_COLUMNS.length - 1 && <ColumnResizer {...cols.handle(c.key)} />}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>

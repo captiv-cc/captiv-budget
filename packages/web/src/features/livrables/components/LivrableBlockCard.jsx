@@ -50,6 +50,8 @@ import {
   Trash2,
   Type,
 } from 'lucide-react'
+import useColumnWidths from '../../../hooks/useColumnWidths'
+import ColumnResizer from '../../../components/table/ColumnResizer'
 import toast from 'react-hot-toast'
 import { LIVRABLE_BLOCK_COLOR_PRESETS } from '../../../lib/livrablesHelpers'
 import { confirm, prompt as uiPrompt } from '../../../lib/confirm'
@@ -60,6 +62,27 @@ import LivrableRowCard from './LivrableRowCard'
 import DuplicateToProjectModal from './DuplicateToProjectModal'
 import Checkbox from './Checkbox'
 import PopoverFloat from './PopoverFloat'
+
+// Colonnes du tableau : `fixed` = colonne technique (poignée de tri, case
+// à cocher, menu), non redimensionnable.
+const LIVRABLE_COLUMNS = [
+  { key: 'select', label: '', width: 24, fixed: true },
+  { key: 'drag', label: '', width: 20, fixed: true },
+  { key: 'num', label: 'N°', width: 70 },
+  { key: 'nom', label: 'Nom', width: 300 },
+  { key: 'format', label: 'Format', width: 90 },
+  { key: 'duree', label: 'Durée', width: 70 },
+  { key: 'statut', label: 'Statut', width: 108 },
+  { key: 'details', label: 'Détails', width: 130 },
+  { key: 'monteur', label: 'Monteur', width: 130 },
+  { key: 'livraison', label: 'Livraison', width: 132 },
+  { key: 'liens', label: 'Liens', width: 112 },
+  { key: 'menu', label: '', width: 32, fixed: true },
+]
+
+const LIVRABLE_DEFAULT_WIDTHS = Object.fromEntries(
+  LIVRABLE_COLUMNS.map((c) => [c.key, c.width]),
+)
 
 export default function LivrableBlockCard({
   block,
@@ -94,6 +117,12 @@ export default function LivrableBlockCard({
   onBlockDragEnd,
 }) {
   const color = block.couleur || '#94a3b8'
+
+  // Largeurs de colonnes propres à chaque utilisateur. Une seule clé pour
+  // tous les blocs : ils partagent le même tableau, leurs colonnes doivent
+  // rester alignées d'un bloc à l'autre.
+  const cols = useColumnWidths('livrables.liste', LIVRABLE_DEFAULT_WIDTHS)
+  const totalWidth = Object.values(cols.widths).reduce((a, b) => a + b, 0)
 
   // ─── Inline edit : titre ──────────────────────────────────────────────────
   const [titleEditing, setTitleEditing] = useState(false)
@@ -767,7 +796,15 @@ export default function LivrableBlockCard({
       {/* ─── Corps : liste des livrables (desktop table / mobile cards) ───── */}
       {!collapsed && !isMobile && (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs" style={{ minWidth: '1114px' }}>
+          <table
+            className="w-full text-xs"
+            style={{ minWidth: totalWidth, tableLayout: 'fixed' }}
+          >
+            <colgroup>
+              {LIVRABLE_COLUMNS.map((c) => (
+                <col key={c.key} style={{ width: cols.widths[c.key] }} />
+              ))}
+            </colgroup>
             <thead>
               <tr
                 style={{
@@ -776,18 +813,21 @@ export default function LivrableBlockCard({
                   color: 'var(--txt-3)',
                 }}
               >
-                <Th width="24px" />
-                <Th width="20px" />
-                <Th width="70px">N°</Th>
-                <Th>Nom</Th>
-                <Th width="90px">Format</Th>
-                <Th width="70px">Durée</Th>
-                <Th width="108px">Statut</Th>
-                <Th width="130px">Détails</Th>
-                <Th width="130px">Monteur</Th>
-                <Th width="132px">Livraison</Th>
-                <Th width="112px">Liens</Th>
-                <Th width="32px" />
+                {LIVRABLE_COLUMNS.map((c, i) => (
+                  <Th
+                    key={c.key}
+                    align={c.align}
+                    // Les colonnes techniques (poignée de tri, case à cocher,
+                    // menu) n'ont rien à redimensionner.
+                    resizer={
+                      c.fixed || i === LIVRABLE_COLUMNS.length - 1
+                        ? null
+                        : cols.handle(c.key)
+                    }
+                  >
+                    {c.label}
+                  </Th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -1032,10 +1072,10 @@ function LivrableQuickAdd({ disabled = false, onAdd }) {
 // Header cell helper (desktop table)
 // ════════════════════════════════════════════════════════════════════════════
 
-function Th({ children, width, align = 'left' }) {
+function Th({ children, width, align = 'left', resizer = null }) {
   return (
     <th
-      className="px-2 py-2 font-medium uppercase tracking-wider text-[10px]"
+      className="px-2 py-2 font-medium uppercase tracking-wider text-[10px] relative"
       style={{
         width,
         textAlign: align,
@@ -1043,6 +1083,7 @@ function Th({ children, width, align = 'left' }) {
       }}
     >
       {children}
+      {resizer && <ColumnResizer {...resizer} />}
     </th>
   )
 }
