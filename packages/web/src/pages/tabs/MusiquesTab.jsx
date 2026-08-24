@@ -47,10 +47,12 @@ import {
   LayoutGrid,
   Film,
   Clapperboard,
+  AudioLines,
   ShieldCheck,
   BookUser,
 } from 'lucide-react'
 import AudioDropZone from '../../features/musiques/AudioDropZone'
+import BerceauxView from '../../features/musiques/BerceauxView'
 import {
   listPropositions,
   listAllNotes,
@@ -129,7 +131,13 @@ export default function MusiquesTab() {
   const [viewMode, setViewModeRaw] = useState(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY)
-      if (v === 'attribution' || v === 'livrables' || v === 'annuaire' || v === 'autorisations')
+      if (
+        v === 'attribution' ||
+        v === 'livrables' ||
+        v === 'annuaire' ||
+        v === 'autorisations' ||
+        v === 'berceaux'
+      )
         return v
       return 'vrac'
     } catch {
@@ -861,6 +869,12 @@ export default function MusiquesTab() {
           label="Autorisations"
           onClick={() => setViewMode('autorisations')}
         />
+        <ViewToggle
+          active={viewMode === 'berceaux'}
+          icon={AudioLines}
+          label="Berceaux"
+          onClick={() => setViewMode('berceaux')}
+        />
         {/* Volume global des previews (retour Hugo : baisser le son en visio) */}
         <span className="ml-auto">
           <PreviewVolumeControl
@@ -1241,6 +1255,16 @@ export default function MusiquesTab() {
       )}
 
       {/* ─── Autorisations view (MUS-7 A2) ───────────────────────────── */}
+      {!loading && viewMode === 'berceaux' && (
+        <BerceauxView
+          projectId={projectId}
+          propositions={propositions}
+          livrables={livrablesList}
+          canEdit={canEdit}
+          userId={user?.id || null}
+        />
+      )}
+
       {!loading && viewMode === 'autorisations' && (
         <AutorisationsView
           projectId={projectId}
