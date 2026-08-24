@@ -1260,6 +1260,7 @@ export default function MusiquesTab() {
           projectId={projectId}
           propositions={propositions}
           livrables={livrablesList}
+          links={linksList}
           canEdit={canEdit}
           userId={user?.id || null}
         />

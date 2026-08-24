@@ -34,7 +34,7 @@ import {
   statutCountLabel,
 } from '../../lib/contenus'
 import useBreakpoint from '../../hooks/useBreakpoint'
-import RefSelect from './RefSelect'
+import SearchSelect from '../../components/SearchSelect'
 import JourSelect, { labelForDate } from './JourSelect'
 
 // Teinte de fond par statut : une pastille seule se repère mal dans une
@@ -400,7 +400,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, 
           >
             <TypeIcon className="w-3.5 h-3.5" />
           </button>
-          <RefSelect
+          <SearchSelect
             value={contenuSujet(c)}
             options={artistes.map((a) => a.nom)}
             placeholder="Artiste ou moment"
@@ -425,7 +425,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, 
         />
       </td>
       <td className="px-3 py-2">
-        <RefSelect
+        <SearchSelect
           value={c.espace}
           options={refs.espace}
           placeholder="+ espace"
@@ -438,7 +438,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, 
         />
       </td>
       <td className="px-3 py-2">
-        <RefSelect
+        <SearchSelect
           value={c.photographe}
           options={refs.photographe}
           placeholder="+ photographe"
@@ -459,7 +459,7 @@ function ContenuRow({ contenu: c, canEdit, refs, jours, artistes, commentCount, 
         />
       </td>
       <td className="px-3 py-2">
-        <RefSelect
+        <SearchSelect
           value={c.suivi_par}
           options={refs.suivi}
           placeholder="+ responsable"

@@ -22,6 +22,7 @@ import {
 } from '../../lib/musiqueBerceaux'
 import { formatMs } from '../../lib/musiqueAudio'
 import BerceauEditor from './BerceauEditor'
+import SearchSelect from '../../components/SearchSelect'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 
@@ -29,6 +30,7 @@ export default function BerceauxView({
   projectId,
   propositions = [],
   livrables = [],
+  links = [],
   canEdit = true,
   userId = null,
 }) {
@@ -204,31 +206,27 @@ export default function BerceauxView({
               className="text-sm font-bold px-2 py-1 rounded-lg outline-none"
               style={{ background: 'var(--bg)', border: '1px solid var(--brd)', color: 'var(--txt)' }}
             />
-            <select
-              value={current.livrable_id || ''}
-              disabled={!canEdit}
-              onChange={(e) => {
-                const id = e.target.value || null
+            {/* Une trentaine de livrables sur un festival : le select natif
+                déborde de l'écran et ne se cherche pas. */}
+            <SearchSelect
+              value={current.livrable_id || null}
+              options={livrables.map((l) => ({ value: l.id, label: l.nom }))}
+              placeholder="Aucun livrable"
+              canEdit={canEdit}
+              allowCreate={false}
+              className="min-w-[200px]"
+              onChange={(id) => {
                 const liv = livrables.find((l) => l.id === id)
                 // La durée du livrable devient la cible : c'est tout
                 // l'intérêt du rattachement. Elle est stockée en texte
                 // (« 04:00 »), d'où la conversion.
                 const cible = parseDuree(liv?.duree)
                 patchBerceau({
-                  livrable_id: id,
+                  livrable_id: id || null,
                   duree_cible_ms: cible ?? current.duree_cible_ms ?? null,
                 })
               }}
-              className="text-xs px-2 py-1.5 rounded-lg outline-none"
-              style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)', color: 'var(--txt-2)' }}
-            >
-              <option value="">Aucun livrable</option>
-              {livrables.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nom}
-                </option>
-              ))}
-            </select>
+            />
             <label className="text-[11px] flex items-center gap-1.5" style={{ color: 'var(--txt-3)' }}>
               Cible
               <input
@@ -262,6 +260,7 @@ export default function BerceauxView({
             berceau={current}
             blocs={blocs}
             propositions={propositions}
+            links={links}
             canEdit={canEdit}
             onAddBloc={handleAddBloc}
             onUpdateBloc={handleUpdateBloc}

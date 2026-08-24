@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useState } from 'react'
-import RefSelect from './RefSelect'
+import SearchSelect from '../../components/SearchSelect'
 
 const LIBRE = 'Autre date…'
 
@@ -57,7 +57,7 @@ export default function JourSelect({
   const current = value ? labelForDate(value, jours) : null
 
   return (
-    <RefSelect
+    <SearchSelect
       value={current}
       options={options}
       placeholder="Jour"

@@ -30,6 +30,7 @@ export default function BerceauEditor({
   berceau,
   blocs = [],
   propositions = [],
+  links = [],
   canEdit = true,
   onAddBloc,
   onUpdateBloc,
@@ -39,11 +40,29 @@ export default function BerceauEditor({
   const [dragId, setDragId] = useState(null)
   const [overId, setOverId] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  // Un berceau se monte à partir des musiques déjà attribuées au livrable ;
+  // le vrac complet reste accessible d'un cran, pour aller y piocher.
+  const [sourceListe, setSourceListe] = useState('livrable')
 
   const propById = useMemo(
     () => new Map(propositions.map((p) => [p.id, p])),
     [propositions],
   )
+
+  // Propositions attribuées au livrable du berceau (tous statuts : une piste
+  // encore au stade de proposition a toute sa place dans une maquette).
+  const propsDuLivrable = useMemo(() => {
+    if (!berceau?.livrable_id) return []
+    const ids = new Set(
+      links
+        .filter((l) => l.livrable_id === berceau.livrable_id)
+        .map((l) => l.proposition_id),
+    )
+    return propositions.filter((p) => ids.has(p.id))
+  }, [links, propositions, berceau?.livrable_id])
+
+  const listeAffichee =
+    sourceListe === 'livrable' && berceau?.livrable_id ? propsDuLivrable : propositions
   const positions = useMemo(() => timelinePositions(blocs), [blocs])
   const total = timelineDureeMs(blocs)
   const ecart = ecartCibleMs(blocs, berceau?.duree_cible_ms)
@@ -76,20 +95,41 @@ export default function BerceauEditor({
         style={{ background: 'var(--bg-surf)', border: '1px solid var(--brd)', maxHeight: 560 }}
       >
         <header
-          className="px-3 py-2 shrink-0"
+          className="px-3 py-2 shrink-0 flex items-center gap-2"
           style={{ borderBottom: '1px solid var(--brd-sub)' }}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--txt-3)' }}>
             Morceaux
           </p>
+          <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            {listeAffichee.length}
+          </span>
+          {berceau?.livrable_id && (
+            <select
+              value={sourceListe}
+              onChange={(e) => setSourceListe(e.target.value)}
+              className="ml-auto text-[10px] px-1 py-0.5 rounded outline-none"
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--brd-sub)',
+                color: 'var(--txt-3)',
+              }}
+              title="Où piocher les morceaux"
+            >
+              <option value="livrable">Du livrable</option>
+              <option value="vrac">Tout le vrac</option>
+            </select>
+          )}
         </header>
         <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1">
-          {propositions.length === 0 && (
+          {listeAffichee.length === 0 && (
             <p className="text-[11px] italic p-2" style={{ color: 'var(--txt-3)' }}>
-              Aucune proposition sur ce projet.
+              {berceau?.livrable_id && sourceListe === 'livrable'
+                ? 'Aucune musique attribuée à ce livrable — bascule sur « Tout le vrac ».'
+                : 'Aucune proposition sur ce projet.'}
             </p>
           )}
-          {propositions.map((p) => {
+          {listeAffichee.map((p) => {
             const source = blocSource(p)
             const dejaPose = posesCount.get(p.id) || 0
             return (

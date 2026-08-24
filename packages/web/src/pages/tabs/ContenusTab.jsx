@@ -32,7 +32,7 @@ import {
 } from '../../lib/contenus'
 import { supabase } from '../../lib/supabase'
 import ContenusTable from '../../features/contenus/ContenusTable'
-import RefSelect from '../../features/contenus/RefSelect'
+import SearchSelect from '../../components/SearchSelect'
 import JourSelect from '../../features/contenus/JourSelect'
 import ContenusShareModal from '../../features/contenus/ContenusShareModal'
 import { confirm } from '../../lib/confirm'
@@ -353,7 +353,7 @@ export function ContenuForm({ refs, jours, artistes, onCancel, onSubmit, onCreat
             </button>
           ))}
         </div>
-        <RefSelect
+        <SearchSelect
           value={sujet}
           options={artistes.map((a) => a.nom)}
           placeholder="Artiste ou moment *"
@@ -363,7 +363,7 @@ export function ContenuForm({ refs, jours, artistes, onCancel, onSubmit, onCreat
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <RefSelect
+        <SearchSelect
           value={espace}
           options={refs.espace}
           placeholder="Espace (scène, camping…)"
@@ -372,7 +372,7 @@ export function ContenuForm({ refs, jours, artistes, onCancel, onSubmit, onCreat
           onCreate={(v) => onCreateRef('espace', v)}
         />
         <JourSelect value={date} jours={jours} onChange={setDate} className="min-w-[160px]" />
-        <RefSelect
+        <SearchSelect
           value={photographe}
           options={refs.photographe}
           placeholder="Photographe"
@@ -391,7 +391,7 @@ export function ContenuForm({ refs, jours, artistes, onCancel, onSubmit, onCreat
           className="flex-1 min-w-[200px] text-xs px-2.5 py-2 rounded-lg outline-none"
           style={inputStyle}
         />
-        <RefSelect
+        <SearchSelect
           value={suiviPar}
           options={refs.suivi}
           placeholder="Suivi par"

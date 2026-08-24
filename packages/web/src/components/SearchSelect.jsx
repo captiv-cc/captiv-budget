@@ -1,21 +1,24 @@
 // ════════════════════════════════════════════════════════════════════════════
-// RefSelect — liste déroulante avec création à la volée
+// SearchSelect — liste déroulante cherchable, création à la volée optionnelle
 // ════════════════════════════════════════════════════════════════════════════
 //
-// Remplace le <datalist> natif : illisible sur le thème sombre, il se posait
-// par-dessus les champs suivants et ne permettait pas de gérer la liste.
+// Remplace le <select> et le <datalist> natifs dès qu'une liste dépasse la
+// dizaine d'entrées : le premier n'offre aucune recherche et déborde de
+// l'écran, le second est illisible sur le thème sombre.
 //
-// Ici : un menu rendu en portal (les conteneurs à overflow et les transforms
-// des pages publiques clippent tout menu positionné en absolu), une
-// recherche dès que la liste s'allonge, et la création de la valeur saisie
-// quand elle n'existe pas encore.
+// Le menu est rendu en portal (les conteneurs à overflow et les transforms
+// des pages publiques clippent tout menu positionné en absolu), avec une
+// recherche dès que la liste s'allonge et, si `onCreate` est fourni, la
+// création de la valeur saisie quand elle n'existe pas encore.
+//
+// Options : une liste de chaînes, ou d'objets { value, label, group }.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Plus, Search, X } from 'lucide-react'
 
-export default function RefSelect({
+export default function SearchSelect({
   value,
   options = [],
   placeholder = 'Choisir',
@@ -33,15 +36,30 @@ export default function RefSelect({
   const [query, setQuery] = useState('')
   const btnRef = useRef(null)
 
+  // Les appelants passent soit des chaînes, soit des objets { value, label }
+  // — un libellé de livrable ne peut pas servir d'identifiant.
+  const items = useMemo(
+    () =>
+      (options || []).map((o) =>
+        typeof o === 'string' ? { value: o, label: o } : { value: o.value, label: o.label },
+      ),
+    [options],
+  )
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return options
-    return options.filter((o) => o.toLowerCase().includes(q))
-  }, [options, query])
+    if (!q) return items
+    return items.filter((o) => o.label.toLowerCase().includes(q))
+  }, [items, query])
 
   const exact = useMemo(
-    () => options.some((o) => o.toLowerCase() === query.trim().toLowerCase()),
-    [options, query],
+    () => items.some((o) => o.label.toLowerCase() === query.trim().toLowerCase()),
+    [items, query],
+  )
+
+  const currentLabel = useMemo(
+    () => items.find((o) => o.value === value)?.label ?? (value || null),
+    [items, value],
   )
 
   useEffect(() => {
@@ -89,7 +107,7 @@ export default function RefSelect({
           ...style,
         }}
       >
-        <span className="flex-1 min-w-0 truncate">{value || placeholder}</span>
+        <span className="flex-1 min-w-0 truncate">{currentLabel || placeholder}</span>
         {value && canEdit && (
           <span
             role="button"
@@ -149,7 +167,7 @@ export default function RefSelect({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()
-                        if (filtered.length === 1) pick(filtered[0])
+                        if (filtered.length === 1) pick(filtered[0].value)
                         else if (allowCreate && query.trim() && !exact) create()
                       }
                       if (e.key === 'Escape') setMenu(null)
@@ -164,16 +182,16 @@ export default function RefSelect({
               <div className="flex-1 min-h-0 overflow-y-auto py-1">
                 {filtered.map((o) => (
                   <button
-                    key={o}
+                    key={o.value}
                     type="button"
-                    onClick={() => pick(o)}
+                    onClick={() => pick(o.value)}
                     className="flex items-center gap-2 w-full text-left text-xs px-2.5 py-1.5"
                     style={{ color: 'var(--txt)' }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <span className="flex-1 min-w-0 truncate">{o}</span>
-                    {o === value && (
+                    <span className="flex-1 min-w-0 truncate">{o.label}</span>
+                    {o.value === value && (
                       <Check className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--blue)' }} />
                     )}
                   </button>
