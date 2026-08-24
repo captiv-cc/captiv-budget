@@ -126,8 +126,7 @@ export default function BerceauTimeline({
         className="relative rounded-lg"
         style={{
           height: 86,
-          width: msToPx(largeurMs),
-          minWidth: '100%',
+          width: Math.max(msToPx(largeurMs), 1),
           background: 'var(--bg)',
           border: '1px solid var(--brd-sub)',
         }}
@@ -179,17 +178,35 @@ export default function BerceauTimeline({
                 />
               </div>
 
-              <div className="relative p-1.5 pointer-events-none">
-                <p className="text-[10px] font-bold truncate" style={{ color: 'var(--txt)' }}>
-                  {prop?.titre || 'Morceau supprimé'}
-                </p>
-                <p className="text-[9px] truncate" style={{ color: 'var(--txt-2)' }}>
-                  {prop?.artiste_text || prop?.artiste?.nom || ''}
-                </p>
-                <p className="text-[9px] tabular-nums" style={{ color: 'var(--txt-3)' }}>
-                  {formatMs(duree_ms)}
-                </p>
-              </div>
+              {/* Sous une certaine largeur, le texte devient illisible et
+                  masque la forme d'onde : on le retire par paliers plutôt
+                  que de le laisser baver. L'infobulle garde l'information. */}
+              {largeur > 44 && (
+                <div
+                  className="relative p-1.5 pointer-events-none"
+                  style={{
+                    // Fond localisé sous le texte : lisible par-dessus la
+                    // forme d'onde sans assombrir tout le bloc.
+                    background:
+                      'linear-gradient(to right, var(--bg-surf) 0%, rgba(0,0,0,0) 100%)',
+                    width: 'min(100%, 150px)',
+                  }}
+                >
+                  <p className="text-[10px] font-bold truncate" style={{ color: 'var(--txt)' }}>
+                    {prop?.titre || 'Morceau supprimé'}
+                  </p>
+                  {largeur > 90 && (
+                    <p className="text-[9px] truncate" style={{ color: 'var(--txt-2)' }}>
+                      {prop?.artiste_text || prop?.artiste?.nom || ''}
+                    </p>
+                  )}
+                  {largeur > 70 && (
+                    <p className="text-[9px] tabular-nums" style={{ color: 'var(--txt-3)' }}>
+                      {formatMs(duree_ms)}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {canEdit && (
                 <>

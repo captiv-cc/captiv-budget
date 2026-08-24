@@ -11,7 +11,7 @@
 // extraits, mais on teste très bien un ordre d'enchaînement.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play, Plus, Search, Trash2 } from 'lucide-react'
 import {
   blocSource,
@@ -40,8 +40,12 @@ export default function BerceauEditor({
   // Un berceau se monte à partir des musiques déjà attribuées au livrable ;
   // le vrac complet reste accessible d'un cran, pour aller y piocher.
   const [sourceListe, setSourceListe] = useState('livrable')
-  // Échelle de la bande. 8 px/s laisse voir 4 minutes sur un écran courant.
+  // Échelle de la bande. Ajustée à la largeur réelle plutôt qu'à une
+  // constante : sur un écran donné, le berceau doit tenir en entier avant
+  // qu'on décide de zoomer.
   const [pxParSeconde, setPxParSeconde] = useState(8)
+  const [autoZoom, setAutoZoom] = useState(true)
+  const bandeWrapRef = useRef(null)
   const [query, setQuery] = useState('')
   const [tri, setTri] = useState('defaut')
   // Monter pour de vrai suppose des fichiers : ce filtre isole ce sur quoi
@@ -116,6 +120,31 @@ export default function BerceauEditor({
   const ecart = ecartCibleMs(blocs, berceau?.duree_cible_ms)
   const selectedBloc = blocs.find((b) => b.id === selectedId) || null
   const player = useBerceauPlayer({ blocs, propById })
+
+  // Tant que l'utilisateur n'a pas touché au zoom, on tient tout à l'écran.
+  // Dès qu'il l'ajuste, on ne lui reprend plus la main.
+  const ajusterZoom = useCallback(() => {
+    const largeur = bandeWrapRef.current?.clientWidth || 0
+    const etendueMs = Math.max(total, berceau?.duree_cible_ms || 0, 30000)
+    if (!largeur || !etendueMs) return
+    const px = (largeur - 8) / (etendueMs / 1000)
+    setPxParSeconde(Math.min(30, Math.max(1, px)))
+  }, [total, berceau?.duree_cible_ms])
+
+  useEffect(() => {
+    if (!autoZoom) return undefined
+    ajusterZoom()
+    const ro = new ResizeObserver(() => ajusterZoom())
+    if (bandeWrapRef.current) ro.observe(bandeWrapRef.current)
+    return () => ro.disconnect()
+  }, [autoZoom, ajusterZoom])
+
+  // Changer de berceau remet l'ajustement automatique : on veut d'abord
+  // voir l'ensemble du nouveau montage.
+  useEffect(() => {
+    setAutoZoom(true)
+    setSelectedId(null)
+  }, [berceau?.id])
 
   // Morceaux pas encore posés : on ne masque pas ceux déjà utilisés (un
   // même titre peut revenir deux fois dans un berceau), on les signale.
@@ -309,21 +338,35 @@ export default function BerceauEditor({
             zoom
             <input
               type="range"
-              min={2}
-              max={30}
+              min={1}
+              max={40}
               step={1}
-              value={pxParSeconde}
-              onChange={(e) => setPxParSeconde(Number(e.target.value))}
+              value={Math.round(pxParSeconde)}
+              onChange={(e) => {
+                setAutoZoom(false)
+                setPxParSeconde(Number(e.target.value))
+              }}
               className="w-24"
             />
           </label>
+          {!autoZoom && (
+            <button
+              type="button"
+              onClick={() => setAutoZoom(true)}
+              className="text-[10px] font-semibold px-1.5 py-1 rounded"
+              style={{ color: 'var(--blue)', border: '1px solid var(--brd-sub)' }}
+              title="Faire tenir tout le berceau à l'écran"
+            >
+              ajuster
+            </button>
+          )}
           <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
             {blocs.length} bloc{blocs.length > 1 ? 's' : ''}
           </span>
         </div>
 
         {/* La bande */}
-        <div className="overflow-x-auto pb-1">
+        <div ref={bandeWrapRef} className="overflow-x-auto pb-1 min-w-0 max-w-full">
           <BerceauTimeline
             positions={positions}
             propById={propById}
