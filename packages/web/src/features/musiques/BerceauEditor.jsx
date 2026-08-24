@@ -11,20 +11,18 @@
 // extraits, mais on teste très bien un ordre d'enchaînement.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { GripVertical, Pause, Play, Plus, Search, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Pause, Play, Plus, Search, Trash2 } from 'lucide-react'
 import {
-  blocDureeMs,
   blocSource,
-  clampCoupe,
-  dureeExploitableMs,
   ecartCibleMs,
   timelineDureeMs,
   timelinePositions,
 } from '../../lib/musiqueBerceaux'
-import { formatMs, getPropositionAudioUrl } from '../../lib/musiqueAudio'
-import WaveformMini from './WaveformMini'
-import { notify } from '../../lib/notify'
+import { formatMs } from '../../lib/musiqueAudio'
+import BerceauTimeline from './BerceauTimeline'
+import BlocInspector from './BlocInspector'
+import useBerceauPlayer from './useBerceauPlayer'
 
 export default function BerceauEditor({
   berceau,
@@ -38,12 +36,12 @@ export default function BerceauEditor({
   onDeleteBloc,
   onReorder,
 }) {
-  const [dragId, setDragId] = useState(null)
-  const [overId, setOverId] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   // Un berceau se monte à partir des musiques déjà attribuées au livrable ;
   // le vrac complet reste accessible d'un cran, pour aller y piocher.
   const [sourceListe, setSourceListe] = useState('livrable')
+  // Échelle de la bande. 8 px/s laisse voir 4 minutes sur un écran courant.
+  const [pxParSeconde, setPxParSeconde] = useState(8)
   const [query, setQuery] = useState('')
   const [tri, setTri] = useState('defaut')
   // Monter pour de vrai suppose des fichiers : ce filtre isole ce sur quoi
@@ -116,6 +114,8 @@ export default function BerceauEditor({
   const positions = useMemo(() => timelinePositions(blocs), [blocs])
   const total = timelineDureeMs(blocs)
   const ecart = ecartCibleMs(blocs, berceau?.duree_cible_ms)
+  const selectedBloc = blocs.find((b) => b.id === selectedId) || null
+  const player = useBerceauPlayer({ blocs, propById })
 
   // Morceaux pas encore posés : on ne masque pas ceux déjà utilisés (un
   // même titre peut revenir deux fois dans un berceau), on les signale.
@@ -124,18 +124,6 @@ export default function BerceauEditor({
     for (const b of blocs) m.set(b.proposition_id, (m.get(b.proposition_id) || 0) + 1)
     return m
   }, [blocs])
-
-  function handleDrop(cibleId) {
-    if (!dragId || dragId === cibleId) return
-    const ordered = [...blocs].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-    const from = ordered.findIndex((b) => b.id === dragId)
-    const to = ordered.findIndex((b) => b.id === cibleId)
-    if (from < 0 || to < 0) return
-    const next = [...ordered]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    onReorder?.(next)
-  }
 
   return (
     <div className="flex flex-col lg:flex-row gap-4">
@@ -272,11 +260,23 @@ export default function BerceauEditor({
         </div>
       </aside>
 
-      {/* ── Timeline ─────────────────────────────────────────────────────── */}
-      <section className="flex-1 min-w-0 flex flex-col gap-2">
-        <div className="flex items-baseline gap-3 flex-wrap">
+      {/* ── Montage ──────────────────────────────────────────────────────── */}
+      <section className="flex-1 min-w-0 flex flex-col gap-3">
+        {/* Transport + compteurs */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={player.toggle}
+            disabled={blocs.length === 0}
+            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg disabled:opacity-40"
+            style={{ background: 'var(--blue)', color: '#fff' }}
+          >
+            {player.playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            {player.playing ? 'Pause' : 'Lire le berceau'}
+          </button>
+
           <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--txt)' }}>
-            {formatMs(total)}
+            {formatMs(player.positionMs > 0 ? player.positionMs : total)}
           </span>
           {berceau?.duree_cible_ms ? (
             <span
@@ -290,7 +290,7 @@ export default function BerceauEditor({
                       : 'var(--amber, #f59e0b)',
               }}
             >
-              cible {formatMs(berceau.duree_cible_ms)} ·{' '}
+              {formatMs(total)} / {formatMs(berceau.duree_cible_ms)} ·{' '}
               {ecart === 0
                 ? 'pile'
                 : ecart < 0
@@ -299,51 +299,77 @@ export default function BerceauEditor({
             </span>
           ) : (
             <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-              aucune durée cible
+              {formatMs(total)} · aucune durée cible
             </span>
           )}
-          <span className="text-[11px] ml-auto" style={{ color: 'var(--txt-3)' }}>
+
+          {/* Zoom : un aftermovie de 4 min doit tenir à l'écran, une coupe
+              de 3 s doit rester attrapable. */}
+          <label className="flex items-center gap-1.5 ml-auto text-[10px]" style={{ color: 'var(--txt-3)' }}>
+            zoom
+            <input
+              type="range"
+              min={2}
+              max={30}
+              step={1}
+              value={pxParSeconde}
+              onChange={(e) => setPxParSeconde(Number(e.target.value))}
+              className="w-24"
+            />
+          </label>
+          <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
             {blocs.length} bloc{blocs.length > 1 ? 's' : ''}
           </span>
         </div>
 
-        {blocs.length === 0 && (
-          <div
-            className="rounded-xl p-8 text-center text-xs"
-            style={{ background: 'var(--bg-surf)', border: '1px dashed var(--brd)', color: 'var(--txt-3)' }}
-          >
-            Ajoute un morceau depuis la colonne de gauche pour commencer.
-          </div>
+        {/* La bande */}
+        <div className="overflow-x-auto pb-1">
+          <BerceauTimeline
+            positions={positions}
+            propById={propById}
+            pxParSeconde={pxParSeconde}
+            cibleMs={berceau?.duree_cible_ms || 0}
+            positionMs={player.positionMs}
+            activeBlocId={player.activeBlocId}
+            selectedId={selectedId}
+            canEdit={canEdit}
+            onSelect={(id) => setSelectedId(id === selectedId ? null : id)}
+            onSeek={player.seek}
+            onTrim={(bloc, patch) => onUpdateBloc?.(bloc, patch)}
+            onReorder={(ordered) => onReorder?.(ordered)}
+          />
+        </div>
+
+        {/* Recoupage fin du bloc choisi */}
+        {selectedBloc ? (
+          <BlocInspector
+            bloc={selectedBloc}
+            proposition={propById.get(selectedBloc.proposition_id)}
+            canEdit={canEdit}
+            onUpdate={(patch) => onUpdateBloc?.(selectedBloc, patch)}
+          />
+        ) : (
+          blocs.length > 0 && (
+            <p className="text-[11px] text-center py-3" style={{ color: 'var(--txt-3)' }}>
+              Clique un bloc pour le recouper précisément.
+            </p>
+          )
         )}
 
-        <div className="flex flex-col gap-1.5">
-          {positions.map(({ bloc, start_ms }) => (
-            <BlocRow
-              key={bloc.id}
-              bloc={bloc}
-              proposition={propById.get(bloc.proposition_id)}
-              startMs={start_ms}
-              canEdit={canEdit}
-              selected={selectedId === bloc.id}
-              onSelect={() => setSelectedId(selectedId === bloc.id ? null : bloc.id)}
-              dragging={dragId === bloc.id}
-              isOver={overId === bloc.id}
-              onDragStart={() => setDragId(bloc.id)}
-              onDragEnter={() => setOverId(bloc.id)}
-              onDragEnd={() => {
-                setDragId(null)
-                setOverId(null)
-              }}
-              onDrop={() => {
-                handleDrop(bloc.id)
-                setDragId(null)
-                setOverId(null)
-              }}
-              onUpdate={(patch) => onUpdateBloc?.(bloc, patch)}
-              onDelete={() => onDeleteBloc?.(bloc)}
-            />
-          ))}
-        </div>
+        {selectedBloc && canEdit && (
+          <button
+            type="button"
+            onClick={() => {
+              onDeleteBloc?.(selectedBloc)
+              setSelectedId(null)
+            }}
+            className="self-start flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-md"
+            style={{ color: 'var(--red, #ef4444)', border: '1px solid var(--brd-sub)' }}
+          >
+            <Trash2 className="w-3 h-3" />
+            Retirer ce bloc
+          </button>
+        )}
       </section>
     </div>
   )
@@ -367,243 +393,5 @@ function SourceBadge({ source }) {
     >
       {label}
     </span>
-  )
-}
-
-// ─── Un bloc de la timeline ─────────────────────────────────────────────────
-
-function BlocRow({
-  bloc,
-  proposition,
-  startMs,
-  canEdit,
-  selected,
-  onSelect,
-  dragging,
-  isOver,
-  onDragStart,
-  onDragEnter,
-  onDragEnd,
-  onDrop,
-  onUpdate,
-  onDelete,
-}) {
-  const source = blocSource(proposition)
-  const dureeMax = dureeExploitableMs(proposition)
-  const duree = blocDureeMs(bloc)
-
-  return (
-    <div
-      draggable={canEdit}
-      onDragStart={onDragStart}
-      onDragEnter={onDragEnter}
-      onDragOver={(e) => e.preventDefault()}
-      onDragEnd={onDragEnd}
-      onDrop={(e) => {
-        e.preventDefault()
-        onDrop()
-      }}
-      className="rounded-lg px-3 py-2 flex flex-col gap-2"
-      style={{
-        background: 'var(--bg-surf)',
-        border: `1px solid ${isOver ? 'var(--blue)' : selected ? 'var(--purple, #a78bfa)' : 'var(--brd-sub)'}`,
-        opacity: dragging ? 0.5 : 1,
-      }}
-    >
-      <div className="flex items-center gap-2">
-        {canEdit && (
-          <GripVertical
-            className="w-3.5 h-3.5 shrink-0 cursor-grab"
-            style={{ color: 'var(--txt-3)' }}
-          />
-        )}
-        <span className="text-[10px] tabular-nums shrink-0" style={{ color: 'var(--txt-3)' }}>
-          {formatMs(startMs)}
-        </span>
-        <button
-          type="button"
-          onClick={onSelect}
-          className="min-w-0 flex-1 text-left"
-        >
-          <p className="text-xs font-semibold truncate" style={{ color: 'var(--txt)' }}>
-            {proposition?.titre || 'Morceau supprimé'}
-          </p>
-          <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>
-            {proposition?.artiste_text || proposition?.artiste?.nom || '—'}
-          </p>
-        </button>
-        <SourceBadge source={source} />
-        <span className="text-[11px] font-semibold tabular-nums shrink-0" style={{ color: 'var(--txt-2)' }}>
-          {formatMs(duree)}
-        </span>
-        <BlocPreview proposition={proposition} bloc={bloc} />
-        {canEdit && (
-          <button
-            type="button"
-            onClick={onDelete}
-            className="p-1 shrink-0"
-            style={{ color: 'var(--txt-3)' }}
-            title="Retirer du berceau"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-
-      {selected && (
-        <CoupeEditor
-          bloc={bloc}
-          proposition={proposition}
-          dureeMax={dureeMax}
-          canEdit={canEdit}
-          onUpdate={onUpdate}
-        />
-      )}
-    </div>
-  )
-}
-
-// ─── Coupe : poignées sur la forme d'onde ───────────────────────────────────
-
-function CoupeEditor({ bloc, proposition, dureeMax, canEdit, onUpdate }) {
-  const barRef = useRef(null)
-  const [drag, setDrag] = useState(null) // 'in' | 'out' | null
-
-  useEffect(() => {
-    if (!drag || !canEdit) return undefined
-    function onMove(e) {
-      const rect = barRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-      const ms = Math.round(ratio * dureeMax)
-      const next =
-        drag === 'in' ? { in_ms: ms, out_ms: bloc.out_ms } : { in_ms: bloc.in_ms, out_ms: ms }
-      onUpdate(clampCoupe(next, dureeMax))
-    }
-    function onUp() {
-      setDrag(null)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [drag, canEdit, dureeMax, bloc.in_ms, bloc.out_ms, onUpdate])
-
-  if (!dureeMax) return null
-  const inPct = (bloc.in_ms / dureeMax) * 100
-  const outPct = (bloc.out_ms / dureeMax) * 100
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div
-        ref={barRef}
-        className="relative rounded"
-        style={{ height: 40, background: 'var(--bg)', border: '1px solid var(--brd-sub)' }}
-      >
-        <div className="absolute inset-0 flex items-center px-0.5">
-          <WaveformMini peaks={proposition?.audio_peaks} width={9999} height={36} className="w-full" />
-        </div>
-        {/* Hors coupe : assombri, la partie retenue reste franche. */}
-        <div
-          className="absolute top-0 bottom-0 left-0 rounded-l"
-          style={{ width: `${inPct}%`, background: 'rgba(0,0,0,0.55)' }}
-        />
-        <div
-          className="absolute top-0 bottom-0 right-0 rounded-r"
-          style={{ width: `${100 - outPct}%`, background: 'rgba(0,0,0,0.55)' }}
-        />
-        {canEdit && (
-          <>
-            <Poignee pct={inPct} onDown={() => setDrag('in')} />
-            <Poignee pct={outPct} onDown={() => setDrag('out')} />
-          </>
-        )}
-      </div>
-      <div className="flex items-center gap-3 text-[10px]" style={{ color: 'var(--txt-3)' }}>
-        <span>entrée {formatMs(bloc.in_ms)}</span>
-        <span>sortie {formatMs(bloc.out_ms)}</span>
-        {!proposition?.audio_path && (
-          <span style={{ color: 'var(--amber, #f59e0b)' }}>
-            extrait 30 s — dépose le fichier pour couper dans le morceau entier
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Poignee({ pct, onDown }) {
-  return (
-    <span
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onDown()
-      }}
-      className="absolute top-0 bottom-0"
-      style={{
-        left: `calc(${pct}% - 4px)`,
-        width: 8,
-        cursor: 'col-resize',
-        background:
-          'linear-gradient(to right, transparent 3px, var(--purple, #a78bfa) 3px 5px, transparent 5px)',
-      }}
-    />
-  )
-}
-
-// ─── Écoute d'un bloc ───────────────────────────────────────────────────────
-
-function BlocPreview({ proposition, bloc }) {
-  const [playing, setPlaying] = useState(false)
-  const audioRef = useRef(null)
-
-  useEffect(() => () => audioRef.current?.pause(), [])
-
-  async function toggle() {
-    if (playing) {
-      audioRef.current?.pause()
-      setPlaying(false)
-      return
-    }
-    try {
-      const src = proposition?.audio_path
-        ? await getPropositionAudioUrl(proposition)
-        : proposition?.preview_url
-      if (!src) return
-      const audio = audioRef.current || new Audio()
-      audioRef.current = audio
-      audio.src = src
-      audio.currentTime = bloc.in_ms / 1000
-      // On s'arrête au point de sortie : écouter la coupe, pas le morceau.
-      audio.ontimeupdate = () => {
-        if (audio.currentTime * 1000 >= bloc.out_ms) {
-          audio.pause()
-          setPlaying(false)
-        }
-      }
-      audio.onended = () => setPlaying(false)
-      await audio.play()
-      setPlaying(true)
-    } catch (err) {
-      notify.error('Lecture : ' + (err?.message || err))
-      setPlaying(false)
-    }
-  }
-
-  const jouable = proposition?.audio_path || proposition?.preview_url
-  if (!jouable) return null
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      className="p-1 shrink-0"
-      style={{ color: playing ? 'var(--purple, #a78bfa)' : 'var(--txt-3)' }}
-      title="Écouter la coupe"
-    >
-      {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-    </button>
   )
 }

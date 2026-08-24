@@ -100,6 +100,19 @@ export function buildPeaks(channelData, resolution = PEAKS_RESOLUTION) {
   return peaks
 }
 
+/**
+ * Portion de forme d'onde correspondant à une coupe. Les pics couvrent le
+ * morceau entier ; un bloc n'en montre que sa tranche, sinon on afficherait
+ * la même vignette pour deux coupes très différentes.
+ */
+export function slicePeaks(peaks, inMs, outMs, dureeMs) {
+  if (!Array.isArray(peaks) || peaks.length === 0 || !dureeMs) return []
+  const debut = Math.max(0, Math.floor((inMs / dureeMs) * peaks.length))
+  const fin = Math.min(peaks.length, Math.ceil((outMs / dureeMs) * peaks.length))
+  if (fin <= debut) return []
+  return peaks.slice(debut, fin)
+}
+
 /** Format court d'une durée en millisecondes : « 3:07 ». */
 export function formatMs(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '0:00'

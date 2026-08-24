@@ -4,6 +4,7 @@ import {
   formatMs,
   matchFileToProposition,
   normalizeForMatch,
+  slicePeaks,
 } from './musiqueAudio'
 
 describe('normalizeForMatch', () => {
@@ -79,5 +80,26 @@ describe('formatMs', () => {
 
   it('tolère une valeur absente', () => {
     expect(formatMs(null)).toBe('0:00')
+  })
+})
+
+describe('slicePeaks', () => {
+  const peaks = Array.from({ length: 100 }, (_, i) => i)
+
+  it('extrait la tranche correspondant à la coupe', () => {
+    // Coupe de 30 % à 60 % d'un morceau de 100 s.
+    const s = slicePeaks(peaks, 30000, 60000, 100000)
+    expect(s[0]).toBe(30)
+    expect(s).toHaveLength(30)
+  })
+
+  it('borne aux extrémités du morceau', () => {
+    expect(slicePeaks(peaks, -5000, 500000, 100000)).toHaveLength(100)
+  })
+
+  it('renvoie une tranche vide plutôt qu’une erreur', () => {
+    expect(slicePeaks(peaks, 50000, 50000, 100000)).toEqual([])
+    expect(slicePeaks(null, 0, 10, 100)).toEqual([])
+    expect(slicePeaks(peaks, 0, 10, 0)).toEqual([])
   })
 })
