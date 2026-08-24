@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { GripVertical, Pause, Play, Plus, Trash2 } from 'lucide-react'
+import { GripVertical, Pause, Play, Plus, Search, Trash2 } from 'lucide-react'
 import {
   blocDureeMs,
   blocSource,
@@ -31,6 +31,7 @@ export default function BerceauEditor({
   blocs = [],
   propositions = [],
   links = [],
+  aggregates = null, // Map<id, { noteAvg, noteCount }>
   canEdit = true,
   onAddBloc,
   onUpdateBloc,
@@ -43,6 +44,17 @@ export default function BerceauEditor({
   // Un berceau se monte à partir des musiques déjà attribuées au livrable ;
   // le vrac complet reste accessible d'un cran, pour aller y piocher.
   const [sourceListe, setSourceListe] = useState('livrable')
+  const [query, setQuery] = useState('')
+  const [tri, setTri] = useState('defaut')
+  // Monter pour de vrai suppose des fichiers : ce filtre isole ce sur quoi
+  // on peut réellement couper.
+  const [avecFichier, setAvecFichier] = useState(false)
+
+  // Changer de livrable doit reproposer SES musiques : garder « tout le
+  // vrac » d'un livrable à l'autre n'a pas de sens.
+  useEffect(() => {
+    setSourceListe('livrable')
+  }, [berceau?.livrable_id])
 
   const propById = useMemo(
     () => new Map(propositions.map((p) => [p.id, p])),
@@ -61,8 +73,46 @@ export default function BerceauEditor({
     return propositions.filter((p) => ids.has(p.id))
   }, [links, propositions, berceau?.livrable_id])
 
-  const listeAffichee =
-    sourceListe === 'livrable' && berceau?.livrable_id ? propsDuLivrable : propositions
+  const listeAffichee = useMemo(() => {
+    const base =
+      sourceListe === 'livrable' && berceau?.livrable_id ? propsDuLivrable : propositions
+    const q = query.trim().toLowerCase()
+    let out = base.filter((p) => {
+      if (avecFichier && !p.audio_path) return false
+      if (!q) return true
+      const artiste = (p.artiste_text || p.artiste?.nom || '').toLowerCase()
+      return `${p.titre} ${artiste}`.toLowerCase().includes(q)
+    })
+    if (tri === 'note') {
+      out = [...out].sort(
+        (a, b) => (aggregates?.get(b.id)?.noteAvg || 0) - (aggregates?.get(a.id)?.noteAvg || 0),
+      )
+    } else if (tri === 'titre') {
+      out = [...out].sort((a, b) => a.titre.localeCompare(b.titre, 'fr', { sensitivity: 'base' }))
+    } else if (tri === 'artiste') {
+      out = [...out].sort((a, b) =>
+        (a.artiste_text || a.artiste?.nom || '').localeCompare(
+          b.artiste_text || b.artiste?.nom || '',
+          'fr',
+          { sensitivity: 'base' },
+        ),
+      )
+    } else if (tri === 'bpm') {
+      out = [...out].sort(
+        (a, b) => (b.audio_features?.tempo || 0) - (a.audio_features?.tempo || 0),
+      )
+    }
+    return out
+  }, [
+    sourceListe,
+    berceau?.livrable_id,
+    propsDuLivrable,
+    propositions,
+    query,
+    avecFichier,
+    tri,
+    aggregates,
+  ])
   const positions = useMemo(() => timelinePositions(blocs), [blocs])
   const total = timelineDureeMs(blocs)
   const ecart = ecartCibleMs(blocs, berceau?.duree_cible_ms)
@@ -121,6 +171,53 @@ export default function BerceauEditor({
             </select>
           )}
         </header>
+        <div
+          className="px-2 py-1.5 shrink-0 flex flex-col gap-1.5"
+          style={{ borderBottom: '1px solid var(--brd-sub)' }}
+        >
+          <div className="relative">
+            <Search
+              className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2"
+              style={{ color: 'var(--txt-3)' }}
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Titre ou artiste"
+              className="w-full text-[11px] pl-7 pr-2 py-1.5 rounded-md outline-none"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd-sub)', color: 'var(--txt)' }}
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={tri}
+              onChange={(e) => setTri(e.target.value)}
+              className="flex-1 min-w-0 text-[10px] px-1 py-1 rounded outline-none"
+              style={{ background: 'var(--bg)', border: '1px solid var(--brd-sub)', color: 'var(--txt-3)' }}
+            >
+              <option value="defaut">Ordre du vrac</option>
+              <option value="note">Mieux notées</option>
+              <option value="titre">Titre</option>
+              <option value="artiste">Artiste</option>
+              <option value="bpm">BPM décroissant</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setAvecFichier((v) => !v)}
+              className="text-[10px] font-semibold px-1.5 py-1 rounded shrink-0"
+              style={{
+                background: avecFichier ? 'var(--blue-bg)' : 'transparent',
+                color: avecFichier ? 'var(--blue)' : 'var(--txt-3)',
+                border: `1px solid ${avecFichier ? 'var(--blue)' : 'var(--brd-sub)'}`,
+              }}
+              title="N'afficher que les morceaux dont le fichier est déposé"
+            >
+              fichier
+            </button>
+          </div>
+        </div>
+
         <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-1">
           {listeAffichee.length === 0 && (
             <p className="text-[11px] italic p-2" style={{ color: 'var(--txt-3)' }}>
@@ -151,8 +248,18 @@ export default function BerceauEditor({
                     {p.titre}
                   </p>
                   <p className="text-[10px] truncate" style={{ color: 'var(--txt-3)' }}>
-                    {p.artiste_text || p.artiste?.nom || '—'}
-                    {dejaPose > 0 && ` · déjà posé ${dejaPose}×`}
+                    {[
+                      p.artiste_text || p.artiste?.nom || '—',
+                      aggregates?.get(p.id)?.noteAvg
+                        ? `★ ${Math.round(aggregates.get(p.id).noteAvg * 10) / 10}`
+                        : null,
+                      p.audio_features?.tempo > 0
+                        ? `${Math.round(p.audio_features.tempo)} bpm`
+                        : null,
+                      dejaPose > 0 ? `posé ${dejaPose}×` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                 </div>
                 <SourceBadge source={source} />

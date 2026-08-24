@@ -8,12 +8,13 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from 'react'
-import { AudioLines, Loader2, Plus, Trash2 } from 'lucide-react'
+import { AudioLines, Copy, Loader2, Plus, Trash2 } from 'lucide-react'
 import {
   addBloc,
   createBerceau,
   deleteBerceau,
   deleteBloc,
+  duplicateBerceau,
   listBerceaux,
   listBlocs,
   reorderBlocs,
@@ -31,6 +32,7 @@ export default function BerceauxView({
   propositions = [],
   livrables = [],
   links = [],
+  aggregates = null,
   canEdit = true,
   userId = null,
 }) {
@@ -67,7 +69,13 @@ export default function BerceauxView({
 
   async function handleCreate() {
     try {
-      const b = await createBerceau({ projectId, nom: 'Nouveau berceau', userId })
+      // Numéroter plutôt que répéter « Nouveau berceau » : deux entrées du
+      // même nom dans le sélecteur ne se distinguent plus.
+      const b = await createBerceau({
+        projectId,
+        nom: `Berceau ${berceaux.length + 1}`,
+        userId,
+      })
       setBerceaux((prev) => [b, ...prev])
       setCurrentId(b.id)
     } catch (err) {
@@ -86,6 +94,17 @@ export default function BerceauxView({
     await deleteBerceau(berceau.id)
     setBerceaux((prev) => prev.filter((b) => b.id !== berceau.id))
     if (currentId === berceau.id) setCurrentId(null)
+  }
+
+  async function handleDuplicate() {
+    if (!current) return
+    try {
+      const copie = await duplicateBerceau({ berceau: current, blocs, userId })
+      setBerceaux((prev) => [copie, ...prev])
+      setCurrentId(copie.id)
+    } catch (err) {
+      notify.error('Duplication : ' + (err?.message || err))
+    }
   }
 
   async function patchBerceau(patch) {
@@ -179,7 +198,7 @@ export default function BerceauxView({
             style={{ color: 'var(--txt-2)', border: '1px dashed var(--brd)' }}
           >
             <Plus className="w-3.5 h-3.5" />
-            Nouveau berceau
+            Créer un berceau
           </button>
         )}
       </div>
@@ -244,15 +263,27 @@ export default function BerceauxView({
               />
             </label>
             {canEdit && (
-              <button
-                type="button"
-                onClick={() => handleDelete(current)}
-                className="ml-auto p-1.5"
-                style={{ color: 'var(--txt-3)' }}
-                title="Supprimer ce berceau"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleDuplicate}
+                  className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded-lg"
+                  style={{ color: 'var(--txt-2)', border: '1px solid var(--brd-sub)' }}
+                  title="Essayer une variante sans perdre celle-ci"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Dupliquer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(current)}
+                  className="p-1.5"
+                  style={{ color: 'var(--txt-3)' }}
+                  title="Supprimer ce berceau"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
             )}
           </div>
 
@@ -261,6 +292,7 @@ export default function BerceauxView({
             blocs={blocs}
             propositions={propositions}
             links={links}
+            aggregates={aggregates}
             canEdit={canEdit}
             onAddBloc={handleAddBloc}
             onUpdateBloc={handleUpdateBloc}

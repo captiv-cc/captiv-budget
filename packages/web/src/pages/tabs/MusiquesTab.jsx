@@ -1261,6 +1261,7 @@ export default function MusiquesTab() {
           propositions={propositions}
           livrables={livrablesList}
           links={linksList}
+          aggregates={aggregates}
           canEdit={canEdit}
           userId={user?.id || null}
         />

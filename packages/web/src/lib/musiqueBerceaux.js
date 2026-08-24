@@ -191,6 +191,39 @@ export async function deleteBloc(id) {
   if (error) throw error
 }
 
+/**
+ * Duplique un berceau avec ses blocs. Le geste central de cet outil :
+ * « et si on commençait par Moby ? » — on essaie sans perdre la version
+ * qui marchait.
+ */
+export async function duplicateBerceau({ berceau, blocs, userId = null }) {
+  const copie = await createBerceau({
+    projectId: berceau.project_id,
+    nom: `${berceau.nom} (copie)`,
+    livrableId: berceau.livrable_id,
+    dureeCibleMs: berceau.duree_cible_ms,
+    userId,
+  })
+  if (blocs.length > 0) {
+    const { error } = await supabase.from('projet_musique_berceau_blocs').insert(
+      blocs.map((b, i) => ({
+        project_id: berceau.project_id,
+        berceau_id: copie.id,
+        proposition_id: b.proposition_id,
+        sort_order: i,
+        in_ms: b.in_ms,
+        out_ms: b.out_ms,
+        fade_in_ms: b.fade_in_ms,
+        fade_out_ms: b.fade_out_ms,
+        gain: b.gain,
+        note: b.note,
+      })),
+    )
+    if (error) throw error
+  }
+  return copie
+}
+
 /** Réécrit l'ordre après un glisser-déposer. */
 export async function reorderBlocs(blocsOrdonnes) {
   const updates = blocsOrdonnes.map((b, i) =>
