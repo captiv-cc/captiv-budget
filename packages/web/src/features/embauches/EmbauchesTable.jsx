@@ -15,13 +15,14 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useMemo, useState } from 'react'
-import { Pencil, Trash2, AlertCircle } from 'lucide-react'
+import { Pencil, Trash2, Copy, AlertCircle } from 'lucide-react'
 import useColumnWidths from '../../hooks/useColumnWidths'
 import ColumnResizer from '../../components/table/ColumnResizer'
 import Tooltip from '../../components/Tooltip'
 import { fmtEur } from '../../lib/cotisations'
 import {
   computeEmbauche, totauxEmbauches, nomEmbauche, etatContrat, infosManquantes,
+  estAPourvoir,
 } from '../../lib/embauches'
 
 const DEFAULTS = {
@@ -38,7 +39,7 @@ const DEFAULTS = {
   cout: 108,
   marge: 104,
   remarques: 160,
-  actions: 68,
+  actions: 92,
 }
 
 const ETAT_COULEURS = {
@@ -127,6 +128,7 @@ export default function EmbauchesTable({
   params,
   onEdit,
   onDelete,
+  onDuplicate,
   onPatch,
   lecture = false,
 }) {
@@ -268,14 +270,19 @@ export default function EmbauchesTable({
               const etat = etatContrat(e)
               const couleurs = ETAT_COULEURS[etat.key]
               const manques = infosManquantes(e)
+              const ouvert = estAPourvoir(e)
 
               return (
                 <tr key={e.id} style={{ borderTop: '1px solid var(--brd-sub)' }}>
                   <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
-                        className="text-xs font-medium truncate"
-                        style={{ color: 'var(--txt)' }}
+                        className="text-xs truncate"
+                        style={{
+                          color: ouvert ? 'var(--txt-3)' : 'var(--txt)',
+                          fontStyle: ouvert ? 'italic' : 'normal',
+                          fontWeight: ouvert ? 400 : 500,
+                        }}
                       >
                         {nomEmbauche(e)}
                       </span>
@@ -406,6 +413,16 @@ export default function EmbauchesTable({
                           aria-label="Ouvrir la fiche"
                         >
                           <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDuplicate?.(e)}
+                          className="w-6 h-6 rounded flex items-center justify-center"
+                          style={{ color: 'var(--txt-3)' }}
+                          aria-label="Dupliquer"
+                          title="Dupliquer : même poste, mêmes jours, mêmes frais"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"

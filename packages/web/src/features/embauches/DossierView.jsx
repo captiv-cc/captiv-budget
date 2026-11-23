@@ -22,7 +22,7 @@ import {
 } from '../../lib/embauches'
 import {
   listEmbauches, updateEmbauche, deleteEmbauche, createEmbauche,
-  saveJours, fetchMembresProjet,
+  duplicateEmbauche, saveJours, fetchMembresProjet,
 } from '../../lib/embauchesData'
 
 function Stat({ label, valeur, sous, couleur }) {
@@ -106,6 +106,17 @@ export default function DossierView({ dossier, params, orgId, onRetour, onDossie
     } catch (err) {
       notify.error('Suppression : ' + (err?.message || err))
       charger()
+    }
+  }
+
+  async function dupliquer(embauche) {
+    try {
+      await duplicateEmbauche(embauche)
+      notify.success('Embauche dupliquée.')
+      charger()
+    } catch (err) {
+      console.error('[embauches] dupliquer:', err)
+      notify.error('Duplication : ' + (err?.message || err))
     }
   }
 
@@ -288,6 +299,7 @@ export default function DossierView({ dossier, params, orgId, onRetour, onDossie
           params={params}
           onEdit={(e) => setFiche({ embauche: e })}
           onDelete={supprimer}
+          onDuplicate={dupliquer}
           onPatch={patcher}
         />
       )}

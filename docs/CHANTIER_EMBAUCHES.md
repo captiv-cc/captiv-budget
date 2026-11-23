@@ -219,7 +219,7 @@ reste possible pour les cas particuliers (Alsace-Moselle, outre-mer).
 ### Règles de majoration
 
 Paramétrables, **jamais codées en dur**. Pré-remplies avec tes valeurs
-(seuil 35 h, HS 25 %, dimanche 100 %, férié 100 %, nuit 25 %),
+(seuil 35 h, HS 25 %, dimanche 100 %, férié 100 %, nuit 25 % de minuit à 6 h),
 surchargeables par convention et par poste. Je n'invente pas les règles
 conventionnelles par filière : si elles diffèrent selon les postes, tu
 les renseignes et l'outil les applique.
@@ -359,3 +359,6 @@ manquantes, sous-minimum conventionnel).
 | 10 | « Numéro d'objet » (France Travail) et « BC / Réf. projet » (client) sont deux références distinctes. Le premier porte un lien vers le portail employeur. |
 | 11 | Grille 3252 fournie par Hugo (Grilles de fonctions et salaires, filière AV 2024 ETSCE) : table `minimas_etsce` à part, 105 fonctions, plancher = taux horaire CDDU. |
 | 12 | Les majorations se règlent PAR CONVENTION (`embauche_params`, une ligne par IDCC), depuis « Règles de calcul » sur la page Embauches. Sans ligne enregistrée, le calcul applique les valeurs par défaut et l'interface le signale. |
+| 13 | Les heures de nuit se comptent **à partir de minuit** (plage 00:00 → 06:00 par défaut). La plage reste un paramètre par convention : une convention qui compte la nuit dès 22 h se règle sans toucher au code. |
+| 14 | Une embauche peut n'avoir **personne** : sans nom ni fiche annuaire, c'est un « poste à pourvoir ». Pas de colonne dédiée, l'état se déduit, et la fiche refuse d'enregistrer un anonyme autrement que par la case. |
+| 15 | Les minima d'un poste sont **proposés**, pas seulement contrôlés : la 2642 en publie un par type d'œuvre, un clic renseigne le taux et le type d'œuvre. Le poste ne se saisit plus librement, il se choisit dans la grille de la convention. |

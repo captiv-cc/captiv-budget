@@ -6,6 +6,9 @@ import {
   natureForDate,
   lundiDeLaSemaine,
   heuresFromHoraires,
+  plageNuit,
+  estAPourvoir,
+  infosManquantes,
   tauxHoraire,
   coefVente,
   computeEmbauche,
@@ -109,19 +112,37 @@ describe('heuresFromHoraires', () => {
   })
 
   it('gère le passage de minuit', () => {
-    expect(heuresFromHoraires('19:00', '02:00')).toEqual({ heures: 7, heuresNuit: 4 })
+    // La plage par défaut court de minuit à 6 h : sur 19 h → 2 h, seules les
+    // deux dernières heures sont des heures de nuit.
+    expect(heuresFromHoraires('19:00', '02:00')).toEqual({ heures: 7, heuresNuit: 2 })
   })
 
   it('compte la nuit de fin de service', () => {
-    expect(heuresFromHoraires('23:00', '07:00')).toEqual({ heures: 8, heuresNuit: 7 })
+    expect(heuresFromHoraires('23:00', '07:00')).toEqual({ heures: 8, heuresNuit: 6 })
   })
 
   it('compte la nuit de début de service', () => {
     expect(heuresFromHoraires('05:00', '13:00')).toEqual({ heures: 8, heuresNuit: 1 })
   })
 
+  it('suit la plage de nuit de la convention', () => {
+    // Même service, deux conventions : 19 h → 3 h donne 3 h de nuit à partir
+    // de minuit, et 5 h si la convention compte la nuit dès 22 h.
+    expect(heuresFromHoraires('19:00', '03:00')).toEqual({ heures: 8, heuresNuit: 3 })
+    expect(
+      heuresFromHoraires('19:00', '03:00', { nuit_debut: '22:00', nuit_fin: '06:00' }),
+    ).toEqual({ heures: 8, heuresNuit: 5 })
+  })
+
   it('renvoie zéro sans horaires', () => {
     expect(heuresFromHoraires(null, '19:00')).toEqual({ heures: 0, heuresNuit: 0 })
+  })
+})
+
+describe('plageNuit', () => {
+  it('affiche la plage appliquée', () => {
+    expect(plageNuit()).toBe('00:00 → 06:00')
+    expect(plageNuit({ nuit_debut: '22:00:00', nuit_fin: '07:00:00' })).toBe('22:00 → 07:00')
   })
 })
 
@@ -519,8 +540,26 @@ describe('nomEmbauche', () => {
     )
   })
 
-  it('ne renvoie jamais une chaîne vide', () => {
-    expect(nomEmbauche({})).toBe('Sans nom')
+  it('nomme le poste ouvert plutôt que de laisser un vide', () => {
+    expect(nomEmbauche({})).toBe('Poste à pourvoir')
+  })
+})
+
+describe('estAPourvoir', () => {
+  it('reconnaît une ligne sans identité ni fiche', () => {
+    expect(estAPourvoir({ nom: '', prenom: '' })).toBe(true)
+  })
+
+  it('une fiche annuaire liée suffit à désigner quelqu’un', () => {
+    expect(estAPourvoir({ nom: '', contact_id: 'abc' })).toBe(false)
+  })
+
+  it('un nom suffit', () => {
+    expect(estAPourvoir({ nom: 'Bongiardino' })).toBe(false)
+  })
+
+  it('ne réclame rien à un poste ouvert', () => {
+    expect(infosManquantes({ nom: '', prenom: '' })).toEqual([])
   })
 })
 

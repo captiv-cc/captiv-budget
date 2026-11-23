@@ -13,47 +13,8 @@ import { AlertTriangle, Loader2, Save, X } from 'lucide-react'
 import { notify } from '../../lib/notify'
 import { CONVENTIONS, DEFAULT_PARAMS } from '../../lib/embauches'
 import { saveParams } from '../../lib/embauchesData'
-
-const inputStyle = {
-  background: 'var(--bg-elev)',
-  border: '1px solid var(--brd)',
-  color: 'var(--txt)',
-}
-
-function Champ({ label, aide, children }) {
-  return (
-    <label className="block">
-      <span className="block text-[11px] font-medium mb-1" style={{ color: 'var(--txt-3)' }}>
-        {label}
-      </span>
-      {children}
-      {aide && (
-        <span className="block text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
-          {aide}
-        </span>
-      )}
-    </label>
-  )
-}
-
-function Pourcent({ value, onChange }) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="number"
-        step="1"
-        min="0"
-        value={Math.round((Number(value) || 0) * 100)}
-        onChange={(e) => onChange((Number(e.target.value) || 0) / 100)}
-        className="w-24 px-2.5 py-1.5 rounded-lg text-sm text-right outline-none tabular-nums"
-        style={inputStyle}
-      />
-      <span className="text-sm" style={{ color: 'var(--txt-3)' }}>
-        %
-      </span>
-    </div>
-  )
-}
+import { Champ, Nombre, Pourcent } from './ui'
+import { inputStyle } from './styles'
 
 export default function ParamsModal({ orgId, parConvention, onClose, onSaved }) {
   const [convention, setConvention] = useState(CONVENTIONS[0].key)
@@ -183,17 +144,16 @@ export default function ParamsModal({ orgId, parConvention, onClose, onSaved }) 
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Champ label="Seuil hebdomadaire" aide="Heures par semaine.">
-              <input
-                type="number"
+              <Nombre
+                value={form.seuil_hs_hebdo}
+                onChange={(v) => set('seuil_hs_hebdo', v ?? 0)}
                 step="1"
-                min="0"
-                value={form.seuil_hs_hebdo ?? ''}
-                onChange={(e) => set('seuil_hs_hebdo', Number(e.target.value) || 0)}
-                className="w-full px-2.5 py-1.5 rounded-lg text-sm text-right outline-none tabular-nums"
-                style={inputStyle}
               />
             </Champ>
-            <Champ label="Nuit, début">
+            <Champ
+              label="Nuit, début"
+              aide="Les heures qui tombent dans cette plage sont majorées."
+            >
               <input
                 type="time"
                 value={String(form.nuit_debut || '').slice(0, 5)}
@@ -234,28 +194,18 @@ export default function ParamsModal({ orgId, parConvention, onClose, onSaved }) 
                 />
               </Champ>
               <Champ label="Frais de dossier facturés">
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={form.frais_dossier_facture_defaut ?? ''}
-                  onChange={(e) =>
-                    set('frais_dossier_facture_defaut', Number(e.target.value) || 0)
-                  }
-                  className="w-full px-2.5 py-1.5 rounded-lg text-sm text-right outline-none tabular-nums"
-                  style={inputStyle}
-                />
+                <Nombre
+                value={form.frais_dossier_facture_defaut}
+                onChange={(v) => set('frais_dossier_facture_defaut', v ?? 0)}
+                step="1"
+              />
               </Champ>
               <Champ label="Frais de dossier dus">
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={form.frais_dossier_cout_defaut ?? ''}
-                  onChange={(e) => set('frais_dossier_cout_defaut', Number(e.target.value) || 0)}
-                  className="w-full px-2.5 py-1.5 rounded-lg text-sm text-right outline-none tabular-nums"
-                  style={inputStyle}
-                />
+                <Nombre
+                value={form.frais_dossier_cout_defaut}
+                onChange={(v) => set('frais_dossier_cout_defaut', v ?? 0)}
+                step="1"
+              />
               </Champ>
             </div>
           </div>

@@ -132,6 +132,10 @@ export const TYPES_OEUVRE = [
   { key: 'hors_fiction_flux', label: 'Hors fiction & flux', grille: 'Hors_fiction_flux' },
 ]
 
+export function typeOeuvreLabel(key) {
+  return TYPES_OEUVRE.find((t) => t.key === key)?.label || ''
+}
+
 export function typeOeuvreGrille(key) {
   return TYPES_OEUVRE.find((t) => t.key === key)?.grille || null
 }
@@ -169,7 +173,10 @@ export const DEFAULT_PARAMS = Object.freeze({
   maj_dimanche: 1,
   maj_ferie: 1,
   maj_nuit: 0.25,
-  nuit_debut: '22:00',
+  // Minuit → 6 h : c'est la plage que retient Hugo pour la production
+  // audiovisuelle. Une convention qui compte la nuit dès 22 h se règle dans
+  // « Règles de calcul », la plage est un paramètre par convention.
+  nuit_debut: '00:00',
   nuit_fin: '06:00',
   taux_charges_estime: 0.65,
   coef_vente_defaut: 0.8,
@@ -315,6 +322,13 @@ export function heuresFromHoraires(debut, fin, params = DEFAULT_PARAMS) {
     heures: round2(total / 60),
     heuresNuit: round2(Math.min(total, nuit) / 60),
   }
+}
+
+/** Plage de nuit en clair, pour la montrer là où elle s'applique. */
+export function plageNuit(params = DEFAULT_PARAMS) {
+  const d = String(params?.nuit_debut ?? DEFAULT_PARAMS.nuit_debut).slice(0, 5)
+  const f = String(params?.nuit_fin ?? DEFAULT_PARAMS.nuit_fin).slice(0, 5)
+  return `${d} → ${f}`
 }
 
 export function round2(v) {
@@ -473,6 +487,8 @@ export function computeEmbauche({
     totalJours,
     totalHeures,
     heuresNuit,
+    heuresDimanche: round2(heuresDimanche),
+    heuresFerie: round2(heuresFerie),
     tauxHoraire: round2(th),
     brut,
     majorations: {
@@ -597,13 +613,24 @@ export function suggestHeuresSup(jours = [], params = DEFAULT_PARAMS) {
   return out
 }
 
+/**
+ * Ligne sans personne : le poste est ouvert, on ne sait pas encore qui le
+ * tiendra. Pas de colonne dédiée — une embauche sans nom ET sans fiche
+ * annuaire ne peut être que ça, puisque la fiche refuse d'enregistrer un
+ * anonyme autrement.
+ */
+export function estAPourvoir(embauche = {}) {
+  if (embauche.contact_id || embauche.contact?.id) return false
+  return !String(embauche.prenom || '').trim() && !String(embauche.nom || '').trim()
+}
+
 /** Nom affichable d'une embauche (snapshot d'abord, contact en secours). */
 export function nomEmbauche(embauche = {}) {
   const direct = [embauche.prenom, embauche.nom].filter(Boolean).join(' ').trim()
   if (direct) return direct
   const c = embauche.contact
   const viaContact = [c?.prenom, c?.nom].filter(Boolean).join(' ').trim()
-  return viaContact || 'Sans nom'
+  return viaContact || 'Poste à pourvoir'
 }
 
 /** Avancement du contrat, pour la pastille du tableur. */
@@ -621,6 +648,8 @@ export function etatContrat(embauche = {}) {
  * et ne sont donc pas réclamés ici.
  */
 export function infosManquantes(embauche = {}) {
+  // Un poste à pourvoir n'a rien à manquer : personne n'est encore dessus.
+  if (estAPourvoir(embauche)) return []
   const c = embauche.contact || {}
   const manques = []
   if (!embauche.email && !c.email) manques.push('email')

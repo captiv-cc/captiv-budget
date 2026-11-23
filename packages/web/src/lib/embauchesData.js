@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './supabase'
-import { CONVENTIONS, DEFAULT_PARAMS, conventionKey } from './embauches'
+import { CONVENTIONS, DEFAULT_PARAMS, TYPES_OEUVRE, conventionKey } from './embauches'
 
 // ─── Paramètres de l'organisation ───────────────────────────────────────────
 
@@ -87,6 +87,50 @@ export async function fetchPostesConvention(convention, typeOeuvreGrilleValue = 
     return []
   }
   return [...new Set((data || []).map((r) => r.poste))]
+}
+
+/**
+ * Tous les minima publiés pour un poste, pour les proposer au lieu de
+ * n'alerter qu'après coup.
+ *
+ * La 2642 en publie plusieurs par poste : un par type d'œuvre (fiction, flux,
+ * hors fiction et flux) et par unité, avec une variante « spécialisé ».
+ * La 3252 n'en publie qu'un, un taux horaire CDDU, que l'appelant ramène à
+ * l'unité choisie.
+ *
+ * @returns {{convention: string, lignes: Array, tauxHoraire: number|null}}
+ */
+export async function fetchMinimasPoste(convention, poste) {
+  const k = conventionKey(convention)
+  const vide = { convention: k, lignes: [], tauxHoraire: null }
+  if (!poste) return vide
+
+  if (k === '3252') {
+    const row = await fetchMinimaEtsce(poste)
+    const th = row?.taux_horaire_cddu
+    return { ...vide, tauxHoraire: th == null ? null : Number(th) }
+  }
+  if (k !== '2642') return vide
+
+  const { data, error } = await supabase
+    .from('minimas_convention')
+    .select('type_oeuvre, is_specialise, unite, montant_brut, filiere, niveau')
+    .eq('poste', poste)
+  if (error) {
+    console.error('[embauches] fetchMinimasPoste:', error)
+    return vide
+  }
+
+  const parGrille = Object.fromEntries(TYPES_OEUVRE.map((t) => [t.grille, t.key]))
+  const lignes = (data || []).map((r) => ({
+    typeOeuvre: parGrille[r.type_oeuvre] || null,
+    specialise: Boolean(r.is_specialise),
+    unite: r.unite,
+    montant: Number(r.montant_brut),
+    filiere: r.filiere,
+    niveau: r.niveau,
+  }))
+  return { ...vide, lignes }
 }
 
 /** Ligne de la grille 3252 pour un poste donné. */
@@ -277,6 +321,43 @@ export async function updateEmbauche(id, patch) {
     .single()
   if (error) throw error
   return normalizeEmbauche(data)
+}
+
+/**
+ * Duplique une embauche dans son dossier : même poste, mêmes jours, mêmes
+ * frais. Un tournage aligne six contrats identiques à l'identité près, les
+ * ressaisir six fois n'apprend rien à personne.
+ *
+ * Le coût réel ne suit PAS : c'est un relevé Movinmotion, propre au contrat
+ * d'origine. Le copier inventerait une dépense.
+ */
+export async function duplicateEmbauche(embauche) {
+  if (!embauche?.id) throw new Error('Embauche inconnue')
+  const ligne = await createEmbauche({
+    dossier_id: embauche.dossier_id,
+    contact_id: embauche.contact_id || null,
+    nom: embauche.nom || '',
+    prenom: embauche.prenom || null,
+    email: embauche.email || null,
+    telephone: embauche.telephone || null,
+    poste_france_travail: embauche.poste_france_travail || null,
+    libelle_poste: embauche.libelle_poste || null,
+    statut_categoriel: embauche.statut_categoriel || null,
+    type_oeuvre: embauche.type_oeuvre || null,
+    taux: Number(embauche.taux) || 0,
+    unite_taux: embauche.unite_taux || 'jour_8h',
+    coef_vente: embauche.coef_vente ?? null,
+    frais_dossier_actif: embauche.frais_dossier_actif !== false,
+    frais_dossier_facture: embauche.frais_dossier_facture ?? null,
+    remarques: embauche.remarques || null,
+  })
+
+  await Promise.all([
+    saveJours(ligne.id, embauche.jours || []),
+    saveMajorations(ligne.id, embauche.majorations || []),
+    saveFrais(ligne.id, embauche.frais || []),
+  ])
+  return ligne
 }
 
 export async function deleteEmbauche(id) {

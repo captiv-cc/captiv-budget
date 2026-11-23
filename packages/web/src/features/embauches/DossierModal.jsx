@@ -15,60 +15,13 @@ import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
 import { CONVENTIONS, MODES, STATUTS_DOSSIER, conventionKey } from '../../lib/embauches'
 import { createDossier, updateDossier } from '../../lib/embauchesData'
+import { Champ, Txt } from './ui'
+import { inputStyle, selectStyle } from './styles'
 
 // Portail employeur France Travail : c'est là que se récupère le numéro
 // d'objet d'un contrat. URL fournie par Hugo (connexion employeur).
 const URL_FRANCE_TRAVAIL =
   'https://authentification-pro.francetravail.fr/connexion/XUI/?realm=/employeur&goto=https://authentification-pro.francetravail.fr/connexion/oauth2/employeur/authorize?realm%3D/employeur%26response_type%3Dcode%26client_id%3DENT_PO018-PORTAILENTREPRISE_C2356069E9D1E79CA924378153CFBBFB4D4416B1F99D41A2940BFDB66C5319DB%26scope%3Dopenid%2520profile%2520email%2520application_ENT_PO018-PORTAILENTREPRISE%2520rechercheProfil%2520logW%26redirect_uri%3Dhttps://pro.francetravail.fr/accueil/auth/auth.html%26state%3D0gI6Lp5iD4HNArBWU1dl8g%26nonce%3DhUBEf9CQ2aZj0C3nGbMZaw#login/'
-
-const inputStyle = {
-  background: 'var(--bg-elev)',
-  border: '1px solid var(--brd)',
-  color: 'var(--txt)',
-}
-
-// SearchSelect rend un bouton en text-xs sur fond var(--bg) : on l'aligne
-// sur les champs texte de la modale (14 px, même fond, même hauteur).
-const selectStyle = {
-  background: 'var(--bg-elev)',
-  fontSize: 14,
-  paddingTop: 6,
-  paddingBottom: 6,
-  width: '100%',
-}
-
-function Champ({ label, aide, action = null, children, className = '' }) {
-  return (
-    <label className={`block ${className}`}>
-      <span
-        className="flex items-center gap-1.5 text-[11px] font-medium mb-1"
-        style={{ color: 'var(--txt-3)' }}
-      >
-        {label}
-        {action}
-      </span>
-      {children}
-      {aide && (
-        <span className="block text-[10px] mt-1" style={{ color: 'var(--txt-3)' }}>
-          {aide}
-        </span>
-      )}
-    </label>
-  )
-}
-
-function Txt({ value, onChange, ...rest }) {
-  return (
-    <input
-      type="text"
-      value={value ?? ''}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2.5 py-1.5 rounded-lg text-sm outline-none"
-      style={inputStyle}
-      {...rest}
-    />
-  )
-}
 
 export default function DossierModal({ dossier = null, orgId, projectId = null, onClose, onSaved }) {
   const creation = !dossier?.id
