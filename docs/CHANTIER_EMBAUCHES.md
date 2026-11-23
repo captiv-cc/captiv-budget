@@ -364,3 +364,6 @@ manquantes, sous-minimum conventionnel).
 | 15 | Les minima d'un poste sont **proposés**, pas seulement contrôlés : la 2642 en publie un par type d'œuvre, un clic renseigne le taux et le type d'œuvre. Le poste ne se saisit plus librement, il se choisit dans la grille de la convention. |
 | 16 | Le bandeau de la fiche affiche le brut **majorations comprises** (`brutTotal`). `brut` reste la base nue pour le calcul de l'assiette. Dans le tableur, la colonne s'appelle « Base », puisque « Major. » est juste à côté. |
 | 17 | Une seule page, pas d'onglets : contrat, puis jours. Heures majorées saisies à la main, frais et relevé de coût sont repliés sur une ligne tant qu'ils sont vides. |
+| 18 | Le libellé du poste reprend l'intitulé de la grille **en écriture inclusive** (`libelleInclusif`), tant qu'il n'a pas été écrit à la main. Proposition, pas vérité : la langue a trop d'exceptions. |
+| 19 | En unité « heure » sous la 2642, le minimum se déduit du **jour de 7 h divisé par 7**. Le jour de 8 h donnerait un plancher horaire plus bas que le plancher réel. |
+| 20 | L'avancement du contrat (infos reçues, contrat fait, contrat signé) se pointe **dans le tableur**, pas dans la fiche : c'est du suivi, pas du réglage. Coefficient et frais de dossier sont repliés, ils suivent le dossier neuf fois sur dix. |

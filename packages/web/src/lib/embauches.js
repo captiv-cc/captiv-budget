@@ -132,6 +132,42 @@ export const TYPES_OEUVRE = [
   { key: 'hors_fiction_flux', label: 'Hors fiction & flux', grille: 'Hors_fiction_flux' },
 ]
 
+/**
+ * Libellé inclusif d'un poste, proposé par défaut à partir de l'intitulé de
+ * la grille (« Décorateur » → « Décorateur.rice »).
+ *
+ * Chaque mot porteur d'un genre reçoit sa terminaison ; les mots épicènes
+ * (machiniste, scripte, lumière) et les mots sans genre (« du », « son »)
+ * restent intacts. Ce n'est qu'une PROPOSITION : la langue a trop
+ * d'exceptions pour qu'une règle les couvre toutes, et le champ reste
+ * librement modifiable.
+ */
+const SUFFIXES_INCLUSIFS = [
+  // -ateur / -cteur font leur féminin en -trice : décorateur → décoratrice.
+  [/(ateur|cteur)$/i, '.rice'],
+  // Les autres -eur font -euse : monteur → monteuse, cadreur → cadreuse.
+  [/eur$/i, '.se'],
+  [/ien$/i, '.ne'],
+  [/ier$/i, '.ère'],
+  [/eux$/i, '.se'],
+  [/if$/i, '.ve'],
+  [/(ant|ent|é)$/i, '.e'],
+]
+
+function motInclusif(mot) {
+  if (/^chefs?$/i.test(mot)) return `${mot}.fe`
+  for (const [motif, suffixe] of SUFFIXES_INCLUSIFS) {
+    if (motif.test(mot)) return `${mot}${suffixe}`
+  }
+  return mot
+}
+
+export function libelleInclusif(poste) {
+  const s = String(poste || '').trim()
+  if (!s) return ''
+  return s.split(' ').map(motInclusif).join(' ')
+}
+
 export function typeOeuvreLabel(key) {
   return TYPES_OEUVRE.find((t) => t.key === key)?.label || ''
 }

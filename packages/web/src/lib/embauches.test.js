@@ -7,6 +7,7 @@ import {
   lundiDeLaSemaine,
   heuresFromHoraires,
   plageNuit,
+  libelleInclusif,
   estAPourvoir,
   infosManquantes,
   tauxHoraire,
@@ -136,6 +137,35 @@ describe('heuresFromHoraires', () => {
 
   it('renvoie zéro sans horaires', () => {
     expect(heuresFromHoraires(null, '19:00')).toEqual({ heures: 0, heuresNuit: 0 })
+  })
+})
+
+describe('libelleInclusif', () => {
+  it('accorde les métiers en -ateur', () => {
+    expect(libelleInclusif('Décorateur')).toBe('Décorateur.rice')
+    expect(libelleInclusif('Réalisateur')).toBe('Réalisateur.rice')
+  })
+
+  it('accorde les autres métiers en -eur', () => {
+    expect(libelleInclusif('Cadreur')).toBe('Cadreur.se')
+    expect(libelleInclusif('Monteur')).toBe('Monteur.se')
+  })
+
+  it('accorde chaque mot porteur d’un genre', () => {
+    expect(libelleInclusif('1er assistant décorateur')).toBe('1er assistant.e décorateur.rice')
+    expect(libelleInclusif('Chef électricien')).toBe('Chef.fe électricien.ne')
+  })
+
+  it('laisse les mots épicènes et les mots sans genre tranquilles', () => {
+    expect(libelleInclusif('Machiniste')).toBe('Machiniste')
+    expect(libelleInclusif('Scripte')).toBe('Scripte')
+    // « son » ne porte pas de genre : l'accorder donnerait « son.e ».
+    expect(libelleInclusif('Chef opérateur du son')).toBe('Chef.fe opérateur.rice du son')
+  })
+
+  it('ne rend rien sans poste', () => {
+    expect(libelleInclusif('')).toBe('')
+    expect(libelleInclusif(null)).toBe('')
   })
 })
 

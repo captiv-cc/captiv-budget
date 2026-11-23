@@ -42,7 +42,7 @@ import {
   TAUX_HEURES_SUP, TAUX_AUTRES_MAJOREES,
   computeEmbauche, buildJours, suggestHeuresSup, lundiDeLaSemaine,
   heuresFromHoraires, natureForDate, feriesSet, nomEmbauche, estAPourvoir,
-  plageNuit, round2, conventionKey,
+  plageNuit, round2, conventionKey, libelleInclusif,
 } from '../../lib/embauches'
 import {
   createEmbauche, updateEmbauche, saveJours, saveMajorations, saveFrais, saveCout,
@@ -193,6 +193,23 @@ export default function EmbaucheModal({
       email: c.email || f.email,
       telephone: c.telephone || f.telephone,
     }))
+  }
+
+  /**
+   * Le libellé du poste reprend l'intitulé de la grille en écriture
+   * inclusive. Un libellé écrit à la main n'est jamais écrasé : on ne
+   * remplace que s'il est vide ou s'il vient du poste précédent.
+   */
+  function choisirPoste(v) {
+    setForm((f) => {
+      const issuDuPrecedent =
+        !f.libelle_poste || f.libelle_poste === libelleInclusif(f.poste_france_travail)
+      return {
+        ...f,
+        poste_france_travail: v || '',
+        libelle_poste: issuDuPrecedent ? libelleInclusif(v) : f.libelle_poste,
+      }
+    })
   }
 
   function basculerAPourvoir() {
@@ -410,6 +427,19 @@ export default function EmbaucheModal({
 
   const totalFrais = round2(totaux.fraisSoumis + totaux.fraisNonSoumis)
 
+  const resumeFacturation = modeFraisReels
+    ? form.remarques || 'aucune'
+    : [
+        form.coef_vente == null
+          ? 'coefficient du dossier'
+          : `coefficient ${Math.round(form.coef_vente * 100)} %`,
+        form.frais_dossier_actif
+          ? `frais de dossier ${fmtEur(
+              form.frais_dossier_facture ?? params?.frais_dossier_facture_defaut ?? 25,
+            )}`
+          : 'frais de dossier non facturés',
+      ].join(' · ')
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
@@ -550,7 +580,7 @@ export default function EmbaucheModal({
                   <SearchSelect
                     value={form.poste_france_travail || ''}
                     options={postesGrille}
-                    onChange={(v) => set('poste_france_travail', v || '')}
+                    onChange={choisirPoste}
                     placeholder="Décorateur"
                     style={selectStyle}
                   />
@@ -621,63 +651,52 @@ export default function EmbaucheModal({
               />
             </div>
 
-            {!modeFraisReels && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={separateur}>
-                <Champ
-                  label={`Coefficient de vente (dossier : ${Math.round((dossier?.coef_vente ?? 0) * 100)} %)`}
-                >
-                  <Nombre
-                    value={form.coef_vente == null ? '' : form.coef_vente * 100}
-                    onChange={(v) => set('coef_vente', v == null ? null : v / 100)}
-                    step="1"
-                    placeholder="suit le dossier"
-                  />
-                </Champ>
-                <Champ label="Frais de dossier facturés">
-                  <Nombre
-                    value={form.frais_dossier_facture}
-                    onChange={(v) => set('frais_dossier_facture', v)}
-                    step="1"
-                    placeholder={String(params?.frais_dossier_facture_defaut ?? 25)}
-                    disabled={!form.frais_dossier_actif}
-                  />
-                </Champ>
-                <div className="flex items-end">
-                  <Jalon
-                    actif={form.frais_dossier_actif}
-                    onToggle={() => set('frais_dossier_actif', !form.frais_dossier_actif)}
-                    label="Facturer les frais de dossier"
-                  />
+            {/* Rarement touché : le coefficient suit le dossier, les frais
+                de dossier suivent les réglages. Plié par défaut, ouvert dès
+                que cette embauche sort de la règle. L'avancement du contrat
+                n'est pas ici : il se pointe dans le tableur, d'un clic. */}
+            <Repli
+              plat
+              titre={modeFraisReels ? 'Remarques' : 'Facturation et remarques'}
+              resume={resumeFacturation}
+              defautOuvert={form.coef_vente != null || !form.frais_dossier_actif}
+            >
+              {!modeFraisReels && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <Champ
+                    label={`Coefficient de vente (dossier : ${Math.round((dossier?.coef_vente ?? 0) * 100)} %)`}
+                  >
+                    <Nombre
+                      value={form.coef_vente == null ? '' : form.coef_vente * 100}
+                      onChange={(v) => set('coef_vente', v == null ? null : v / 100)}
+                      step="1"
+                      placeholder="suit le dossier"
+                    />
+                  </Champ>
+                  <Champ label="Frais de dossier facturés">
+                    <Nombre
+                      value={form.frais_dossier_facture}
+                      onChange={(v) => set('frais_dossier_facture', v)}
+                      step="1"
+                      placeholder={String(params?.frais_dossier_facture_defaut ?? 25)}
+                      disabled={!form.frais_dossier_actif}
+                    />
+                  </Champ>
+                  <div className="flex items-end">
+                    <Jalon
+                      actif={form.frais_dossier_actif}
+                      onToggle={() => set('frais_dossier_actif', !form.frais_dossier_actif)}
+                      label="Facturer les frais de dossier"
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Avancement et remarques sur une seule ligne : deux suivis
-                courts valent mieux qu'un bloc chacun. */}
-            <div className="flex flex-wrap items-center gap-2" style={separateur}>
-              <Jalon
-                actif={form.infos_recues}
-                onToggle={() => set('infos_recues', !form.infos_recues)}
-                label="Infos reçues"
+              )}
+              <Txt
+                value={form.remarques}
+                onChange={(v) => set('remarques', v)}
+                placeholder="Remarques"
               />
-              <Jalon
-                actif={form.contrat_fait}
-                onToggle={() => set('contrat_fait', !form.contrat_fait)}
-                label="Contrat fait"
-              />
-              <Jalon
-                actif={form.contrat_signe}
-                onToggle={() => set('contrat_signe', !form.contrat_signe)}
-                label="Contrat signé"
-              />
-              <div className="flex-1 min-w-[180px]">
-                <Txt
-                  value={form.remarques}
-                  onChange={(v) => set('remarques', v)}
-                  placeholder="Remarques"
-                />
-              </div>
-            </div>
+            </Repli>
           </Bloc>
 
           {/* ── Jours et heures ───────────────────────────────────────────── */}

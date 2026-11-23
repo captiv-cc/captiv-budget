@@ -24,6 +24,7 @@ import {
   UNITES_TAUX,
   conventionKey,
   minimumPourUnite,
+  round2,
 } from '../../lib/embauches'
 import { fetchMinimasPoste } from '../../lib/embauchesData'
 import { fmtEur } from '../../lib/cotisations'
@@ -112,7 +113,16 @@ export default function MinimaPoste({
       ]
     }
 
-    const pourUnite = grille.lignes.filter((l) => l.unite === unite)
+    // La 2642 ne publie pas de taux horaire : on le déduit du jour de 7 h,
+    // comme le fait Hugo à la main. Diviser le jour de 8 h donnerait un
+    // plancher plus bas que le plancher réel.
+    const brutes = grille.lignes.filter((l) => l.unite === unite)
+    const deduitHoraire = unite === 'heure' && brutes.length === 0
+    const pourUnite = deduitHoraire
+      ? grille.lignes
+          .filter((l) => l.unite === 'jour_7h')
+          .map((l) => ({ ...l, unite: 'heure', montant: round2(l.montant / 7) }))
+      : brutes
     const ordre = TYPES_OEUVRE.map((t) => t.key)
     return pourUnite
       .slice()
@@ -122,6 +132,7 @@ export default function MinimaPoste({
           Number(a.specialise) - Number(b.specialise),
       )
       .map((l) => ({
+        deduit: deduitHoraire,
         id: `${l.typeOeuvre}-${l.specialise}`,
         titre: TYPES_OEUVRE.find((t) => t.key === l.typeOeuvre)?.label || 'Autre',
         montant: l.montant,
@@ -159,7 +170,8 @@ export default function MinimaPoste({
   return (
     <div className="mt-2">
       <p className="text-[10px] mb-1.5" style={{ color: 'var(--txt-3)' }}>
-        Minima de la grille pour ce poste, en {uniteLabel.toLowerCase()}. Un clic
+        Minima de la grille pour ce poste, en {uniteLabel.toLowerCase()}
+        {propositions[0]?.deduit ? ', déduits du jour de 7 h' : ''}. Un clic
         renseigne le taux.
       </p>
       <div className="flex flex-wrap gap-1.5">
