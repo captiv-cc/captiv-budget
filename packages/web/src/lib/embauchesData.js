@@ -12,32 +12,95 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './supabase'
-import { DEFAULT_PARAMS } from './embauches'
+import { CONVENTIONS, DEFAULT_PARAMS, conventionKey } from './embauches'
 
 // ─── Paramètres de l'organisation ───────────────────────────────────────────
 
-export async function fetchParams(orgId) {
-  if (!orgId) return { ...DEFAULT_PARAMS }
+/**
+ * Paramètres de toutes les conventions, indexés par IDCC.
+ * Une convention sans ligne enregistrée porte `_defaut: true` : le calcul
+ * tourne sur les valeurs par défaut, et l'interface peut le dire.
+ */
+export async function fetchParamsParConvention(orgId) {
+  const vide = Object.fromEntries(
+    CONVENTIONS.map((c) => [c.key, { ...DEFAULT_PARAMS, convention: c.key, _defaut: true }]),
+  )
+  if (!orgId) return vide
+
   const { data, error } = await supabase
     .from('embauche_params')
     .select('*')
     .eq('org_id', orgId)
-    .maybeSingle()
   if (error) {
-    console.error('[embauches] fetchParams:', error)
-    return { ...DEFAULT_PARAMS }
+    console.error('[embauches] fetchParamsParConvention:', error)
+    return vide
   }
-  return data ? { ...DEFAULT_PARAMS, ...data } : { ...DEFAULT_PARAMS }
+
+  const out = { ...vide }
+  for (const row of data || []) {
+    const k = conventionKey(row.convention) || '2642'
+    out[k] = { ...DEFAULT_PARAMS, ...row, convention: k, _defaut: false }
+  }
+  return out
 }
 
-/** Crée la ligne de paramètres au premier réglage (admin seul). */
-export async function saveParams(orgId, patch) {
+/** Crée la ligne de paramètres d'une convention au premier réglage (admin). */
+export async function saveParams(orgId, convention, patch) {
+  const c = conventionKey(convention) || '2642'
   const { data, error } = await supabase
     .from('embauche_params')
-    .upsert({ org_id: orgId, ...patch }, { onConflict: 'org_id' })
+    .upsert({ org_id: orgId, convention: c, ...patch }, { onConflict: 'org_id,convention' })
     .select()
     .single()
   if (error) throw error
+  return { ...DEFAULT_PARAMS, ...data, convention: c, _defaut: false }
+}
+
+// ─── Grilles de minima ──────────────────────────────────────────────────────
+
+/**
+ * Postes de la grille applicable à la convention du dossier.
+ * La 2642 vit dans `minimas_convention` (indexée par type d'œuvre), la 3252
+ * dans `minimas_etsce` (indexée par filière). Les deux rendent ici une
+ * simple liste de libellés, dédoublonnée et triée.
+ */
+export async function fetchPostesConvention(convention, typeOeuvreGrilleValue = null) {
+  const k = conventionKey(convention)
+  if (k === '3252') {
+    const { data, error } = await supabase
+      .from('minimas_etsce')
+      .select('poste')
+      .order('poste')
+    if (error) {
+      console.error('[embauches] fetchPostesConvention 3252:', error)
+      return []
+    }
+    return [...new Set((data || []).map((r) => r.poste))]
+  }
+  if (k !== '2642') return []
+
+  let q = supabase.from('minimas_convention').select('poste').order('poste')
+  if (typeOeuvreGrilleValue) q = q.eq('type_oeuvre', typeOeuvreGrilleValue)
+  const { data, error } = await q
+  if (error) {
+    console.error('[embauches] fetchPostesConvention 2642:', error)
+    return []
+  }
+  return [...new Set((data || []).map((r) => r.poste))]
+}
+
+/** Ligne de la grille 3252 pour un poste donné. */
+export async function fetchMinimaEtsce(poste) {
+  if (!poste) return null
+  const { data, error } = await supabase
+    .from('minimas_etsce')
+    .select('poste, taux_horaire_cddu, salaire_mensuel_35h, classification, filiere')
+    .eq('poste', poste)
+    .maybeSingle()
+  if (error) {
+    console.error('[embauches] fetchMinimaEtsce:', error)
+    return null
+  }
   return data
 }
 

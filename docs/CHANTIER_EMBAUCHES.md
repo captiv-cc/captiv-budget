@@ -174,7 +174,8 @@ embauche_dossiers
   org_id, nom, client_id?, project_id?            ← lien Desk optionnel
   mode (portage | frais_reels), coef_vente
   convention (IDCC : 2642 | 3252), type_projet, resume, lieu
-  numero_objet (= bon de commande), statut, date_debut, date_fin
+  numero_objet (France Travail), bon_commande (client)
+  statut, date_debut, date_fin
 
 embauches
   dossier_id, contact_id?                          ← + snapshot identité
@@ -355,4 +356,6 @@ manquantes, sous-minimum conventionnel).
 | 7 | Pas de génération de facture : suivi seul. |
 | 8 | Saisie des heures au format Movinmotion, avec mode horaires optionnel et calcul automatique. |
 | 9 | Deux conventions seulement, stockées par IDCC : 2642 (production audiovisuelle) et 3252 (entreprises au service de la création et de l'événement). La grille des minima en base ne vaut que pour la 2642. |
-| 10 | « Numéro d'objet » et « bon de commande » sont la même référence : un seul champ, avec un lien vers le portail employeur France Travail où il se récupère. |
+| 10 | « Numéro d'objet » (France Travail) et « BC / Réf. projet » (client) sont deux références distinctes. Le premier porte un lien vers le portail employeur. |
+| 11 | Grille 3252 fournie par Hugo (Grilles de fonctions et salaires, filière AV 2024 ETSCE) : table `minimas_etsce` à part, 105 fonctions, plancher = taux horaire CDDU. |
+| 12 | Les majorations se règlent PAR CONVENTION (`embauche_params`, une ligne par IDCC), depuis « Règles de calcul » sur la page Embauches. Sans ligne enregistrée, le calcul applique les valeurs par défaut et l'interface le signale. |

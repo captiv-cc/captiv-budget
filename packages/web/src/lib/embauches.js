@@ -81,6 +81,18 @@ export function conventionAGrille(v) {
   return CONVENTIONS.find((c) => c.key === k)?.grilleMinimas === true
 }
 
+/**
+ * Paramètres applicables à une convention.
+ * Une convention sans ligne enregistrée retombe sur les valeurs par défaut —
+ * qui sont celles de la production audiovisuelle. L'interface le signale
+ * plutôt que de laisser croire que les taux ont été vérifiés.
+ */
+export function paramsPourConvention(parConvention, convention) {
+  const k = conventionKey(convention) || '2642'
+  const trouve = parConvention && parConvention[k]
+  return trouve || { ...DEFAULT_PARAMS, _defaut: true }
+}
+
 /** Heures de référence par unité de taux (vocabulaire Movinmotion). */
 export const UNITES_TAUX = [
   { key: 'jour_7h', label: 'Jour (7 h)', heures: 7 },
@@ -89,6 +101,28 @@ export const UNITES_TAUX = [
   { key: 'semaine_39h', label: 'Semaine (39 h)', heures: 39 },
   { key: 'heure', label: 'Heure', heures: 1 },
 ]
+
+/** Heures couvertes par une unité de taux. */
+export function heuresUnite(unite) {
+  return UNITES_TAUX.find((u) => u.key === unite)?.heures ?? 0
+}
+
+/**
+ * Minimum pour une unité donnée à partir d'un taux HORAIRE (grille 3252, qui
+ * ne publie qu'un taux horaire CDDU). Au-delà du seuil hebdomadaire, les
+ * heures en plus portent leur majoration : un minimum pour 39 h qui
+ * ignorerait les heures supplémentaires serait sous le plancher réel.
+ */
+export function minimumPourUnite(tauxHoraire, unite, params = DEFAULT_PARAMS) {
+  const t = num(tauxHoraire)
+  const h = heuresUnite(unite)
+  if (!t || !h) return null
+  const seuil = num(params?.seuil_hs_hebdo, DEFAULT_PARAMS.seuil_hs_hebdo)
+  const estSemaine = String(unite).startsWith('semaine')
+  if (!estSemaine || h <= seuil) return round2(t * h)
+  const maj = num(params?.maj_hs, DEFAULT_PARAMS.maj_hs)
+  return round2(t * seuil + t * (h - seuil) * (1 + maj))
+}
 
 // `grille` = la valeur telle qu'elle est stockée dans minimas_convention,
 // qui n'a pas la même casse que nos clés internes.

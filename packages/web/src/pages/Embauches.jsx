@@ -12,16 +12,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   FileSignature, Plus, ChevronLeft, ChevronRight, Loader2, FolderOpen, Info,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import DossierModal from '../features/embauches/DossierModal'
 import DossierView from '../features/embauches/DossierView'
+import ParamsModal from '../features/embauches/ParamsModal'
 import EmbauchesTable from '../features/embauches/EmbauchesTable'
 import { fmtEur } from '../lib/cotisations'
 import {
-  computeEmbauche, totauxEmbauches, bornesMois, MODES, STATUTS_DOSSIER,
+  computeEmbauche, totauxEmbauches, bornesMois, paramsPourConvention,
+  MODES, STATUTS_DOSSIER,
 } from '../lib/embauches'
-import { fetchParams, listDossiers, listEmbauchesPeriode } from '../lib/embauchesData'
+import {
+  fetchParamsParConvention,
+  listDossiers,
+  listEmbauchesPeriode,
+} from '../lib/embauchesData'
 
 const MOIS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -51,7 +58,7 @@ function Stat({ label, valeur, sous, couleur }) {
 
 // ─── Vue mensuelle ──────────────────────────────────────────────────────────
 
-function VueMois({ orgId, params, onOuvrirDossier }) {
+function VueMois({ orgId, paramsParConvention, onOuvrirDossier }) {
   const maintenant = new Date()
   const [periode, setPeriode] = useState({
     annee: maintenant.getFullYear(),
@@ -101,14 +108,14 @@ function VueMois({ orgId, params, onOuvrirDossier }) {
             majorations: e.majorations,
             frais: e.frais,
             dossier,
-            params,
+            params: paramsPourConvention(paramsParConvention, dossier?.convention),
             cout: e.cout,
           }),
         )
       }
     }
     return totauxEmbauches(calcs)
-  }, [parDossier, params])
+  }, [parDossier, paramsParConvention])
 
   // Un contrat à cheval sur deux mois compte ici pour sa totalité : les
   // majorations et les frais ne portent pas de date, les proratiser
@@ -222,7 +229,7 @@ function VueMois({ orgId, params, onOuvrirDossier }) {
             <EmbauchesTable
               embauches={embauches}
               dossier={dossier}
-              params={params}
+              params={paramsPourConvention(paramsParConvention, dossier?.convention)}
               lecture
             />
           </div>
@@ -306,15 +313,16 @@ export default function Embauches() {
   const [vue, setVue] = useState('mois')
   const [dossiers, setDossiers] = useState([])
   const [chargement, setChargement] = useState(true)
-  const [params, setParams] = useState(null)
+  const [paramsParConvention, setParamsParConvention] = useState(null)
+  const [reglages, setReglages] = useState(false)
   const [creation, setCreation] = useState(false)
   const [ouvert, setOuvert] = useState(null)
 
   const charger = useCallback(async () => {
     if (!orgId) return
     setChargement(true)
-    const [p, d] = await Promise.all([fetchParams(orgId), listDossiers(orgId)])
-    setParams(p)
+    const [p, d] = await Promise.all([fetchParamsParConvention(orgId), listDossiers(orgId)])
+    setParamsParConvention(p)
     setDossiers(d)
     setChargement(false)
   }, [orgId])
@@ -348,22 +356,33 @@ export default function Embauches() {
         </div>
 
         {!ouvert && (
-          <button
-            type="button"
-            onClick={() => setCreation(true)}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-            style={{ background: 'var(--blue)', color: '#fff' }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Nouveau dossier
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setReglages(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5"
+              style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              Règles de calcul
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreation(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+              style={{ background: 'var(--blue)', color: '#fff' }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Nouveau dossier
+            </button>
+          </div>
         )}
       </div>
 
       {ouvert ? (
         <DossierView
           dossier={ouvert}
-          params={params}
+          params={paramsPourConvention(paramsParConvention, ouvert.convention)}
           orgId={orgId}
           onRetour={() => {
             setOuvert(null)
@@ -398,8 +417,12 @@ export default function Embauches() {
           </div>
 
           {vue === 'mois' ? (
-            params && (
-              <VueMois orgId={orgId} params={params} onOuvrirDossier={ouvrirDossier} />
+            paramsParConvention && (
+              <VueMois
+                orgId={orgId}
+                paramsParConvention={paramsParConvention}
+                onOuvrirDossier={ouvrirDossier}
+              />
             )
           ) : (
             <ListeDossiers
@@ -409,6 +432,17 @@ export default function Embauches() {
             />
           )}
         </>
+      )}
+
+      {reglages && paramsParConvention && (
+        <ParamsModal
+          orgId={orgId}
+          parConvention={paramsParConvention}
+          onClose={() => setReglages(false)}
+          onSaved={(convention, ligne) =>
+            setParamsParConvention((prev) => ({ ...prev, [convention]: ligne }))
+          }
+        />
       )}
 
       {creation && (

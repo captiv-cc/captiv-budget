@@ -29,9 +29,11 @@ import {
   TAUX_HEURES_SUP, TAUX_AUTRES_MAJOREES,
   computeEmbauche, buildJours, suggestHeuresSup, lundiDeLaSemaine,
   heuresFromHoraires, natureForDate, feriesSet, nomEmbauche, round2,
+  conventionKey, typeOeuvreGrille,
 } from '../../lib/embauches'
 import {
   createEmbauche, updateEmbauche, saveJours, saveMajorations, saveFrais, saveCout,
+  fetchPostesConvention,
 } from '../../lib/embauchesData'
 
 // ─── Petits blocs ───────────────────────────────────────────────────────────
@@ -166,6 +168,10 @@ export default function EmbaucheModal({
   // réels un gestionnaire LIT la ligne de coût sans pouvoir l'écrire : sans
   // ce flag, on lui offrirait des champs dont l'enregistrement échouerait.
   const { isAdmin } = useAuth()
+  // La grille des postes suit la convention du dossier : celle de la 2642 est
+  // indexée par type d'œuvre, celle de la 3252 ne l'est pas.
+  const convention = conventionKey(dossier?.convention)
+  const [postesGrille, setPostesGrille] = useState([])
 
   const [form, setForm] = useState(() => ({
     nom: embauche?.nom || '',
@@ -207,6 +213,18 @@ export default function EmbaucheModal({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Postes de la grille applicable, pour que le libellé saisi corresponde
+  // vraiment à une ligne de la convention (sinon le minimum ne remonte pas).
+  useEffect(() => {
+    let annule = false
+    fetchPostesConvention(convention, typeOeuvreGrille(form.type_oeuvre)).then((liste) => {
+      if (!annule) setPostesGrille(liste)
+    })
+    return () => {
+      annule = true
+    }
+  }, [convention, form.type_oeuvre])
 
   const feries = useMemo(
     () => feriesSet(jours.map((j) => j.date_jour), params?.feries_extra),
@@ -517,11 +535,20 @@ export default function EmbaucheModal({
             aide="Vocabulaire Movinmotion, pour que le report soit direct."
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Champ label="Poste France Travail">
-                <Txt
-                  value={form.poste_france_travail}
-                  onChange={(v) => set('poste_france_travail', v)}
+              <Champ
+                label="Poste France Travail"
+                aide={
+                  postesGrille.length
+                    ? 'Postes de la convention du dossier.'
+                    : 'Aucune grille pour cette convention : saisis le poste.'
+                }
+              >
+                <SearchSelect
+                  value={form.poste_france_travail || ''}
+                  options={postesGrille}
+                  onChange={(v) => set('poste_france_travail', v || '')}
                   placeholder="Décorateur"
+                  style={selectStyle}
                 />
               </Champ>
               <Champ label="Libellé du poste">
@@ -540,7 +567,13 @@ export default function EmbaucheModal({
               </Champ>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <div
+              className={`grid grid-cols-1 gap-3 mt-3 ${
+                convention === '2642' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+              }`}
+            >
+              {/* Fiction / flux ne structure que la grille de la 2642. */}
+              {convention === '2642' && (
               <Champ label="Type d'œuvre">
                 <SearchSelect
                   value={form.type_oeuvre || ''}
@@ -551,6 +584,7 @@ export default function EmbaucheModal({
                   style={selectStyle}
                 />
               </Champ>
+              )}
               <Champ label="Rémunération">
                 <Nombre value={form.taux} onChange={(v) => set('taux', v ?? 0)} step="1" />
               </Champ>
@@ -571,7 +605,8 @@ export default function EmbaucheModal({
               typeOeuvre={form.type_oeuvre}
               unite={form.unite_taux}
               taux={form.taux}
-              convention={dossier?.convention}
+              convention={convention}
+              params={params}
               onApply={(v) => set('taux', v)}
             />
 

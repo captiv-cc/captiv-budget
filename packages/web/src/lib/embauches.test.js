@@ -19,6 +19,9 @@ import {
   conventionKey,
   conventionLabel,
   conventionAGrille,
+  minimumPourUnite,
+  paramsPourConvention,
+  DEFAULT_PARAMS as _DP,
 } from './embauches'
 
 // ─── Jours fériés ───────────────────────────────────────────────────────────
@@ -558,5 +561,38 @@ describe('conventions collectives', () => {
     expect(conventionAGrille('2642')).toBe(true)
     expect(conventionAGrille('3252')).toBe(false)
     expect(conventionAGrille(null)).toBe(false)
+  })
+})
+
+describe('minimum dérivé d’un taux horaire (grille 3252)', () => {
+  // Cadreur AV, grille ETSCE filière AV : 23,56 €/h.
+  it('multiplie par les heures de l’unité', () => {
+    expect(minimumPourUnite(23.56, 'jour_8h')).toBe(188.48)
+    expect(minimumPourUnite(23.56, 'semaine_35h')).toBe(824.6)
+  })
+
+  it('majore les heures au-delà du seuil hebdomadaire', () => {
+    // 35 h à 23,56 = 824,60 ; 4 h à 125 % = 117,80 ; soit 942,40. Ignorer la
+    // majoration placerait le minimum sous le plancher réel.
+    expect(minimumPourUnite(23.56, 'semaine_39h')).toBe(942.4)
+  })
+
+  it('ne rend rien sans taux ou sans unité connue', () => {
+    expect(minimumPourUnite(0, 'jour_7h')).toBeNull()
+    expect(minimumPourUnite(23.56, 'inconnue')).toBeNull()
+  })
+})
+
+describe('paramètres par convention', () => {
+  it('rend la ligne de la convention demandée', () => {
+    const map = { 2642: { maj_dimanche: 1 }, 3252: { maj_dimanche: 0.5 } }
+    expect(paramsPourConvention(map, '3252').maj_dimanche).toBe(0.5)
+    expect(paramsPourConvention(map, 'CCN ... (2642)').maj_dimanche).toBe(1)
+  })
+
+  it('retombe sur les valeurs par défaut, en le signalant', () => {
+    const p = paramsPourConvention({}, '3252')
+    expect(p._defaut).toBe(true)
+    expect(p.maj_dimanche).toBe(_DP.maj_dimanche)
   })
 })
