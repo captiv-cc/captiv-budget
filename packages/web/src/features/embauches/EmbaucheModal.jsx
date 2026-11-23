@@ -19,7 +19,7 @@ import {
   X, Plus, Trash2, Clock, CalendarDays, Receipt, Wallet, Loader2, Save,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import CustomSelect from '../../components/CustomSelect'
+import SearchSelect from '../../components/SearchSelect'
 import JoursCalendrier from './JoursCalendrier'
 import MinimaHint from './MinimaHint'
 import { notify } from '../../lib/notify'
@@ -72,6 +72,16 @@ function Champ({ label, children, className = '' }) {
       {children}
     </label>
   )
+}
+
+// SearchSelect rend un bouton en text-xs sur fond var(--bg) : on l'aligne sur
+// les champs texte de la fiche.
+const selectStyle = {
+  background: 'var(--bg-elev)',
+  fontSize: 14,
+  paddingTop: 6,
+  paddingBottom: 6,
+  width: '100%',
 }
 
 const inputStyle = {
@@ -532,27 +542,26 @@ export default function EmbaucheModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <Champ label="Type d'œuvre">
-                <CustomSelect
+                <SearchSelect
                   value={form.type_oeuvre || ''}
-                  options={[
-                    { value: '', label: 'Non précisé' },
-                    ...TYPES_OEUVRE.map((t) => ({ value: t.key, label: t.label })),
-                  ]}
+                  options={TYPES_OEUVRE.map((t) => ({ value: t.key, label: t.label }))}
                   onChange={(v) => set('type_oeuvre', v || null)}
-                  triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
-                  triggerStyle={inputStyle}
+                  placeholder="Non précisé"
+                  allowCreate={false}
+                  style={selectStyle}
                 />
               </Champ>
               <Champ label="Rémunération">
                 <Nombre value={form.taux} onChange={(v) => set('taux', v ?? 0)} step="1" />
               </Champ>
               <Champ label="Unité">
-                <CustomSelect
+                <SearchSelect
                   value={form.unite_taux}
                   options={UNITES_TAUX.map((u) => ({ value: u.key, label: u.label }))}
-                  onChange={(v) => set('unite_taux', v)}
-                  triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
-                  triggerStyle={inputStyle}
+                  onChange={(v) => v && set('unite_taux', v)}
+                  allowCreate={false}
+                  clearable={false}
+                  style={selectStyle}
                 />
               </Champ>
             </div>
@@ -862,12 +871,13 @@ export default function EmbaucheModal({
                   <div key={i} className="flex flex-wrap items-end gap-2">
                     <div className="w-44">
                       <Champ label="Type">
-                        <CustomSelect
+                        <SearchSelect
                           value={f.type}
                           options={TYPES_FRAIS.map((t) => ({ value: t.key, label: t.label }))}
-                          onChange={(v) => majFrais(i, { type: v })}
-                          triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
-                          triggerStyle={inputStyle}
+                          onChange={(v) => v && majFrais(i, { type: v })}
+                          allowCreate={false}
+                          clearable={false}
+                          style={selectStyle}
                         />
                       </Champ>
                     </div>

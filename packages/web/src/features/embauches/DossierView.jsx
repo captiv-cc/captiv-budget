@@ -195,10 +195,15 @@ export default function DossierView({ dossier, params, orgId, onRetour, onDossie
                   {dossier.project.nom}
                 </Link>
               )}
-              {dossier.numero_objet && (
+              {dossier.bon_commande && (
                 <span className="flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
                   <FileText className="w-3 h-3" />
-                  {dossier.numero_objet}
+                  {dossier.bon_commande}
+                </span>
+              )}
+              {dossier.numero_objet && (
+                <span style={{ color: 'var(--txt-3)' }}>
+                  Objet {dossier.numero_objet}
                 </span>
               )}
               {dossier.convention && (

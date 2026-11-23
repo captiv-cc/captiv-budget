@@ -26,6 +26,9 @@ export default function SearchSelect({
   allowCreate = true,
   onChange, // (valeur|null) => void
   onCreate, // (valeur) => Promise — persiste la nouvelle entrée
+  // Champ obligatoire : pas de croix de vidage (un statut ne peut pas être
+  // « rien »).
+  clearable = true,
   // En cellule de tableau : croix et chevron seulement au survol. Affichées
   // en permanence, elles formaient un mur de symboles sur 40 lignes.
   compact = false,
@@ -108,7 +111,7 @@ export default function SearchSelect({
         }}
       >
         <span className="flex-1 min-w-0 truncate">{currentLabel || placeholder}</span>
-        {value && canEdit && (
+        {value && canEdit && clearable && (
           <span
             role="button"
             tabIndex={-1}
@@ -196,9 +199,11 @@ export default function SearchSelect({
                     )}
                   </button>
                 ))}
-                {filtered.length === 0 && !query.trim() && (
+                {filtered.length === 0 && (
                   <p className="text-[11px] italic px-2.5 py-2" style={{ color: 'var(--txt-3)' }}>
-                    Liste vide — saisis une valeur pour la créer.
+                    {allowCreate
+                      ? 'Aucun résultat. Saisis une valeur pour la créer.'
+                      : 'Aucun résultat.'}
                   </p>
                 )}
               </div>

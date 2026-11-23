@@ -7,9 +7,9 @@
 // Une fois posé il reste modifiable, mais jamais deviné.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Save, Link2, ExternalLink } from 'lucide-react'
-import CustomSelect from '../../components/CustomSelect'
+import SearchSelect from '../../components/SearchSelect'
 import DayPicker from '../../components/DayPicker'
 import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
@@ -25,6 +25,16 @@ const inputStyle = {
   background: 'var(--bg-elev)',
   border: '1px solid var(--brd)',
   color: 'var(--txt)',
+}
+
+// SearchSelect rend un bouton en text-xs sur fond var(--bg) : on l'aligne
+// sur les champs texte de la modale (14 px, même fond, même hauteur).
+const selectStyle = {
+  background: 'var(--bg-elev)',
+  fontSize: 14,
+  paddingTop: 6,
+  paddingBottom: 6,
+  width: '100%',
 }
 
 function Champ({ label, aide, action = null, children, className = '' }) {
@@ -72,6 +82,7 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
     convention: conventionKey(dossier?.convention) || '2642',
     type_projet: dossier?.type_projet || '',
     numero_objet: dossier?.numero_objet || '',
+    bon_commande: dossier?.bon_commande || '',
     lieu: dossier?.lieu || '',
     resume: dossier?.resume || '',
     statut: dossier?.statut || 'en_cours',
@@ -84,6 +95,22 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
   const [saving, setSaving] = useState(false)
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  // Un projet appartient à un client : choisir un client restreint la liste,
+  // et un projet déjà posé qui ne lui appartient pas est retiré plutôt que
+  // laissé en contradiction avec le reste du dossier.
+  function setClient(v) {
+    setForm((f) => {
+      const projet = projets.find((p) => p.id === f.project_id)
+      const garde = !v || !projet || projet.client_id === v
+      return { ...f, client_id: v, project_id: garde ? f.project_id : null }
+    })
+  }
+
+  const projetsVisibles = useMemo(
+    () => (form.client_id ? projets.filter((p) => p.client_id === form.client_id) : projets),
+    [projets, form.client_id],
+  )
 
   useEffect(() => {
     if (!orgId) return
@@ -100,7 +127,7 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
       })
     supabase
       .from('projects')
-      .select('id, title')
+      .select('id, title, client_id')
       .eq('org_id', orgId)
       .is('archived_at', null)
       .order('title')
@@ -251,29 +278,30 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Champ label="Client">
-              <CustomSelect
-                value={form.client_id || ''}
-                options={[
-                  { value: '', label: 'Aucun (suivi interne)' },
-                  ...clients.map((c) => ({ value: c.id, label: c.nom_commercial })),
-                ]}
-                onChange={(v) => set('client_id', v || null)}
-                block
-                triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
-                triggerStyle={inputStyle}
+              <SearchSelect
+                value={form.client_id}
+                options={clients.map((c) => ({ value: c.id, label: c.nom_commercial }))}
+                onChange={(v) => setClient(v)}
+                placeholder="Aucun (suivi interne)"
+                allowCreate={false}
+                style={selectStyle}
               />
             </Champ>
-            <Champ label="Projet du Desk" aide="Optionnel : le dossier peut vivre seul.">
-              <CustomSelect
-                value={form.project_id || ''}
-                options={[
-                  { value: '', label: 'Aucun' },
-                  ...projets.map((p) => ({ value: p.id, label: p.title })),
-                ]}
-                onChange={(v) => set('project_id', v || null)}
-                block
-                triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
-                triggerStyle={inputStyle}
+            <Champ
+              label="Projet du Desk"
+              aide={
+                form.client_id
+                  ? 'Projets du client choisi.'
+                  : 'Optionnel : le dossier peut vivre seul.'
+              }
+            >
+              <SearchSelect
+                value={form.project_id}
+                options={projetsVisibles.map((p) => ({ value: p.id, label: p.title }))}
+                onChange={(v) => set('project_id', v)}
+                placeholder="Aucun"
+                allowCreate={false}
+                style={selectStyle}
               />
             </Champ>
           </div>
@@ -287,14 +315,14 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Champ label="Convention collective">
-                <CustomSelect
+                <SearchSelect
                   value={conventionKey(form.convention) || ''}
                   options={CONVENTIONS.map((c) => ({ value: c.key, label: c.label }))}
-                  onChange={(v) => set('convention', v)}
-                  block
+                  onChange={(v) => v && set('convention', v)}
                   placeholder="Choisir une convention"
-                  triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
-                  triggerStyle={inputStyle}
+                  allowCreate={false}
+                  clearable={false}
+                  style={selectStyle}
                 />
               </Champ>
               <Champ label="Type de projet">
@@ -305,7 +333,7 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
                 />
               </Champ>
               <Champ
-                label="Numéro d'objet (bon de commande)"
+                label="Numéro d'objet"
                 action={
                   <a
                     href={URL_FRANCE_TRAVAIL}
@@ -334,17 +362,22 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
             <p className="text-[11px] font-semibold mb-2" style={{ color: 'var(--txt-3)' }}>
               Suivi
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Champ label="BC / Réf. projet" aide="Référence côté client.">
+                <Txt value={form.bon_commande} onChange={(v) => set('bon_commande', v)} />
+              </Champ>
               <Champ label="Statut">
-                <CustomSelect
+                <SearchSelect
                   value={form.statut}
                   options={STATUTS_DOSSIER.map((st) => ({ value: st.key, label: st.label }))}
-                  onChange={(v) => set('statut', v)}
-                  block
-                  triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
-                  triggerStyle={inputStyle}
+                  onChange={(v) => v && set('statut', v)}
+                  allowCreate={false}
+                  clearable={false}
+                  style={selectStyle}
                 />
               </Champ>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <Champ label="Début" aide="Facultatif : les dates servent au classement.">
                 <DayPicker
                   value={form.date_debut}
