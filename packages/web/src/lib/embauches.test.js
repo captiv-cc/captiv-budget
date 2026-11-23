@@ -291,6 +291,23 @@ describe('computeEmbauche — majorations', () => {
     expect(r.facture).toBe(210)
   })
 
+  it('fait entrer les majorations dans le brut versé', () => {
+    const r = computeEmbauche({
+      ...base,
+      jours: [{ date_jour: '2026-11-02', heures: 8, nature: 'normal', heures_nuit: 3 }],
+    })
+    // La base ne couvre que les heures (8 × 20 = 160 €) ; les 3 h de nuit à
+    // +25 % ajoutent 15 €. C'est `brutTotal` que touche l'intermittent, et
+    // c'est lui que la fiche affiche : un brut immobile quand on saisit une
+    // nuit passe pour un calcul en panne.
+    expect(r.brut).toBe(160)
+    expect(r.majorations.nuit).toBe(15)
+    expect(r.brutTotal).toBe(175)
+    // L'assiette part de la base, pas du brut total : sinon les majorations
+    // compteraient deux fois.
+    expect(r.assiette).toBe(175)
+  })
+
   it('majore le dimanche à 100 %', () => {
     const r = computeEmbauche({
       ...base,

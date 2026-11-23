@@ -491,6 +491,10 @@ export function computeEmbauche({
     heuresFerie: round2(heuresFerie),
     tauxHoraire: round2(th),
     brut,
+    // Ce que touche l'intermittent, majorations comprises. `brut` reste la
+    // base nue parce que l'assiette l'additionne aux majorations : confondre
+    // les deux les compterait deux fois.
+    brutTotal: round2(brut + majorationsMontant),
     majorations: {
       total: majorationsMontant,
       dimanche: majDimanche,
@@ -522,6 +526,7 @@ export function totauxEmbauches(resultats = []) {
     totalJours: 0,
     totalHeures: 0,
     brut: 0,
+    brutTotal: 0,
     majorations: 0,
     frais: 0,
     facture: 0,
@@ -538,6 +543,7 @@ export function totauxEmbauches(resultats = []) {
     base.totalJours += num(r.totalJours)
     base.totalHeures += num(r.totalHeures)
     base.brut += num(r.brut)
+    base.brutTotal += num(r.brutTotal)
     base.majorations += num(r.majorations?.total)
     base.frais += num(r.fraisNonSoumis) + num(r.fraisSoumis)
     if (r.facture === null || r.facture === undefined) factureComplete = false
@@ -549,6 +555,7 @@ export function totauxEmbauches(resultats = []) {
   base.totalJours = round2(base.totalJours)
   base.totalHeures = round2(base.totalHeures)
   base.brut = round2(base.brut)
+  base.brutTotal = round2(base.brutTotal)
   base.majorations = round2(base.majorations)
   base.frais = round2(base.frais)
   base.facture = factureComplete ? round2(facture) : null

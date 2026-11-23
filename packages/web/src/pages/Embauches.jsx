@@ -168,7 +168,7 @@ function VueMois({ orgId, paramsParConvention, onOuvrirDossier }) {
           sous={`${parDossier.length} dossier${parDossier.length > 1 ? 's' : ''}`}
         />
         <Stat label="Jours" valeur={totaux.totalJours} sous={`${totaux.totalHeures} h`} />
-        <Stat label="Masse salariale brute" valeur={fmtEur(totaux.brut)} />
+        <Stat label="Masse salariale brute" valeur={fmtEur(totaux.brutTotal)} />
         <Stat
           label="Facturé"
           valeur={totaux.facture == null ? '—' : fmtEur(totaux.facture)}

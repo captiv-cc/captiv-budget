@@ -269,7 +269,11 @@ export default function DossierView({ dossier, params, orgId, onRetour, onDossie
       >
         <Stat label="Embauches" valeur={totaux.lignes} sous={`${totaux.totalJours} jours`} />
         <Stat label="Heures" valeur={totaux.totalHeures} />
-        <Stat label="Brut" valeur={fmtEur(totaux.brut)} />
+        <Stat
+          label="Brut"
+          valeur={fmtEur(totaux.brutTotal)}
+          sous={totaux.majorations ? `dont ${fmtEur(totaux.majorations)} majorés` : null}
+        />
         <Stat
           label={modeFraisReels ? 'Refacturé' : 'Facturé'}
           valeur={totaux.facture == null ? '—' : fmtEur(totaux.facture)}

@@ -362,3 +362,5 @@ manquantes, sous-minimum conventionnel).
 | 13 | Les heures de nuit se comptent **à partir de minuit** (plage 00:00 → 06:00 par défaut). La plage reste un paramètre par convention : une convention qui compte la nuit dès 22 h se règle sans toucher au code. |
 | 14 | Une embauche peut n'avoir **personne** : sans nom ni fiche annuaire, c'est un « poste à pourvoir ». Pas de colonne dédiée, l'état se déduit, et la fiche refuse d'enregistrer un anonyme autrement que par la case. |
 | 15 | Les minima d'un poste sont **proposés**, pas seulement contrôlés : la 2642 en publie un par type d'œuvre, un clic renseigne le taux et le type d'œuvre. Le poste ne se saisit plus librement, il se choisit dans la grille de la convention. |
+| 16 | Le bandeau de la fiche affiche le brut **majorations comprises** (`brutTotal`). `brut` reste la base nue pour le calcul de l'assiette. Dans le tableur, la colonne s'appelle « Base », puisque « Major. » est juste à côté. |
+| 17 | Une seule page, pas d'onglets : contrat, puis jours. Heures majorées saisies à la main, frais et relevé de coût sont repliés sur une ligne tant qu'ils sont vides. |

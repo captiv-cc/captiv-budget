@@ -252,7 +252,9 @@ export default function EmbauchesTable({
               <Th cols={cols} ck="contrat">Contrat</Th>
               <Th cols={cols} ck="jours" align="right">Jours</Th>
               <Th cols={cols} ck="heures" align="right">Heures</Th>
-              <Th cols={cols} ck="brut" align="right">Brut</Th>
+              {/* « Base » et non « Brut » : la colonne voisine porte les
+                  majorations, et le brut versé est la somme des deux. */}
+              <Th cols={cols} ck="brut" align="right">Base</Th>
               <Th cols={cols} ck="majorations" align="right">Major.</Th>
               <Th cols={cols} ck="frais" align="right">Frais</Th>
               <Th cols={cols} ck="facture" align="right">

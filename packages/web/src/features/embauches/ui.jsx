@@ -9,6 +9,8 @@
 //
 // ════════════════════════════════════════════════════════════════════════════
 
+import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 import { inputStyle } from './styles'
 
 /** Bloc de formulaire : un titre, une aide, une action à droite. */
@@ -141,5 +143,51 @@ export function Jalon({ actif, onToggle, label, disabled = false }) {
       </span>
       {label}
     </button>
+  )
+}
+
+/**
+ * Section repliable : un titre, un résumé à droite, le détail au clic.
+ * Les frais et les heures majorées restent vides neuf fois sur dix — pliées,
+ * elles tiennent sur une ligne au lieu d'allonger la fiche d'un écran.
+ */
+export function Repli({ titre, resume, defautOuvert = false, plat = false, children }) {
+  const [ouvert, setOuvert] = useState(defautOuvert)
+  return (
+    <section
+      className={plat ? '' : 'rounded-xl'}
+      style={
+        plat
+          ? { borderTop: '1px solid var(--brd-sub)', marginTop: 12 }
+          : { background: 'var(--bg-surf)', border: '1px solid var(--brd)' }
+      }
+    >
+      <button
+        type="button"
+        onClick={() => setOuvert((o) => !o)}
+        className={`w-full flex items-center gap-2 text-left ${plat ? 'py-2' : 'px-4 py-2.5'}`}
+      >
+        <ChevronRight
+          className="w-3.5 h-3.5 shrink-0"
+          style={{
+            color: 'var(--txt-3)',
+            transform: ouvert ? 'rotate(90deg)' : 'none',
+            transition: 'transform 120ms ease-out',
+          }}
+        />
+        <span
+          className={plat ? 'text-[11px] font-semibold' : 'text-sm font-semibold'}
+          style={{ color: plat ? 'var(--txt-2)' : 'var(--txt)' }}
+        >
+          {titre}
+        </span>
+        {resume && (
+          <span className="text-[11px] ml-auto truncate" style={{ color: 'var(--txt-3)' }}>
+            {resume}
+          </span>
+        )}
+      </button>
+      {ouvert && <div className={plat ? 'pb-1' : 'px-4 pb-4'}>{children}</div>}
+    </section>
   )
 }

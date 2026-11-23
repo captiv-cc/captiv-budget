@@ -6,13 +6,19 @@
 // mêmes unités, mêmes paliers, même convention sur les heures. S'y ajoute le
 // mode horaires (9 h → 19 h), qui déduit les heures et la part de nuit.
 //
-// Trois onglets plutôt qu'un rouleau de six blocs : le contrat se remplit une
-// fois, les jours se retouchent souvent, les frais arrivent à la fin. Le
-// bandeau de totaux reste au-dessus, quel que soit l'onglet.
+// ── La forme de la fiche ────────────────────────────────────────────────────
+//
+// Une seule page, deux cartes : le contrat (qui est embauché, à quel poste,
+// à quel tarif) puis les jours. Ce qui reste vide neuf fois sur dix (heures
+// majorées saisies à la main, frais, relevé de coût) est replié sur une
+// ligne. Ni onglets ni rouleau de six blocs : on remplit de haut en bas, on
+// enregistre.
 //
 // ⚠️ Les heures supplémentaires sont INCLUSES dans le total des heures, comme
-// chez Movinmotion. Le bandeau de totaux affiche donc le brut complet, et les
-// majorations ne comptent que leur part supplémentaire.
+// chez Movinmotion : le brut couvre toutes les heures, une majoration n'ajoute
+// que sa part supplémentaire. Le bandeau affiche donc le brut MAJORATIONS
+// COMPRISES (`brutTotal`), pas la base nue : un brut qui ne bouge pas quand on
+// saisit une nuit passe pour un calcul en panne.
 //
 // Le bloc « Coût réel » n'apparaît que si la base a servi une ligne de coût :
 // la RLS la refuse aux non-admins. Pas de garde côté front à maintenir.
@@ -20,13 +26,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  X, Plus, Trash2, Clock, CalendarDays, Receipt, Wallet, Loader2, Save, UserSearch,
+  X, Plus, Trash2, Clock, CalendarDays, Receipt, Loader2, Save,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import SearchSelect from '../../components/SearchSelect'
 import JoursCalendrier from './JoursCalendrier'
 import MinimaPoste from './MinimaPoste'
-import { Bloc, Champ, Jalon, Nombre, Txt } from './ui'
+import { Bloc, Champ, Jalon, Nombre, Repli, Txt } from './ui'
 import { inputStyle, selectStyle } from './styles'
 import { notify } from '../../lib/notify'
 import { fmtEur } from '../../lib/cotisations'
@@ -54,31 +60,7 @@ function nomContact(c) {
   return c.ville ? `${n} · ${c.ville}` : n
 }
 
-function Onglet({ actif, icon: Icon, label, compte, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="px-3 py-2 text-xs font-medium flex items-center gap-1.5"
-      style={{
-        color: actif ? 'var(--txt)' : 'var(--txt-3)',
-        borderBottom: `2px solid ${actif ? 'var(--blue)' : 'transparent'}`,
-        marginBottom: -1,
-      }}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {label}
-      {compte ? (
-        <span
-          className="px-1.5 rounded-full text-[10px] tabular-nums"
-          style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
-        >
-          {compte}
-        </span>
-      ) : null}
-    </button>
-  )
-}
+const separateur = { borderTop: '1px solid var(--brd-sub)', marginTop: 12, paddingTop: 12 }
 
 // ─── Modale ─────────────────────────────────────────────────────────────────
 
@@ -99,7 +81,6 @@ export default function EmbaucheModal({
   const convention = conventionKey(dossier?.convention)
   const [postesGrille, setPostesGrille] = useState([])
   const [contacts, setContacts] = useState([])
-  const [onglet, setOnglet] = useState('contrat')
 
   const [form, setForm] = useState(() => ({
     nom: embauche?.nom || '',
@@ -273,8 +254,8 @@ export default function EmbaucheModal({
   }, [jours])
 
   // Ce que le calcul applique tout seul, d'après la nature des jours et les
-  // horaires. Affiché ici parce qu'un bouton « Proposer » qui ne propose rien
-  // laissait croire que ces majorations étaient oubliées.
+  // horaires. Affiché sous les jours parce qu'un brut qui bouge sans qu'on
+  // voie pourquoi vaut un brut qui ne bouge pas.
   const majorationsAuto = useMemo(
     () =>
       [
@@ -298,6 +279,11 @@ export default function EmbaucheModal({
         },
       ].filter((a) => Number(a.heures) > 0),
     [totaux, params],
+  )
+
+  const heuresMajoreesSaisies = useMemo(
+    () => round2(majorations.reduce((s, m) => s + Number(m.heures || 0), 0)),
+    [majorations],
   )
 
   function valeurMaj(kind, semaine, taux) {
@@ -371,7 +357,6 @@ export default function EmbaucheModal({
 
   async function enregistrer() {
     if (!aPourvoir && !form.nom?.trim() && !form.prenom?.trim()) {
-      setOnglet('contrat')
       notify.error('Nomme la personne, ou coche « Poste à pourvoir ».')
       return
     }
@@ -423,6 +408,8 @@ export default function EmbaucheModal({
       ? 'Nouvelle embauche'
       : nomEmbauche({ ...form, contact: embauche?.contact })
 
+  const totalFrais = round2(totaux.fraisSoumis + totaux.fraisNonSoumis)
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
@@ -461,35 +448,47 @@ export default function EmbaucheModal({
           </button>
         </header>
 
-        {/* Bandeau de totaux, comme Movinmotion */}
+        {/* Bandeau de totaux. Le brut est majorations comprises : c'est ce que
+            touche l'intermittent, et ça bouge quand on saisit une nuit. */}
         <div
           className="grid grid-cols-2 sm:grid-cols-4 gap-px shrink-0"
           style={{ background: 'var(--brd-sub)' }}
         >
           {[
             { label: 'Heures', valeur: `${totaux.totalHeures} h`, sous: `${totaux.totalJours} j` },
-            { label: 'Brut', valeur: fmtEur(totaux.brut), sous: `${fmtEur(totaux.tauxHoraire)}/h` },
             {
-              label: 'Majorations',
-              valeur: fmtEur(totaux.majorations.total),
-              sous: 'incluses dans les heures',
+              label: 'Brut',
+              valeur: fmtEur(totaux.brutTotal),
+              sous:
+                totaux.majorations.total > 0
+                  ? `dont ${fmtEur(totaux.majorations.total)} de majorations`
+                  : `${fmtEur(totaux.tauxHoraire)}/h`,
             },
             {
               label: modeFraisReels ? 'Refacturé' : 'Facturé',
               valeur: totaux.facture == null ? '—' : fmtEur(totaux.facture),
-              sous:
+              sous: modeFraisReels ? 'au coût réel' : null,
+            },
+            {
+              label: 'Marge',
+              valeur: totaux.marge == null ? '—' : fmtEur(totaux.marge),
+              sous: totaux.margePct == null ? 'non visible' : `${totaux.margePct} %`,
+              couleur:
                 totaux.marge == null
-                  ? modeFraisReels
-                    ? 'au coût réel'
-                    : null
-                  : `marge ${fmtEur(totaux.marge)}`,
+                  ? 'var(--txt-3)'
+                  : totaux.marge >= 0
+                    ? 'var(--green)'
+                    : 'var(--red)',
             },
           ].map((c) => (
             <div key={c.label} className="px-4 py-2.5" style={{ background: 'var(--bg-surf)' }}>
               <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--txt-3)' }}>
                 {c.label}
               </p>
-              <p className="text-base font-bold tabular-nums" style={{ color: 'var(--txt)' }}>
+              <p
+                className="text-base font-bold tabular-nums"
+                style={{ color: c.couleur || 'var(--txt)' }}
+              >
                 {c.valeur}
               </p>
               {c.sous && (
@@ -501,126 +500,53 @@ export default function EmbaucheModal({
           ))}
         </div>
 
-        {/* Onglets */}
-        <div
-          className="flex items-center gap-1 px-4 shrink-0"
-          style={{ borderBottom: '1px solid var(--brd)' }}
-        >
-          <Onglet
-            actif={onglet === 'contrat'}
-            icon={Receipt}
-            label="Contrat"
-            onClick={() => setOnglet('contrat')}
-          />
-          <Onglet
-            actif={onglet === 'jours'}
-            icon={CalendarDays}
-            label="Jours et heures"
-            compte={jours.length || null}
-            onClick={() => setOnglet('jours')}
-          />
-          <Onglet
-            actif={onglet === 'frais'}
-            icon={Wallet}
-            label="Frais et coût"
-            compte={frais.length || null}
-            onClick={() => setOnglet('frais')}
-          />
-        </div>
-
         {/* Corps — min-h-0 obligatoire pour que le scroll prenne, et les
             enfants ne doivent pas se laisser comprimer. */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 [&>*]:shrink-0">
-          {onglet === 'contrat' && (
-            <Bloc icon={UserSearch} titre="Identité">
-              <div className="flex flex-wrap items-end gap-2 mb-3">
-                <div className="flex-1 min-w-[220px]">
-                  <Champ label="Chercher dans l’annuaire">
-                    <SearchSelect
-                      value={form.contact_id || ''}
-                      options={contacts.map((c) => ({ value: c.id, label: nomContact(c) }))}
-                      onChange={choisirContact}
-                      placeholder="Nom de l’intermittent"
-                      allowCreate={false}
-                      canEdit={!aPourvoir}
-                      style={selectStyle}
-                    />
-                  </Champ>
-                </div>
-                <Jalon actif={aPourvoir} onToggle={basculerAPourvoir} label="Poste à pourvoir" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <Champ label="Prénom">
-                  <Txt
-                    value={form.prenom}
-                    onChange={(v) => set('prenom', v)}
-                    disabled={aPourvoir}
-                  />
-                </Champ>
-                <Champ label="Nom">
-                  <Txt value={form.nom} onChange={(v) => set('nom', v)} disabled={aPourvoir} />
-                </Champ>
-                <Champ label="Email">
-                  <Txt
-                    value={form.email}
-                    onChange={(v) => set('email', v)}
-                    type="email"
-                    disabled={aPourvoir}
-                  />
-                </Champ>
-                <Champ label="Téléphone">
-                  <Txt
-                    value={form.telephone}
-                    onChange={(v) => set('telephone', v)}
-                    disabled={aPourvoir}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 [&>*]:shrink-0">
+          {/* ── Contrat : qui, à quel poste, à quel tarif ─────────────────── */}
+          <Bloc icon={Receipt} titre="Contrat">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[220px]">
+                <Champ label="Intermittent">
+                  <SearchSelect
+                    value={form.contact_id || ''}
+                    options={contacts.map((c) => ({ value: c.id, label: nomContact(c) }))}
+                    onChange={choisirContact}
+                    placeholder="Chercher dans l’annuaire"
+                    allowCreate={false}
+                    canEdit={!aPourvoir}
+                    style={selectStyle}
                   />
                 </Champ>
               </div>
+              <Jalon actif={aPourvoir} onToggle={basculerAPourvoir} label="Poste à pourvoir" />
+            </div>
 
-              <p className="text-[10px] mt-2" style={{ color: 'var(--txt-3)' }}>
-                {aPourvoir
-                  ? 'Le poste est ouvert : la ligne compte dans le budget sans porter de nom.'
-                  : form.contact_id
-                    ? 'Fiche annuaire liée. Les champs restent modifiables : le contrat garde l’identité du jour de la signature.'
-                    : 'Personne de l’annuaire ? Saisis les informations, la fiche se créera plus tard.'}
-              </p>
-
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Jalon
-                  actif={form.infos_recues}
-                  onToggle={() => set('infos_recues', !form.infos_recues)}
-                  label="Infos reçues"
+            {!aPourvoir && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                <Txt
+                  value={form.prenom}
+                  onChange={(v) => set('prenom', v)}
+                  placeholder="Prénom"
                 />
-                <Jalon
-                  actif={form.contrat_fait}
-                  onToggle={() => set('contrat_fait', !form.contrat_fait)}
-                  label="Contrat fait"
+                <Txt value={form.nom} onChange={(v) => set('nom', v)} placeholder="Nom" />
+                <Txt
+                  value={form.email}
+                  onChange={(v) => set('email', v)}
+                  type="email"
+                  placeholder="Email"
                 />
-                <Jalon
-                  actif={form.contrat_signe}
-                  onToggle={() => set('contrat_signe', !form.contrat_signe)}
-                  label="Contrat signé"
+                <Txt
+                  value={form.telephone}
+                  onChange={(v) => set('telephone', v)}
+                  placeholder="Téléphone"
                 />
               </div>
-            </Bloc>
-          )}
+            )}
 
-          {onglet === 'contrat' && (
-            <Bloc
-              icon={Wallet}
-              titre="Poste et rémunération"
-              aide="Vocabulaire Movinmotion, pour que le report soit direct."
-            >
+            <div style={separateur}>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Champ
-                  label="Poste France Travail"
-                  aide={
-                    postesGrille.length
-                      ? undefined
-                      : 'Aucune grille pour cette convention : saisis le poste.'
-                  }
-                >
+                <Champ label="Poste France Travail">
                   <SearchSelect
                     value={form.poste_france_travail || ''}
                     options={postesGrille}
@@ -693,425 +619,445 @@ export default function EmbaucheModal({
                   }))
                 }
               />
+            </div>
 
-              {!modeFraisReels && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-                  <Champ
-                    label={`Coefficient de vente (dossier : ${Math.round((dossier?.coef_vente ?? 0) * 100)} %)`}
-                  >
-                    <Nombre
-                      value={form.coef_vente == null ? '' : form.coef_vente * 100}
-                      onChange={(v) => set('coef_vente', v == null ? null : v / 100)}
-                      step="1"
-                      placeholder="suit le dossier"
-                    />
-                  </Champ>
-                  <Champ label="Frais de dossier facturés">
-                    <Nombre
-                      value={form.frais_dossier_facture}
-                      onChange={(v) => set('frais_dossier_facture', v)}
-                      step="1"
-                      placeholder={String(params?.frais_dossier_facture_defaut ?? 25)}
-                      disabled={!form.frais_dossier_actif}
-                    />
-                  </Champ>
-                  <div className="flex items-end">
-                    <Jalon
-                      actif={form.frais_dossier_actif}
-                      onToggle={() => set('frais_dossier_actif', !form.frais_dossier_actif)}
-                      label="Facturer les frais de dossier"
-                    />
-                  </div>
-                </div>
-              )}
-            </Bloc>
-          )}
-
-          {onglet === 'contrat' && (
-            <Bloc titre="Remarques">
-              <textarea
-                value={form.remarques || ''}
-                onChange={(e) => set('remarques', e.target.value)}
-                rows={2}
-                className="w-full px-2.5 py-1.5 rounded-lg text-sm outline-none resize-y"
-                style={inputStyle}
-              />
-            </Bloc>
-          )}
-
-          {onglet === 'jours' && (
-            <Bloc
-              icon={CalendarDays}
-              titre="Jours travaillés"
-              aide="Les dimanches et les fériés sont repérés : leur majoration s'applique automatiquement."
-              action={
-                <button
-                  type="button"
-                  onClick={() => setModeHoraires((v) => !v)}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5"
-                  style={{
-                    background: modeHoraires ? 'var(--blue-bg)' : 'var(--bg-elev)',
-                    color: modeHoraires ? 'var(--blue)' : 'var(--txt-2)',
-                  }}
+            {!modeFraisReels && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={separateur}>
+                <Champ
+                  label={`Coefficient de vente (dossier : ${Math.round((dossier?.coef_vente ?? 0) * 100)} %)`}
                 >
-                  <Clock className="w-3.5 h-3.5" />
-                  Horaires
-                </button>
-              }
-            >
-              <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
-                <JoursCalendrier
-                  selection={jours.map((j) => j.date_jour)}
-                  onToggle={toggleJour}
-                  onToggleMany={toggleBeaucoup}
-                  feriesExtra={params?.feries_extra}
-                  moisInitial={dossier?.date_debut}
-                />
-
-                <div className="min-w-0">
-                  {jours.length === 0 ? (
-                    <p className="text-sm py-8 text-center" style={{ color: 'var(--txt-3)' }}>
-                      Aucun jour sélectionné.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
-                          {jours.length} jour{jours.length > 1 ? 's' : ''} · {totaux.totalHeures} h
-                        </span>
-                        <div className="flex gap-1">
-                          {[7, 8, 10, 12].map((h) => (
-                            <button
-                              key={h}
-                              type="button"
-                              onClick={() => appliquerPartout(h)}
-                              className="px-2 py-0.5 rounded text-[10px] font-medium"
-                              style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
-                            >
-                              {h} h partout
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div
-                        className="rounded-lg overflow-hidden"
-                        style={{ border: '1px solid var(--brd-sub)' }}
-                      >
-                        <div className="max-h-72 overflow-y-auto">
-                          {jours.map((j) => {
-                            const nature = j.nature || natureForDate(j.date_jour, feries)
-                            const teinte =
-                              nature === 'ferie'
-                                ? 'rgba(255,159,10,.07)'
-                                : nature === 'dimanche'
-                                  ? 'rgba(156,95,253,.07)'
-                                  : 'transparent'
-                            return (
-                              <div
-                                key={j.date_jour}
-                                className="flex items-center gap-2 px-2.5 py-1.5"
-                                style={{
-                                  background: teinte,
-                                  borderTop: '1px solid var(--brd-sub)',
-                                }}
-                              >
-                                <span
-                                  className="text-xs w-20 shrink-0 tabular-nums"
-                                  style={{ color: 'var(--txt-2)' }}
-                                >
-                                  {libelleJour(j.date_jour)}
-                                </span>
-
-                                {nature !== 'normal' && (
-                                  <span
-                                    className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
-                                    style={{
-                                      background:
-                                        nature === 'ferie'
-                                          ? 'rgba(255,159,10,.15)'
-                                          : 'rgba(156,95,253,.15)',
-                                      color: nature === 'ferie' ? 'var(--amber)' : 'var(--purple)',
-                                    }}
-                                  >
-                                    {nature === 'ferie' ? 'Férié' : 'Dimanche'}
-                                  </span>
-                                )}
-
-                                {modeHoraires && (
-                                  <>
-                                    <input
-                                      type="time"
-                                      value={j.heure_debut || ''}
-                                      onChange={(e) =>
-                                        majJour(j.date_jour, { heure_debut: e.target.value })
-                                      }
-                                      className="px-1.5 py-1 rounded text-xs outline-none"
-                                      style={inputStyle}
-                                    />
-                                    <input
-                                      type="time"
-                                      value={j.heure_fin || ''}
-                                      onChange={(e) =>
-                                        majJour(j.date_jour, { heure_fin: e.target.value })
-                                      }
-                                      className="px-1.5 py-1 rounded text-xs outline-none"
-                                      style={inputStyle}
-                                    />
-                                  </>
-                                )}
-
-                                <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                                  {Number(j.heures_nuit) > 0 && (
-                                    <span
-                                      className="text-[10px]"
-                                      style={{ color: 'var(--purple)' }}
-                                      title={`Plage de nuit : ${plageNuit(params)}`}
-                                    >
-                                      {j.heures_nuit} h nuit
-                                    </span>
-                                  )}
-                                  <div className="w-16">
-                                    <Nombre
-                                      value={j.heures}
-                                      onChange={(v) => majJour(j.date_jour, { heures: v ?? 0 })}
-                                    />
-                                  </div>
-                                  <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
-                                    h
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleJour(j.date_jour)}
-                                    className="w-6 h-6 rounded flex items-center justify-center"
-                                    style={{ color: 'var(--txt-3)' }}
-                                    aria-label="Retirer ce jour"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
+                  <Nombre
+                    value={form.coef_vente == null ? '' : form.coef_vente * 100}
+                    onChange={(v) => set('coef_vente', v == null ? null : v / 100)}
+                    step="1"
+                    placeholder="suit le dossier"
+                  />
+                </Champ>
+                <Champ label="Frais de dossier facturés">
+                  <Nombre
+                    value={form.frais_dossier_facture}
+                    onChange={(v) => set('frais_dossier_facture', v)}
+                    step="1"
+                    placeholder={String(params?.frais_dossier_facture_defaut ?? 25)}
+                    disabled={!form.frais_dossier_actif}
+                  />
+                </Champ>
+                <div className="flex items-end">
+                  <Jalon
+                    actif={form.frais_dossier_actif}
+                    onToggle={() => set('frais_dossier_actif', !form.frais_dossier_actif)}
+                    label="Facturer les frais de dossier"
+                  />
                 </div>
               </div>
-            </Bloc>
-          )}
+            )}
 
-          {onglet === 'jours' && (
-            <Bloc
-              icon={Clock}
-              titre="Heures supplémentaires et majorées"
-              aide="Elles sont incluses dans le total des heures : seule leur part supplémentaire s'ajoute au brut."
-              action={
-                semaines.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={proposerHeuresSup}
-                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium"
-                    style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
-                  >
-                    Proposer les heures sup
-                  </button>
-                )
-              }
-            >
-              {majorationsAuto.length > 0 && (
-                <div className="rounded-lg px-3 py-2 mb-3" style={{ background: 'var(--bg-elev)' }}>
-                  <p className="text-[10px] mb-1" style={{ color: 'var(--txt-3)' }}>
-                    Appliqué automatiquement
+            {/* Avancement et remarques sur une seule ligne : deux suivis
+                courts valent mieux qu'un bloc chacun. */}
+            <div className="flex flex-wrap items-center gap-2" style={separateur}>
+              <Jalon
+                actif={form.infos_recues}
+                onToggle={() => set('infos_recues', !form.infos_recues)}
+                label="Infos reçues"
+              />
+              <Jalon
+                actif={form.contrat_fait}
+                onToggle={() => set('contrat_fait', !form.contrat_fait)}
+                label="Contrat fait"
+              />
+              <Jalon
+                actif={form.contrat_signe}
+                onToggle={() => set('contrat_signe', !form.contrat_signe)}
+                label="Contrat signé"
+              />
+              <div className="flex-1 min-w-[180px]">
+                <Txt
+                  value={form.remarques}
+                  onChange={(v) => set('remarques', v)}
+                  placeholder="Remarques"
+                />
+              </div>
+            </div>
+          </Bloc>
+
+          {/* ── Jours et heures ───────────────────────────────────────────── */}
+          <Bloc
+            icon={CalendarDays}
+            titre="Jours travaillés"
+            aide="Dimanches, fériés et heures de nuit sont majorés automatiquement."
+            action={
+              <button
+                type="button"
+                onClick={() => setModeHoraires((v) => !v)}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5"
+                style={{
+                  background: modeHoraires ? 'var(--blue-bg)' : 'var(--bg-elev)',
+                  color: modeHoraires ? 'var(--blue)' : 'var(--txt-2)',
+                }}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                Horaires
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+              <JoursCalendrier
+                selection={jours.map((j) => j.date_jour)}
+                onToggle={toggleJour}
+                onToggleMany={toggleBeaucoup}
+                feriesExtra={params?.feries_extra}
+                moisInitial={dossier?.date_debut}
+              />
+
+              <div className="min-w-0">
+                {jours.length === 0 ? (
+                  <p className="text-sm py-8 text-center" style={{ color: 'var(--txt-3)' }}>
+                    Clique les jours travaillés dans le calendrier.
                   </p>
-                  {majorationsAuto.map((a) => (
-                    <div
-                      key={a.label}
-                      className="flex items-center justify-between gap-3 text-[11px] py-0.5"
-                    >
-                      <span style={{ color: 'var(--txt-2)' }}>
-                        {a.label}
-                        <span style={{ color: 'var(--txt-3)' }}>
-                          {' '}
-                          · {a.heures} h à +{Math.round(Number(a.pct ?? 0) * 100)} %
-                        </span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px]" style={{ color: 'var(--txt-3)' }}>
+                        {jours.length} jour{jours.length > 1 ? 's' : ''} · {totaux.totalHeures} h
                       </span>
-                      <span className="tabular-nums font-medium" style={{ color: 'var(--txt)' }}>
-                        {fmtEur(a.montant)}
-                      </span>
+                      <div className="flex gap-1">
+                        {[7, 8, 10, 12].map((h) => (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={() => appliquerPartout(h)}
+                            className="px-2 py-0.5 rounded text-[10px] font-medium"
+                            style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
+                          >
+                            {h} h partout
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
 
-              {semaines.length === 0 ? (
-                <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-                  Sélectionne des jours pour ventiler les heures supplémentaires.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs" style={{ minWidth: 420 }}>
-                    <thead>
-                      <tr>
-                        <th
-                          className="text-left font-medium py-1 pr-2"
+                    <div
+                      className="rounded-lg overflow-hidden"
+                      style={{ border: '1px solid var(--brd-sub)' }}
+                    >
+                      <div className="max-h-72 overflow-y-auto">
+                        {jours.map((j) => {
+                          const nature = j.nature || natureForDate(j.date_jour, feries)
+                          const teinte =
+                            nature === 'ferie'
+                              ? 'rgba(255,159,10,.07)'
+                              : nature === 'dimanche'
+                                ? 'rgba(156,95,253,.07)'
+                                : 'transparent'
+                          return (
+                            <div
+                              key={j.date_jour}
+                              className="flex items-center gap-2 px-2.5 py-1.5"
+                              style={{
+                                background: teinte,
+                                borderTop: '1px solid var(--brd-sub)',
+                              }}
+                            >
+                              <span
+                                className="text-xs w-20 shrink-0 tabular-nums"
+                                style={{ color: 'var(--txt-2)' }}
+                              >
+                                {libelleJour(j.date_jour)}
+                              </span>
+
+                              {nature !== 'normal' && (
+                                <span
+                                  className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                                  style={{
+                                    background:
+                                      nature === 'ferie'
+                                        ? 'rgba(255,159,10,.15)'
+                                        : 'rgba(156,95,253,.15)',
+                                    color: nature === 'ferie' ? 'var(--amber)' : 'var(--purple)',
+                                  }}
+                                >
+                                  {nature === 'ferie' ? 'Férié' : 'Dimanche'}
+                                </span>
+                              )}
+
+                              {modeHoraires && (
+                                <>
+                                  <input
+                                    type="time"
+                                    value={j.heure_debut || ''}
+                                    onChange={(e) =>
+                                      majJour(j.date_jour, { heure_debut: e.target.value })
+                                    }
+                                    className="px-1.5 py-1 rounded text-xs outline-none"
+                                    style={inputStyle}
+                                  />
+                                  <input
+                                    type="time"
+                                    value={j.heure_fin || ''}
+                                    onChange={(e) =>
+                                      majJour(j.date_jour, { heure_fin: e.target.value })
+                                    }
+                                    className="px-1.5 py-1 rounded text-xs outline-none"
+                                    style={inputStyle}
+                                  />
+                                </>
+                              )}
+
+                              <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                                {Number(j.heures_nuit) > 0 && (
+                                  <span
+                                    className="text-[10px]"
+                                    style={{ color: 'var(--purple)' }}
+                                    title={`Plage de nuit : ${plageNuit(params)}`}
+                                  >
+                                    {j.heures_nuit} h nuit
+                                  </span>
+                                )}
+                                <div className="w-16">
+                                  <Nombre
+                                    value={j.heures}
+                                    onChange={(v) => majJour(j.date_jour, { heures: v ?? 0 })}
+                                  />
+                                </div>
+                                <span className="text-[10px]" style={{ color: 'var(--txt-3)' }}>
+                                  h
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleJour(j.date_jour)}
+                                  className="w-6 h-6 rounded flex items-center justify-center"
+                                  style={{ color: 'var(--txt-3)' }}
+                                  aria-label="Retirer ce jour"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Le détail de ce qui s'ajoute au brut, sous les jours
+                        qui l'ont déclenché. */}
+                    {majorationsAuto.length > 0 && (
+                      <div
+                        className="rounded-lg px-3 py-2 mt-2"
+                        style={{ background: 'var(--bg-elev)' }}
+                      >
+                        {majorationsAuto.map((a) => (
+                          <div
+                            key={a.label}
+                            className="flex items-center justify-between gap-3 text-[11px] py-0.5"
+                          >
+                            <span style={{ color: 'var(--txt-2)' }}>
+                              {a.label}
+                              <span style={{ color: 'var(--txt-3)' }}>
+                                {' '}
+                                · {a.heures} h à +{Math.round(Number(a.pct ?? 0) * 100)} %
+                              </span>
+                            </span>
+                            <span
+                              className="tabular-nums font-medium"
+                              style={{ color: 'var(--txt)' }}
+                            >
+                              {fmtEur(a.montant)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Saisie manuelle : rare, donc pliée. */}
+                    <Repli
+                      plat
+                      titre="Heures supplémentaires et majorées"
+                      defautOuvert={majorations.length > 0}
+                      resume={
+                        heuresMajoreesSaisies > 0
+                          ? `${heuresMajoreesSaisies} h saisies`
+                          : 'à la main, si la convention le demande'
+                      }
+                    >
+                      <div className="flex justify-end mb-2">
+                        <button
+                          type="button"
+                          onClick={proposerHeuresSup}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                          style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
+                        >
+                          Proposer depuis les heures
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs" style={{ minWidth: 420 }}>
+                          <thead>
+                            <tr>
+                              <th
+                                className="text-left font-medium py-1 pr-2"
+                                style={{ color: 'var(--txt-3)' }}
+                              >
+                                Semaine du
+                              </th>
+                              {TAUX_HEURES_SUP.map((t) => (
+                                <th
+                                  key={t}
+                                  className="text-center font-medium py-1 px-1"
+                                  style={{ color: 'var(--txt-3)' }}
+                                >
+                                  {t} %
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {semaines.map((s) => (
+                              <tr key={s}>
+                                <td
+                                  className="py-1 pr-2 tabular-nums"
+                                  style={{ color: 'var(--txt-2)' }}
+                                >
+                                  {s.slice(8)}/{s.slice(5, 7)}
+                                </td>
+                                {TAUX_HEURES_SUP.map((t) => (
+                                  <td key={t} className="py-1 px-1">
+                                    <Nombre
+                                      value={valeurMaj('sup', s, t)}
+                                      onChange={(v) => setMaj('sup', s, t, v)}
+                                      placeholder="0"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        <p
+                          className="text-[11px] font-medium mt-3 mb-1"
                           style={{ color: 'var(--txt-3)' }}
                         >
-                          Semaine du
-                        </th>
-                        {TAUX_HEURES_SUP.map((t) => (
-                          <th
-                            key={t}
-                            className="text-center font-medium py-1 px-1"
-                            style={{ color: 'var(--txt-3)' }}
-                          >
-                            {t} %
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {semaines.map((s) => (
-                        <tr key={s}>
-                          <td className="py-1 pr-2 tabular-nums" style={{ color: 'var(--txt-2)' }}>
-                            {s.slice(8)}/{s.slice(5, 7)}
-                          </td>
-                          {TAUX_HEURES_SUP.map((t) => (
-                            <td key={t} className="py-1 px-1">
+                          Autres heures majorées (hors dimanche, fériés et nuit)
+                        </p>
+                        <div className="grid grid-cols-4 gap-2" style={{ maxWidth: 420 }}>
+                          {TAUX_AUTRES_MAJOREES.map((t) => (
+                            <Champ key={t} label={`${t} %`}>
                               <Nombre
-                                value={valeurMaj('sup', s, t)}
-                                onChange={(v) => setMaj('sup', s, t, v)}
+                                value={valeurMaj('autre', null, t)}
+                                onChange={(v) => setMaj('autre', null, t, v)}
                                 placeholder="0"
                               />
-                            </td>
+                            </Champ>
                           ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                        </div>
+                      </div>
+                    </Repli>
+                  </>
+                )}
+              </div>
+            </div>
+          </Bloc>
 
-                  <p
-                    className="text-[11px] font-medium mt-4 mb-1"
-                    style={{ color: 'var(--txt-3)' }}
-                  >
-                    Autres heures majorées (hors dimanche, fériés et nuit)
-                  </p>
-                  <div className="grid grid-cols-4 gap-2" style={{ maxWidth: 420 }}>
-                    {TAUX_AUTRES_MAJOREES.map((t) => (
-                      <Champ key={t} label={`${t} %`}>
-                        <Nombre
-                          value={valeurMaj('autre', null, t)}
-                          onChange={(v) => setMaj('autre', null, t, v)}
-                          placeholder="0"
-                        />
-                      </Champ>
-                    ))}
+          {/* ── Frais professionnels, repliés tant qu'il n'y en a pas ─────── */}
+          <Repli
+            titre="Frais professionnels"
+            defautOuvert={frais.length > 0}
+            resume={
+              frais.length
+                ? `${frais.length} ligne${frais.length > 1 ? 's' : ''} · ${fmtEur(totalFrais)}`
+                : 'Aucun'
+            }
+          >
+            <p className="text-[11px] mb-2" style={{ color: 'var(--txt-3)' }}>
+              Refacturés à l’identique : aucune marge n’est appliquée dessus.
+            </p>
+            <div className="space-y-2">
+              {frais.map((f, i) => (
+                <div key={i} className="flex flex-wrap items-end gap-2">
+                  <div className="w-44">
+                    <Champ label="Type">
+                      <SearchSelect
+                        value={f.type}
+                        options={TYPES_FRAIS.map((t) => ({ value: t.key, label: t.label }))}
+                        onChange={(v) => v && majFrais(i, { type: v })}
+                        allowCreate={false}
+                        clearable={false}
+                        style={selectStyle}
+                      />
+                    </Champ>
                   </div>
+                  <div className="flex-1 min-w-[120px]">
+                    <Champ label="Libellé">
+                      <Txt
+                        value={f.libelle}
+                        onChange={(v) => majFrais(i, { libelle: v })}
+                        placeholder="Optionnel"
+                      />
+                    </Champ>
+                  </div>
+                  <div className="w-24">
+                    <Champ label="Montant">
+                      <Nombre
+                        value={f.montant}
+                        onChange={(v) => majFrais(i, { montant: v ?? 0 })}
+                        step="1"
+                      />
+                    </Champ>
+                  </div>
+                  <div className="w-20">
+                    <Champ label="Nombre">
+                      <Nombre
+                        value={f.nombre}
+                        onChange={(v) => majFrais(i, { nombre: v ?? 1 })}
+                        step="1"
+                      />
+                    </Champ>
+                  </div>
+                  <div className="w-24 text-right pb-1.5">
+                    <span
+                      className="text-sm font-semibold tabular-nums"
+                      style={{ color: 'var(--txt)' }}
+                    >
+                      {fmtEur(round2(Number(f.montant || 0) * Number(f.nombre || 0)))}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFrais((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center mb-0.5"
+                    style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
+                    aria-label="Retirer ce frais"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              )}
-            </Bloc>
-          )}
-
-          {onglet === 'frais' && (
-            <Bloc
-              icon={Receipt}
-              titre="Frais professionnels"
-              aide="Refacturés à l'identique : aucune marge n'est appliquée dessus."
-              action={
-                <button
-                  type="button"
-                  onClick={ajouterFrais}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1"
-                  style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Ajouter
-                </button>
-              }
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={ajouterFrais}
+              className="mt-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1"
+              style={{ background: 'var(--bg-elev)', color: 'var(--txt-2)' }}
             >
-              {frais.length === 0 ? (
-                <p className="text-sm" style={{ color: 'var(--txt-3)' }}>
-                  Aucun frais.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {frais.map((f, i) => (
-                    <div key={i} className="flex flex-wrap items-end gap-2">
-                      <div className="w-44">
-                        <Champ label="Type">
-                          <SearchSelect
-                            value={f.type}
-                            options={TYPES_FRAIS.map((t) => ({ value: t.key, label: t.label }))}
-                            onChange={(v) => v && majFrais(i, { type: v })}
-                            allowCreate={false}
-                            clearable={false}
-                            style={selectStyle}
-                          />
-                        </Champ>
-                      </div>
-                      <div className="flex-1 min-w-[120px]">
-                        <Champ label="Libellé">
-                          <Txt
-                            value={f.libelle}
-                            onChange={(v) => majFrais(i, { libelle: v })}
-                            placeholder="Optionnel"
-                          />
-                        </Champ>
-                      </div>
-                      <div className="w-24">
-                        <Champ label="Montant">
-                          <Nombre
-                            value={f.montant}
-                            onChange={(v) => majFrais(i, { montant: v ?? 0 })}
-                            step="1"
-                          />
-                        </Champ>
-                      </div>
-                      <div className="w-20">
-                        <Champ label="Nombre">
-                          <Nombre
-                            value={f.nombre}
-                            onChange={(v) => majFrais(i, { nombre: v ?? 1 })}
-                            step="1"
-                          />
-                        </Champ>
-                      </div>
-                      <div className="w-24 text-right pb-1.5">
-                        <span
-                          className="text-sm font-semibold tabular-nums"
-                          style={{ color: 'var(--txt)' }}
-                        >
-                          {fmtEur(round2(Number(f.montant || 0) * Number(f.nombre || 0)))}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setFrais((prev) => prev.filter((_, idx) => idx !== i))}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center mb-0.5"
-                        style={{ background: 'var(--bg-elev)', color: 'var(--txt-3)' }}
-                        aria-label="Retirer ce frais"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Bloc>
-          )}
+              <Plus className="w-3.5 h-3.5" />
+              Ajouter un frais
+            </button>
+          </Repli>
 
-          {/* Coût réel — rendu seulement si la base a servi la ligne */}
-          {onglet === 'frais' && cout && (
-            <Bloc
-              icon={Wallet}
+          {/* ── Coût réel — rendu seulement si la base a servi la ligne ───── */}
+          {cout && (
+            <Repli
               titre="Coût réel"
-              aide={
-                isAdmin
-                  ? "Le total affiché par Movinmotion, frais professionnels compris. Tant qu'il est vide, le coût reste une estimation."
-                  : 'Renseigné par la production. Lecture seule.'
+              resume={
+                totaux.cout
+                  ? `${fmtEur(totaux.cout.montant)}${totaux.cout.estEstimation ? ' (estimé)' : ''}`
+                  : undefined
               }
             >
+              <p className="text-[11px] mb-2" style={{ color: 'var(--txt-3)' }}>
+                {isAdmin
+                  ? 'Le total affiché par Movinmotion, frais professionnels compris. Tant qu’il est vide, le coût reste une estimation.'
+                  : 'Renseigné par la production. Lecture seule.'}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Champ label="Coût employeur Movinmotion">
                   <Nombre
@@ -1139,29 +1085,7 @@ export default function EmbaucheModal({
                   />
                 </Champ>
               </div>
-
-              {totaux.cout && (
-                <div
-                  className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-3 pt-3 text-xs"
-                  style={{ borderTop: '1px solid var(--brd-sub)' }}
-                >
-                  <span style={{ color: 'var(--txt-3)' }}>
-                    Coût total{' '}
-                    <strong style={{ color: 'var(--txt)' }}>{fmtEur(totaux.cout.montant)}</strong>
-                    {totaux.cout.estEstimation && ' (estimé)'}
-                  </span>
-                  {totaux.marge != null && (
-                    <span style={{ color: 'var(--txt-3)' }}>
-                      Marge{' '}
-                      <strong style={{ color: totaux.marge >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                        {fmtEur(totaux.marge)}
-                      </strong>
-                      {totaux.margePct != null && ` · ${totaux.margePct} %`}
-                    </span>
-                  )}
-                </div>
-              )}
-            </Bloc>
+            </Repli>
           )}
         </div>
 
