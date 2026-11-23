@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { lireToutesLesPages } from '../lib/pagination'
 import { notify } from '../lib/notify'
 import { useAuth } from '../contexts/AuthContext'
 import { fmtEur, UNITES } from '../lib/cotisations'
@@ -110,22 +111,25 @@ export default function BDD() {
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
-  // Fetch paginé pour contourner la limite PostgREST (1000 rows par défaut)
+  // Fetch paginé pour contourner la limite PostgREST (1000 rows par défaut).
+  // Tri sur la clé unique de la table : sur le seul `poste`, l'ordre des
+  // ex æquo reste au bon vouloir du moteur et une ligne peut changer de page
+  // entre deux requêtes, donc ne jamais être servie.
   const fetchAllMinimas = useCallback(async () => {
-    const PAGE = 1000
-    let all = [], from = 0, done = false
-    while (!done) {
-      const { data, error } = await supabase
-        .from('minimas_convention')
-        .select('*')
-        .order('poste')
-        .range(from, from + PAGE - 1)
-      if (error) { console.error('[BDD] load minimas:', error); break }
-      all = all.concat(data || [])
-      if (!data || data.length < PAGE) done = true
-      else from += PAGE
+    try {
+      return await lireToutesLesPages(() =>
+        supabase
+          .from('minimas_convention')
+          .select('*')
+          .order('poste')
+          .order('type_oeuvre')
+          .order('is_specialise')
+          .order('unite'),
+      )
+    } catch (error) {
+      console.error('[BDD] load minimas:', error)
+      return []
     }
-    return all
   }, [])
 
   const loadAll = useCallback(async () => {

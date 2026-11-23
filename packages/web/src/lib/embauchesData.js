@@ -13,6 +13,7 @@
 
 import { supabase } from './supabase'
 import { CONVENTIONS, DEFAULT_PARAMS, TYPES_OEUVRE, conventionKey } from './embauches'
+import { lireToutesLesPages } from './pagination'
 
 // ─── Paramètres de l'organisation ───────────────────────────────────────────
 
@@ -66,27 +67,34 @@ export async function saveParams(orgId, convention, patch) {
  */
 export async function fetchPostesConvention(convention, typeOeuvreGrilleValue = null) {
   const k = conventionKey(convention)
-  if (k === '3252') {
-    const { data, error } = await supabase
-      .from('minimas_etsce')
-      .select('poste')
-      .order('poste')
-    if (error) {
-      console.error('[embauches] fetchPostesConvention 3252:', error)
-      return []
+  try {
+    if (k === '3252') {
+      const rows = await lireToutesLesPages(() =>
+        supabase.from('minimas_etsce').select('poste').order('poste'),
+      )
+      return [...new Set(rows.map((r) => r.poste))]
     }
-    return [...new Set((data || []).map((r) => r.poste))]
-  }
-  if (k !== '2642') return []
+    if (k !== '2642') return []
 
-  let q = supabase.from('minimas_convention').select('poste').order('poste')
-  if (typeOeuvreGrilleValue) q = q.eq('type_oeuvre', typeOeuvreGrilleValue)
-  const { data, error } = await q
-  if (error) {
-    console.error('[embauches] fetchPostesConvention 2642:', error)
+    const rows = await lireToutesLesPages(() => {
+      // Tri sur la clé unique de la table : trier sur le seul `poste`
+      // laisserait l'ordre des ex æquo au moteur, et une page pourrait en
+      // sauter d'une requête à l'autre.
+      let q = supabase
+        .from('minimas_convention')
+        .select('poste')
+        .order('poste')
+        .order('type_oeuvre')
+        .order('is_specialise')
+        .order('unite')
+      if (typeOeuvreGrilleValue) q = q.eq('type_oeuvre', typeOeuvreGrilleValue)
+      return q
+    })
+    return [...new Set(rows.map((r) => r.poste))]
+  } catch (error) {
+    console.error('[embauches] fetchPostesConvention:', error)
     return []
   }
-  return [...new Set((data || []).map((r) => r.poste))]
 }
 
 /**
