@@ -43,10 +43,12 @@ export async function saveParams(orgId, patch) {
 
 // ─── Dossiers ───────────────────────────────────────────────────────────────
 
+// Les colonnes réelles s'appellent `nom_commercial` et `title` : on les
+// renomme ici une bonne fois pour que l'UI parle d'un `nom` dans les deux cas.
 const DOSSIER_SELECT = `
   *,
-  client:clients(id, nom),
-  project:projects(id, nom)
+  client:clients(id, nom:nom_commercial),
+  project:projects(id, nom:title)
 `
 
 export async function listDossiers(orgId, { projectId = null } = {}) {

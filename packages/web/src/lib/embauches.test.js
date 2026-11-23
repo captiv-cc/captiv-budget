@@ -16,6 +16,9 @@ import {
   etatContrat,
   bornesMois,
   DEFAULT_PARAMS,
+  conventionKey,
+  conventionLabel,
+  conventionAGrille,
 } from './embauches'
 
 // ─── Jours fériés ───────────────────────────────────────────────────────────
@@ -534,5 +537,26 @@ describe('bornesMois', () => {
 
   it('gère février bissextile', () => {
     expect(bornesMois(2028, 1)).toEqual({ debut: '2028-02-01', fin: '2028-02-29' })
+  })
+})
+
+describe('conventions collectives', () => {
+  it('normalise un ancien libellé complet en IDCC', () => {
+    expect(conventionKey('CCN de la production audiovisuelle (2642)')).toBe('2642')
+    expect(conventionKey('3252')).toBe('3252')
+    expect(conventionKey(null)).toBeNull()
+  })
+
+  it('rend le libellé complet pour l’affichage', () => {
+    expect(conventionLabel('2642')).toContain('production audiovisuelle')
+    expect(conventionLabel('3252')).toContain('création')
+  })
+
+  it('n’applique la grille des minima qu’à la 2642', () => {
+    // La grille `minimas_convention` est celle de la CCN production
+    // audiovisuelle : sous la 3252 elle donnerait un plancher faux.
+    expect(conventionAGrille('2642')).toBe(true)
+    expect(conventionAGrille('3252')).toBe(false)
+    expect(conventionAGrille(null)).toBe(false)
   })
 })

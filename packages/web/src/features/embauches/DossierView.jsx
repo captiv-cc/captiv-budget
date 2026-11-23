@@ -13,7 +13,13 @@ import DossierModal from './DossierModal'
 import { confirm } from '../../lib/confirm'
 import { notify } from '../../lib/notify'
 import { fmtEur } from '../../lib/cotisations'
-import { computeEmbauche, totauxEmbauches, MODES, buildJours } from '../../lib/embauches'
+import {
+  computeEmbauche,
+  totauxEmbauches,
+  MODES,
+  buildJours,
+  conventionLabel,
+} from '../../lib/embauches'
 import {
   listEmbauches, updateEmbauche, deleteEmbauche, createEmbauche,
   saveJours, fetchMembresProjet,
@@ -189,11 +195,14 @@ export default function DossierView({ dossier, params, orgId, onRetour, onDossie
                   {dossier.project.nom}
                 </Link>
               )}
-              {dossier.bon_commande && (
+              {dossier.numero_objet && (
                 <span className="flex items-center gap-1" style={{ color: 'var(--txt-3)' }}>
                   <FileText className="w-3 h-3" />
-                  {dossier.bon_commande}
+                  {dossier.numero_objet}
                 </span>
+              )}
+              {dossier.convention && (
+                <span style={{ color: 'var(--txt-3)' }}>{conventionLabel(dossier.convention)}</span>
               )}
             </div>
           </div>

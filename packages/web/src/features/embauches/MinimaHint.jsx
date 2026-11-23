@@ -10,16 +10,18 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { typeOeuvreGrille } from '../../lib/embauches'
+import { conventionAGrille, typeOeuvreGrille } from '../../lib/embauches'
 import { fmtEur } from '../../lib/cotisations'
 
-export default function MinimaHint({ poste, typeOeuvre, unite, taux, onApply }) {
+export default function MinimaHint({ poste, typeOeuvre, unite, taux, convention, onApply }) {
   const [minimum, setMinimum] = useState(null)
   const [cherche, setCherche] = useState(false)
 
   useEffect(() => {
     const grille = typeOeuvreGrille(typeOeuvre)
-    if (!poste || !grille || !unite || unite === 'heure') {
+    // La grille en base est celle de la CCN production audiovisuelle. Sous une
+    // autre convention, afficher ses planchers donnerait un chiffre faux.
+    if (!conventionAGrille(convention) || !poste || !grille || !unite || unite === 'heure') {
       setMinimum(null)
       return
     }
@@ -46,7 +48,7 @@ export default function MinimaHint({ poste, typeOeuvre, unite, taux, onApply }) 
     return () => {
       annule = true
     }
-  }, [poste, typeOeuvre, unite])
+  }, [poste, typeOeuvre, unite, convention])
 
   if (cherche || minimum == null) return null
 
@@ -67,7 +69,7 @@ export default function MinimaHint({ poste, typeOeuvre, unite, taux, onApply }) 
       )}
       <span>
         Minimum conventionnel : <strong>{fmtEur(minimum)}</strong>
-        {sousMinimum ? ' — le taux saisi est en dessous' : ''}
+        {sousMinimum ? ' (le taux saisi est en dessous)' : ''}
       </span>
       {sousMinimum && onApply && (
         <button

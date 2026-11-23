@@ -42,6 +42,45 @@ export const MODES = [
   { key: 'frais_reels', label: 'Frais réels', aide: 'Facturation au coût réel, sans marge.' },
 ]
 
+/**
+ * Conventions collectives utilisées par Captiv (retour Hugo 23/11).
+ * Stockées par leur numéro d'IDCC : court, stable, et c'est ce que demande
+ * Movinmotion. `grilleMinimas` dit si `minimas_convention` couvre la
+ * convention — la grille en base est celle de la 2642 ; afficher ses planchers
+ * sous un contrat 3252 donnerait un chiffre faux.
+ */
+export const CONVENTIONS = [
+  {
+    key: '2642',
+    label: 'CCN de la production audiovisuelle (2642)',
+    grilleMinimas: true,
+  },
+  {
+    key: '3252',
+    label: 'CCN des entreprises au service de la création et de l’événement (3252)',
+    grilleMinimas: false,
+  },
+]
+
+/** Clé normalisée : tolère les anciens libellés complets stockés en base. */
+export function conventionKey(v) {
+  if (!v) return null
+  const s = String(v)
+  const trouve = CONVENTIONS.find((c) => s.includes(c.key))
+  return trouve ? trouve.key : s
+}
+
+export function conventionLabel(v) {
+  const k = conventionKey(v)
+  return CONVENTIONS.find((c) => c.key === k)?.label || (v ? String(v) : '')
+}
+
+/** Vrai si la grille des minima en base s'applique à cette convention. */
+export function conventionAGrille(v) {
+  const k = conventionKey(v)
+  return CONVENTIONS.find((c) => c.key === k)?.grilleMinimas === true
+}
+
 /** Heures de référence par unité de taux (vocabulaire Movinmotion). */
 export const UNITES_TAUX = [
   { key: 'jour_7h', label: 'Jour (7 h)', heures: 7 },

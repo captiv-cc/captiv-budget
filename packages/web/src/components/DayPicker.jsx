@@ -9,10 +9,19 @@
 //   - value (ISO YYYY-MM-DD)
 //   - onChange(isoDate)
 //   - markedDates : Array<string> — dates avec un événement (chips/dots)
+//   - placeholder : texte du bouton quand aucune date n'est posée (sans lui,
+//     un champ vide n'était qu'une icône dans une boîte minuscule)
+//   - block       : le bouton prend toute la largeur du parent (mode champ)
+//   - clearable   : ajoute « Effacer » quand une date est posée
+//
+// Le calendrier passe par PopoverFloat (portal + position: fixed) : dans une
+// modale scrollable, un popover en position absolue se fait couper au pied
+// du conteneur.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useCallback, useState, useRef, useEffect, useMemo } from 'react'
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
+import PopoverFloat from '../features/livrables/components/PopoverFloat'
 
 const MONTHS = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -42,15 +51,22 @@ function formatPretty(iso) {
   return `${days[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()].toLowerCase()}`
 }
 
-export default function DayPicker({ value, onChange, markedDates = [] }) {
+export default function DayPicker({
+  value,
+  onChange,
+  markedDates = [],
+  placeholder = 'Choisir une date',
+  block = false,
+  clearable = false,
+}) {
   const [open, setOpen] = useState(false)
   // Mois affiché dans le calendrier (peut différer de la value sélectionnée)
   const [viewMonth, setViewMonth] = useState(() => {
     const d = parseIso(value)
     return { year: d.getFullYear(), month: d.getMonth() }
   })
-  const popoverRef = useRef(null)
   const buttonRef = useRef(null)
+  const close = useCallback(() => setOpen(false), [])
 
   const todayIso = isoFromDate(new Date())
   const markedSet = useMemo(() => new Set(markedDates), [markedDates])
@@ -62,16 +78,18 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
     setViewMonth({ year: d.getFullYear(), month: d.getMonth() })
   }, [value])
 
-  // Close on click outside
+  // Esc ferme le calendrier, pas la modale qui l'héberge (celles-ci écoutent
+  // sur `window`, en aval de `document` dans la phase de bouillonnement).
   useEffect(() => {
     if (!open) return undefined
-    function onDocMouseDown(e) {
-      if (popoverRef.current?.contains(e.target)) return
-      if (buttonRef.current?.contains(e.target)) return
+    function onKey(e) {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
       setOpen(false)
     }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
   const shiftMonth = (delta) => {
@@ -124,7 +142,13 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
   }, [viewMonth])
 
   return (
-    <span style={{ position: 'relative', display: 'inline-block' }}>
+    <span
+      style={
+        block
+          ? { position: 'relative', display: 'flex', width: '100%' }
+          : { position: 'relative', display: 'inline-block' }
+      }
+    >
       <button
         ref={buttonRef}
         type="button"
@@ -135,22 +159,27 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
           color: 'var(--txt)',
           border: '1px solid var(--brd)',
           minWidth: 120,
+          ...(block ? { width: '100%' } : null),
         }}
         onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--brd-sub)')}
         onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--brd)')}
       >
-        <Calendar size={13} style={{ color: 'var(--txt-3)' }} />
-        <span>{formatPretty(value)}</span>
+        <Calendar size={13} style={{ color: 'var(--txt-3)', flexShrink: 0 }} />
+        <span
+          style={{
+            color: value ? 'inherit' : 'var(--txt-3)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {value ? formatPretty(value) : placeholder}
+        </span>
       </button>
 
-      {open && (
+      <PopoverFloat anchorRef={buttonRef} open={open} onClose={close} offsetY={6}>
         <div
-          ref={popoverRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            left: 0,
-            zIndex: 100,
             width: 260,
             background: 'var(--bg-surf)',
             border: '1px solid var(--brd)',
@@ -285,8 +314,16 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
             })}
           </div>
 
-          {/* Footer "Aujourd'hui" */}
-          <div style={{ paddingTop: 6, marginTop: 6, borderTop: '1px solid var(--brd-sub)' }}>
+          {/* Footer "Aujourd'hui" (+ « Effacer » quand la date est optionnelle) */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              paddingTop: 6,
+              marginTop: 6,
+              borderTop: '1px solid var(--brd-sub)',
+            }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -294,7 +331,7 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
                 setOpen(false)
               }}
               style={{
-                width: '100%',
+                flex: 1,
                 padding: '5px 10px',
                 fontSize: 11,
                 color: 'var(--txt-2)',
@@ -309,6 +346,30 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
             >
               Aujourd&apos;hui
             </button>
+            {clearable && value && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange?.(null)
+                  setOpen(false)
+                }}
+                style={{
+                  flex: 1,
+                  padding: '5px 10px',
+                  fontSize: 11,
+                  color: 'var(--txt-3)',
+                  background: 'transparent',
+                  border: '1px solid var(--brd-sub)',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hov)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                Effacer
+              </button>
+            )}
           </div>
 
           <style>{`
@@ -318,7 +379,7 @@ export default function DayPicker({ value, onChange, markedDates = [] }) {
             }
           `}</style>
         </div>
-      )}
+      </PopoverFloat>
     </span>
   )
 }

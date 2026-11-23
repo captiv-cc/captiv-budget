@@ -10,15 +10,22 @@
 //     renderTrigger={(label) => <span className="cp-status-badge">{label}</span>}
 //   />
 //
+// Usage « champ de formulaire » (pleine largeur, chevron, placeholder) :
+//   <CustomSelect block placeholder="Choisir…" value={…} options={…} … />
+//
 // Comportement :
-//   - Click sur trigger → ouvre popover sous trigger (auto-flip si bord d'écran)
+//   - Click sur trigger → ouvre popover sous le trigger
+//   - Le popover passe par PopoverFloat (portal + position: fixed) : sans lui
+//     une modale scrollable (overflow-y-auto) coupe la liste au ras de son
+//     pied, et les derniers choix deviennent invisibles.
 //   - Click sur option → onChange + ferme
 //   - Click outside / Esc → ferme
 //   - Keyboard : ↑↓ pour naviguer, Enter pour valider
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useRef, useEffect } from 'react'
-import { Check } from 'lucide-react'
+import { useCallback, useState, useRef, useEffect } from 'react'
+import { Check, ChevronDown } from 'lucide-react'
+import PopoverFloat from '../features/livrables/components/PopoverFloat'
 
 export default function CustomSelect({
   value,
@@ -29,11 +36,17 @@ export default function CustomSelect({
   triggerClassName = '',
   triggerStyle = {},
   minWidth = 140,
+  // Mode champ : le trigger occupe toute la largeur du parent et la liste
+  // s'aligne dessus. Sans ça le span inline-flex se réduit à son contenu,
+  // et un `w-full` sur le bouton ne sert à rien.
+  block = false,
+  placeholder = '',
 }) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(-1)
+  const [triggerWidth, setTriggerWidth] = useState(null)
   const triggerRef = useRef(null)
-  const popoverRef = useRef(null)
+  const close = useCallback(() => setOpen(false), [])
 
   const currentLabel = options.find((o) => o.value === value)?.label || ''
 
@@ -42,14 +55,13 @@ export default function CustomSelect({
       setHighlight(-1)
       return undefined
     }
-    function onDocMouseDown(e) {
-      if (popoverRef.current?.contains(e.target)) return
-      if (triggerRef.current?.contains(e.target)) return
-      setOpen(false)
-    }
+    setTriggerWidth(triggerRef.current?.offsetWidth || null)
     function onKey(e) {
       if (e.key === 'Escape') {
         e.preventDefault()
+        // Les modales écoutent Esc sur `window` : sans stopPropagation, fermer
+        // la liste fermerait la modale entière et perdrait la saisie.
+        e.stopPropagation()
         setOpen(false)
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -65,16 +77,18 @@ export default function CustomSelect({
         }
       }
     }
-    document.addEventListener('mousedown', onDocMouseDown)
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDocMouseDown)
-      document.removeEventListener('keydown', onKey)
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [open, options, highlight, onChange])
 
   return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}>
+    <span
+      style={
+        block
+          ? { position: 'relative', display: 'flex', width: '100%' }
+          : { position: 'relative', display: 'inline-flex' }
+      }
+    >
       <button
         ref={triggerRef}
         type="button"
@@ -90,22 +104,44 @@ export default function CustomSelect({
           padding: 0,
           font: 'inherit',
           color: 'inherit',
+          ...(block
+            ? {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+              }
+            : null),
           ...triggerStyle,
         }}
       >
-        {renderTrigger ? renderTrigger(currentLabel) : currentLabel}
+        {renderTrigger ? (
+          renderTrigger(currentLabel)
+        ) : block ? (
+          <>
+            <span
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: currentLabel ? 'inherit' : 'var(--txt-3)',
+              }}
+            >
+              {currentLabel || placeholder}
+            </span>
+            <ChevronDown size={14} style={{ color: 'var(--txt-3)', flexShrink: 0 }} />
+          </>
+        ) : (
+          currentLabel
+        )}
       </button>
 
-      {open && (
+      <PopoverFloat anchorRef={triggerRef} open={open} onClose={close} align={align}>
         <div
-          ref={popoverRef}
           role="listbox"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            [align === 'right' ? 'right' : 'left']: 0,
-            zIndex: 100,
-            minWidth,
+            minWidth: block ? triggerWidth || minWidth : minWidth,
             background: 'var(--bg-surf)',
             border: '1px solid var(--brd)',
             borderRadius: 6,
@@ -185,7 +221,7 @@ export default function CustomSelect({
             }
           `}</style>
         </div>
-      )}
+      </PopoverFloat>
     </span>
   )
 }

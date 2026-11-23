@@ -8,13 +8,18 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState } from 'react'
-import { X, Loader2, Save, Link2 } from 'lucide-react'
+import { X, Loader2, Save, Link2, ExternalLink } from 'lucide-react'
 import CustomSelect from '../../components/CustomSelect'
 import DayPicker from '../../components/DayPicker'
 import { supabase } from '../../lib/supabase'
 import { notify } from '../../lib/notify'
-import { MODES, STATUTS_DOSSIER } from '../../lib/embauches'
+import { CONVENTIONS, MODES, STATUTS_DOSSIER, conventionKey } from '../../lib/embauches'
 import { createDossier, updateDossier } from '../../lib/embauchesData'
+
+// Portail employeur France Travail : c'est là que se récupère le numéro
+// d'objet d'un contrat. URL fournie par Hugo (connexion employeur).
+const URL_FRANCE_TRAVAIL =
+  'https://authentification-pro.francetravail.fr/connexion/XUI/?realm=/employeur&goto=https://authentification-pro.francetravail.fr/connexion/oauth2/employeur/authorize?realm%3D/employeur%26response_type%3Dcode%26client_id%3DENT_PO018-PORTAILENTREPRISE_C2356069E9D1E79CA924378153CFBBFB4D4416B1F99D41A2940BFDB66C5319DB%26scope%3Dopenid%2520profile%2520email%2520application_ENT_PO018-PORTAILENTREPRISE%2520rechercheProfil%2520logW%26redirect_uri%3Dhttps://pro.francetravail.fr/accueil/auth/auth.html%26state%3D0gI6Lp5iD4HNArBWU1dl8g%26nonce%3DhUBEf9CQ2aZj0C3nGbMZaw#login/'
 
 const inputStyle = {
   background: 'var(--bg-elev)',
@@ -22,11 +27,15 @@ const inputStyle = {
   color: 'var(--txt)',
 }
 
-function Champ({ label, aide, children, className = '' }) {
+function Champ({ label, aide, action = null, children, className = '' }) {
   return (
     <label className={`block ${className}`}>
-      <span className="block text-[11px] font-medium mb-1" style={{ color: 'var(--txt-3)' }}>
+      <span
+        className="flex items-center gap-1.5 text-[11px] font-medium mb-1"
+        style={{ color: 'var(--txt-3)' }}
+      >
         {label}
+        {action}
       </span>
       {children}
       {aide && (
@@ -60,12 +69,11 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
     coef_vente: dossier?.coef_vente ?? 0.8,
     client_id: dossier?.client_id || null,
     project_id: dossier?.project_id || projectId || null,
-    convention: dossier?.convention || 'CCN de la production audiovisuelle (2642)',
+    convention: conventionKey(dossier?.convention) || '2642',
     type_projet: dossier?.type_projet || '',
     numero_objet: dossier?.numero_objet || '',
     lieu: dossier?.lieu || '',
     resume: dossier?.resume || '',
-    bon_commande: dossier?.bon_commande || '',
     statut: dossier?.statut || 'en_cours',
     date_debut: dossier?.date_debut || null,
     date_fin: dossier?.date_fin || null,
@@ -79,19 +87,27 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
 
   useEffect(() => {
     if (!orgId) return
+    // Noms de colonnes réels : un client s'appelle `nom_commercial`, un projet
+    // `title`, et l'archivage passe par `archived_at` (pas par `status`).
     supabase
       .from('clients')
-      .select('id, nom')
+      .select('id, nom_commercial')
       .eq('org_id', orgId)
-      .order('nom')
-      .then(({ data }) => setClients(data || []))
+      .order('nom_commercial')
+      .then(({ data, error }) => {
+        if (error) console.error('[embauches] clients:', error)
+        setClients(data || [])
+      })
     supabase
       .from('projects')
-      .select('id, nom')
+      .select('id, title')
       .eq('org_id', orgId)
-      .neq('status', 'archive')
-      .order('nom')
-      .then(({ data }) => setProjets(data || []))
+      .is('archived_at', null)
+      .order('title')
+      .then(({ data, error }) => {
+        if (error) console.error('[embauches] projets:', error)
+        setProjets(data || [])
+      })
   }, [orgId])
 
   useEffect(() => {
@@ -239,10 +255,11 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
                 value={form.client_id || ''}
                 options={[
                   { value: '', label: 'Aucun (suivi interne)' },
-                  ...clients.map((c) => ({ value: c.id, label: c.nom })),
+                  ...clients.map((c) => ({ value: c.id, label: c.nom_commercial })),
                 ]}
                 onChange={(v) => set('client_id', v || null)}
-                triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
+                block
+                triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
                 triggerStyle={inputStyle}
               />
             </Champ>
@@ -251,10 +268,11 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
                 value={form.project_id || ''}
                 options={[
                   { value: '', label: 'Aucun' },
-                  ...projets.map((p) => ({ value: p.id, label: p.nom })),
+                  ...projets.map((p) => ({ value: p.id, label: p.title })),
                 ]}
                 onChange={(v) => set('project_id', v || null)}
-                triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
+                block
+                triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
                 triggerStyle={inputStyle}
               />
             </Champ>
@@ -269,7 +287,15 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Champ label="Convention collective">
-                <Txt value={form.convention} onChange={(v) => set('convention', v)} />
+                <CustomSelect
+                  value={conventionKey(form.convention) || ''}
+                  options={CONVENTIONS.map((c) => ({ value: c.key, label: c.label }))}
+                  onChange={(v) => set('convention', v)}
+                  block
+                  placeholder="Choisir une convention"
+                  triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
+                  triggerStyle={inputStyle}
+                />
               </Champ>
               <Champ label="Type de projet">
                 <Txt
@@ -278,7 +304,21 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
                   placeholder="Captation"
                 />
               </Champ>
-              <Champ label="Numéro d'objet">
+              <Champ
+                label="Numéro d'objet (bon de commande)"
+                action={
+                  <a
+                    href={URL_FRANCE_TRAVAIL}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title="Ouvrir le portail employeur France Travail"
+                    style={{ color: 'var(--blue)', display: 'inline-flex' }}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                }
+              >
                 <Txt value={form.numero_objet} onChange={(v) => set('numero_objet', v)} />
               </Champ>
               <Champ label="Lieu de la prestation">
@@ -291,24 +331,37 @@ export default function DossierModal({ dossier = null, orgId, projectId = null, 
           </div>
 
           <div className="pt-3" style={{ borderTop: '1px solid var(--brd-sub)' }}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Champ label="Bon de commande">
-                <Txt value={form.bon_commande} onChange={(v) => set('bon_commande', v)} />
-              </Champ>
+            <p className="text-[11px] font-semibold mb-2" style={{ color: 'var(--txt-3)' }}>
+              Suivi
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Champ label="Statut">
                 <CustomSelect
                   value={form.statut}
-                  options={STATUTS_DOSSIER.map((s) => ({ value: s.key, label: s.label }))}
+                  options={STATUTS_DOSSIER.map((st) => ({ value: st.key, label: st.label }))}
                   onChange={(v) => set('statut', v)}
-                  triggerClassName="w-full px-2.5 py-1.5 rounded-lg text-sm text-left"
+                  block
+                  triggerClassName="px-2.5 py-1.5 rounded-lg text-sm text-left"
                   triggerStyle={inputStyle}
                 />
               </Champ>
-              <Champ label="Début">
-                <DayPicker value={form.date_debut} onChange={(v) => set('date_debut', v)} />
+              <Champ label="Début" aide="Facultatif : les dates servent au classement.">
+                <DayPicker
+                  value={form.date_debut}
+                  onChange={(v) => set('date_debut', v)}
+                  placeholder="Non précisé"
+                  block
+                  clearable
+                />
               </Champ>
               <Champ label="Fin">
-                <DayPicker value={form.date_fin} onChange={(v) => set('date_fin', v)} />
+                <DayPicker
+                  value={form.date_fin}
+                  onChange={(v) => set('date_fin', v)}
+                  placeholder="Non précisé"
+                  block
+                  clearable
+                />
               </Champ>
             </div>
           </div>

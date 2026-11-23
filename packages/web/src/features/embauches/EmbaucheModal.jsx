@@ -562,6 +562,7 @@ export default function EmbaucheModal({
               typeOeuvre={form.type_oeuvre}
               unite={form.unite_taux}
               taux={form.taux}
+              convention={dossier?.convention}
               onApply={(v) => set('taux', v)}
             />
 

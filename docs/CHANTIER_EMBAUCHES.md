@@ -173,8 +173,8 @@ contrat), avec accès restreint.
 embauche_dossiers
   org_id, nom, client_id?, project_id?            ← lien Desk optionnel
   mode (portage | frais_reels), coef_vente
-  convention_id, type_projet, numero_objet, resume, lieu
-  bon_commande, statut, date_debut, date_fin
+  convention (IDCC : 2642 | 3252), type_projet, resume, lieu
+  numero_objet (= bon de commande), statut, date_debut, date_fin
 
 embauches
   dossier_id, contact_id?                          ← + snapshot identité
@@ -354,3 +354,5 @@ manquantes, sous-minimum conventionnel).
 | 6 | Deux modes par dossier : **portage (coefficient)** ou **frais réels**. Choisi à la création, sans valeur implicite. |
 | 7 | Pas de génération de facture : suivi seul. |
 | 8 | Saisie des heures au format Movinmotion, avec mode horaires optionnel et calcul automatique. |
+| 9 | Deux conventions seulement, stockées par IDCC : 2642 (production audiovisuelle) et 3252 (entreprises au service de la création et de l'événement). La grille des minima en base ne vaut que pour la 2642. |
+| 10 | « Numéro d'objet » et « bon de commande » sont la même référence : un seul champ, avec un lien vers le portail employeur France Travail où il se récupère. |
