@@ -18,6 +18,7 @@ import {
   Package,
   BarChart3,
   Calculator,
+  FileSignature,
   Settings,
 } from 'lucide-react'
 
@@ -42,6 +43,12 @@ export const NAV_FINANCE = [
   { to: '/compta', icon: Calculator, label: 'Compta' },
 ]
 
+// Suivi des embauches intermittentes (portage). Réservé aux admins : la vue
+// d'ensemble expose le coût réel et la marge de tous les dossiers.
+export const NAV_SOCIAL = [
+  { to: '/embauches', icon: FileSignature, label: 'Embauches' },
+]
+
 export const NAV_ADMIN = [
   { to: '/parametres', icon: Settings, label: 'Paramètres' },
 ]
@@ -59,6 +66,7 @@ export function buildGlobalNavSections({ isInternal, canSeeFinance, isAdmin }) {
   const sections = [{ label: null, items: NAV_MAIN }]
   if (isInternal) sections.push({ label: 'Base de données', items: NAV_BDD })
   if (canSeeFinance) sections.push({ label: 'Finance', items: NAV_FINANCE })
+  if (isAdmin) sections.push({ label: 'Social', items: NAV_SOCIAL })
   if (isAdmin) sections.push({ label: 'Admin', items: NAV_ADMIN })
   return sections
 }

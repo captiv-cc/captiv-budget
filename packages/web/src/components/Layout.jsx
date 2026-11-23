@@ -38,6 +38,7 @@ import {
   NAV_MAIN,
   NAV_BDD,
   NAV_FINANCE,
+  NAV_SOCIAL,
   NAV_ADMIN,
   buildGlobalNavSections,
 } from '../lib/globalNav'
@@ -263,6 +264,18 @@ export default function Layout() {
               <SidebarDivider />
               <div className="space-y-0.5">
                 {NAV_FINANCE.map((item) => (
+                  <SidebarLink key={item.to} {...item} />
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Embauches — admin uniquement (coût réel et marge) */}
+          {isAdmin && (
+            <>
+              <SidebarDivider />
+              <div className="space-y-0.5">
+                {NAV_SOCIAL.map((item) => (
                   <SidebarLink key={item.to} {...item} />
                 ))}
               </div>

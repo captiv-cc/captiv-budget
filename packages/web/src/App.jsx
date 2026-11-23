@@ -16,6 +16,7 @@ import ProjetLayout from './pages/ProjetLayout'
 import Clients from './pages/Clients'
 import BDD from './pages/BDD'
 import Compta from './pages/Compta'
+import Embauches from './pages/Embauches'
 import Crew from './pages/Contacts'
 import DevisPublic from './pages/DevisPublic'
 import DevisLotPublic from './pages/DevisLotPublic'
@@ -301,6 +302,18 @@ function AppRoutes() {
           element={
             <RequireRole roles={ROLES_FINANCE}>
               <Compta />
+            </RequireRole>
+          }
+        />
+
+        {/* Embauches — admin uniquement : la vue d'ensemble expose le coût
+            réel et la marge de tous les dossiers. L'onglet projet, lui, passe
+            par la clé outil `embauches` et reste ouvrable à un externe. */}
+        <Route
+          path="embauches"
+          element={
+            <RequireRole roles={['admin']}>
+              <Embauches />
             </RequireRole>
           }
         />
